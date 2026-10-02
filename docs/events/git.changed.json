@@ -1,0 +1,25 @@
+{
+  "projects": [
+    {
+      "path": "path",
+      "repo": true,
+      "root": "root",
+      "branch": "branch",
+      "detached": true,
+      "head": "head",
+      "ahead": 1,
+      "behind": 1,
+      "staged": 1,
+      "unstaged": 1,
+      "untracked": 1,
+      "error": "error",
+      "working": {
+        "kind": "kind",
+        "base": "base",
+        "files_changed": 1,
+        "additions": 1,
+        "deletions": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+version: 2
+project_name: repogo
+builds:
+  - id: darwin
+    main: ./repogo
+    binary: repogo_{{ .Os }}_{{ .Arch }}
+    env:
+      - CGO_ENABLED=1
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/repogo/host/internal/release.Version={{ .Env.RELEASE_VERSION }} -X github.com/repogo/host/internal/release.Repository={{ .Env.RELEASE_REPOSITORY }}
+  # Static against musl, so one binary runs on any Linux whatever its glibc:
+  # Ubuntu, Debian, and Vercel Sandbox's Amazon Linux 2023 (older glibc than
+  # the ubuntu-22.04 runner). cgo stays on for go-sqlite3; netgo/osusergo keep
+  # name and user lookups off libc's NSS, which a static binary can't load.
+  - id: linux
+    main: ./repogo
+    binary: repogo_{{ .Os }}_{{ .Arch }}
+    env:
+      - CGO_ENABLED=1
+      - CC=musl-gcc
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    tags: [netgo, osusergo, sqlite_omit_load_extension]
+    ldflags:
+      - -s -w -linkmode external -extldflags -static -X github.com/repogo/host/internal/release.Version={{ .Env.RELEASE_VERSION }} -X github.com/repogo/host/internal/release.Repository={{ .Env.RELEASE_REPOSITORY }}

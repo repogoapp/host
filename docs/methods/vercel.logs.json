@@ -1,0 +1,20 @@
+{
+  "entries": [
+    {
+      "id": "id",
+      "at": "0001-01-01T00:00:00Z",
+      "level": "level",
+      "source": "source",
+      "method": "method",
+      "path": "path",
+      "status": 1,
+      "lines": [
+        {
+          "level": "level",
+          "message": "message"
+        }
+      ]
+    }
+  ],
+  "next_cursor": "next_cursor"
+}

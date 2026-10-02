@@ -1,0 +1,11 @@
+{
+  "ports": [
+    {
+      "port": 1,
+      "pid": 1,
+      "command": "command",
+      "cwd": "cwd",
+      "portless": "portless"
+    }
+  ]
+}

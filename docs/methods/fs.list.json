@@ -1,0 +1,13 @@
+{
+  "path": "path",
+  "entries": [
+    {
+      "name": "name",
+      "path": "path",
+      "dir": true,
+      "size": 1,
+      "mod_time": 1
+    }
+  ],
+  "truncated": true
+}

@@ -1,0 +1,11 @@
+{
+  "chat_id": "chat_id",
+  "call_id": "call_id",
+  "name": "name",
+  "state": "state",
+  "input": {
+    "input": "input"
+  },
+  "output": "output",
+  "output_bytes": 1
+}

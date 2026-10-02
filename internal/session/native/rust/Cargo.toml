@@ -1,0 +1,42 @@
+[package]
+name = "rust-import"
+version = "0.1.0"
+edition = "2021"
+
+# One crate, two products: a C-ABI static library exposing parse_file for the
+# Go host (which must not carry a second SQLite), and a standalone importer
+# binary (parse + write, needs rusqlite) kept for benchmarking the parser on
+# its own. `make native` builds the library; `cargo build --release` both.
+[lib]
+name = "repogo_import"
+crate-type = ["staticlib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "rust-import"
+path = "src/main.rs"
+required-features = ["cli"]
+
+# The same discovery and parse writing one JSON folder per session instead of
+# SQLite, the Rust side of bench/files.
+[[bin]]
+name = "rust-files"
+path = "src/files.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["rusqlite", "clap"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+rayon = "1"
+chrono = "0.4"
+memchr = "2"
+clap = { version = "4", features = ["derive"], optional = true }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

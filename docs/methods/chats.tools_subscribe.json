@@ -1,0 +1,15 @@
+{
+  "chat_id": "chat_id",
+  "tools": [
+    {
+      "call_id": "call_id",
+      "name": "name",
+      "state": "state",
+      "input": {
+        "input": "input"
+      },
+      "output": "output",
+      "output_bytes": 1
+    }
+  ]
+}

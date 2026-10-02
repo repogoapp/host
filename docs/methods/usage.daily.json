@@ -1,0 +1,14 @@
+{
+  "machine_id": "machine_id",
+  "captured_at_ms": 1,
+  "time_zone": "time_zone",
+  "buckets": [
+    {
+      "day": "day",
+      "provider": "provider",
+      "input_tokens": 1,
+      "output_tokens": 1,
+      "cost_usd_micros": 1
+    }
+  ]
+}

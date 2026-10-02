@@ -1,0 +1,40 @@
+{
+  "group_id": "group_id",
+  "self": {
+    "id": "id",
+    "label": "label",
+    "platform": "platform",
+    "public_key": "public_key"
+  },
+  "you": "you",
+  "peers": [
+    {
+      "id": "id",
+      "public_key": "cHVibGljX2tleQ==",
+      "label": "label",
+      "platform": "platform",
+      "added_at": 1,
+      "push": {
+        "token": "token",
+        "environment": "environment",
+        "install_id": "install_id",
+        "at": 1
+      },
+      "push_to_start": {
+        "token": "token",
+        "environment": "environment",
+        "install_id": "install_id",
+        "at": 1
+      },
+      "activities": {
+        "activities": {
+          "token": "token",
+          "environment": "environment",
+          "install_id": "install_id",
+          "at": 1
+        }
+      },
+      "revoked_at": 1
+    }
+  ]
+}

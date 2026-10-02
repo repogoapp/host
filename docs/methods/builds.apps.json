@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "platform": "platform",
+      "path": "path",
+      "name": "name",
+      "bundle_id": "bundle_id",
+      "targets": [
+        "targets"
+      ],
+      "default_target": "default_target",
+      "configurations": [
+        "configurations"
+      ],
+      "default_configuration": "default_configuration"
+    }
+  ],
+  "ios_supported": true,
+  "install_port": 1
+}

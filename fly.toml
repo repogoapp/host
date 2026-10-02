@@ -1,0 +1,39 @@
+app = "repogo-relay"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Start the new machine and pass its health check before stopping the old
+  # one, so clients reconnect at once instead of backing off through a gap.
+  strategy = "bluegreen"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # Never scale to zero. The relay holds long-lived WebSockets and is how a
+  # phone reaches a Mac; a cold start would look to the user like their machine
+  # went offline.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    # Connections, not requests: every client holds one open socket, so request
+    # counting would read a busy relay as idle.
+    type = "connections"
+    soft_limit = 400
+    hard_limit = 500
+
+[[http_service.checks]]
+  grace_period = "5s"
+  interval = "15s"
+  timeout = "2s"
+  method = "GET"
+  path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

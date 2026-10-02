@@ -1,0 +1,12 @@
+{
+  "path": "path",
+  "files": [
+    {
+      "path": "path",
+      "code": "code",
+      "added": 1,
+      "removed": 1,
+      "binary": true
+    }
+  ]
+}

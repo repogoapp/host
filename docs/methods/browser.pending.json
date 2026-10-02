@@ -1,0 +1,43 @@
+{
+  "requests": [
+    {
+      "request_id": "request_id",
+      "turn_id": "turn_id",
+      "chat_id": "chat_id",
+      "cwd": "cwd",
+      "expires_at": "expires_at",
+      "action": {
+        "action": "action",
+        "browser_id": "browser_id",
+        "url": "url",
+        "script": "script",
+        "format": "format",
+        "locator": "locator",
+        "text": "text",
+        "clear": true,
+        "key": "key",
+        "modifiers": [
+          "modifiers"
+        ],
+        "delta_x": 1.5,
+        "delta_y": 1.5,
+        "wait_text": "wait_text",
+        "wait_url_includes": "wait_url_includes",
+        "x": 1.5,
+        "y": 1.5,
+        "value": "value",
+        "include_console": true,
+        "include_network": true,
+        "settle_ms": 1,
+        "since_ms": 1,
+        "log_level": "log_level",
+        "url_contains": "url_contains",
+        "limit": 1,
+        "include_elements": true,
+        "include_screenshot": true,
+        "changed_only": true,
+        "timeout_ms": 1
+      }
+    }
+  ]
+}

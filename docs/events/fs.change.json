@@ -1,0 +1,10 @@
+{
+  "path": "path",
+  "changes": [
+    {
+      "file": "file",
+      "kind": "kind"
+    }
+  ],
+  "truncated": true
+}

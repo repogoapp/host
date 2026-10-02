@@ -1,0 +1,56 @@
+{
+  "turn_id": "turn_id",
+  "chat_id": "chat_id",
+  "agent": "agent",
+  "cwd": "cwd",
+  "prompt": "prompt",
+  "state": "state",
+  "model": "model",
+  "session_id": "session_id",
+  "provider_stop_reason": "provider_stop_reason",
+  "error": "error",
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 1,
+    "cache_read_tokens": 1,
+    "cache_creation_tokens": 1,
+    "cost_usd": 1.5,
+    "duration_ms": 1,
+    "context_used": 1,
+    "context_size": 1
+  },
+  "queued_at": "0001-01-01T00:00:00Z",
+  "started_at": "0001-01-01T00:00:00Z",
+  "ended_at": "0001-01-01T00:00:00Z",
+  "event_count": 1,
+  "approval": {
+    "call_id": "call_id",
+    "title": "title",
+    "kind": "kind",
+    "input": {
+      "input": "input"
+    },
+    "options": [
+      {
+        "option_id": "option_id",
+        "name": "name",
+        "kind": "kind"
+      }
+    ],
+    "questions": [
+      {
+        "id": "id",
+        "custom_id": "custom_id",
+        "header": "header",
+        "text": "text",
+        "multi_select": true,
+        "options": [
+          {
+            "label": "label",
+            "description": "description"
+          }
+        ]
+      }
+    ]
+  }
+}

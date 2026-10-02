@@ -1,0 +1,10 @@
+{
+  "turn_id": "",
+  "chat_id": "",
+  "agent": "",
+  "cwd": "",
+  "prompt": "",
+  "state": "",
+  "queued_at": "0001-01-01T00:00:00Z",
+  "event_count": 0
+}

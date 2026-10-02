@@ -1,0 +1,138 @@
+{
+  "host": {
+    "version": "version",
+    "latest": "latest",
+    "status": "status",
+    "can_update": true,
+    "update_error": "update_error",
+    "update_failed": "update_failed"
+  },
+  "tools": [
+    {
+      "kind": "kind",
+      "name": "name",
+      "icon": "icon",
+      "category": "category",
+      "capabilities": [
+        "capabilities"
+      ],
+      "command": "command",
+      "installed": true,
+      "path": "path",
+      "version": "version",
+      "authed": true,
+      "auth_source": "auth_source",
+      "account": {
+        "email": "email",
+        "name": "name",
+        "login": "login",
+        "avatar_url": "avatar_url",
+        "key": "key"
+      },
+      "login_pending": {
+        "url": "url",
+        "style": "style",
+        "user_code": "user_code",
+        "expires_at_ms": 1
+      },
+      "latest": "latest",
+      "status": "status",
+      "manager": "manager",
+      "update_command": "update_command",
+      "can_update": true,
+      "checked_at": "0001-01-01T00:00:00Z"
+    }
+  ],
+  "agents": [
+    {
+      "kind": "kind",
+      "available": true,
+      "reason": "reason",
+      "catalog": {
+        "name": "name",
+        "icon": "icon",
+        "company": "company",
+        "agent": "agent",
+        "available": true,
+        "detail": "detail",
+        "captured_at_ms": 1,
+        "models": [
+          {
+            "id": "id",
+            "name": "name",
+            "label": "label",
+            "description": "description",
+            "resolved": "resolved",
+            "default": true,
+            "hidden": true,
+            "efforts": [
+              {
+                "value": "value",
+                "name": "name",
+                "description": "description"
+              }
+            ],
+            "default_effort": "default_effort",
+            "speed_tiers": [
+              {
+                "value": "value",
+                "name": "name",
+                "description": "description"
+              }
+            ],
+            "adaptive_thinking": true,
+            "auto_mode": true,
+            "modalities": [
+              "modalities"
+            ]
+          }
+        ],
+        "default_model": "default_model",
+        "default_effort": "default_effort",
+        "modes": [
+          {
+            "value": "value",
+            "name": "name",
+            "description": "description"
+          }
+        ],
+        "permission_modes": [
+          {
+            "value": "value",
+            "name": "name",
+            "description": "description"
+          }
+        ],
+        "default_permission": "default_permission",
+        "sandboxes": [
+          {
+            "value": "value",
+            "name": "name",
+            "description": "description"
+          }
+        ],
+        "default_sandbox": "default_sandbox",
+        "reviewers": [
+          {
+            "value": "value",
+            "name": "name",
+            "description": "description"
+          }
+        ],
+        "personalities": [
+          {
+            "value": "value",
+            "name": "name",
+            "description": "description"
+          }
+        ],
+        "default_personality": "default_personality",
+        "fast_mode": true,
+        "fast_mode_default": true
+      }
+    }
+  ],
+  "github": {
+    "dir": "dir"
+  }
+}

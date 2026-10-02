@@ -1,0 +1,18 @@
+{
+  "deployments": [
+    {
+      "id": "id",
+      "url": "url",
+      "environment": "environment",
+      "state": "state",
+      "at": "0001-01-01T00:00:00Z",
+      "duration_seconds": 1,
+      "branch": "branch",
+      "commit": "commit",
+      "message": "message",
+      "author": "author",
+      "error": "error"
+    }
+  ],
+  "next_cursor": "next_cursor"
+}

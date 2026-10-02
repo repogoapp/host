@@ -1,0 +1,12 @@
+{
+  "host": {
+    "version": "",
+    "status": "",
+    "can_update": false
+  },
+  "tools": [],
+  "agents": [],
+  "github": {
+    "dir": ""
+  }
+}

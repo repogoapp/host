@@ -1,0 +1,12 @@
+{
+  "updated": [
+    {
+      "kind": "kind",
+      "ran": "ran",
+      "ok": true,
+      "error": "error",
+      "output": "output",
+      "version": "version"
+    }
+  ]
+}

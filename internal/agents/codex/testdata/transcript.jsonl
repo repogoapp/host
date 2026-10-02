@@ -1,0 +1,6 @@
+{"type":"event_msg","timestamp":"2026-09-26T12:00:00Z","payload":{"type":"task_started","turn_id":"t1"}}
+{"type":"response_item","timestamp":"2026-09-26T12:00:01Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}}
+{"type":"response_item","timestamp":"2026-09-26T12:00:02Z","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"rg -n TODO src && git status --short\",\"workdir\":\"/Users/me/app\",\"yield_time_ms\":10000}","call_id":"call_Q2h1bmtJZDEx"}}
+{"type":"response_item","timestamp":"2026-09-26T12:00:02Z","payload":{"type":"function_call_output","call_id":"call_Q2h1bmtJZDEx","output":"Chunk ID: 7f3a21\nWall time: 0.0412 seconds\nProcess exited with code 0\nOriginal token count: 12\nOutput:\nsrc/main.go:4:// TODO: flags\n M src/main.go\n"}}
+{"type":"response_item","timestamp":"2026-09-26T12:00:02Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hi"}]}}
+{"type":"event_msg","timestamp":"2026-09-26T12:00:03Z","payload":{"type":"task_complete","turn_id":"t1"}}

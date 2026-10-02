@@ -1,0 +1,40 @@
+{
+  "machine_id": "machine_id",
+  "captured_at_ms": 1,
+  "complete": true,
+  "homes": [
+    {
+      "agent": "agent",
+      "path": "path"
+    }
+  ],
+  "buckets": [
+    {
+      "hour_ms": 1,
+      "agent": "agent",
+      "model": "model",
+      "model_label": "model_label",
+      "input_tokens": 1,
+      "cache_read_tokens": 1,
+      "cache_write_tokens": 1,
+      "output_tokens": 1,
+      "reasoning_tokens": 1,
+      "requests": 1,
+      "cost_usd_micros": 1,
+      "cache_savings_usd_micros": 1,
+      "priced": true
+    }
+  ],
+  "sessions": [
+    {
+      "agent": "agent",
+      "count": 1
+    }
+  ],
+  "pricing": {
+    "fetched_at_ms": 1,
+    "unpriced_models": [
+      "unpriced_models"
+    ]
+  }
+}

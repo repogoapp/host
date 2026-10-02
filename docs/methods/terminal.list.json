@@ -1,0 +1,13 @@
+{
+  "sessions": [
+    {
+      "session_id": "session_id",
+      "cwd": "cwd",
+      "shell": "shell",
+      "pid": 1,
+      "cols": 1,
+      "rows": 1,
+      "created_at_ms": 1
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "chat_id": "chat_id",
+  "turn_id": "turn_id",
+  "approval": {
+    "call_id": "call_id",
+    "title": "title",
+    "kind": "kind",
+    "input": {
+      "input": "input"
+    },
+    "options": [
+      {
+        "option_id": "option_id",
+        "name": "name",
+        "kind": "kind"
+      }
+    ],
+    "questions": [
+      {
+        "id": "id",
+        "custom_id": "custom_id",
+        "header": "header",
+        "text": "text",
+        "multi_select": true,
+        "options": [
+          {
+            "label": "label",
+            "description": "description"
+          }
+        ]
+      }
+    ]
+  },
+  "epoch": "epoch",
+  "revision": 1
+}

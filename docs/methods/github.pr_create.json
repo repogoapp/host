@@ -1,0 +1,26 @@
+{
+  "number": 1,
+  "url": "url",
+  "state": "state",
+  "title": "title",
+  "base": "base",
+  "head": "head",
+  "merged": true,
+  "existed": true,
+  "shipped": {
+    "event_id": "event_id",
+    "pushed_at_ms": 1,
+    "repo_owner": "repo_owner",
+    "repo_name": "repo_name",
+    "branch": "branch",
+    "commits": [
+      {
+        "sha": "sha",
+        "day": "day",
+        "lines_added": 1,
+        "lines_deleted": 1,
+        "file_changes": 1
+      }
+    ]
+  }
+}

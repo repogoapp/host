@@ -1,0 +1,13 @@
+{
+  "chat_id": "chat_id",
+  "turn_id": "turn_id",
+  "text": "text",
+  "offset": 1,
+  "done": true,
+  "started_at": 1,
+  "first_frame_at": 1,
+  "ended_at": 1,
+  "stop_reason": "stop_reason",
+  "epoch": "epoch",
+  "revision": 1
+}

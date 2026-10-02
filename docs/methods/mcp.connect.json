@@ -1,0 +1,12 @@
+{
+  "server": {
+    "id": "id",
+    "label": "label",
+    "url": "url",
+    "auth": "auth",
+    "projects": [
+      "projects"
+    ],
+    "created_at": 1
+  }
+}

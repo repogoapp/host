@@ -1,0 +1,10 @@
+{
+  "tunnel": {
+    "slug": "slug",
+    "url": "url",
+    "port": 1,
+    "expires_at": 1,
+    "opened_by": "opened_by",
+    "opened_at": 1
+  }
+}

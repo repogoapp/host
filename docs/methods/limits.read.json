@@ -1,0 +1,51 @@
+{
+  "agents": [
+    {
+      "name": "name",
+      "agent": "agent",
+      "available": true,
+      "plan": "plan",
+      "tier": "tier",
+      "account": {
+        "email": "email",
+        "name": "name",
+        "login": "login",
+        "avatar_url": "avatar_url",
+        "key": "key"
+      },
+      "rate_limit_reached": "rate_limit_reached",
+      "detail": "detail",
+      "captured_at_ms": 1,
+      "windows": [
+        {
+          "id": "id",
+          "label": "label",
+          "used_percent": 1.5,
+          "window_minutes": 1,
+          "resets_at": 1,
+          "severity": "severity",
+          "is_active": true,
+          "scope": "scope",
+          "unit": "unit",
+          "used_value": 1,
+          "limit_value": 1,
+          "currency": "currency"
+        }
+      ],
+      "resets": {
+        "available": 1,
+        "credits": [
+          {
+            "id": "id",
+            "title": "title",
+            "description": "description",
+            "status": "status",
+            "reset_type": "reset_type",
+            "granted_at": 1,
+            "expires_at": 1
+          }
+        ]
+      }
+    }
+  ]
+}

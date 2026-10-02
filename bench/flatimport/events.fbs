@@ -1,0 +1,10 @@
+namespace fb;
+table ToolCall { call_id:string; name:string; input:[ubyte]; output:string; is_error:bool; }
+table Usage { input_tokens:long; output_tokens:long; cache_read_tokens:long; cache_creation_tokens:long; cost_usd:double; duration_ms:long; context_used:long; context_size:long; }
+table ApprovalOption { option_id:string; name:string; kind:string; }
+table QuestionOption { label:string; description:string; }
+table Question { id:string; custom_id:string; header:string; text:string; multi_select:bool; options:[QuestionOption]; }
+table Approval { call_id:string; title:string; kind:string; input:[ubyte]; options:[ApprovalOption]; questions:[Question]; }
+table Event { turn_id:string; seq:ulong; kind:string; at:long; text:string; tool:ToolCall; session_id:string; approval:Approval; usage:Usage; error:string; }
+table Events { events:[Event]; }
+root_type Events;

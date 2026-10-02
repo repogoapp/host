@@ -1,0 +1,20 @@
+{
+  "publications": [
+    {
+      "id": "id",
+      "project": "project",
+      "path": "path",
+      "target": "target",
+      "build_id": "build_id",
+      "bundle_id": "bundle_id",
+      "version": "version",
+      "build_number": "build_number",
+      "status": "status",
+      "phase": "phase",
+      "error_code": "error_code",
+      "error_message": "error_message",
+      "created_at": 1,
+      "finished_at": 1
+    }
+  ]
+}

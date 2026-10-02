@@ -1,0 +1,17 @@
+{
+  "queue_rev": 1,
+  "queued": [
+    {
+      "turn_id": "turn_id",
+      "prompt": "prompt",
+      "queued_at": "0001-01-01T00:00:00Z",
+      "attachments": [
+        {
+          "name": "name",
+          "mime_type": "mime_type",
+          "path": "path"
+        }
+      ]
+    }
+  ]
+}

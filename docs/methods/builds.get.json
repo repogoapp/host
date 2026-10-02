@@ -1,0 +1,28 @@
+{
+  "build": {
+    "id": "id",
+    "platform": "platform",
+    "project": "project",
+    "path": "path",
+    "target": "target",
+    "configuration": "configuration",
+    "method": "method",
+    "status": "status",
+    "phase": "phase",
+    "bundle_id": "bundle_id",
+    "version": "version",
+    "build_number": "build_number",
+    "size_bytes": 1,
+    "artifacts": [
+      {
+        "name": "name",
+        "size_bytes": 1,
+        "sha256": "sha256"
+      }
+    ],
+    "error_code": "error_code",
+    "error_message": "error_message",
+    "created_at": 1,
+    "finished_at": 1
+  }
+}

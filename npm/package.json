@@ -1,0 +1,37 @@
+{
+  "name": "@repogo/host",
+  "version": "0.1.0",
+  "description": "Run coding agents on your computer from your phone",
+  "type": "module",
+  "bin": {
+    "repogo": "repogo.js"
+  },
+  "files": [
+    "repogo.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "releaseRepository": "repogoapp/host",
+  "license": "FSL-1.1-ALv2",
+  "homepage": "https://repogo.app",
+  "bugs": {
+    "url": "https://github.com/repogoapp/host/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/repogoapp/host.git"
+  }
+}

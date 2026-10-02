@@ -1,0 +1,18 @@
+# OS and editor files
+.DS_Store
+
+# Build and release output
+dist/
+release-assets/
+internal/session/native/rust/target/
+internal/session/native/lib/
+
+# Local data, logs and credentials
+.env*
+*.db
+*.log
+*.pem
+*.key
+*.p8
+*.p12
+credentials.json

@@ -1,0 +1,22 @@
+{
+  "build": {
+    "id": "",
+    "platform": "",
+    "project": "",
+    "path": "",
+    "target": "",
+    "configuration": "",
+    "method": "",
+    "status": "",
+    "phase": "",
+    "bundle_id": "",
+    "version": "",
+    "build_number": "",
+    "size_bytes": 0,
+    "artifacts": [],
+    "error_code": "",
+    "error_message": "",
+    "created_at": 0,
+    "finished_at": 0
+  }
+}

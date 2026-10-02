@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "path": "path",
+      "matches": [
+        {
+          "line": 1,
+          "snippet": "snippet",
+          "ranges": [
+            {
+              "start_col": 1,
+              "end_col": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "truncated": true
+}

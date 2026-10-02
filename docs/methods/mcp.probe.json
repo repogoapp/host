@@ -1,0 +1,7 @@
+{
+  "probe_id": "probe_id",
+  "url": "url",
+  "auth": "auth",
+  "needs_manual_client": true,
+  "registration_error": "registration_error"
+}

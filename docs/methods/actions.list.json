@@ -1,0 +1,15 @@
+{
+  "actions": [
+    {
+      "name": "name",
+      "label": "label",
+      "cmd": "cmd",
+      "cwd": "cwd",
+      "group": "group",
+      "description": "description",
+      "timeoutMs": 1,
+      "detach": true,
+      "island": true
+    }
+  ]
+}

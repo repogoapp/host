@@ -1,0 +1,23 @@
+{
+  "projects": [
+    {
+      "path": "path",
+      "chat_count": 1,
+      "repo_owner": "repo_owner",
+      "repo_name": "repo_name",
+      "kind": "kind",
+      "diff_available": true,
+      "files_changed": 1,
+      "additions": 1,
+      "deletions": 1,
+      "activity_at": 1,
+      "last_message_at": 1,
+      "display_name": "display_name",
+      "pinned_at": 1,
+      "host_id": "host_id"
+    }
+  ],
+  "removed": [
+    "removed"
+  ]
+}

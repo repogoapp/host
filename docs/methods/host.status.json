@@ -1,0 +1,23 @@
+{
+  "version": "version",
+  "executable": "executable",
+  "uptime_seconds": 1,
+  "relay_connected": true,
+  "update_failed": "update_failed",
+  "battery": {
+    "present": true,
+    "percent": 1,
+    "charging": true,
+    "plugged_in": true
+  },
+  "cloud": {
+    "provider": "provider",
+    "stops_at": "0001-01-01T00:00:00Z"
+  },
+  "network": {
+    "lan_ip": "lan_ip",
+    "public_ip": "public_ip",
+    "local_hostname": "local_hostname",
+    "port": 1
+  }
+}
