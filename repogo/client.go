@@ -13,6 +13,7 @@ import (
 
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/hostinfo"
+	"github.com/repogo/host/internal/release"
 )
 
 func call(ctx context.Context, method string, params, out any) error {
@@ -107,7 +108,17 @@ func printStatus(ctx context.Context) error {
 	return nil
 }
 
+// noteOlderHost says when the background host still runs an older binary than this
+// one, which it keeps until restarted; restarting stops its running chats.
+func noteOlderHost(ctx context.Context) {
+	var status hostinfo.Status
+	if err := call(ctx, "host.status", nil, &status); release.Version != "dev" && err == nil && status.Version != release.Version {
+		fmt.Printf("The running host is %s and this is %s. Restart the host to switch (it stops running chats).\n", status.Version, release.Version)
+	}
+}
+
 func pairOrStatus(ctx context.Context, force bool, pairHost string) error {
+	noteOlderHost(ctx)
 	paired, err := peers(ctx)
 	if err != nil {
 		return err

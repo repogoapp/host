@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { access, chmod, link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 async function download(url) {
   if (!url.startsWith('https://')) throw new Error('Release URL must use HTTPS');
@@ -12,14 +12,27 @@ async function download(url) {
   return response;
 }
 
+// installedVersion is what the binary reports, or null when it is missing or won't run.
+function installedVersion(binary) {
+  const result = spawnSync(binary, ['version'], { encoding: 'utf8', timeout: 10_000 });
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+// older reports whether version a is below b; anything unreadable counts as older.
+function older(a, b) {
+  const parse = v => (/^\d+\.\d+\.\d+$/.test(v ?? '') ? v.split('.').map(Number) : null);
+  const [x, y] = [parse(a), parse(b)];
+  if (!x) return true;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i];
+  return false;
+}
+
 try {
   const dir = join(homedir(), '.repogo', 'bin');
   const binary = join(dir, 'repogo');
-  let installed = false;
-  try { await access(binary); installed = true; }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (!installed) {
-    const pkg = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'));
+  const pkg = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'));
+  // A newer binary from `repogo update` stays; only a missing or older one is replaced.
+  if (older(installedVersion(binary), pkg.version)) {
     if (!pkg.releaseRepository) throw new Error('This package has no release repository configured');
     const arch = { x64: 'amd64', arm64: 'arm64' }[process.arch];
     const url = `https://github.com/${pkg.releaseRepository}/releases/download/v${pkg.version}/manifest.json`;
@@ -34,8 +47,8 @@ try {
     try {
       await writeFile(temporary, bytes, { mode: 0o755, flag: 'wx' });
       await chmod(temporary, 0o755);
-      try { await link(temporary, binary); }
-      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      // rename swaps the file in one step; a running host keeps the binary it started with.
+      await rename(temporary, binary);
     } finally {
       await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
     }

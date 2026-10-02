@@ -130,6 +130,7 @@ func command(ctx context.Context, args []string) error {
 			return fmt.Errorf("%w; run repogo logs", err)
 		}
 		if verb == "start" {
+			noteOlderHost(ctx)
 			fmt.Println("Host is running in the background.")
 			return nil
 		}
