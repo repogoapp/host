@@ -150,14 +150,21 @@ func (s *Service) loaded(ctx context.Context) bool {
 func (s *Service) target() string { return fmt.Sprintf("gui/%d/%s", os.Getuid(), label) }
 
 func (s *Service) Start(ctx context.Context) error {
+	if runtime.GOOS == "darwin" {
+		if !s.loaded(ctx) {
+			if err := command(ctx, "launchctl", "enable", s.target()); err != nil {
+				return err
+			}
+			if err := command(ctx, "launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), s.path); err != nil {
+				return err
+			}
+		}
+		// launchd can hold a bootstrapped RunAtLoad job as a pending speculative
+		// spawn; kickstart runs it now and leaves a running host alone.
+		return command(ctx, "launchctl", "kickstart", s.target())
+	}
 	if s.loaded(ctx) {
 		return nil
-	}
-	if runtime.GOOS == "darwin" {
-		if err := command(ctx, "launchctl", "enable", s.target()); err != nil {
-			return err
-		}
-		return command(ctx, "launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), s.path)
 	}
 	return command(ctx, "systemctl", "--user", "enable", "--now", label)
 }
@@ -167,13 +174,33 @@ func (s *Service) Stop(ctx context.Context) error {
 		if !s.loaded(ctx) {
 			return nil
 		}
-		return command(ctx, "launchctl", "bootout", s.target())
+		if err := command(ctx, "launchctl", "bootout", s.target()); err != nil {
+			return err
+		}
+		return s.waitUnloaded(ctx)
 	}
 	installed, err := s.Installed()
 	if err != nil || !installed {
 		return err
 	}
 	return command(ctx, "systemctl", "--user", "stop", label)
+}
+
+// waitUnloaded waits out bootout, which returns while the host is still exiting;
+// a bootstrap in that window finds the label loaded and is skipped.
+func (s *Service) waitUnloaded(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	for s.loaded(ctx) {
+		select {
+		case <-ctx.Done():
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("host did not stop: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) Restart(ctx context.Context) error {
