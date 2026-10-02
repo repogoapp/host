@@ -59,6 +59,19 @@ func (s *Service) Installed() (bool, error) {
 	return err == nil, err
 }
 
+// Runs reports whether the installed unit starts binary. A unit left by another
+// copy of repogo, moved or deleted since, would never start and needs reinstalling.
+func (s *Service) Runs(binary string) (bool, error) {
+	body, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(string(body), program(runtime.GOOS, binary)), nil
+}
+
 func (s *Service) Install(ctx context.Context, binary string) error {
 	// The invoking shell's PATH includes the user's Node and agent installations.
 	body := s.unit(runtime.GOOS, binary, os.Getenv("PATH"))
@@ -79,11 +92,10 @@ func (s *Service) Install(ctx context.Context, binary string) error {
 // unit is the launchd plist (darwin) or systemd unit that runs binary with path.
 func (s *Service) unit(goos, binary, path string) string {
 	if goos == "darwin" {
-		escape := func(v string) string { var b bytes.Buffer; _ = xml.EscapeText(&b, []byte(v)); return b.String() }
 		return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>Label</key><string>%s</string>
-<key>ProgramArguments</key><array><string>%s</string><string>serve</string></array>
+<key>ProgramArguments</key><array>%s</array>
 <key>EnvironmentVariables</key><dict><key>PATH</key><string>%s</string></dict>
 <key>WorkingDirectory</key><string>%s</string>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
@@ -93,14 +105,12 @@ func (s *Service) unit(goos, binary, path string) string {
 <key>StandardOutPath</key><string>%s</string>
 <key>StandardErrorPath</key><string>%s</string>
 </dict></plist>
-`, label, escape(binary), escape(path), escape(s.home), escape(s.log), escape(s.log))
+`, label, program(goos, binary), xmlEscape(path), xmlEscape(s.home), xmlEscape(s.log), xmlEscape(s.log))
 	}
-	// systemd expands percent specifiers and ExecStart expands dollar variables.
-	quote := func(v string) string { return strconv.Quote(strings.ReplaceAll(v, "%", "%%")) }
 	return fmt.Sprintf(`[Unit]
 Description=RepoGo host
 [Service]
-ExecStart=%s serve
+%s
 WorkingDirectory=%s
 Environment=%s
 Restart=always
@@ -110,8 +120,25 @@ StandardOutput=append:%s
 StandardError=append:%s
 [Install]
 WantedBy=default.target
-`, quote(strings.ReplaceAll(binary, "$", "$$")), quote(s.home), quote("PATH="+path), strings.ReplaceAll(s.log, "%", "%%"), strings.ReplaceAll(s.log, "%", "%%"))
+`, program(goos, binary), systemdQuote(s.home), systemdQuote("PATH="+path), strings.ReplaceAll(s.log, "%", "%%"), strings.ReplaceAll(s.log, "%", "%%"))
 }
+
+// program is the line of the unit that starts binary, as it is written there.
+func program(goos, binary string) string {
+	if goos == "darwin" {
+		return "<string>" + xmlEscape(binary) + "</string><string>serve</string>"
+	}
+	return "ExecStart=" + systemdQuote(strings.ReplaceAll(binary, "$", "$$")) + " serve"
+}
+
+func xmlEscape(v string) string {
+	var b bytes.Buffer
+	_ = xml.EscapeText(&b, []byte(v))
+	return b.String()
+}
+
+// systemdQuote quotes v so systemd's percent specifiers stay literal.
+func systemdQuote(v string) string { return strconv.Quote(strings.ReplaceAll(v, "%", "%%")) }
 
 func (s *Service) loaded(ctx context.Context) bool {
 	if runtime.GOOS == "darwin" {

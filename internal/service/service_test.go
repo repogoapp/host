@@ -2,6 +2,9 @@ package service
 
 import (
 	"encoding/xml"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -34,6 +37,27 @@ func TestUnitEscapesSpecifiers(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("unit lacks %q:\n%s", want, body)
+		}
+	}
+}
+
+// A unit left by another copy of repogo, since moved or deleted, never starts;
+// Runs tells start to reinstall it for the binary running now.
+func TestRunsMatchesOnlyTheInstalledBinary(t *testing.T) {
+	s := &Service{path: filepath.Join(t.TempDir(), "unit"), home: "/home/a", log: "/home/a/host.log"}
+	if ok, err := s.Runs("/opt/repogo"); err != nil || ok {
+		t.Fatalf("no unit: Runs = %v, %v; want false", ok, err)
+	}
+	if err := os.WriteFile(s.path, []byte(s.unit(runtime.GOOS, "/opt/repogo & co/repogo", "/usr/bin")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for binary, want := range map[string]bool{
+		"/opt/repogo & co/repogo":   true,
+		"/opt/repogo & co/repogo2":  false,
+		"/tmp/go-build1/exe/repogo": false,
+	} {
+		if ok, err := s.Runs(binary); err != nil || ok != want {
+			t.Errorf("Runs(%q) = %v, %v; want %v", binary, ok, err, want)
 		}
 	}
 }

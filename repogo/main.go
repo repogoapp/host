@@ -105,11 +105,15 @@ func command(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !installed || verb == "install" {
-			binary, err := os.Executable()
-			if err != nil {
-				return err
-			}
+		binary, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		current, err := s.Runs(binary)
+		if err != nil {
+			return err
+		}
+		if !current || verb == "install" {
 			if installed {
 				if err := s.Stop(ctx); err != nil {
 					return err
