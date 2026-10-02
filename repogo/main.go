@@ -19,7 +19,7 @@ import (
 	"github.com/repogo/host/internal/service"
 )
 
-const defaultRelay = "wss://repogo-relay.fly.dev/ws"
+const defaultRelay = "wss://relay.repogo.app/ws"
 const defaultPairHost = "https://repogo.app"
 
 func main() {

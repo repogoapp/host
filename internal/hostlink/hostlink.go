@@ -44,7 +44,7 @@ const (
 )
 
 type Config struct {
-	// URL of the relay, e.g. wss://repogo-relay.fly.dev/ws.
+	// URL of the relay, e.g. wss://relay.repogo.app/ws.
 	URL string
 
 	Devices *device.Store

@@ -5,7 +5,7 @@
 // thing that actually breaks in deployment is the WebSocket upgrade surviving a
 // proxy and TLS termination, and nothing short of a real round trip tests it.
 //
-//	go run ./bench/relay -url wss://repogo-relay.fly.dev/ws
+//	go run ./bench/relay -url wss://relay.repogo.app/ws
 package main
 
 import (
