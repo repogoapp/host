@@ -42,7 +42,6 @@ func printPairingQR(ctx context.Context, payload, pairHost string) error {
 	}
 	fmt.Printf("  Scan with Camera    expires in %v\n",
 		time.Until(time.UnixMilli(invite.ExpiresAt)).Round(time.Second))
-	fmt.Printf("  Host    %s\n", invite.Address)
 	fmt.Printf("  Code    %s\n", pairingCode)
 	fmt.Printf("  Link    %s\n\n", link)
 	return nil
