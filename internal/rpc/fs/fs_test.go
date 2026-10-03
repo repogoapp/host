@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -249,13 +250,13 @@ func TestFolderPickerRPC(t *testing.T) {
 	if _, err := call("fs.add_project", map[string]any{"path": app}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := call("fs.add_project", map[string]any{"path": home}); !errors.Is(err, rpc.ErrDenied) {
-		t.Fatalf("picking home: %v, want denied", err)
+	if _, err := call("fs.add_project", map[string]any{"path": home}); err != nil {
+		t.Fatalf("picking home: %v", err)
 	}
 	if _, err := call("fs.new_project", map[string]any{"name": "site", "parent": filepath.Join(home, "Desktop")}); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{app, filepath.Join(home, "Desktop", "site")}; len(*picked) != 2 || (*picked)[0] != want[0] || (*picked)[1] != want[1] {
+	if want := []string{app, home, filepath.Join(home, "Desktop", "site")}; !slices.Equal(*picked, want) {
 		t.Fatalf("picked %v, want %v", *picked, want)
 	}
 }

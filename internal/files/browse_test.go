@@ -96,10 +96,10 @@ func TestBrowseDirsOnlyInsideARootShowsHiddenFolders(t *testing.T) {
 	}
 }
 
-func TestPickableRefusesHomeItself(t *testing.T) {
+func TestPickableTakesHomeButNotHidden(t *testing.T) {
 	svc, home, _ := picker(t)
-	if _, err := svc.Pickable(home); !errors.Is(err, files.ErrNotBrowsable) {
-		t.Fatalf("Pickable(home) = %v, want ErrNotBrowsable", err)
+	if got, err := svc.Pickable(home); err != nil || got != home {
+		t.Fatalf("Pickable(home) = %q, %v; want %q", got, err, home)
 	}
 	app := filepath.Join(home, "Desktop", "app")
 	if got, err := svc.Pickable(filepath.Join(home, "Desktop", ".", "app")); err != nil || got != app {

@@ -77,15 +77,12 @@ func (s *Service) Browse(path string, opts BrowseOptions) (string, []Entry, erro
 	return dir, out, nil
 }
 
-// Pickable resolves a folder the picker may make a project: one Browse can
-// show, but never home itself, which would make all of home a project.
+// Pickable resolves a folder the picker may make a project: any one Browse can
+// show, home itself included.
 func (s *Service) Pickable(path string) (string, error) {
 	dir, _, err := s.reach(path, false)
 	if err != nil {
 		return "", err
-	}
-	if home := s.home(); home != "" && dir == home {
-		return "", fmt.Errorf("%w: the home folder cannot be a project", ErrNotBrowsable)
 	}
 	if info, err := os.Stat(dir); err != nil {
 		return "", wrap(err)
