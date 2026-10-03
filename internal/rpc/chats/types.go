@@ -27,7 +27,7 @@ type Query struct {
 	// Resolved: true is the done pile, false the live list, null both.
 	Resolved *bool `json:"resolved"`
 
-	// Agent narrows to one agent's chats ("claude", "codex", "cursor"); empty is all.
+	// Agent narrows to one agent's chats ("claude", "codex"); empty is all.
 	Agent string `json:"agent"`
 
 	// Sort: "updated" (default), "created" or "title". Order: "desc" (default) or "asc".

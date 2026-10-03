@@ -9,7 +9,6 @@ import (
 	"github.com/repogo/host/internal/agentcatalog"
 	"github.com/repogo/host/internal/agents/claude"
 	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/agents/cursor"
 	"github.com/repogo/host/internal/agentusage"
 	"github.com/repogo/host/internal/chatwire"
 	"github.com/repogo/host/internal/clitool"
@@ -27,7 +26,6 @@ type Factory func(agent.Dependencies) agent.Identity
 var factories = []Factory{
 	func(d agent.Dependencies) agent.Identity { return claude.New(d) },
 	func(d agent.Dependencies) agent.Identity { return codex.New(d) },
-	func(d agent.Dependencies) agent.Identity { return cursor.New(d) },
 }
 
 // Registry is one host's providers, sorted by what each can do. Every slice is

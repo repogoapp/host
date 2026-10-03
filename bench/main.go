@@ -49,7 +49,7 @@ func main() {
 	dbPath := filepath.Join(*dbDir, store.CacheFile)
 
 	// The same providers and context the host builds, so a new agent is
-	// benchmarked with no change here and Cursor can replay through its agent.
+	// benchmarked with no change here.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	registry, err := agents.New(agent.Dependencies{Context: ctx})

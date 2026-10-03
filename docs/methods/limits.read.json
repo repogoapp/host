@@ -25,11 +25,7 @@
           "resets_at": 1,
           "severity": "severity",
           "is_active": true,
-          "scope": "scope",
-          "unit": "unit",
-          "used_value": 1,
-          "limit_value": 1,
-          "currency": "currency"
+          "scope": "scope"
         }
       ],
       "resets": {

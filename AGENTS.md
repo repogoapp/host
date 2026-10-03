@@ -53,7 +53,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `chat` | Chat workflows: send, start, resolve, delete, ship | a transport type |
 | `repogo` | Flags, runtime file, production `host.Config`, update/restart, start | over ~200 lines |
 | `agent` | Turn lifecycle and shared CLI mechanics | provider registry or provider dispatch |
-| `claudecode`, `codexappserver`, `cursoragent` | One CLI's own protocol, typed; no RepoGo types | anything the adapter converts |
+| `claudecode`, `codexappserver` | One CLI's own protocol, typed; no RepoGo types | anything the adapter converts |
 | `stdiorpc` | Own a child process and newline-delimited JSON-RPC framing | provider methods or chat semantics |
 | `agents`, `agents/<provider>` | Construct fresh providers; own each provider's protocol/configuration and home resolution | a shared service importing a provider |
 | `session` | Shared transcript reading, tailing, and caching; provider interfaces | provider-specific parsing or kind dispatch |

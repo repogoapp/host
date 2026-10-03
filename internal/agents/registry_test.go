@@ -32,7 +32,7 @@ func TestRegistryConstructsIsolatedProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	if len(a.Agents) != 3 || len(a.Adapters) != 3 || len(a.Sessions) != 3 || len(a.Hooks) != 2 || len(a.Catalogs) != 3 || len(a.Usage) != 3 || len(a.MCP) != 2 || len(a.Shipping) != 2 {
+	if len(a.Agents) != 2 || len(a.Adapters) != 2 || len(a.Sessions) != 2 || len(a.Hooks) != 2 || len(a.Catalogs) != 2 || len(a.Usage) != 2 || len(a.MCP) != 2 || len(a.Shipping) != 2 {
 		t.Fatalf("incomplete registry: %+v", a)
 	}
 	for i, p := range a.Tools() {
@@ -51,9 +51,6 @@ func TestRegistryConstructsIsolatedProviders(t *testing.T) {
 	}
 	if _, ok := a.Usage[1].(agentusage.Resetter); !ok {
 		t.Fatal("Codex lost resets")
-	}
-	if _, ok := a.Usage[2].(agentusage.Resetter); ok {
-		t.Fatal("Cursor advertises resets")
 	}
 	for i, p := range a.Shipping {
 		if got := filepath.Dir(p.UsageRoots()[0]); got != a.Tools()[i].Home {

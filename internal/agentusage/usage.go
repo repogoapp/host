@@ -91,14 +91,6 @@ type Window struct {
 	// Which model the window applies to, when it is model-specific. Claude
 	// reports per-model weekly caps alongside the account-wide one.
 	Scope string `json:"scope"`
-
-	// Cursor meters spend, not time: a "currency" window counts cents used of
-	// cents allowed, which says more than a percent of a cap bonus usage can
-	// run past. Empty or "percent" is a percent window.
-	Unit       string `json:"unit"`
-	UsedValue  int64  `json:"used_value"`
-	LimitValue int64  `json:"limit_value"`
-	Currency   string `json:"currency"`
 }
 
 // WindowLabel names a window by how long it runs, never by which field it

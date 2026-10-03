@@ -34,7 +34,7 @@ func TestCommandResumesFromTheChatsFolder(t *testing.T) {
 }
 
 func TestCommandNeedsAResumeAndASession(t *testing.T) {
-	if _, err := Command(provider("cursor", nil), "s", "/a"); !errors.Is(err, ErrNoResume) {
+	if _, err := Command(provider("other", nil), "s", "/a"); !errors.Is(err, ErrNoResume) {
 		t.Errorf("an agent without resume: %v", err)
 	}
 	claude := provider("claude", func(id string) []string { return []string{"--resume", id} })

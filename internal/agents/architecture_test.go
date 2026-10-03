@@ -49,7 +49,7 @@ func isAgentName(e ast.Expr) (string, bool) {
 		return "", false
 	}
 	v, _ := strconv.Unquote(lit.Value)
-	return lit.Value, v == "claude" || v == "codex" || v == "cursor"
+	return lit.Value, v == "claude" || v == "codex"
 }
 
 // Wire fields may name an agent; branching on one may not. Outside the agent
@@ -84,7 +84,7 @@ func TestSharedCodeDoesNotBranchOnAgentKind(t *testing.T) {
 		ast.Inspect(file, func(n ast.Node) bool {
 			switch n := n.(type) {
 			case *ast.SelectorExpr:
-				if n.Sel.Name == "KindClaude" || n.Sel.Name == "KindCodex" || n.Sel.Name == "KindCursor" {
+				if n.Sel.Name == "KindClaude" || n.Sel.Name == "KindCodex" {
 					t.Errorf("%s: %s outside its agent folder", fset.Position(n.Pos()), n.Sel.Name)
 				}
 			case *ast.CaseClause:
