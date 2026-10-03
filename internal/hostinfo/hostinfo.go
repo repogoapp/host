@@ -85,11 +85,15 @@ type Release struct {
 	UpdateFailed string `json:"update_failed,omitempty"`
 }
 
-// Release checks GitHub at most hourly and outside the lock; a failed check is
-// reported in the release rather than failing it.
+// releaseCheckEvery keeps a new release showing soon after it ships, well
+// inside GitHub's 60 unauthenticated requests an hour.
+const releaseCheckEvery = 10 * time.Minute
+
+// Release checks GitHub at most every releaseCheckEvery and outside the lock;
+// a failed check is reported in the release rather than failing it.
 func (s *Service) Release(ctx context.Context) Release {
 	s.mu.Lock()
-	due := time.Since(s.checked) > time.Hour && release.Repository != ""
+	due := time.Since(s.checked) > releaseCheckEvery && release.Repository != ""
 	if due {
 		s.checked = time.Now()
 	}
