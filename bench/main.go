@@ -10,12 +10,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/repogo/host/internal/agent"
@@ -45,9 +48,11 @@ func main() {
 	}
 	dbPath := filepath.Join(*dbDir, store.CacheFile)
 
-	// The same providers the host builds, so a new agent is benchmarked with
-	// no change here.
-	registry, err := agents.New(agent.Dependencies{})
+	// The same providers and context the host builds, so a new agent is
+	// benchmarked with no change here and Cursor can replay through its agent.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	registry, err := agents.New(agent.Dependencies{Context: ctx})
 	if err != nil {
 		fail(err)
 	}
@@ -125,6 +130,7 @@ func main() {
 				mu.Unlock()
 
 				if err != nil {
+					fmt.Fprintf(os.Stderr, "warn: %s %s: %v\n", m.Agent, m.ID, err)
 					continue
 				}
 				out <- parsed{m, events}

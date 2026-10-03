@@ -149,7 +149,13 @@ func (s *Sessions) snapshot(ctx context.Context, m session.Meta) ([]agent.Event,
 	}
 	replay := &liveSession{provider: s.provider, id: m.ID, cwd: m.Cwd, replaying: true}
 	replay.resetToolsLocked()
-	c, err := cursoragent.Start(ctx, cursoragent.Options{Executable: s.provider.executable(), Cwd: m.Cwd, Env: s.provider.environment()}, cursoragent.Handlers{Request: replay.respond, Notification: replay.handle})
+	// Replay only reads history, so a session whose project folder was deleted
+	// still opens: the process starts in the home folder and the load keeps m.Cwd.
+	dir := m.Cwd
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		dir, _ = os.UserHomeDir()
+	}
+	c, err := cursoragent.Start(ctx, cursoragent.Options{Executable: s.provider.executable(), Cwd: dir, Env: s.provider.environment()}, cursoragent.Handlers{Request: replay.respond, Notification: replay.handle})
 	if err != nil {
 		return nil, err
 	}
