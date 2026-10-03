@@ -61,3 +61,17 @@ func TestRunsMatchesOnlyTheInstalledBinary(t *testing.T) {
 		}
 	}
 }
+
+func TestSupervisedOnlyAsTheLaunchdJob(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd names the job in XPC_SERVICE_NAME")
+	}
+	t.Setenv("XPC_SERVICE_NAME", label)
+	if !Supervised() {
+		t.Fatal("the launchd job should be supervised")
+	}
+	t.Setenv("XPC_SERVICE_NAME", "com.apple.Terminal")
+	if Supervised() {
+		t.Fatal("a host run from Terminal should not be supervised")
+	}
+}

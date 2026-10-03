@@ -51,6 +51,19 @@ func New() (*Service, error) {
 	return s, nil
 }
 
+// Supervised reports whether this process is the service, which launchd's
+// KeepAlive or systemd's Restart=always starts again whenever it exits.
+func Supervised() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return os.Getenv("XPC_SERVICE_NAME") == label
+	case "linux":
+		cgroup, err := os.ReadFile("/proc/self/cgroup")
+		return err == nil && strings.Contains(string(cgroup), "/"+label+".service")
+	}
+	return false
+}
+
 func (s *Service) Installed() (bool, error) {
 	_, err := os.Stat(s.path)
 	if os.IsNotExist(err) {

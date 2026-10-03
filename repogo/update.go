@@ -12,6 +12,7 @@ import (
 	"github.com/repogo/host/internal/apphome"
 	"github.com/repogo/host/internal/hostupdate"
 	"github.com/repogo/host/internal/release"
+	"github.com/repogo/host/internal/service"
 )
 
 // restarter is how run learns where it was started from and asks to be
@@ -41,7 +42,7 @@ func serve(ctx context.Context, log *slog.Logger, port int, relay string) error 
 	}
 	if outcome.RolledBack {
 		log.Error("update: new release kept failing to start; rolling back")
-		return hostupdate.Exec(binary)
+		return startAgain(binary)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -54,6 +55,16 @@ func serve(ctx context.Context, log *slog.Logger, port int, relay string) error 
 		return err
 	}
 	log.Info("update: restarting into the new release")
+	return startAgain(binary)
+}
+
+// startAgain runs binary in this process's place. The service exits and its
+// supervisor starts binary fresh, since an exec in place can hang while other
+// threads sit in blocking syscalls. Run by hand, exec is the only way on.
+func startAgain(binary string) error {
+	if service.Supervised() {
+		return nil
+	}
 	return hostupdate.Exec(binary)
 }
 

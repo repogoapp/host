@@ -215,8 +215,8 @@ func Settle(path, version string) error {
 }
 
 // Exec replaces this process with binary, keeping its pid, arguments and
-// environment, so launchd, systemd, a terminal or a container all see the
-// same process carry on.
+// environment, so a terminal or a container with nothing to restart the host
+// sees the same process carry on.
 func Exec(binary string) error {
 	return syscall.Exec(binary, os.Args, os.Environ())
 }
