@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -42,12 +43,12 @@ func serve(ctx context.Context, log *slog.Logger, port int, relay string) error 
 	}
 	if outcome.RolledBack {
 		log.Error("update: new release kept failing to start; rolling back")
-		return startAgain(binary)
+		return startAgain(ctx, binary)
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var restart atomic.Bool
-	err = run(ctx, log, port, relay, restarter{
+	err = run(runCtx, log, port, relay, restarter{
 		binary: binary, marker: marker, failed: outcome.Failed,
 		restart: func() { restart.Store(true); cancel() },
 	})
@@ -55,17 +56,32 @@ func serve(ctx context.Context, log *slog.Logger, port int, relay string) error 
 		return err
 	}
 	log.Info("update: restarting into the new release")
-	return startAgain(binary)
+	return startAgain(ctx, binary)
 }
 
-// startAgain runs binary in this process's place. The service exits and its
-// supervisor starts binary fresh, since an exec in place can hang while other
+// startAgain runs binary in this process's place. The service has its
+// supervisor start binary fresh, since an exec in place can hang while other
 // threads sit in blocking syscalls. Run by hand, exec is the only way on.
-func startAgain(binary string) error {
-	if service.Supervised() {
+func startAgain(ctx context.Context, binary string) error {
+	if !service.Supervised() {
+		return hostupdate.Exec(binary)
+	}
+	// systemd's Restart=always starts binary once this process exits.
+	if runtime.GOOS != "darwin" {
 		return nil
 	}
-	return hostupdate.Exec(binary)
+	// launchd leaves a job that exits stopped when its login domain is
+	// on-demand only, as with no one at the console; kickstart -k kills this
+	// process and starts binary either way.
+	s, err := service.New()
+	if err != nil {
+		return err
+	}
+	// kickstart's SIGTERM cancels ctx: launchd is restarting the host.
+	if err := s.Restart(ctx); err != nil && ctx.Err() == nil {
+		return err
+	}
+	return nil
 }
 
 func update(ctx context.Context, now bool) error {
