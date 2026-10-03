@@ -61,7 +61,7 @@ func label(name string, args map[string]any) toollabel.Label {
 	case "AskUserQuestion":
 		return toollabel.Question(args)
 	case "ToolSearch":
-		return toollabel.ToolSearch(args)
+		return toollabel.ToolSearch(args, func(name string) toollabel.Label { return label(name, nil) })
 	case "EnterPlanMode":
 		return toollabel.EnterPlanMode()
 	case "ExitPlanMode":

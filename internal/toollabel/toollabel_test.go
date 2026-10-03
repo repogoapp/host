@@ -158,14 +158,18 @@ func TestQuestionTitle(t *testing.T) {
 }
 
 func TestToolSearch(t *testing.T) {
-	for _, tc := range []struct{ input, want string }{
-		{`{"query":"select:WebSearch,WebFetch"}`, "Enabled WebSearch, WebFetch"},
-		{`{"query":"select:A, B,C,D,E"}`, "Enabled A, B, C and 2 more"},
-		{`{"query":"slack"}`, "Enabled slack"},
-		{`{}`, "Enabled tools"},
+	labelOf := func(name string) Label { return Shared(name, nil) }
+	for _, tc := range []struct{ input, icon, want string }{
+		{`{"query":"select:webSearch"}`, "globe", "Enabled Web Search"},
+		{`{"query":"select:webSearch,webFetch"}`, "wrench.and.screwdriver", "Enabled Web Search, Web Fetch"},
+		{`{"query":"select:mcp__neon__run_sql"}`, "powerplug.fill", "Enabled Run sql · neon"},
+		{`{"query":"select:A, B,C,D,E"}`, "wrench.and.screwdriver", "Enabled A, B, C and 2 more"},
+		{`{"query":"slack send"}`, "wrench.and.screwdriver", "Found slack send"},
+		{`{}`, "wrench.and.screwdriver", "Found tools"},
 	} {
-		if got := ToolSearch(args(t, tc.input)).Labels.Completed; got != tc.want {
-			t.Errorf("ToolSearch(%s) = %q, want %q", tc.input, got, tc.want)
+		got := ToolSearch(args(t, tc.input), labelOf)
+		if got.Icon != tc.icon || got.Labels.Completed != tc.want {
+			t.Errorf("ToolSearch(%s) = %q %q, want %q %q", tc.input, got.Icon, got.Labels.Completed, tc.icon, tc.want)
 		}
 	}
 }

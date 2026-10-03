@@ -133,7 +133,7 @@ func label(name string, args map[string]any, text string) toollabel.Label {
 	case "imagegen", "image_gen__imagegen":
 		return toollabel.New("photo", "Generating an image", "Generated an image", "Image generation failed")
 	case "tool_search":
-		return toollabel.ToolSearch(args)
+		return toollabel.ToolSearch(args, func(name string) toollabel.Label { return label(name, nil, "") })
 	case "request_permissions":
 		return toollabel.New("lock.shield", "Asking for permission", "Asked for permission", "Permission request failed")
 	case "list_mcp_resources", "list_mcp_resource_templates":

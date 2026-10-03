@@ -61,7 +61,7 @@ func TestToolLabel(t *testing.T) {
 		{"AskUserQuestion", `{"questions":[{"header":"Scope","question":"Which?"}]}`,
 			toollabel.New("questionmark.bubble", "Scope", "Answered question", "Question attempted")},
 		{"ToolSearch", `{"query":"select:WebFetch"}`,
-			toollabel.New("wrench.and.screwdriver", "Enabling WebFetch", "Enabled WebFetch", "Tool enable attempted")},
+			toollabel.New("arrow.down.circle", "Enabling Web Fetch", "Enabled Web Fetch", "Tool enable attempted")},
 		{"EnterPlanMode", `{}`,
 			toollabel.New("list.bullet.clipboard", "Entering plan mode", "Planning the approach", "Plan mode attempted")},
 		{"ExitPlanMode", `{"plan":"…"}`,

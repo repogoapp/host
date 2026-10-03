@@ -88,7 +88,7 @@ func Shared(name string, args map[string]any) Label {
 	case "browser":
 		return Browser(args)
 	case "toolSearch":
-		return ToolSearch(args)
+		return ToolSearch(args, func(name string) Label { return Shared(name, nil) })
 	case "enterplanmode", "enterPlanMode":
 		return EnterPlanMode()
 	case "exitplanmode", "exitPlanMode":
@@ -251,13 +251,27 @@ func Browser(args map[string]any) Label {
 }
 
 // ToolSearch is tools switched on by name (`select:WebSearch,WebFetch`) or
-// found by keyword.
-func ToolSearch(args map[string]any) Label {
-	query := strings.TrimPrefix(String(args, "query"), "select:")
+// found by keyword. Named tools read as labelOf names them, and take their
+// icon when they share one, so enabling WebSearch shows the globe.
+func ToolSearch(args map[string]any, labelOf func(name string) Label) Label {
+	query := String(args, "query")
+	selected, isSelect := strings.CutPrefix(query, "select:")
+	if !isSelect {
+		what := Preview(query, 40, "tools")
+		return New("wrench.and.screwdriver", "Finding "+what, "Found "+what, "Tool search attempted")
+	}
 	var names []string
-	for _, name := range strings.Split(query, ",") {
-		if name = strings.TrimSpace(name); name != "" {
-			names = append(names, name)
+	icon := ""
+	for _, name := range strings.Split(selected, ",") {
+		if name = strings.TrimSpace(name); name == "" {
+			continue
+		}
+		names = append(names, toolName(name))
+		switch tool := labelOf(name).Icon; {
+		case icon == "":
+			icon = tool
+		case icon != tool:
+			icon = "wrench.and.screwdriver"
 		}
 	}
 	what := "tools"
@@ -267,7 +281,19 @@ func ToolSearch(args map[string]any) Label {
 			what += fmt.Sprintf(" and %d more", len(names)-3)
 		}
 	}
-	return New("wrench.and.screwdriver", "Enabling "+what, "Enabled "+what, "Tool enable attempted")
+	if icon == "" {
+		icon = "wrench.and.screwdriver"
+	}
+	return New(icon, "Enabling "+what, "Enabled "+what, "Tool enable attempted")
+}
+
+// toolName is a tool's name as a reader says it: `WebSearch` is "Web Search",
+// an MCP tool its action and server.
+func toolName(name string) string {
+	if label, ok := mcp(name); ok {
+		return label.Labels.Completed
+	}
+	return humanizeToolName(name)
 }
 
 // EnterPlanMode starts planning before any edits.
