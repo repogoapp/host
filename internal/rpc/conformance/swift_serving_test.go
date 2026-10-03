@@ -26,10 +26,13 @@ var (
 		"chats.queue", "chats.update", "chats.resolve", "chats.delete", "chats.tools_subscribe", "chats.tools_unsubscribe",
 		"turns.get", "turns.stop", "turns.list",
 		"ports.list", "forward.pipe_open", "forward.pipe_send", "forward.pipe_close",
+		"terminal.create", "terminal.input", "terminal.resize", "terminal.close", "terminal.list",
+		"terminal.attach", "terminal.detach", "terminal.subscribe", "terminal.unsubscribe",
 	}
 	servedEvents = []string{"git.changed", "fs.change", "project.changed",
 		"chats.appended", "chats.streaming", "chats.changed", "chats.attention", "chats.removed",
-		"forward.pipe_data", "forward.pipe_closed", "project.changed"}
+		"forward.pipe_data", "forward.pipe_closed", "project.changed",
+		"terminal.output", "terminal.exit", "terminal.changed"}
 )
 
 // The phone's local handlers answer with the host's own shapes.
