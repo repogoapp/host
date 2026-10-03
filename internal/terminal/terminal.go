@@ -114,11 +114,20 @@ func New(paths files.Container, emit *emit.Emitter, log *slog.Logger) *Manager {
 }
 
 // LoginShell is the user's own shell, which is what their terminal would run.
+// Containers often start the host without SHELL and without zsh, so it falls
+// back to the first shell on PATH.
 func LoginShell() string {
 	if shell := os.Getenv("SHELL"); shell != "" {
-		return shell
+		if _, err := os.Stat(shell); err == nil {
+			return shell
+		}
 	}
-	return "/bin/zsh"
+	for _, name := range []string{"zsh", "bash", "sh"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	return "/bin/sh"
 }
 
 // Create starts a shell in a project directory and attaches the caller.

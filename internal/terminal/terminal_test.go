@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -168,5 +169,16 @@ func TestCloseEndsTheSessionAndAnnouncesIt(t *testing.T) {
 	}
 	if err := m.Input(info.SessionID, []byte("x")); err == nil {
 		t.Fatal("a closed session still accepted input")
+	}
+}
+
+// A container can start the host with SHELL unset or naming a shell it lacks.
+func TestLoginShellFallsBackToAShellThatExists(t *testing.T) {
+	for _, value := range []string{"", "/nonexistent/zsh"} {
+		t.Setenv("SHELL", value)
+		shell := terminal.LoginShell()
+		if _, err := os.Stat(shell); err != nil {
+			t.Fatalf("SHELL=%q: LoginShell() = %q, which doesn't exist", value, shell)
+		}
 	}
 }
