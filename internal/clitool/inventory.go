@@ -371,9 +371,17 @@ func (in *Inventory) Update(ctx context.Context, kind string) UpdateResult {
 	}
 	// Told even when it failed: a half-run package manager may have moved the CLI.
 	defer in.changed()
+	t, _ := in.Lookup(kind)
 	if current.UpdateCommand == "" {
-		t, _ := in.Lookup(kind)
 		return in.fetchRelease(ctx, t, res)
+	}
+	// npm can't replace a package in a folder this user can't write (a sudo
+	// install); it fails with only an exit code, so say what to run instead.
+	if dir := npmGlobalDir(current.Path); current.Manager == "npm" && dir != "" && !writable(dir) {
+		npm := filepath.Join(dir, "..", "..", "bin", "npm")
+		res.Error = current.Name + " is installed in " + dir + ", which only sudo can change. Update it in Terminal: sudo " +
+			filepath.Clean(npm) + " install -g " + t.Spec.Pkg + "@latest"
+		return res
 	}
 	res.Ran = current.UpdateCommand
 
@@ -443,8 +451,48 @@ func (in *Inventory) runLocked(ctx context.Context, res *UpdateResult, name stri
 	res.Output = tail(string(out), 40)
 	if err != nil {
 		res.Error = err.Error()
+		if line := failureLine(string(out)); line != "" {
+			res.Error += ": " + line
+		}
 		return false
 	}
+	return true
+}
+
+// failureLine is the line of a failed command's output that says why: the
+// first "Error:" line, since npm follows it with a stack and advice, else the last.
+func failureLine(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for _, line := range lines {
+		if _, reason, ok := strings.Cut(line, "Error: "); ok {
+			return strings.TrimSpace(reason)
+		}
+	}
+	return strings.TrimSpace(strings.TrimPrefix(lines[len(lines)-1], "npm error"))
+}
+
+// npmGlobalDir is the node_modules folder an npm-installed binary resolves
+// into, which a global update rewrites; "" when it isn't in one.
+func npmGlobalDir(path string) string {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return ""
+	}
+	slashed := filepath.ToSlash(real)
+	i := strings.Index(slashed, "/lib/node_modules/")
+	if i < 0 {
+		return ""
+	}
+	return filepath.FromSlash(slashed[:i+len("/lib/node_modules")])
+}
+
+func writable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".repogo-write-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(f.Name())
 	return true
 }
 
