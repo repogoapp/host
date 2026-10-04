@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/repogo/host/internal/agent"
@@ -84,6 +85,28 @@ func run(ctx context.Context, log *slog.Logger, port int, relayURL string, self 
 	return nil
 }
 
+// projectsDir is ~/RepoGo as the disk spells it. A case-insensitive volume
+// opens ~/repogo under either name, but agents record the real spelling as a
+// chat's cwd, and a project under the other one would match none of its chats.
+func projectsDir(home string) string {
+	const name = "RepoGo"
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		return filepath.Join(home, name)
+	}
+	for _, entry := range entries {
+		if entry.Name() == name {
+			return filepath.Join(home, name)
+		}
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.EqualFold(entry.Name(), name) {
+			return filepath.Join(home, entry.Name())
+		}
+	}
+	return filepath.Join(home, name)
+}
+
 // hostConfig is the production host: the user's own state, home and agents.
 func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restarter) (host.Config, error) {
 	home, err := os.UserHomeDir()
@@ -103,7 +126,7 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 	return host.Config{
 		State: state, Home: home, Attachments: attachments,
 		// Visible in the user's home rather than under a dotfile: it holds their source.
-		Projects: filepath.Join(home, "RepoGo"),
+		Projects: projectsDir(home),
 		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relayURL,
 		Label:   device.Label(),
 		Gateway: gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
