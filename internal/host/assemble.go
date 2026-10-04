@@ -312,7 +312,8 @@ func (h *Host) openWorkspace() error {
 		vercel.Tool(), cloudflare.Tool(), fly.Tool())
 	s.CloudProjects = cloudprojects.New(projectFiles, s.Tools.Ready)
 	s.CloudEnv = cloudenv.New()
-	s.ProjectSync = projectsync.New(projectFiles, h.db, gh.Checkouts(), h.projectsChanged, h.log)
+	s.Projects = project.New(projectFiles, h.db)
+	s.ProjectSync = projectsync.New(projectFiles, h.db, s.Projects, gh.Checkouts(), h.projectsChanged, h.log)
 	// Every commit that moves a chat row reaches the devices, and may move its
 	// project's activity, which projectsync re-reads a settle later. Earlier
 	// writes (the queue restored at start) had no device to reach yet.
@@ -320,7 +321,6 @@ func (h *Host) openWorkspace() error {
 		h.announcer.Announce(c)
 		s.ProjectSync.Nudge()
 	})
-	s.Projects = project.New(projectFiles, h.db)
 	s.Git, s.Watch = gitService, h.watch
 	s.Terminals = terminals
 	s.Actions = acts

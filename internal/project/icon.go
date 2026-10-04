@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/repogo/host/internal/files"
 )
@@ -80,10 +81,13 @@ type Repos interface {
 type Service struct {
 	files *files.Service
 	repos Repos
+
+	mu     sync.Mutex
+	hashes map[string]iconHash // by project root; see IconHash
 }
 
 func New(files *files.Service, repos Repos) *Service {
-	return &Service{files: files, repos: repos}
+	return &Service{files: files, repos: repos, hashes: map[string]iconHash{}}
 }
 
 // DetectIcon returns the best conventional project icon without walking the
@@ -105,7 +109,7 @@ func (s *Service) DetectIcon(ctx context.Context, path, ifNoneMatch string) (Res
 		remote = owner + "/" + name
 	}
 
-	hit := detect(root)
+	hit, _ := detect(root)
 	if hit == nil {
 		return Result{Remote: remote}, nil
 	}
@@ -133,7 +137,11 @@ func (s *Service) DetectIcon(ctx context.Context, path, ifNoneMatch string) (Res
 
 type hit struct{ path, source string }
 
-func detect(root string) *hit {
+// detect picks the project's icon, and reports every file it looked at, as
+// paths under root: the icon's content and every candidate's size can change
+// the answer, so IconHash fingerprints them.
+func detect(root string) (*hit, []string) {
+	var read []string
 	// Each map is a file name to its shortest path under root.
 	icons := map[string]string{}
 	manifests := map[string]string{}
@@ -177,6 +185,7 @@ func detect(root string) *hit {
 				continue
 			}
 			rel := relPath(dir, name)
+			read = append(read, rel)
 			if slices.Contains(manifestNames, name) {
 				record(manifests, name, rel)
 				continue
@@ -208,12 +217,13 @@ func detect(root string) *hit {
 				continue
 			}
 			rel := relPath(entry.dir, name)
+			read = append(read, rel)
 			if fileFits(filepath.Join(root, filepath.FromSlash(rel)), iconMaxBytes) {
 				record(icons, name, rel)
 			}
 		}
 	}
-	return choose(icons, parsed)
+	return choose(icons, parsed), read
 }
 
 func relPath(dir, name string) string {

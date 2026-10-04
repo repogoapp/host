@@ -30,11 +30,14 @@ type Project struct {
 	RepoOwner string `json:"repo_owner"`
 	RepoName  string `json:"repo_name"`
 
-	Kind          ProjectKind `json:"kind"`
-	DiffAvailable bool        `json:"diff_available"`
-	FilesChanged  int         `json:"files_changed"`
-	Additions     int         `json:"additions"`
-	Deletions     int         `json:"deletions"`
+	Kind ProjectKind `json:"kind"`
+	// The project icon's content hash, "" when it has none: a device fetches
+	// the icon (project.detect_icon) only when this differs from the one it holds.
+	IconHash      string `json:"icon_hash"`
+	DiffAvailable bool   `json:"diff_available"`
+	FilesChanged  int    `json:"files_changed"`
+	Additions     int    `json:"additions"`
+	Deletions     int    `json:"deletions"`
 
 	// When this project was last worked in: its chats' newest activity_at, or
 	// the folder's mtime. The client orders by this; a stored position would
@@ -145,7 +148,7 @@ func (s *Store) Activity() (map[string]Activity, error) {
 // projectSelect reads project rows with the user's marks on them; callers
 // append the WHERE and ORDER BY.
 const projectSelect = `SELECT p.path, p.chat_count, p.activity_at, p.last_message_at, p.repo_owner, p.repo_name, p.kind,
-	p.diff_available, p.files_changed, p.additions, p.deletions, m.name, m.pinned_at
+	p.icon_hash, p.diff_available, p.files_changed, p.additions, p.deletions, m.name, m.pinned_at
 	FROM projects p LEFT JOIN state.project_marks m ON m.path = p.path `
 
 func (s *Store) projects(clauses string, args ...any) ([]Project, error) {
@@ -160,7 +163,7 @@ func (s *Store) projects(clauses string, args ...any) ([]Project, error) {
 		var p Project
 		var name *string
 		if err := rows.Scan(&p.Path, &p.ChatCount, &p.ActivityAt, &p.LastMessageAt,
-			&p.RepoOwner, &p.RepoName, &p.Kind, &p.DiffAvailable, &p.FilesChanged, &p.Additions, &p.Deletions,
+			&p.RepoOwner, &p.RepoName, &p.Kind, &p.IconHash, &p.DiffAvailable, &p.FilesChanged, &p.Additions, &p.Deletions,
 			&name, &p.PinnedAt); err != nil {
 			return nil, err
 		}
@@ -210,23 +213,24 @@ func (s *Store) SyncProjects(rows []Project) (ProjectChange, error) {
 			}
 			if was.ChatCount == row.ChatCount && was.ActivityAt == row.ActivityAt && was.LastMessageAt == row.LastMessageAt &&
 				was.RepoOwner == row.RepoOwner && was.RepoName == row.RepoName &&
-				was.Kind == row.Kind {
+				was.Kind == row.Kind && was.IconHash == row.IconHash {
 				continue
 			}
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO projects
-			   (path, chat_count, activity_at, last_message_at, repo_owner, repo_name, kind)
-			 VALUES (?,?,?,?,?,?,?)
+			   (path, chat_count, activity_at, last_message_at, repo_owner, repo_name, kind, icon_hash)
+			 VALUES (?,?,?,?,?,?,?,?)
 			 ON CONFLICT(path) DO UPDATE SET
 			   chat_count = excluded.chat_count,
 			   activity_at = excluded.activity_at,
 			   last_message_at = excluded.last_message_at,
 			   repo_owner = excluded.repo_owner,
 			   repo_name  = excluded.repo_name,
-			   kind       = excluded.kind`,
+			   kind       = excluded.kind,
+			   icon_hash  = excluded.icon_hash`,
 			row.Path, row.ChatCount, row.ActivityAt, row.LastMessageAt,
-			row.RepoOwner, row.RepoName, row.Kind); err != nil {
+			row.RepoOwner, row.RepoName, row.Kind, row.IconHash); err != nil {
 			return ProjectChange{}, err
 		}
 		changed = append(changed, row.Path)

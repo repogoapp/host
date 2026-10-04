@@ -63,7 +63,7 @@ func BenchmarkLocalRefresh(b *testing.B) {
 	icons := project.New(projectFiles, db)
 
 	start = time.Now()
-	New(projectFiles, db, checkouts, ignore, logger).Once(ctx)
+	New(projectFiles, db, icons, checkouts, ignore, logger).Once(ctx)
 	b.Logf("seed projectsync: %v", time.Since(start))
 
 	entries, err := projectFiles.Projects()
@@ -97,14 +97,27 @@ func BenchmarkLocalRefresh(b *testing.B) {
 		}
 	})
 	b.Run("projects-warm", func(b *testing.B) {
-		s := New(projectFiles, db, checkouts, ignore, logger)
+		s := New(projectFiles, db, icons, checkouts, ignore, logger)
 		for i := 0; i < b.N; i++ {
 			s.Once(ctx)
 		}
 		b.ReportMetric(float64(unknown), "origin-reads/op")
 	})
+	// What the icon hashes add to a warm pass: the same pass with none.
+	b.Run("projects-warm-no-icons", func(b *testing.B) {
+		s := New(projectFiles, db, noIcons{}, checkouts, ignore, logger)
+		for i := 0; i < b.N; i++ {
+			s.Once(ctx)
+		}
+	})
+	// A host's first pass after it starts, when no icon is cached yet.
+	b.Run("projects-icons-cold", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			New(projectFiles, db, project.New(projectFiles, db), checkouts, ignore, logger).Once(ctx)
+		}
+	})
 	b.Run("projects-cold", func(b *testing.B) {
-		s := New(projectFiles, forgetful{db}, checkouts, ignore, logger)
+		s := New(projectFiles, forgetful{db}, icons, checkouts, ignore, logger)
 		for i := 0; i < b.N; i++ {
 			s.Once(ctx)
 		}

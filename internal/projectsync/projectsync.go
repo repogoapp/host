@@ -28,10 +28,17 @@ type Cache interface {
 	KnownRepos() (map[string]bool, error)
 }
 
+// Icons is the project service, narrowed to the icon hash each row carries.
+// It is handed the lister's own paths.
+type Icons interface {
+	IconHash(path string) string
+}
+
 type Syncer struct {
-	list Lister
-	db   Cache
-	log  *slog.Logger
+	list  Lister
+	db    Cache
+	icons Icons
+	log   *slog.Logger
 
 	// checkouts is the one directory this host creates worktrees in. It is
 	// what separates a worktree we made for a chat from one the user made by
@@ -45,8 +52,8 @@ type Syncer struct {
 	nudge   chan struct{}
 }
 
-func New(list Lister, db Cache, checkouts string, changed func(store.ProjectChange), log *slog.Logger) *Syncer {
-	return &Syncer{list: list, db: db, checkouts: checkouts, changed: changed, nudge: make(chan struct{}, 1), log: log}
+func New(list Lister, db Cache, icons Icons, checkouts string, changed func(store.ProjectChange), log *slog.Logger) *Syncer {
+	return &Syncer{list: list, db: db, icons: icons, checkouts: checkouts, changed: changed, nudge: make(chan struct{}, 1), log: log}
 }
 
 // Announce tells devices about rows a pass did not move: the user's own
@@ -128,6 +135,7 @@ func (s *Syncer) Once(ctx context.Context) store.ProjectChange {
 			ActivityAt:    activity[entry.Path].ActivityAt,
 			LastMessageAt: activity[entry.Path].LastMessageAt,
 			Kind:          kindOf(entry.Path, s.checkouts),
+			IconHash:      s.icons.IconHash(entry.Path),
 		}
 		// Left empty when it is already known: SyncProjects carries the stored
 		// value forward, so a pass that did not look cannot erase what an

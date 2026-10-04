@@ -16,7 +16,7 @@ func TestANudgeTellsTheMovedRows(t *testing.T) {
 	db := &recorded{}
 	var mu sync.Mutex
 	var told []store.ProjectChange
-	s := New(listed{"/tmp/p"}, db, "", func(c store.ProjectChange) {
+	s := New(listed{"/tmp/p"}, db, noIcons{}, "", func(c store.ProjectChange) {
 		mu.Lock()
 		told = append(told, c)
 		mu.Unlock()

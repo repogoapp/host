@@ -114,6 +114,11 @@ func (r *recorded) SyncProjects(rows []store.Project) (store.ProjectChange, erro
 // ignore is a changed hook that hears nothing.
 func ignore(store.ProjectChange) {}
 
+// noIcons is a project service whose projects have no icon.
+type noIcons struct{}
+
+func (noIcons) IconHash(string) string { return "" }
+
 // A plain folder names no repository, even inside a checkout whose origin git
 // would otherwise report for it.
 func TestAPlainFolderInsideARepoHasNoRepository(t *testing.T) {
@@ -130,7 +135,7 @@ func TestAPlainFolderInsideARepoHasNoRepository(t *testing.T) {
 	mkdir(t, notes)
 
 	db := &recorded{}
-	New(listed{notes}, db, "", ignore, slog.New(slog.DiscardHandler)).Once(context.Background())
+	New(listed{notes}, db, noIcons{}, "", ignore, slog.New(slog.DiscardHandler)).Once(context.Background())
 	if len(db.rows) != 1 || db.rows[0].Kind != store.ProjectFolder || db.rows[0].RepoOwner != "" || db.rows[0].RepoName != "" {
 		t.Errorf("rows = %+v, want one folder with no repository", db.rows)
 	}

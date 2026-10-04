@@ -136,6 +136,9 @@ CREATE TABLE projects (
 
   -- clone | managed | worktree | folder; see projectsync.kindOf.
   kind       TEXT NOT NULL DEFAULT 'folder',
+  -- project.detect_icon's content_hash, '' for no icon, so a device fetches an
+  -- icon only when this moves.
+  icon_hash  TEXT NOT NULL DEFAULT '',
   diff_available INTEGER NOT NULL DEFAULT 0,
   files_changed INTEGER NOT NULL DEFAULT 0,
   additions INTEGER NOT NULL DEFAULT 0,

@@ -6,6 +6,7 @@
       "repo_owner": "repo_owner",
       "repo_name": "repo_name",
       "kind": "kind",
+      "icon_hash": "icon_hash",
       "diff_available": true,
       "files_changed": 1,
       "additions": 1,

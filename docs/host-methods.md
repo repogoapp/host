@@ -1395,6 +1395,7 @@ Result:
 - `repo_owner` string
 - `repo_name` string
 - `kind` string
+- `icon_hash` string
 - `diff_available` bool
 - `files_changed` int
 - `additions` int
@@ -1419,6 +1420,7 @@ Result:
 - `repo_owner` string
 - `repo_name` string
 - `kind` string
+- `icon_hash` string
 - `diff_available` bool
 - `files_changed` int
 - `additions` int
