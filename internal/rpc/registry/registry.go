@@ -160,7 +160,8 @@ func New(cfg Config) (*rpc.Router, error) {
 	devices.Register(r, devices.Deps{Store: cfg.Devices})
 	pairing.Register(r, pairing.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr})
 	fsrpc.Register(r, fsrpc.Deps{Files: cfg.Files, Watch: cfg.Watch})
-	syncrpc.Register(r, syncrpc.Deps{Self: cfg.Devices.Identity().ID, Mirror: cfg.Store, ModelLabel: cfg.AgentCatalog.ModelLabel})
+	syncrpc.Register(r, syncrpc.Deps{Self: cfg.Devices.Identity().ID, Mirror: cfg.Store, ModelLabel: cfg.AgentCatalog.ModelLabel,
+		Imported: cfg.Chats.Imported})
 	projectrpc.Register(r, projectrpc.Deps{
 		Projects: cfg.Projects, Self: cfg.Devices.Identity().ID, Store: cfg.Store, Sync: cfg.ProjectSync,
 	})

@@ -18,6 +18,9 @@ type Deps struct {
 	Mirror *store.Store
 	// ModelLabel names each row's model for the phone, as chats.list does.
 	ModelLabel func(agent.Kind, string) string
+	// Imported waits for the cache's first sweep: a pull from a cache rebuilt
+	// at startup would otherwise read as most chats deleted.
+	Imported func(context.Context) error
 }
 
 // Remote-reachable. Every chat mirrored is one chats.* would already serve.
@@ -25,7 +28,10 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "sync.pull", d.pull)
 }
 
-func (d Deps) pull(_ context.Context, _ rpc.Caller, a store.PullRequest) (store.PullReply, error) {
+func (d Deps) pull(ctx context.Context, _ rpc.Caller, a store.PullRequest) (store.PullReply, error) {
+	if err := d.Imported(ctx); err != nil {
+		return store.PullReply{}, err
+	}
 	reply, err := d.Mirror.Pull(a, string(d.Self))
 	for i := range reply.Upsert {
 		reply.Upsert[i].Stamp(string(d.Self), d.ModelLabel)

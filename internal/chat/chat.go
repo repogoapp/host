@@ -58,6 +58,9 @@ type Service struct {
 	d Deps
 }
 
+// Imported waits for the chat cache's first sweep since the host started.
+func (s *Service) Imported(ctx context.Context) error { return s.d.Sync.Imported(ctx) }
+
 // New refuses Deps with a field unset rather than failing on first use.
 func New(d Deps) (*Service, error) {
 	var missing []string

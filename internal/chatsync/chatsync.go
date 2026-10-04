@@ -26,15 +26,40 @@ type Syncer struct {
 	// race each other's writes.
 	mu   sync.Mutex
 	wake chan struct{}
+
+	// Closed when a first sweep ends: until then a cache rebuilt at startup
+	// holds only some of the chats.
+	imported     chan struct{}
+	importedOnce sync.Once
 }
 
 func New(sessions *session.Store, db *store.Store, log *slog.Logger) *Syncer {
-	return &Syncer{sessions: sessions, db: db, log: log, wake: make(chan struct{}, 1)}
+	return &Syncer{sessions: sessions, db: db, log: log, wake: make(chan struct{}, 1), imported: make(chan struct{})}
 }
+
+// Imported returns once a sweep has finished since the host started, running
+// one if none has (after Run's, a stat per session), so a pull from a cache
+// rebuilt at startup doesn't read the chats not yet imported as deleted.
+func (s *Syncer) Imported(ctx context.Context) error {
+	select {
+	case <-s.imported:
+		return nil
+	default:
+	}
+	s.Once(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.markImported()
+	return nil
+}
+
+func (s *Syncer) markImported() { s.importedOnce.Do(func() { close(s.imported) }) }
 
 // Run handles hook-triggered syncs, with startup and periodic sweeps for recovery.
 func (s *Syncer) Run(ctx context.Context) {
 	s.Once(ctx)
+	s.markImported()
 
 	ticker := time.NewTicker(resweep)
 	defer ticker.Stop()

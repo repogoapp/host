@@ -194,3 +194,33 @@ func TestObserveTurnKeepsTheStartTitleInTheTranscript(t *testing.T) {
 		}
 	}
 }
+
+// A pull waits for a first sweep: before it, a cache rebuilt at startup holds
+// only some chats, and a device would take the rest for deleted. With no sweep
+// run yet, Imported runs one.
+func TestImportedSweepsFirst(t *testing.T) {
+	home := t.TempDir()
+	writeSession(t, home, "first", "hello")
+	db, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	syncer := New(session.NewStore(claude.NewSessions(filepath.Join(home, ".claude"))), db, slog.Default())
+
+	if err := syncer.Imported(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Info("claude:first"); err != nil {
+		t.Fatalf("Imported returned before a sweep wrote the chat: %v", err)
+	}
+
+	// Once imported, a later chat waits for its own sweep, not this one.
+	writeSession(t, home, "second", "later")
+	if err := syncer.Imported(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Info("claude:second"); err == nil {
+		t.Fatal("Imported swept again after the first")
+	}
+}
