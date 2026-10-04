@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -248,6 +249,11 @@ func (h *Host) Start() {
 // shutdownGrace bounds how long Close waits for loopback requests in flight.
 const shutdownGrace = 5 * time.Second
 
+// stopGrace bounds how long Close waits for workers once their context ends.
+// One stuck in a call that cannot be cancelled must not keep an update from
+// restarting the host.
+const stopGrace = 20 * time.Second
+
 // Close stops admitting devices, cancels the host's context, waits for every
 // owned worker, and only then releases what they use, newest first. Safe to
 // call more than once and after a failed New.
@@ -261,7 +267,11 @@ func (h *Host) Close() {
 			cancel()
 		}
 		h.cancel()
-		h.workers.Wait()
+		if !waitWithin(&h.workers, stopGrace) {
+			// What they use stays open under them; the process is about to end.
+			h.log.Error("workers did not stop; leaving them to the exit", "grace", stopGrace, "goroutines", goroutines())
+			return
+		}
 		for i := len(h.closers) - 1; i >= 0; i-- {
 			h.closers[i]()
 		}
@@ -290,4 +300,28 @@ func (h *Host) toEveryPhone(ev emit.Event) int {
 		sent++
 	}
 	return sent
+}
+
+// waitWithin waits for wg, and reports false if d passes first.
+func waitWithin(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+// goroutines is every goroutine's stack, grouped, for the log of a stop that hung.
+func goroutines() string {
+	var b strings.Builder
+	_ = pprof.Lookup("goroutine").WriteTo(&b, 1)
+	return b.String()
 }

@@ -259,6 +259,15 @@ func (s *Store) SyncProjects(rows []Project) (ProjectChange, error) {
 	return out, nil
 }
 
+// ProjectsAt is the stored rows for paths, in no order; a path with no row is
+// left out.
+func (s *Store) ProjectsAt(paths []string) ([]Project, error) {
+	if len(paths) == 0 {
+		return []Project{}, nil
+	}
+	return s.projects(`WHERE p.path IN (`+marks(len(paths))+`)`, anys(paths)...)
+}
+
 // KnownRepos is the set of project paths that already have a repository, so a
 // pass can skip reading their origin.
 func (s *Store) KnownRepos() (map[string]bool, error) {

@@ -17,7 +17,7 @@ type Deps struct {
 	// Self stamps every listed project, because a phone holds more than one host's.
 	Self  device.ID
 	Store *store.Store
-	// Sync recomputes the project set; a failed pass answers from what is stored.
+	// Sync recomputes the project set; a list asks it for a pass.
 	Sync *projectsync.Syncer
 }
 
@@ -51,10 +51,10 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "project.pin", d.pin)
 }
 
-func (d Deps) list(ctx context.Context, _ rpc.Caller, _ rpc.None) (ListResult, error) {
-	// A project that appeared a moment ago is not in the table until the sweep
-	// runs, and listing is exactly when a client asks what changed.
-	d.Sync.Once(ctx)
+func (d Deps) list(_ context.Context, _ rpc.Caller, _ rpc.None) (ListResult, error) {
+	// Answers from the table rather than waiting on a sweep, which reads every
+	// project folder; a project that appeared since arrives as project.changed.
+	d.Sync.Nudge()
 	projects, err := d.Store.ListProjects(string(d.Self))
 	return ListResult{Projects: projects}, err
 }

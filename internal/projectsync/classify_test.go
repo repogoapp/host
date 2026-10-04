@@ -106,6 +106,7 @@ type recorded struct{ rows []store.Project }
 
 func (*recorded) Activity() (map[string]store.Activity, error) { return nil, nil }
 func (*recorded) KnownRepos() (map[string]bool, error)         { return nil, nil }
+func (*recorded) ProjectsAt([]string) ([]store.Project, error) { return nil, nil }
 func (r *recorded) SyncProjects(rows []store.Project) (store.ProjectChange, error) {
 	r.rows = rows
 	return store.ProjectChange{Changed: rows}, nil
@@ -135,7 +136,7 @@ func TestAPlainFolderInsideARepoHasNoRepository(t *testing.T) {
 	mkdir(t, notes)
 
 	db := &recorded{}
-	New(listed{notes}, db, noIcons{}, "", ignore, slog.New(slog.DiscardHandler)).Once(context.Background())
+	New(listed{notes}, db, noIcons{}, "", "", ignore, slog.New(slog.DiscardHandler)).Once(context.Background())
 	if len(db.rows) != 1 || db.rows[0].Kind != store.ProjectFolder || db.rows[0].RepoOwner != "" || db.rows[0].RepoName != "" {
 		t.Errorf("rows = %+v, want one folder with no repository", db.rows)
 	}

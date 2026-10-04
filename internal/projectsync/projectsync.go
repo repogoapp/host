@@ -4,8 +4,10 @@
 package projectsync
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 
@@ -26,6 +28,10 @@ type Cache interface {
 	// KnownRepos is which projects already have a repository recorded, so a
 	// pass only pays for the ones it does not know.
 	KnownRepos() (map[string]bool, error)
+
+	// ProjectsAt is the stored rows for paths, which a pass carries forward
+	// for the folders it could not read.
+	ProjectsAt(paths []string) ([]store.Project, error)
 }
 
 // Icons is the project service, narrowed to the icon hash each row carries.
@@ -45,6 +51,10 @@ type Syncer struct {
 	// hand, and it is why that separation needs nothing recorded.
 	checkouts string
 
+	// access is which folders a pass may read inside without waiting on a
+	// privacy prompt.
+	access *protected
+
 	mu sync.Mutex // one pass at a time; see chatsync for the same reason
 
 	// Told each pass's moved rows, so devices hear them without asking.
@@ -52,8 +62,15 @@ type Syncer struct {
 	nudge   chan struct{}
 }
 
-func New(list Lister, db Cache, icons Icons, checkouts string, changed func(store.ProjectChange), log *slog.Logger) *Syncer {
-	return &Syncer{list: list, db: db, icons: icons, checkouts: checkouts, changed: changed, nudge: make(chan struct{}, 1), log: log}
+func New(list Lister, db Cache, icons Icons, checkouts, home string, changed func(store.ProjectChange), log *slog.Logger) *Syncer {
+	access := newProtected(runtime.GOOS, home)
+	access.stuck = func(root string) {
+		log.Warn("projectsync: not reading inside a folder until macOS allows it", "folder", root)
+	}
+	return &Syncer{
+		list: list, db: db, icons: icons, checkouts: checkouts, access: access,
+		changed: changed, nudge: make(chan struct{}, 1), log: log,
+	}
 }
 
 // Announce tells devices about rows a pass did not move: the user's own
@@ -74,8 +91,10 @@ func (s *Syncer) Nudge() {
 	}
 }
 
-// Run makes a pass a settle after each nudge until ctx ends.
+// Run makes a pass at start, then one a settle after each nudge, until ctx
+// ends. project.list reads the table this keeps, so the first pass fills it.
 func (s *Syncer) Run(ctx context.Context) {
+	s.Once(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -121,6 +140,7 @@ func (s *Syncer) Once(ctx context.Context) store.ProjectChange {
 	}
 
 	rows := make([]store.Project, 0, len(entries))
+	var unread []int
 	// One row per path, keeping the first: symlinked roots (/tmp, /private/tmp)
 	// land on the same project, and a duplicate would be rewritten every pass.
 	seen := make(map[string]bool, len(entries))
@@ -129,6 +149,17 @@ func (s *Syncer) Once(ctx context.Context) store.ProjectChange {
 			continue
 		}
 		seen[entry.Path] = true
+		if !s.access.readable(entry.Path) {
+			unread = append(unread, len(rows))
+			rows = append(rows, store.Project{
+				Path:          entry.Path,
+				ChatCount:     activity[entry.Path].Chats,
+				ActivityAt:    cmp.Or(activity[entry.Path].ActivityAt, entry.ModTime),
+				LastMessageAt: activity[entry.Path].LastMessageAt,
+				Kind:          store.ProjectFolder,
+			})
+			continue
+		}
 		row := store.Project{
 			Path:          entry.Path,
 			ChatCount:     activity[entry.Path].Chats,
@@ -151,6 +182,8 @@ func (s *Syncer) Once(ctx context.Context) store.ProjectChange {
 		rows = append(rows, row)
 	}
 
+	s.carryForward(rows, unread)
+
 	change, err := s.db.SyncProjects(rows)
 	if err != nil {
 		s.log.Warn("projectsync: could not write projects", "err", err)
@@ -160,4 +193,33 @@ func (s *Syncer) Once(ctx context.Context) store.ProjectChange {
 		s.changed(change)
 	}
 	return change
+}
+
+// carryForward keeps what an earlier pass found inside the folders this one
+// could not read: their kind, repository and icon stay as stored.
+func (s *Syncer) carryForward(rows []store.Project, unread []int) {
+	if len(unread) == 0 {
+		return
+	}
+	paths := make([]string, len(unread))
+	for i, at := range unread {
+		paths[i] = rows[at].Path
+	}
+	stored, err := s.db.ProjectsAt(paths)
+	if err != nil {
+		s.log.Debug("projectsync: no stored rows to carry forward", "err", err)
+		return
+	}
+	byPath := make(map[string]store.Project, len(stored))
+	for _, p := range stored {
+		byPath[p.Path] = p
+	}
+	for _, at := range unread {
+		was, ok := byPath[rows[at].Path]
+		if !ok {
+			continue
+		}
+		rows[at].Kind, rows[at].IconHash = was.Kind, was.IconHash
+		rows[at].RepoOwner, rows[at].RepoName = was.RepoOwner, was.RepoName
+	}
 }
