@@ -125,8 +125,10 @@ func TestRecordingID(t *testing.T) {
 		toolRow(t, "tool_result", agent.ToolCall{CallID: "c", Output: `{"ok":true,"recordingId":"rec-1"}`}),
 		toolRow(t, "tool_result", agent.ToolCall{CallID: "d", Output: "no recording here"}),
 		toolRow(t, "tool_result", agent.ToolCall{CallID: "e", Output: "recordingId mentioned in prose"}),
+		toolRow(t, "tool_result", agent.ToolCall{CallID: "f", Output: "Script completed\nWall time 0.3 seconds\nOutput:\n" +
+			`{"content":[{"type":"text","text":"{\n  \"action\": \"navigate\",\n  \"recordingId\": \"rec-2\"\n}"}]}`}),
 	})
-	for i, want := range []string{"rec-1", "", ""} {
+	for i, want := range []string{"rec-1", "", "", "rec-2"} {
 		if got := rows[i].Tool.RecordingID; got != want {
 			t.Errorf("row %d: recording %q, want %q", i, got, want)
 		}

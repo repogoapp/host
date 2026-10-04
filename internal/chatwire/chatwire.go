@@ -267,20 +267,34 @@ func state(kind agent.EventKind, call agent.ToolCall) State {
 	return StateCompleted
 }
 
-// recordingID is the recording a browser call's output names. Only RepoGo's
-// browser tool reports one, so a result row without its call's name is read
-// the same way.
+// recordingID is the recording a browser call's output names; only RepoGo's
+// browser reports one. A Codex code cell prints the tool's MCP result after
+// its own lines, so the result is read from the first `{`, `content` and all.
 func recordingID(output string) string {
 	if !strings.Contains(output, "recordingId") {
 		return ""
 	}
+	if i := strings.Index(output, "{"); i > 0 {
+		output = output[i:]
+	}
 	var result struct {
 		RecordingID string `json:"recordingId"`
+		Content     []struct {
+			Text string `json:"text"`
+		} `json:"content"`
 	}
 	if json.Unmarshal([]byte(output), &result) != nil {
 		return ""
 	}
-	return result.RecordingID
+	if result.RecordingID != "" {
+		return result.RecordingID
+	}
+	for _, part := range result.Content {
+		if id := recordingID(part.Text); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 // fileName is the name of the file a call's input points at, under any of the
