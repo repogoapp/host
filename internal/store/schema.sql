@@ -105,6 +105,17 @@ CREATE TABLE sync_meta (
   rev_floor INTEGER NOT NULL
 );
 
+-- A chat deleted from this file, at the revision it went, so sync.pull tells
+-- a device by cursor instead of the device sending every id it holds. Kept as
+-- long as the file: a rebuild takes a new epoch, and devices start over.
+CREATE TABLE deleted_sessions (
+  agent      TEXT    NOT NULL,
+  session_id TEXT    NOT NULL,
+  rev        INTEGER NOT NULL,
+  PRIMARY KEY (agent, session_id)
+);
+CREATE INDEX deleted_sessions_rev ON deleted_sessions (rev);
+
 -- Materialized so project.list is one read, and so what a sweep learned (the
 -- repository) and what a watch measured (the diff totals) outlast the call.
 CREATE TABLE projects (

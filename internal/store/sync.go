@@ -315,13 +315,11 @@ func (s *Store) UpdateProjectDiff(path string, available bool, files, additions,
 // round trip for any set that fits, and `more` loops only for one that does not.
 const maxPullBytes = jsonrpc.MaxMessageBytes / 2
 
-// PullRequest asks for one mirrored table's rows past a revision. IDs are what
-// the client holds; deletions are only ever reported from that set.
+// PullRequest asks for one mirrored table's rows and deletions past a revision.
 type PullRequest struct {
-	Family string   `json:"family"`
-	Epoch  string   `json:"epoch"`
-	Since  int64    `json:"since"`
-	IDs    []string `json:"ids"`
+	Family string `json:"family"`
+	Epoch  string `json:"epoch"`
+	Since  int64  `json:"since"`
 }
 
 type PullReply struct {
@@ -348,76 +346,92 @@ func (s *Store) ListProjects(host string) ([]Project, error) {
 	return projects, nil
 }
 
-// Pull answers one mirror request for the "chats" table, each row stamped with
-// host. Rows go out by revision so a capped answer is a prefix of the order the
-// cursor advances through.
+// Pull answers one mirror request for the "chats" table: rows written and chats
+// deleted past the cursor, each row stamped with host, in one revision order,
+// so a capped answer is a prefix the cursor advances through.
 func (s *Store) Pull(req PullRequest, host string) (PullReply, error) {
+	if req.Family != "chats" {
+		return PullReply{}, fmt.Errorf("%w: no synced family %q", ErrInvalid, req.Family)
+	}
 	// An epoch mismatch means the revision counter restarted; everything is new.
 	since := req.Since
 	if req.Epoch != s.epoch {
 		since = 0
 	}
-	var live map[string]bool
-	var upsert []Chat
-	var revs []int64
-	switch req.Family {
-	case "chats":
-		// agent.ChatID's "<agent>:<session_id>".
-		ids, err := s.ids(`SELECT agent || ':' || session_id FROM sessions`)
-		if err != nil {
-			return PullReply{}, err
-		}
-		chats, err := s.queryChats(chatSelect+` WHERE s.rev > ? ORDER BY s.rev`, since)
-		if err != nil {
-			return PullReply{}, err
-		}
-		live = ids
-		for _, c := range chats {
-			c.HostID = host
-			upsert, revs = append(upsert, c), append(revs, c.Rev)
-		}
-	default:
-		return PullReply{}, fmt.Errorf("%w: no synced family %q", ErrInvalid, req.Family)
+	// One transaction, so a deletion committed between the two reads can't
+	// leave a row and its removal on different sides of the cursor.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return PullReply{}, err
+	}
+	defer tx.Rollback()
+	chats, err := readChats(tx, chatSelect+` WHERE s.rev > ? ORDER BY s.rev`, since)
+	if err != nil {
+		return PullReply{}, err
+	}
+	// A chat made again after it was deleted is in sessions, past its deletion.
+	deleted, err := deletedSince(tx, since)
+	if err != nil {
+		return PullReply{}, err
 	}
 
-	// The cut falls on a byte budget; the first row always goes, however large.
+	// The cut falls on a byte budget; the first item always goes, however large.
 	out := PullReply{Epoch: s.epoch, Rev: since, Upsert: []Chat{}, Delete: []string{}}
-	size := 0
-	for i, row := range upsert {
-		b, err := json.Marshal(row)
-		if err != nil {
-			return PullReply{}, err
+	size, c, d := 0, 0, 0
+	for c < len(chats) || d < len(deleted) {
+		takeChat := d == len(deleted) || (c < len(chats) && chats[c].Rev < deleted[d].rev)
+		var bytes int
+		var rev int64
+		if takeChat {
+			chats[c].HostID = host
+			b, err := json.Marshal(chats[c])
+			if err != nil {
+				return PullReply{}, err
+			}
+			bytes, rev = len(b), chats[c].Rev
+		} else {
+			bytes, rev = len(deleted[d].id)+3, deleted[d].rev
 		}
-		if size+len(b) > maxPullBytes && len(out.Upsert) > 0 {
+		if size+bytes > maxPullBytes && (len(out.Upsert) > 0 || len(out.Delete) > 0) {
 			out.More = true
 			break
 		}
-		size += len(b)
-		out.Upsert = append(out.Upsert, row)
-		out.Rev = revs[i]
-	}
-	for _, id := range req.IDs {
-		if !live[id] {
-			out.Delete = append(out.Delete, id)
+		size += bytes
+		out.Rev = rev
+		if takeChat {
+			out.Upsert = append(out.Upsert, chats[c])
+			c++
+		} else {
+			out.Delete = append(out.Delete, deleted[d].id)
+			d++
 		}
 	}
 	return out, nil
 }
 
-// ids is the first column of query: the rows a device's held ids are checked against.
-func (s *Store) ids(query string, args ...any) (map[string]bool, error) {
-	rows, err := s.db.Query(query, args...)
+type deletion struct {
+	id  string
+	rev int64
+}
+
+// deletedSince is every chat deleted past since and not made again, oldest
+// first.
+func deletedSince(db querier, since int64) ([]deletion, error) {
+	rows, err := db.Query(`SELECT d.agent || ':' || d.session_id, d.rev FROM deleted_sessions d
+		WHERE d.rev > ? AND NOT EXISTS (
+			SELECT 1 FROM sessions s WHERE s.agent = d.agent AND s.session_id = d.session_id)
+		ORDER BY d.rev`, since)
 	if err != nil {
-		return nil, fmt.Errorf("store: mirrored ids: %w", err)
+		return nil, fmt.Errorf("store: deleted chats: %w", err)
 	}
 	defer rows.Close()
-	out := map[string]bool{}
+	var out []deletion
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var d deletion
+		if err := rows.Scan(&d.id, &d.rev); err != nil {
 			return nil, err
 		}
-		out[id] = true
+		out = append(out, d)
 	}
 	return out, rows.Err()
 }

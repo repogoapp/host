@@ -31,6 +31,9 @@ func (s *Store) Delete(id ChatID) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("%w: chat %q", ErrNotFound, id)
 	}
+	if err := s.markDeleted(tx, kind, sessionID); err != nil {
+		return err
+	}
 	if err := dropChatState(tx, kind, sessionID); err != nil {
 		return err
 	}
@@ -78,6 +81,9 @@ func (s *Store) Prune(keep map[string]bool) (int, error) {
 		if _, err := tx.Exec(`DELETE FROM sessions WHERE agent = ? AND session_id = ?`, kind, sessionID); err != nil {
 			return 0, err
 		}
+		if err := s.markDeleted(tx, kind, sessionID); err != nil {
+			return 0, err
+		}
 		if err := dropChatState(tx, kind, sessionID); err != nil {
 			return 0, err
 		}
@@ -90,6 +96,14 @@ func (s *Store) Prune(keep map[string]bool) (int, error) {
 	}
 	s.notify(Change{Removed: stale})
 	return len(stale), nil
+}
+
+// markDeleted records the deletion at the next revision, in the delete's
+// transaction, so a device's next pull hears of it.
+func (s *Store) markDeleted(tx *sql.Tx, kind, sessionID string) error {
+	_, err := tx.Exec(`INSERT INTO deleted_sessions (agent, session_id, rev) VALUES (?, ?, ?)
+		ON CONFLICT (agent, session_id) DO UPDATE SET rev = excluded.rev`, kind, sessionID, s.rev.Add(1))
+	return err
 }
 
 // querier is a *sql.DB or a *sql.Tx.

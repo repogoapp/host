@@ -239,7 +239,12 @@ LEFT JOIN state.voice_handles v ON v.agent = s.agent AND v.session_id = s.sessio
 LEFT JOIN state.chat_queues q ON q.chat_id = s.agent || ':' || s.session_id`
 
 func (s *Store) queryChats(query string, args ...any) ([]Chat, error) {
-	rows, err := s.db.Query(query, args...)
+	return readChats(s.db, query, args...)
+}
+
+// readChats is queryChats on a connection or a transaction.
+func readChats(db querier, query string, args ...any) ([]Chat, error) {
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: read chats: %w", err)
 	}

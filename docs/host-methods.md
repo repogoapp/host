@@ -1436,7 +1436,6 @@ Params:
 - `family` string
 - `epoch` string
 - `since` int
-- `ids` [string] (nullable)
 
 Result:
 
