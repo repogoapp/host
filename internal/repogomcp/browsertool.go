@@ -121,6 +121,12 @@ var browserTool = tool{
 	},
 }
 
+// BrowserTool is the browser tool's definition, which the phone's own agents
+// offer as well.
+func BrowserTool() (name, description string, inputSchema map[string]any) {
+	return browserTool.Name, browserTool.Description, browserTool.InputSchema
+}
+
 // browserInput is the tool's arguments as the agent sends them. Pointers are
 // the numbers whose absence means something.
 type browserInput struct {
