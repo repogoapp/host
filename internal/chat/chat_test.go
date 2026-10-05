@@ -1,6 +1,7 @@
 package chat_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -33,6 +34,8 @@ func (r *recorder) Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error) 
 	status, err := r.Send(req)
 	return status, false, err
 }
+
+func (r *recorder) StopChat(context.Context, string) error { return agent.ErrNotFound }
 
 // transcripts is a Transcripts that remembers deletions and serves one subagent.
 type transcripts struct {

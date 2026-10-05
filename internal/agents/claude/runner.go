@@ -50,6 +50,23 @@ func (r *runner) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnI
 	return result, err
 }
 
+// Interrupt stops a turn Claude started by itself between the host's turns,
+// which only the chat's own process can stop.
+func (r *runner) Interrupt(ctx context.Context, chatID string) (bool, error) {
+	s, ok := r.pool.Get(chatID)
+	if !ok {
+		return false, nil
+	}
+	defer r.pool.Release(chatID, s)
+	s.mu.Lock()
+	working := s.working && s.io == nil && !s.closed
+	s.mu.Unlock()
+	if !working {
+		return false, nil
+	}
+	return true, s.client.Interrupt(ctx)
+}
+
 func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*liveSession, error) {
 	epoch := r.pool.Epoch()
 	var servers []agent.MCPServer

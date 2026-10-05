@@ -412,6 +412,16 @@ Result:
 - `turn_id` string
 - `state` string
 
+## `chats.stop`
+
+Params:
+
+- `chat_id` string
+
+Result:
+
+- `ok` bool
+
 ## `chats.subagent`
 
 Params:

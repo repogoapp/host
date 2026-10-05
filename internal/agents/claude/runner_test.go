@@ -172,6 +172,31 @@ func TestDirectRunnerStopAndProcessDeath(t *testing.T) {
 	}
 }
 
+// A turn Claude starts by itself after the host's turn ended, when a
+// background task finishes, is stopped through the chat's own process.
+func TestInterruptStopsATurnClaudeStartedItself(t *testing.T) {
+	r := directTestRunner(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := r.Send(ctx, agent.TurnRequest{ChatID: "new", Cwd: t.TempDir(), Prompt: "hello"}, agent.TurnIO{TurnID: "turn", Emit: func(agent.Event) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatID := agent.ChatID(agent.KindClaude, result.SessionID)
+	if stopped, err := r.Interrupt(ctx, chatID); stopped || err != nil {
+		t.Fatalf("idle session: stopped=%v err=%v", stopped, err)
+	}
+	s, _ := r.pool.Get(chatID)
+	r.pool.Release(chatID, s)
+	feed(t, s, `{"type":"system","subtype":"session_state_changed","state":"running"}`)
+	if stopped, err := r.Interrupt(ctx, chatID); !stopped || err != nil {
+		t.Fatalf("Claude's own turn: stopped=%v err=%v", stopped, err)
+	}
+	if stopped, _ := r.Interrupt(ctx, "claude:unknown"); stopped {
+		t.Fatal("interrupted a chat with no session")
+	}
+}
+
 func boundSession(t *testing.T) (*liveSession, *[]agent.Event, <-chan turnOutcome) {
 	t.Helper()
 	s := newLiveSession("session", t.TempDir())

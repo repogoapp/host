@@ -134,6 +134,7 @@ var unchecked = map[string]string{
 	"chats.resolve":        "needs a chat cache; covered in the chats family suite",
 	"chats.update":         "writes provider files; covered in the chats family suite",
 	"chats.delete":         "removes provider files; covered in the chats family suite",
+	"chats.stop":           "needs a running turn; covered in internal/agent",
 	"chats.handoff":        "opens a terminal window on the Mac; the command is covered in internal/handoff",
 	"chats.subagent":       "needs a session on disk; covered in the session package",
 	"chats.send":           "would run an agent",

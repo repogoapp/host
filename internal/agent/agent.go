@@ -277,6 +277,13 @@ type Steerer interface {
 	Steer(ctx context.Context, turnID string, req TurnRequest) error
 }
 
+// Interrupter is an Adapter whose process for a chat can start a turn of its
+// own between the Manager's turns, such as a reply to a finished background
+// task. Interrupt stops that turn and reports whether one was running.
+type Interrupter interface {
+	Interrupt(ctx context.Context, chatID string) (bool, error)
+}
+
 // Result is what an adapter learned about the turn as a whole.
 type Result struct {
 	SessionID  string

@@ -23,6 +23,7 @@ import (
 type Sender interface {
 	Send(req agent.TurnRequest) (agent.TurnStatus, error)
 	Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error)
+	StopChat(ctx context.Context, chatID string) error
 	List() []agent.TurnStatus
 }
 
@@ -213,6 +214,12 @@ func (s *Service) Send(id store.ChatID, t Turn) (agent.TurnStatus, error) {
 // mid-turn, and otherwise sends it as Send does; steered says which.
 func (s *Service) Steer(id store.ChatID, t Turn) (status agent.TurnStatus, steered bool, err error) {
 	return s.send(id, t, true)
+}
+
+// Stop stops whatever the chat is running on this host, including a turn its
+// agent started without a prompt from a device.
+func (s *Service) Stop(ctx context.Context, id store.ChatID) error {
+	return s.d.Sender.StopChat(ctx, string(id))
 }
 
 func (s *Service) send(id store.ChatID, t Turn, steer bool) (agent.TurnStatus, bool, error) {

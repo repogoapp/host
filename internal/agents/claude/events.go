@@ -19,6 +19,9 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 	s.lastActivity = time.Now()
 	if m.Type == "system" {
 		s.updateTaskLocked(m)
+		if m.Subtype == "session_state_changed" {
+			s.working = m.State == "running"
+		}
 		if m.Subtype == "session_state_changed" && m.State == "running" {
 			s.owedIdle = 0
 		}

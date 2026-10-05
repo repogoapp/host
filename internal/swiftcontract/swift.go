@@ -37,7 +37,7 @@ var methodExports = map[string]bool{
 	"chats.list": true, "chats.info": true, "chats.resolve": true, "chats.update": true,
 	"chats.delete": true, "chats.handoff": true, "sync.pull": true,
 	// A chat's turns, in the order the user acts on them.
-	"chats.send": true, "chats.start": true, "turns.list": true, "turns.get": true, "turns.stop": true,
+	"chats.send": true, "chats.start": true, "turns.list": true, "turns.get": true, "turns.stop": true, "chats.stop": true,
 	"turns.respond": true, "turns.edit_queued": true, "turns.remove_queued": true,
 	"turns.send_queued": true, "chats.queue": true,
 	// Projects and actions.

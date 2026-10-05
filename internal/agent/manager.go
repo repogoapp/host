@@ -406,6 +406,28 @@ var ErrNotQueued = errkind.New(errkind.Invalid, "turn is no longer queued")
 // Stop cancels a running turn or drops a queued one.
 func (m *Manager) Stop(turnID string) error { return m.stop(turnID, false) }
 
+// StopChat stops what a chat is running: the Manager's turn, else a turn the
+// agent started on its own. ErrNotFound means neither is running here.
+func (m *Manager) StopChat(ctx context.Context, chatID string) error {
+	m.mu.Lock()
+	t := m.running[chatID]
+	m.mu.Unlock()
+	if t != nil {
+		return m.Stop(t.snapshot().TurnID)
+	}
+	for _, a := range m.adapters {
+		interrupter, ok := a.(Interrupter)
+		if !ok {
+			continue
+		}
+		stopped, err := interrupter.Interrupt(ctx, chatID)
+		if err != nil || stopped {
+			return err
+		}
+	}
+	return ErrNotFound
+}
+
 // Respond answers a pending approval.
 func (m *Manager) Respond(turnID, callID string, answer json.RawMessage) error {
 	m.mu.Lock()

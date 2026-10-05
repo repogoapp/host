@@ -194,3 +194,50 @@ func TestSteerQueuesForAnAgentThatCannot(t *testing.T) {
 	}
 	m.Stop(second.TurnID)
 }
+
+// interruptingAdapter runs turns until stopped and has a turn of its own
+// running, outside the Manager, in the chats listed in working.
+type interruptingAdapter struct {
+	blockingAdapter
+	working     map[string]bool
+	interrupted chan string
+}
+
+func (a interruptingAdapter) Interrupt(_ context.Context, chatID string) (bool, error) {
+	if !a.working[chatID] {
+		return false, nil
+	}
+	a.interrupted <- chatID
+	return true, nil
+}
+
+// Stop on a chat reaches the Manager's turn first, then a turn the agent
+// started by itself, and says when neither runs here.
+func TestStopChatStopsTheRunningTurnOrTheAgentsOwn(t *testing.T) {
+	adapter := interruptingAdapter{working: map[string]bool{"claude:own": true}, interrupted: make(chan string, 1)}
+	m := NewManager(discard(), quiet(), adapter)
+	ctx := t.Context()
+
+	turn, err := m.Send(TurnRequest{ChatID: "claude:s1", Cwd: t.TempDir(), Agent: KindClaude, Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.StopChat(ctx, "claude:s1"); err != nil {
+		t.Fatal(err)
+	}
+	testwait.For(t, "the turn to stop", func() bool {
+		status, _ := m.Status(turn.TurnID)
+		return status.State == StateStopped
+	})
+
+	if err := m.StopChat(ctx, "claude:own"); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-adapter.interrupted; got != "claude:own" {
+		t.Fatalf("interrupted %q, want claude:own", got)
+	}
+
+	if err := m.StopChat(ctx, "claude:idle"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("idle chat: %v, want ErrNotFound", err)
+	}
+}

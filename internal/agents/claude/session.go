@@ -46,8 +46,11 @@ type liveSession struct {
 	promptEchoed              bool
 	sawText                   bool
 	owedIdle                  int
-	pending                   int
-	consumed                  chan struct{}
+	// working is Claude's own state: true from "running" to "idle", including
+	// a turn it starts by itself when a background task finishes.
+	working  bool
+	pending  int
+	consumed chan struct{}
 }
 
 func newLiveSession(id, cwd string) *liveSession {
