@@ -8,6 +8,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -136,6 +137,19 @@ func (s *Service) Close(slug string) error {
 		return err
 	}
 	s.changed()
+	return nil
+}
+
+// ClosePort closes every tunnel serving port.
+func (s *Service) ClosePort(port int) error {
+	for _, t := range s.List() {
+		if t.Port != port {
+			continue
+		}
+		if err := s.Close(t.Slug); err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
 	return nil
 }
 

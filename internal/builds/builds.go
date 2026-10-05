@@ -126,7 +126,10 @@ type Config struct {
 	Paths files.Container
 	// URLs is the public URL serving each local port: tunnel.Service.URLs.
 	URLs func() map[int]string
-	Log  *slog.Logger
+	// CloseTunnel closes the tunnels serving a port, once an iOS install has
+	// its IPA: tunnel.Service.ClosePort.
+	CloseTunnel func(port int) error
+	Log         *slog.Logger
 }
 
 type Service struct {
@@ -139,6 +142,7 @@ type Service struct {
 	publishing map[string]publishRun
 	runs       sync.WaitGroup
 	server     *server
+	installs   installs
 }
 
 // Open settles builds a stopped host left running and loads the token secret.

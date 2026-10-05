@@ -351,3 +351,18 @@ func TestAllowlistPersistsPrivately(t *testing.T) {
 		t.Fatalf("reloaded %v", got)
 	}
 }
+
+func TestClosePortClosesOnlyThatPort(t *testing.T) {
+	s, _ := newService(t, "127.0.0.1:1", peers{phone: {ID: phone}})
+	for slug, port := range map[string]int{"abcdefghij12": 3000, "abcdefghij34": 3000, "abcdefghij56": 4000} {
+		if _, err := s.Open(phone, slug, port, inAnHour()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.ClosePort(3000); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.List(); len(got) != 1 || got[0].Port != 4000 {
+		t.Fatalf("left %v", got)
+	}
+}

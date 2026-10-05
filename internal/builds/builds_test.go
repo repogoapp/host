@@ -520,3 +520,67 @@ func TestIOSBuildWithoutATeamFailsBeforeArchiving(t *testing.T) {
 		t.Fatalf("build = %+v, want team_not_selected", b)
 	}
 }
+
+// servedIOS is a finished iOS build, its IPA, and a fixture that records tunnel closes.
+func servedIOS(t *testing.T) (*fixture, Build, chan int) {
+	t.Helper()
+	f := newFixture(t)
+	closed := make(chan int, 1)
+	f.cfg.CloseTunnel = func(port int) error { closed <- port; return nil }
+	b := Build{ID: newID(), Platform: PlatformIOS, Project: f.project, Target: "App", Status: StatusSuccess,
+		BundleID: "com.example.demo", Artifacts: []Artifact{{Name: ipaName, SizeBytes: 10}}}
+	mkdir(t, f.dir(b.ID))
+	if err := f.save(b); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(f.dir(b.ID), ipaName), "0123456789", 0o600)
+	if err := f.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	return f, b, closed
+}
+
+func TestAnIPAIsServedOnceThenTheTunnelCloses(t *testing.T) {
+	defer func(d time.Duration) { closeAfter = d }(closeAfter)
+	closeAfter = 0
+	f, b, closed := servedIOS(t)
+	token := url.QueryEscape(f.token(b.ID, time.Now().Add(TokenTTL).Unix()))
+	ipa := "/ota/" + b.ID + "/" + ipaName + "?token=" + token
+	h := f.Handler()
+
+	// A HEAD and a first range leave the link working and the tunnel open.
+	if w := get(h, "HEAD", ipa, nil); w.Code != http.StatusOK {
+		t.Fatalf("HEAD = %d", w.Code)
+	}
+	if w := get(h, "GET", ipa, map[string]string{"Range": "bytes=0-4"}); w.Code != http.StatusPartialContent || w.Body.String() != "01234" {
+		t.Fatalf("first range = %d %q", w.Code, w.Body.String())
+	}
+	select {
+	case port := <-closed:
+		t.Fatalf("closed port %d before the IPA was whole", port)
+	default:
+	}
+	// The range that ends on the last byte spends the link and closes the tunnel.
+	if w := get(h, "GET", ipa, map[string]string{"Range": "bytes=5-"}); w.Code != http.StatusPartialContent || w.Body.String() != "56789" {
+		t.Fatalf("last range = %d %q", w.Code, w.Body.String())
+	}
+	select {
+	case port := <-closed:
+		if port != f.InstallPort() {
+			t.Errorf("closed port %d, want %d", port, f.InstallPort())
+		}
+	case <-time.After(testwait.Timeout):
+		t.Fatal("the tunnel was not closed")
+	}
+	if w := get(h, "GET", ipa, nil); w.Code != http.StatusGone {
+		t.Errorf("second download = %d, want 410", w.Code)
+	}
+	// The manifest and a fresh link still work.
+	if w := get(h, "GET", "/ota/"+b.ID+"/manifest.plist?token="+token, nil); w.Code != http.StatusOK {
+		t.Errorf("manifest = %d", w.Code)
+	}
+	fresh := url.QueryEscape(f.token(b.ID, time.Now().Add(TokenTTL).Unix()+1))
+	if w := get(h, "GET", "/ota/"+b.ID+"/"+ipaName+"?token="+fresh, nil); w.Code != http.StatusOK || w.Body.String() != "0123456789" {
+		t.Errorf("fresh link = %d %q", w.Code, w.Body.String())
+	}
+}

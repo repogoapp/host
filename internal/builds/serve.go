@@ -25,8 +25,8 @@ import (
 // credentials, so every artifact URL carries a token signed here, bound to one
 // build and an expiry. The secret is kept on disk: links survive a restart.
 
-// TokenTTL is how long an install link works.
-const TokenTTL = time.Hour
+// TokenTTL is how long an install link works; installd fetches as soon as Install is tapped.
+const TokenTTL = 10 * time.Minute
 
 // InstallLink is what opens the installer: URL is the itms-services link on
 // iOS or the first APK on Android; PageURL is a web page with an Install button.
@@ -192,8 +192,19 @@ func (s *Service) serveIOS(w http.ResponseWriter, r *http.Request, b Build) {
 	case "manifest.plist":
 		w.Header().Set("Content-Type", "text/xml")
 		fmt.Fprint(w, manifest(b, publicBase(r)+"/ota/"+b.ID, "?token="+url.QueryEscape(r.URL.Query().Get("token"))))
-	case ipaName, "icon-57.png", "icon-512.png":
-		s.serveFile(w, r, filepath.Join(s.dir(b.ID), file))
+	case ipaName:
+		token := r.URL.Query().Get("token")
+		if s.ipaUsed(token) {
+			http.Error(w, "This install link was used. Ask for a new one.", http.StatusGone)
+			return
+		}
+		s.downloadStarted()
+		if serveFile(w, r, filepath.Join(s.dir(b.ID), file)) {
+			s.ipaServed(token)
+		}
+		s.downloadEnded()
+	case "icon-57.png", "icon-512.png":
+		s.download(w, r, filepath.Join(s.dir(b.ID), file))
 	default:
 		http.NotFound(w, r)
 	}
@@ -205,27 +216,30 @@ func (s *Service) serveAPK(w http.ResponseWriter, r *http.Request, b Build) {
 		if b.Platform == PlatformAndroid && a.Name == name && validAPK(name) {
 			w.Header().Set("Content-Type", "application/vnd.android.package-archive")
 			w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-			s.serveFile(w, r, filepath.Join(s.dir(b.ID), name))
+			s.download(w, r, filepath.Join(s.dir(b.ID), name))
 			return
 		}
 	}
 	http.NotFound(w, r)
 }
 
-// serveFile answers Range and HEAD as the installers send them.
-func (s *Service) serveFile(w http.ResponseWriter, r *http.Request, path string) {
+// serveFile answers Range and HEAD as the installers send them, and reports
+// whether a GET carried the file through its last byte.
+func serveFile(w http.ResponseWriter, r *http.Request, path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
 		http.NotFound(w, r)
-		return
+		return false
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
 		http.NotFound(w, r)
-		return
+		return false
 	}
-	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), f)
+	cw := &countingWriter{ResponseWriter: w}
+	http.ServeContent(cw, r, filepath.Base(path), info.ModTime(), f)
+	return r.Method == http.MethodGet && cw.whole(info.Size())
 }
 
 // publicBase is the tunnel's own origin, which the tunnel names in X-Forwarded-Host.

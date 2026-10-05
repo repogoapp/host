@@ -260,7 +260,7 @@ func (h *Host) openWorkspace() error {
 	h.onClose(acts.Shutdown)
 	// Builds run on the host's context; Close waits for them to settle.
 	appBuilds, err := builds.Open(h.ctx, builds.Config{
-		Dir: h.state("builds"), Paths: projectFiles, URLs: h.tunnels.URLs, Log: h.log,
+		Dir: h.state("builds"), Paths: projectFiles, URLs: h.tunnels.URLs, CloseTunnel: h.tunnels.ClosePort, Log: h.log,
 	})
 	if err != nil {
 		return err
