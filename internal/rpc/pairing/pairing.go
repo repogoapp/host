@@ -3,6 +3,7 @@ package pairing
 
 import (
 	"context"
+	"time"
 
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/rpc"
@@ -25,6 +26,12 @@ type BeginResult struct {
 type StatusResult struct {
 	Pending   bool  `json:"pending"`
 	ExpiresAt int64 `json:"expires_at,omitempty"`
+	// ReusableExpiresAt is when the reusable invite ends; omitted when none is open.
+	ReusableExpiresAt int64 `json:"reusable_expires_at,omitempty"`
+}
+
+type ReusableParams struct {
+	Hours int `json:"hours"`
 }
 
 type CompleteParams struct {
@@ -50,6 +57,8 @@ func Register(r *rpc.Router, d Deps) {
 	// physical presence at the machine is the entire security model of the QR.
 	rpc.Add(r, "pair.begin", d.begin, rpc.Local)
 	rpc.Add(r, "pair.status", d.status, rpc.Local)
+	rpc.Add(r, "pair.reusable", d.reusable, rpc.Local)
+	rpc.Add(r, "pair.reusable_revoke", d.reusableRevoke, rpc.Local)
 
 	// complete is the one method an unpaired caller may reach — the bootstrap
 	// paradox. It is guarded by the pairing code instead.
@@ -67,17 +76,35 @@ func (d Deps) begin(context.Context, rpc.Caller, rpc.None) (BeginResult, error) 
 	return BeginResult{Invite: invite, QR: encoded}, err
 }
 
+// reusable issues an invite many devices may join with for a.Hours, for a
+// machine nobody stands at to show a fresh code.
+func (d Deps) reusable(_ context.Context, _ rpc.Caller, a ReusableParams) (BeginResult, error) {
+	invite, err := d.Pairer.BeginReusable(d.Addr(), time.Duration(a.Hours)*time.Hour)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	encoded, err := invite.Encode()
+	return BeginResult{Invite: invite, QR: encoded}, err
+}
+
+func (d Deps) reusableRevoke(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) {
+	return rpc.OK, d.Pairer.RevokeReusable()
+}
+
 func (d Deps) status(context.Context, rpc.Caller, rpc.None) (StatusResult, error) {
 	pending, expires := d.Pairer.Pending()
 	out := StatusResult{Pending: pending}
 	if pending {
 		out.ExpiresAt = expires.UnixMilli()
 	}
+	if reusable := d.Pairer.ReusableExpires(); !reusable.IsZero() {
+		out.ReusableExpiresAt = reusable.UnixMilli()
+	}
 	return out, nil
 }
 
 // complete admits a device that proves it saw the QR: an HMAC over its public
-// key, keyed by the short-lived code. Nothing is written before that check.
+// key, keyed by a pairing code. Nothing is written before that check.
 func (d Deps) complete(_ context.Context, _ rpc.Caller, a CompleteParams) (CompleteResult, error) {
 	joiner := device.Peer{
 		ID:       device.ID(a.DeviceID),

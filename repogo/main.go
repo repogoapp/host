@@ -41,7 +41,7 @@ func command(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo power [status|enable|disable]\nrepogo tunnels [close <slug>]\nrepogo account release\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
+		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo power [status|enable|disable]\nrepogo tunnels [close <slug>]\nrepogo account release\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
 		return nil
 	}
 	if verb == "power" {
@@ -84,11 +84,18 @@ func command(ctx context.Context, args []string) error {
 	}
 	now := flags.Bool("now", false, "stop running chats, terminals and actions before updating")
 	pairHost := flags.String("pair-host", defaultPairHost, "pairing link origin")
+	reusable := flags.String("reusable", "", "pair: an invite many devices may join with, for days or hours (14d, 36h), or off")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flags.Args())
+	}
+	if *reusable != "" {
+		if verb != "pair" {
+			return fmt.Errorf("--reusable goes with repogo pair")
+		}
+		return pairReusable(ctx, *reusable, *pairHost)
 	}
 	s, err := service.New()
 	if err != nil {

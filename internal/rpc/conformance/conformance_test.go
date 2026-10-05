@@ -96,7 +96,7 @@ func vocabulary(root string) []check {
 
 // localOnly must be refused to every caller that did not prove it is on this
 // machine. Listed here so the refusal is asserted rather than assumed.
-var localOnly = []string{"pair.begin", "pair.status", "hosts.release"}
+var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reusable_revoke", "hosts.release"}
 
 // unchecked is the vocabulary this suite deliberately does not drive, each with
 // a reason. Anything else new fails TestEveryMethodIsAccountedFor, which is the

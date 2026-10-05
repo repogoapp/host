@@ -1317,6 +1317,31 @@ Result:
 - `host_proof` base64 (nullable)
 - `host_label` string
 
+## `pair.reusable`
+
+Local only: refused to a paired device.
+
+Params:
+
+- `hours` int
+
+Result:
+
+- `invite` object{Invite}
+- `qr` string
+
+## `pair.reusable_revoke`
+
+Local only: refused to a paired device.
+
+Params:
+
+- none
+
+Result:
+
+- `ok` bool
+
 ## `pair.status`
 
 Local only: refused to a paired device.
@@ -1329,6 +1354,7 @@ Result:
 
 - `pending` bool
 - `expires_at` int (omitted when empty)
+- `reusable_expires_at` int (omitted when empty)
 
 ## `ports.kill`
 

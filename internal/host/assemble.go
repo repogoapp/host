@@ -145,7 +145,10 @@ func (h *Host) openDevices() error {
 	if err := h.info.LoadCloud(h.state("cloud.json"), h.cfg.Getenv); err != nil {
 		return fmt.Errorf("cloud session: %w", err)
 	}
-	h.pairer = device.NewPairer(h.devices)
+	h.pairer, err = device.OpenPairer(h.devices, h.state("pair-reusable.json"))
+	if err != nil {
+		return fmt.Errorf("reusable invite: %w", err)
+	}
 	h.log.Info("device identity", "id", h.devices.Identity().ID, "group", h.devices.GroupID(),
 		"peers", len(h.devices.Peers()))
 

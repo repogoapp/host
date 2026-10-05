@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/repogo/host/internal/apphome"
 	"github.com/repogo/host/internal/errkind"
 )
 
@@ -26,12 +29,17 @@ const (
 	codeTTL = 2 * time.Minute
 
 	codeBytes = 32
+
+	// MaxReusableTTL bounds a reusable invite, so one forgotten on a machine
+	// stops admitting devices on its own.
+	MaxReusableTTL = 30 * 24 * time.Hour
 )
 
 var (
 	ErrNoPairing      = errkind.New(errkind.NotFound, "pairing: no pairing in progress")
 	ErrPairingExpired = errkind.New(errkind.Denied, "pairing: code expired")
 	ErrBadProof       = errkind.New(errkind.Denied, "pairing: proof does not match the code")
+	ErrReusableTTL    = errkind.New(errkind.Invalid, "pairing: a reusable invite lasts from an hour to 30 days")
 )
 
 // Invite is what the QR encodes.
@@ -84,37 +92,103 @@ func DecodeInvite(s string) (Invite, error) {
 }
 
 // Pairer owns the one in-flight pairing; two open codes means a user cannot
-// tell which is live.
+// tell which is live. The reusable invite sits beside it: a code many devices
+// may join with until it expires, for a machine nobody stands at.
 type Pairer struct {
-	store *Store
+	store        *Store
+	reusablePath string
 
-	mu      sync.Mutex
-	code    string
-	expires time.Time
+	mu       sync.Mutex
+	code     string
+	expires  time.Time
+	reusable reusableCode
 }
 
-func NewPairer(s *Store) *Pairer { return &Pairer{store: s} }
+type reusableCode struct {
+	Code      string `json:"code"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+// OpenPairer loads the reusable invite saved at reusablePath, if any, so a
+// restart does not end it.
+func OpenPairer(s *Store, reusablePath string) (*Pairer, error) {
+	p := &Pairer{store: s, reusablePath: reusablePath}
+	if _, err := apphome.ReadJSON(reusablePath, &p.reusable); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
 
 // Begin issues an invite, replacing any pairing already in progress.
 func (p *Pairer) Begin(address string) (Invite, error) {
-	code := make([]byte, codeBytes)
-	rand.Read(code)
-	encoded := base64.RawURLEncoding.EncodeToString(code)
+	code := newPairingCode()
 	expires := time.Now().Add(codeTTL)
+	p.mu.Lock()
+	p.code, p.expires = code, expires
+	p.mu.Unlock()
+	return p.invite(address, code, expires), nil
+}
 
+// BeginReusable issues an invite any number of devices may join with until
+// ttl passes, replacing the reusable invite already open. The one-time
+// pairing is left as it is.
+func (p *Pairer) BeginReusable(address string, ttl time.Duration) (Invite, error) {
+	if ttl < time.Hour || ttl > MaxReusableTTL {
+		return Invite{}, ErrReusableTTL
+	}
+	reusable := reusableCode{Code: newPairingCode(), ExpiresAt: time.Now().Add(ttl).UnixMilli()}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := apphome.WriteJSON(p.reusablePath, reusable, 0o600); err != nil {
+		return Invite{}, err
+	}
+	p.reusable = reusable
+	return p.invite(address, reusable.Code, time.UnixMilli(reusable.ExpiresAt)), nil
+}
+
+// RevokeReusable ends the reusable invite. Devices that joined with it stay
+// paired; Store.Revoke removes them.
+func (p *Pairer) RevokeReusable() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := os.Remove(p.reusablePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	p.reusable = reusableCode{}
+	return nil
+}
+
+// ReusableExpires is when the reusable invite ends; zero when there is none.
+func (p *Pairer) ReusableExpires() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.reusableLive() {
+		return time.Time{}
+	}
+	return time.UnixMilli(p.reusable.ExpiresAt)
+}
+
+func (p *Pairer) invite(address, code string, expires time.Time) Invite {
 	id := p.store.Identity()
-	invite := Invite{
+	return Invite{
 		Address:       address,
 		GroupID:       p.store.GroupID(),
 		InviterID:     id.ID,
 		InviterPublic: id.Public,
-		Code:          encoded,
+		Code:          code,
 		ExpiresAt:     expires.UnixMilli(),
 	}
-	p.mu.Lock()
-	p.code, p.expires = encoded, expires
-	p.mu.Unlock()
-	return invite, nil
+}
+
+// Caller holds mu.
+func (p *Pairer) reusableLive() bool {
+	return p.reusable.Code != "" && time.Now().UnixMilli() <= p.reusable.ExpiresAt
+}
+
+func newPairingCode() string {
+	code := make([]byte, codeBytes)
+	rand.Read(code)
+	return base64.RawURLEncoding.EncodeToString(code)
 }
 
 // Pending reports whether a code is live, for status without leaking the code.
@@ -135,32 +209,37 @@ func Proof(code string, pub []byte) []byte {
 	return mac.Sum(nil)
 }
 
-// Complete admits a device that proved it saw the code and returns the host's
+// Complete admits a device that proved it saw a code and returns the host's
 // own proof, so the joiner knows it paired with the machine it scanned.
 func (p *Pairer) Complete(joiner Peer, proof []byte) ([]byte, error) {
 	// Hold through persistence so simultaneous requests cannot consume one code twice.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.code == "" {
-		return nil, ErrNoPairing
-	}
-	if time.Now().After(p.expires) {
+	once := p.code != "" && !time.Now().After(p.expires)
+	reusable := p.reusableLive()
+	// Constant time, or the comparison leaks how much of a guessed proof was right.
+	switch {
+	case once && hmac.Equal(proof, Proof(p.code, joiner.Public)):
+		if err := p.store.Add(joiner); err != nil {
+			return nil, err
+		}
+		// One code admits one device. Leaving it live would let anyone who
+		// photographed the screen join later, and the user has no way to know.
+		code := p.code
+		p.code = ""
+		return Proof(code, p.store.Identity().Public), nil
+	case reusable && hmac.Equal(proof, Proof(p.reusable.Code, joiner.Public)):
+		if err := p.store.Add(joiner); err != nil {
+			return nil, err
+		}
+		return Proof(p.reusable.Code, p.store.Identity().Public), nil
+	case once || reusable:
+		return nil, ErrBadProof
+	case p.code != "" || p.reusable.Code != "":
 		p.code = ""
 		return nil, ErrPairingExpired
+	default:
+		return nil, ErrNoPairing
 	}
-	// Constant time, or the comparison leaks how much of a guessed proof was right.
-	if !hmac.Equal(proof, Proof(p.code, joiner.Public)) {
-		return nil, ErrBadProof
-	}
-
-	if err := p.store.Add(joiner); err != nil {
-		return nil, err
-	}
-	// One code admits one device. Leaving it live would let anyone who
-	// photographed the screen join later, and the user has no way to know.
-	code := p.code
-	p.code = ""
-
-	return Proof(code, p.store.Identity().Public), nil
 }

@@ -22,7 +22,10 @@ func TestInvitePrintsOneSingleUseInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pairer := device.NewPairer(store)
+	pairer, err := device.OpenPairer(store, filepath.Join(home, "pair-reusable.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

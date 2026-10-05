@@ -137,7 +137,7 @@ func pairOrStatus(ctx context.Context, force bool, pairHost string) error {
 	if err := call(ctx, "pair.begin", nil, &result); err != nil {
 		return err
 	}
-	if err := printPairingQR(ctx, result.QR, pairHost); err != nil {
+	if err := printPairingQR(ctx, result.QR, pairHost, false); err != nil {
 		return err
 	}
 	for {

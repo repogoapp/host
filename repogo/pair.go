@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,13 +19,13 @@ import (
 	"github.com/repogo/host/internal/device"
 )
 
-func printPairingQR(ctx context.Context, payload, pairHost string) error {
+func printPairingQR(ctx context.Context, payload, pairHost string, reusable bool) error {
 	invite, err := device.DecodeInvite(payload)
 	if err != nil {
 		return err
 	}
 
-	pairingCode, err := registerInvite(pairHost, payload)
+	pairingCode, err := registerInvite(pairHost, payload, invite, reusable)
 	if err != nil {
 		return fmt.Errorf("register pairing code at %s: %w", pairHost, err)
 	}
@@ -40,8 +41,12 @@ func printPairingQR(ctx context.Context, payload, pairHost string) error {
 			fmt.Print("\n" + inlineImage(svg, "clip.svg") + "\n")
 		}
 	}
-	fmt.Printf("  Scan with Camera    expires in %v\n",
-		time.Until(time.UnixMilli(invite.ExpiresAt)).Round(time.Second))
+	expires := time.UnixMilli(invite.ExpiresAt)
+	if reusable {
+		fmt.Printf("  Scan with Camera    any number of devices until %s\n", expires.Format("Jan 2 15:04 MST"))
+	} else {
+		fmt.Printf("  Scan with Camera    expires in %v\n", time.Until(expires).Round(time.Second))
+	}
 	fmt.Printf("  Code    %s\n", pairingCode)
 	fmt.Printf("  Link    %s\n\n", link)
 	return nil
@@ -68,18 +73,23 @@ func printInvite(ctx context.Context, w io.Writer) error {
 	})
 }
 
-// registerInvite parks the invite on the pair host for its own lifetime,
-// single use, and returns the code. The host gets only the code's hash
-// and the invite sealed under the code; the code itself lives in the QR.
-func registerInvite(pairHost, payload string) (string, error) {
+// registerInvite parks the invite on the pair host for its own lifetime and
+// returns the code. The host gets only the code's hash and the invite sealed
+// under the code; the code itself lives in the QR.
+func registerInvite(pairHost, payload string, invite device.Invite, reusable bool) (string, error) {
 	code := device.NewCode()
 	sealed, err := device.SealInvite(code, payload)
 	if err != nil {
 		return "", err
 	}
-	body, _ := json.Marshal(map[string]string{"lookup": device.CodeLookup(code), "sealed": sealed})
+	body := map[string]any{"lookup": device.CodeLookup(code), "sealed": sealed}
+	if reusable {
+		body["reusable"] = true
+		body["ttlMs"] = time.Until(time.UnixMilli(invite.ExpiresAt)).Milliseconds()
+	}
+	encoded, _ := json.Marshal(body)
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Post(strings.TrimRight(pairHost, "/")+"/api/pair", "application/json", bytes.NewReader(body))
+	resp, err := client.Post(strings.TrimRight(pairHost, "/")+"/api/pair", "application/json", bytes.NewReader(encoded))
 	if err != nil {
 		return "", err
 	}
@@ -87,7 +97,52 @@ func registerInvite(pairHost, payload string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("status %s", resp.Status)
 	}
+	if !reusable {
+		return code, nil
+	}
+	// A pair host that predates reusable invites parks it for two minutes, once.
+	var parked struct {
+		ExpiresAt time.Time `json:"expiresAt"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parked); err != nil {
+		return "", err
+	}
+	if parked.ExpiresAt.Before(time.UnixMilli(invite.ExpiresAt).Add(-time.Minute)) {
+		return "", fmt.Errorf("%s does not keep reusable invites", pairHost)
+	}
 	return code, nil
+}
+
+// pairReusable opens a reusable invite for days ("14d") or hours ("36h"), or
+// ends it ("off"). Devices that joined with it stay paired either way.
+func pairReusable(ctx context.Context, arg, pairHost string) error {
+	if arg == "off" {
+		if err := call(ctx, "pair.reusable_revoke", nil, nil); err != nil {
+			return err
+		}
+		fmt.Println("Reusable invite ended. Devices that joined with it stay paired.")
+		return nil
+	}
+	hours, err := reusableHours(arg)
+	if err != nil {
+		return err
+	}
+	var result struct {
+		QR string `json:"qr"`
+	}
+	if err := call(ctx, "pair.reusable", map[string]int{"hours": hours}, &result); err != nil {
+		return err
+	}
+	return printPairingQR(ctx, result.QR, pairHost, true)
+}
+
+func reusableHours(arg string) (int, error) {
+	unit := map[string]int{"d": 24, "h": 1}[arg[len(arg)-1:]]
+	n, err := strconv.Atoi(arg[:len(arg)-1])
+	if unit == 0 || err != nil || n <= 0 {
+		return 0, fmt.Errorf("--reusable takes days or hours, such as 14d or 36h, or off")
+	}
+	return n * unit, nil
 }
 
 // appClipCode renders the link as an App Clip Code SVG with the same encoder
