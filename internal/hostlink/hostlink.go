@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"runtime"
 	"strconv"
 	"sync"
@@ -31,8 +32,11 @@ const (
 	pingInterval = 30 * time.Second
 	pingTimeout  = 30 * time.Second
 
-	// One missed pong is a slow network, not a dead relay.
-	pingTolerance = 2
+	// One missed pong is a slow network, not a dead relay; the second ping
+	// follows soon after, so a dead one is found in seconds.
+	pingTolerance      = 2
+	pingConfirm        = 5 * time.Second
+	pingConfirmTimeout = 10 * time.Second
 
 	// handshakeTTL is how long a handshake may sit between its first and last
 	// message. A phone finishes in one round trip; anything older was abandoned.
@@ -65,8 +69,9 @@ type Config struct {
 }
 
 type Link struct {
-	cfg Config
-	log *slog.Logger
+	cfg    Config
+	log    *slog.Logger
+	dialer *dialer
 
 	mu      sync.RWMutex
 	current *conn
@@ -81,7 +86,7 @@ func New(cfg Config) (*Link, error) {
 	if cfg.Devices == nil || cfg.Router == nil || cfg.Pairing == nil || cfg.OnDisconnect == nil {
 		return nil, errors.New("hostlink: devices, router, pairing and on-disconnect are required")
 	}
-	return &Link{cfg: cfg, log: cfg.Log, attached: make(chan struct{})}, nil
+	return &Link{cfg: cfg, log: cfg.Log, dialer: newDialer(), attached: make(chan struct{})}, nil
 }
 
 // Connected reports whether the link is attached to the relay.
@@ -111,7 +116,7 @@ func (l *Link) session(ctx context.Context) error {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	// No WebSocket compression: records are ciphertext, and securechan
 	// compresses the plaintext before sealing it.
-	ws, _, err := websocket.Dial(dialCtx, l.cfg.URL, nil)
+	ws, _, err := websocket.Dial(dialCtx, l.cfg.URL, &websocket.DialOptions{HTTPClient: l.dialer.client})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
@@ -162,7 +167,15 @@ func (l *Link) session(ctx context.Context) error {
 	// and every phone request vanishes.
 	go c.ws.RunKeepalive(ctx, wsconn.Keepalive{
 		Interval: pingInterval, Timeout: pingTimeout, Tolerance: pingTolerance,
+		Confirm: pingConfirm, ConfirmTimeout: pingConfirmTimeout,
 		Name: "hostlink", Log: l.log,
+	})
+	local := l.dialer.localIP()
+	ticker := time.NewTicker(addressCheckEvery)
+	defer ticker.Stop()
+	go watchAddress(ctx, local, ticker.C, net.InterfaceAddrs, func() {
+		l.log.Warn("hostlink: network changed, redialling", "local", local)
+		ws.CloseNow()
 	})
 
 	for {
