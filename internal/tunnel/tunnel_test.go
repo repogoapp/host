@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -192,6 +193,16 @@ func run(t *testing.T, s *Service) {
 	done := make(chan struct{})
 	go func() { s.Run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
+	// As in the host, Run is up before anything opens a tunnel.
+	for {
+		s.mu.Lock()
+		running := s.running
+		s.mu.Unlock()
+		if running {
+			return
+		}
+		runtime.Gosched()
+	}
 }
 
 func inAnHour() int64 { return time.Now().Add(time.Hour).UnixMilli() }
@@ -289,6 +300,39 @@ func waitFor(t *testing.T, ch chan Changed, ok func(Changed) bool) {
 		case <-timeout:
 			t.Fatal("timed out waiting for tunnels.changed")
 		}
+	}
+}
+
+// tunnels.open answers once the gateway serves the URL, so a link made from
+// its reply works on the first try; a gateway that refuses doesn't hold it up.
+func TestWaitConnected(t *testing.T) {
+	g := newFakeGateway(t, "127.0.0.1")
+	s, _ := newService(t, g.addr, peers{phone: {ID: phone}})
+	run(t, s)
+	if _, err := s.Open(phone, "abcdefghij12", 3000, inAnHour()); err != nil {
+		t.Fatal(err)
+	}
+	if !s.WaitConnected(t.Context()) || !s.Status().Connected {
+		t.Fatal("WaitConnected returned before the gateway stream was up")
+	}
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := lis.Addr().String()
+	_ = lis.Close()
+	down, _ := newService(t, refused, peers{phone: {ID: phone}})
+	run(t, down)
+	if _, err := down.Open(phone, "abcdefghij12", 3000, inAnHour()); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if down.WaitConnected(t.Context()) {
+		t.Fatal("connected to a gateway that refuses")
+	}
+	if waited := time.Since(start); waited >= connectWait {
+		t.Fatalf("waited %v for a refusing gateway", waited)
 	}
 }
 

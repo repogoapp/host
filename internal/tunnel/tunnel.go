@@ -79,11 +79,13 @@ type Service struct {
 	mu        sync.Mutex
 	tunnels   map[string]Tunnel
 	connected bool
-	link      *link // the live gateway stream, if any
+	running   bool          // Run is dialing the gateway
+	attempt   chan struct{} // closed and replaced as each gateway attempt connects or ends
+	link      *link         // the live gateway stream, if any
 }
 
 func Open(cfg Config) (*Service, error) {
-	s := &Service{cfg: cfg, now: time.Now, wake: make(chan struct{}, 1), tunnels: map[string]Tunnel{}}
+	s := &Service{cfg: cfg, now: time.Now, wake: make(chan struct{}, 1), attempt: make(chan struct{}), tunnels: map[string]Tunnel{}}
 	var f file
 	if _, err := apphome.ReadJSON(cfg.Path, &f); err != nil {
 		return nil, err
@@ -236,10 +238,36 @@ func (s *Service) prune() {
 	}
 }
 
+// connectWait bounds WaitConnected for a gateway that neither answers nor refuses.
+const connectWait = 10 * time.Second
+
+// WaitConnected waits for the gateway stream, so a URL handed out right after
+// Open is already served. It gives up when an attempt fails, at connectWait,
+// or at once when Run isn't dialing.
+func (s *Service) WaitConnected(ctx context.Context) bool {
+	s.mu.Lock()
+	connected, running, attempt := s.connected, s.running, s.attempt
+	s.mu.Unlock()
+	if connected || !running {
+		return connected
+	}
+	ctx, cancel := context.WithTimeout(ctx, connectWait)
+	defer cancel()
+	select {
+	case <-attempt:
+	case <-ctx.Done():
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.connected
+}
+
 func (s *Service) setConnected(on bool) {
 	s.mu.Lock()
 	moved := s.connected != on
 	s.connected = on
+	close(s.attempt)
+	s.attempt = make(chan struct{})
 	s.mu.Unlock()
 	if moved {
 		s.changed()
@@ -267,6 +295,8 @@ const pruneEvery = time.Minute
 // Run holds the gateway connection open while any tunnel is, and drops it
 // when the last one closes or expires.
 func (s *Service) Run(ctx context.Context) {
+	s.setRunning(true)
+	defer s.setRunning(false)
 	for ctx.Err() == nil {
 		if len(s.List()) == 0 {
 			select {
@@ -294,4 +324,10 @@ func (s *Service) Run(ctx context.Context) {
 		<-done
 		s.setConnected(false)
 	}
+}
+
+func (s *Service) setRunning(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.running = on
 }

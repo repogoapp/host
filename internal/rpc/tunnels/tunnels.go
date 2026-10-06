@@ -35,9 +35,14 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "tunnels.list", d.list)
 }
 
-func (d Deps) open(_ context.Context, c rpc.Caller, a OpenParams) (OpenResult, error) {
+func (d Deps) open(ctx context.Context, c rpc.Caller, a OpenParams) (OpenResult, error) {
 	t, err := d.Tunnels.Open(c.Device, a.Slug, a.Port, a.ExpiresAt)
-	return OpenResult{Tunnel: t}, err
+	if err != nil {
+		return OpenResult{}, err
+	}
+	// A gateway that stays down still leaves the tunnel open; tunnels.changed reports it.
+	d.Tunnels.WaitConnected(ctx)
+	return OpenResult{Tunnel: t}, nil
 }
 
 func (d Deps) close(_ context.Context, _ rpc.Caller, a SlugParams) (rpc.Ack, error) {
