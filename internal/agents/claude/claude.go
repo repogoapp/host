@@ -31,6 +31,8 @@ func definition() agent.Provider {
 				Pkg:       "@anthropic-ai/claude-code",
 				AuthPaths: []string{".credentials.json", "credentials.json"},
 				Keychain:  keychainService,
+				// Claude uses an API key from its environment instead of a login.
+				AuthEnv: []string{"ANTHROPIC_API_KEY"},
 				// The native installer puts it here, and that build updates itself.
 				NativePaths:   []string{".local/bin/claude", ".claude/local/claude"},
 				NativeUpdate:  []string{"claude", "update"},

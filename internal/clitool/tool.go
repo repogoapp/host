@@ -82,6 +82,10 @@ type Spec struct {
 	// there on a Mac and in a file everywhere else.
 	Keychain string
 
+	// Environment variables that sign the CLI in by themselves, such as an
+	// API key; one set in the host's environment counts as signed in.
+	AuthEnv []string
+
 	// A binary at one of these paths (relative to $HOME) came from the
 	// tool's own installer or release build and updates through it.
 	NativePaths  []string

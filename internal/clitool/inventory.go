@@ -264,6 +264,11 @@ func FindBinary(s Spec, home string) string {
 }
 
 func probeAuth(ctx context.Context, s Spec, cfg string) (bool, string) {
+	for _, name := range s.AuthEnv {
+		if os.Getenv(name) != "" {
+			return true, "env:" + name
+		}
+	}
 	if cfg != "" {
 		for _, rel := range s.AuthPaths {
 			abs := filepath.Join(cfg, rel)
