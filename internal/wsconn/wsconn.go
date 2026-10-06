@@ -131,7 +131,7 @@ func (c *Conn) Accept(ctx context.Context, serverID, version string,
 	h, err := func() (handshake.Hello, error) {
 		ctx, cancel := context.WithTimeout(ctx, HandshakeTimeout)
 		defer cancel()
-		nonce := make([]byte, 32)
+		nonce := make([]byte, device.NonceLen)
 		if _, err := rand.Read(nonce); err != nil {
 			return handshake.Hello{}, fmt.Errorf("nonce: %w", err)
 		}
@@ -160,7 +160,11 @@ func (c *Conn) Accept(ctx context.Context, serverID, version string,
 		if h.DeviceID == "" || h.Role == "" {
 			return h, errors.New("missing device id or role")
 		}
-		if err := check(h, device.ChallengeMessage(nonce, serverID, wallMS)); err != nil {
+		signed, err := device.ChallengeMessage(nonce, serverID, wallMS)
+		if err != nil {
+			return h, err
+		}
+		if err := check(h, signed); err != nil {
 			return h, err
 		}
 		accepted, err := jsonrpc.Result(msg.ID, handshake.Accepted{DeviceID: h.DeviceID, ServerVersion: version})
@@ -192,7 +196,11 @@ func (c *Conn) Hello(ctx context.Context, hello handshake.Hello, sign func([]byt
 		return "", fmt.Errorf("challenge: %w", err)
 	}
 	if sign != nil {
-		hello.ChallengeSig = sign(device.ChallengeMessage(ch.Nonce, ch.ServerID, ch.WallMS))
+		signed, err := device.ChallengeMessage(ch.Nonce, ch.ServerID, ch.WallMS)
+		if err != nil {
+			return "", fmt.Errorf("challenge: %w", err)
+		}
+		hello.ChallengeSig = sign(signed)
 	}
 	req, err := jsonrpc.Request("hello", handshake.MethodHello, hello)
 	if err != nil {

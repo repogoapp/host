@@ -540,3 +540,30 @@ func TestRecordOverheadIsExact(t *testing.T) {
 		t.Fatalf("sealed %d bytes into %d, want %d", len(plain), got, len(plain)+RecordOverhead)
 	}
 }
+
+// A relay that could choose the bytes a phone signs at login must not be able
+// to turn that signature into a proof for a static key of its own.
+func TestLoginSignatureIsNotAProof(t *testing.T) {
+	phone, err := device.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The most a relay can do: a nonce that opens like a proof, then the
+	// remaining fields chosen to continue it.
+	nonce := append([]byte(staticTag), static.PublicKey().Bytes()...)[:device.NonceLen]
+	signed, err := device.ChallengeMessage(nonce, string(static.PublicKey().Bytes()[10:]), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.HasPrefix(signed, []byte(staticTag)) {
+		t.Fatal("a login message can begin like a proof")
+	}
+	payload := append(append([]byte(nil), phone.Public...), phone.Sign(signed)...)
+	if _, err := verifyProof(payload, static.PublicKey()); err == nil {
+		t.Fatal("a login signature verified as an identity proof")
+	}
+}

@@ -7,9 +7,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/repogo/host/internal/errkind"
 )
@@ -125,14 +127,29 @@ func (p Peer) Verify(claimed ID, msg, sig []byte) error {
 	return nil
 }
 
+// NonceLen is the challenge nonce's size. A signer refuses any other, so a
+// server never chooses how much of the signed message it controls.
+const NonceLen = 32
+
+// challengeTag opens every login message. The signer writes it, so no server
+// can hand out a nonce that makes these bytes read as another signature's
+// message, such as securechan's identity proof.
+const challengeTag = "repogo-login-v1"
+
+var ErrBadNonce = errkind.New(errkind.Invalid, "device: challenge nonce is not 32 bytes")
+
 // ChallengeMessage binds a signature to one server and one moment: the nonce
-// stops replay, the server id stops presenting it to another relay.
-func ChallengeMessage(nonce []byte, serverID string, wallMS uint64) []byte {
-	msg := make([]byte, 0, len(nonce)+len(serverID)+24)
+// stops replay, the server id stops presenting it to another relay. Fields
+// are length-framed, never delimited, since the server id is the peer's text.
+func ChallengeMessage(nonce []byte, serverID string, wallMS uint64) ([]byte, error) {
+	if len(nonce) != NonceLen || len(serverID) > math.MaxUint16 {
+		return nil, ErrBadNonce
+	}
+	msg := make([]byte, 0, len(challengeTag)+NonceLen+2+len(serverID)+8)
+	msg = append(msg, challengeTag...)
 	msg = append(msg, nonce...)
-	msg = append(msg, '|')
+	msg = binary.BigEndian.AppendUint16(msg, uint16(len(serverID)))
 	msg = append(msg, serverID...)
-	msg = append(msg, '|')
-	msg = fmt.Appendf(msg, "%d", wallMS)
-	return msg
+	msg = binary.BigEndian.AppendUint64(msg, wallMS)
+	return msg, nil
 }

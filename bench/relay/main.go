@@ -123,16 +123,17 @@ func connect(ctx context.Context, url string, role, who string) *peer {
 	}
 	var ch handshake.Challenge
 	must(jsonrpc.Into(msg.Params, &ch), "decode challenge")
+	signed, err := device.ChallengeMessage(ch.Nonce, ch.ServerID, ch.WallMS)
+	must(err, "challenge")
 
 	hello, err := jsonrpc.Request("hello", handshake.MethodHello, handshake.Hello{
-		DeviceID:  string(id),
-		PublicKey: pub,
-		GroupID:   "relaycheck",
-		Role:      role,
-		Platform:  "relaycheck",
-		Label:     who,
-		ChallengeSig: ed25519.Sign(priv,
-			device.ChallengeMessage(ch.Nonce, ch.ServerID, ch.WallMS)),
+		DeviceID:     string(id),
+		PublicKey:    pub,
+		GroupID:      "relaycheck",
+		Role:         role,
+		Platform:     "relaycheck",
+		Label:        who,
+		ChallengeSig: ed25519.Sign(priv, signed),
 	})
 	must(err, "build hello")
 	must(writeJSON(ctx, ws, hello), "send hello")

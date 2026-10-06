@@ -31,8 +31,8 @@ type Hello struct {
 	Platform      string `json:"platform,omitempty"`
 	Label         string `json:"label,omitempty"`
 
-	// Ed25519 over device.ChallengeMessage(nonce, server_id, wall_ms) — a byte
-	// concatenation, deliberately independent of how this struct is encoded.
+	// Ed25519 over device.ChallengeMessage(nonce, server_id, wall_ms): a tagged,
+	// length-framed concatenation, independent of how this struct is encoded.
 	// Canonical JSON does not exist and a signature must never need it.
 	ChallengeSig []byte `json:"challenge_sig,omitempty"`
 

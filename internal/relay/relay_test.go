@@ -114,14 +114,17 @@ func (h *harness) connectAs(pub ed25519.PublicKey, priv ed25519.PrivateKey, grou
 		h.t.Fatalf("challenge: %v", err)
 	}
 
+	signed, err := device.ChallengeMessage(ch.Nonce, ch.ServerID, ch.WallMS)
+	if err != nil {
+		h.t.Fatal(err)
+	}
 	hello := &handshake.Hello{
-		DeviceID:  string(p.id),
-		PublicKey: pub,
-		GroupID:   group,
-		Role:      role,
-		Platform:  "test",
-		ChallengeSig: ed25519.Sign(priv,
-			device.ChallengeMessage(ch.Nonce, ch.ServerID, ch.WallMS)),
+		DeviceID:     string(p.id),
+		PublicKey:    pub,
+		GroupID:      group,
+		Role:         role,
+		Platform:     "test",
+		ChallengeSig: ed25519.Sign(priv, signed),
 	}
 	for _, opt := range opts {
 		opt(hello)
