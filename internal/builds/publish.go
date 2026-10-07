@@ -194,7 +194,7 @@ func (s *Service) publish(ctx context.Context, p *Publication, log io.Writer) er
 	}
 	fmt.Fprintln(log, "\n==> export and upload to App Store Connect")
 	exportDir := filepath.Join(dir, "export")
-	if err := command(ctx, dir, log, xcodebuild, "-exportArchive", "-archivePath", archive,
+	if err := exportArchive(ctx, dir, log, "-archivePath", archive,
 		"-exportPath", exportDir, "-exportOptionsPlist", options, "-allowProvisioningUpdates").Run(); err != nil {
 		return err
 	}

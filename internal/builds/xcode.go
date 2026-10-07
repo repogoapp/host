@@ -28,6 +28,16 @@ var (
 	plutil     = "/usr/bin/plutil"
 )
 
+// systemPath leads an export's PATH. /usr/bin/rsync, which Xcode packs the
+// .ipa with, starts its peer from PATH, and Homebrew's rsync rejects its flags.
+const systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+// exportArchive runs xcodebuild -exportArchive with the system tools first on
+// PATH. An export runs no project scripts, so the user's PATH has nothing to add.
+func exportArchive(ctx context.Context, dir string, log io.Writer, args ...string) *exec.Cmd {
+	return command(ctx, dir, log, "/usr/bin/env", append([]string{"PATH=" + systemPath, xcodebuild, "-exportArchive"}, args...)...)
+}
+
 var bundleIDPattern = regexp.MustCompile(`PRODUCT_BUNDLE_IDENTIFIER = ([A-Za-z0-9.\-]+);`)
 
 // preferWorkspaces drops a project whose workspace sits beside it (the
@@ -210,7 +220,7 @@ func (s *Service) archive(ctx context.Context, b *Build, bundle, dir string, log
 	if err := os.WriteFile(options, []byte(exportOptions(team, b.Method)), 0o600); err != nil {
 		return err
 	}
-	if err := command(ctx, cwd, log, xcodebuild, "-exportArchive", "-archivePath", archivePath,
+	if err := exportArchive(ctx, cwd, log, "-archivePath", archivePath,
 		"-exportPath", exportDir, "-exportOptionsPlist", options, "-allowProvisioningUpdates").Run(); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()

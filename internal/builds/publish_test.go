@@ -1,6 +1,7 @@
 package builds
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,27 @@ import (
 
 	"github.com/repogo/host/internal/testwait"
 )
+
+// Homebrew's rsync ahead of /usr/bin broke Xcode's .ipa copy, so an export
+// must see the system tools first whatever the login shell's PATH holds.
+func TestExportArchiveRunsWithSystemPath(t *testing.T) {
+	brew := t.TempDir()
+	t.Setenv("PATH", brew+":"+os.Getenv("PATH"))
+	t.Setenv("SHELL", "/bin/sh")
+	fake := filepath.Join(t.TempDir(), "xcodebuild")
+	write(t, fake, "#!/bin/sh\nprintf '%s\\n%s' \"$PATH\" \"$*\"\n", 0o700)
+	old := xcodebuild
+	xcodebuild = fake
+	t.Cleanup(func() { xcodebuild = old })
+
+	var out bytes.Buffer
+	if err := exportArchive(t.Context(), t.TempDir(), &out, "-archivePath", "a.xcarchive").Run(); err != nil {
+		t.Fatalf("export: %v\n%s", err, out.String())
+	}
+	if want := systemPath + "\n-exportArchive -archivePath a.xcarchive"; out.String() != want {
+		t.Fatalf("export saw\n%s\nwant\n%s", out.String(), want)
+	}
+}
 
 func fakePublisher(t *testing.T, upload string) {
 	t.Helper()
