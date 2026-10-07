@@ -263,27 +263,27 @@ func TestExactLengths(t *testing.T) {
 	if err := host.readMessage1(msg1); err != nil {
 		t.Fatal(err)
 	}
-	msg2, err := host.writeMessage2(make([]byte, proofLen))
+	msg2, err := host.writeMessage2(zeroProof)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(msg2) != 1776 {
 		t.Fatalf("message 2 is %d bytes, want 1776", len(msg2))
 	}
-	if _, err := phone.readMessage2(append(msg2, 0)); !errors.Is(err, errLength) {
+	if _, _, err := phone.readMessage2(append(msg2, 0)); !errors.Is(err, errLength) {
 		t.Fatalf("message 2 with a trailing byte: %v", err)
 	}
-	if _, err := phone.readMessage2(msg2); err != nil {
+	if _, _, err := phone.readMessage2(msg2); err != nil {
 		t.Fatal(err)
 	}
-	msg3, err := phone.writeMessage3(make([]byte, proofLen))
+	msg3, err := phone.writeMessage3(zeroProof)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(msg3) != 160 {
 		t.Fatalf("message 3 is %d bytes, want 160", len(msg3))
 	}
-	if _, err := host.readMessage3(msg3[:len(msg3)-1]); !errors.Is(err, errLength) {
+	if _, _, err := host.readMessage3(msg3[:len(msg3)-1]); !errors.Is(err, errLength) {
 		t.Fatalf("short message 3: %v", err)
 	}
 }
@@ -327,7 +327,7 @@ func TestStepsOutOfOrderError(t *testing.T) {
 	if _, err := host.writeMessage2(nil); !errors.Is(err, errOrder) {
 		t.Fatalf("responder wrote message 2 before message 1: %v", err)
 	}
-	if _, err := host.readMessage2(make([]byte, msg2Len)); !errors.Is(err, errOrder) {
+	if _, _, err := host.readMessage2(make([]byte, msg2Len)); !errors.Is(err, errOrder) {
 		t.Fatalf("responder read message 2: %v", err)
 	}
 	if _, err := host.writeMessage3(nil); !errors.Is(err, errOrder) {
@@ -337,11 +337,11 @@ func TestStepsOutOfOrderError(t *testing.T) {
 	if err := host.readMessage1(msg1); err != nil {
 		t.Fatal(err)
 	}
-	msg2, err := host.writeMessage2(make([]byte, proofLen))
+	msg2, err := host.writeMessage2(zeroProof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := phone.readMessage2(msg2); err != nil {
+	if _, _, err := phone.readMessage2(msg2); err != nil {
 		t.Fatal(err)
 	}
 	if phone.e1 != nil || host.re1 != nil {
@@ -357,12 +357,12 @@ func TestTamperedKEMCiphertextFails(t *testing.T) {
 	if err := host.readMessage1(msg1); err != nil {
 		t.Fatal(err)
 	}
-	msg2, err := host.writeMessage2(make([]byte, proofLen))
+	msg2, err := host.writeMessage2(zeroProof)
 	if err != nil {
 		t.Fatal(err)
 	}
 	msg2[dhLen+100] ^= 1
-	if _, err := phone.readMessage2(msg2); !errors.Is(err, errAuth) {
+	if _, _, err := phone.readMessage2(msg2); !errors.Is(err, errAuth) {
 		t.Fatalf("tampered ciphertext: %v", err)
 	}
 }
@@ -381,11 +381,11 @@ func TestImplicitRejectionFailsNextOpen(t *testing.T) {
 		ct[0] ^= 1
 		return secret, ct
 	}
-	msg2, err := host.writeMessage2(make([]byte, proofLen))
+	msg2, err := host.writeMessage2(zeroProof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := phone.readMessage2(msg2); !errors.Is(err, errAuth) {
+	if _, _, err := phone.readMessage2(msg2); !errors.Is(err, errAuth) {
 		t.Fatalf("corrupted KEM ciphertext: %v", err)
 	}
 }
@@ -426,8 +426,7 @@ func TestKnownAnswer(t *testing.T) {
 
 	// Go's Ed25519 signatures are deterministic, so the proofs are fixed too;
 	// the Swift test sends these exact bytes to pin every message whole.
-	hostProof := proof(func(m []byte) []byte { return ed25519.Sign(hostID, m) }, hostPub, x(0x03))
-	phoneProof := proof(func(m []byte) []byte { return ed25519.Sign(phoneID, m) }, phonePub, x(0x01))
+	var hostProof, phoneProof []byte
 
 	phone := newHandshake(true, pro, x(0x01), x(0x02), e1)
 	host := newHandshake(false, pro, x(0x03), x(0x04), nil)
@@ -440,18 +439,24 @@ func TestKnownAnswer(t *testing.T) {
 	if err := host.readMessage1(msg1); err != nil {
 		t.Fatal(err)
 	}
-	msg2, err := host.writeMessage2(hostProof)
+	msg2, err := host.writeMessage2(func(transcript []byte) []byte {
+		hostProof = proof(func(m []byte) []byte { return ed25519.Sign(hostID, m) }, hostPub, roleResponder, transcript)
+		return hostProof
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := phone.readMessage2(msg2); err != nil {
+	if _, _, err := phone.readMessage2(msg2); err != nil {
 		t.Fatal(err)
 	}
-	msg3, err := phone.writeMessage3(phoneProof)
+	msg3, err := phone.writeMessage3(func(transcript []byte) []byte {
+		phoneProof = proof(func(m []byte) []byte { return ed25519.Sign(phoneID, m) }, phonePub, roleInitiator, transcript)
+		return phoneProof
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := host.readMessage3(msg3); err != nil {
+	if _, _, err := host.readMessage3(msg3); err != nil {
 		t.Fatal(err)
 	}
 	ps, pr, err := phone.split()
@@ -517,11 +522,11 @@ const knownCiphertext = "" +
 	"dfa5183ba7e9bbd7379ac71fb56a7685ecfeaa26324a11e9a0d8dabd55ac4992"
 
 var knownAnswer = map[string]string{
-	"hostProof":  "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0225d558ccb4907e35dc85e6af0615399ad68e42bd58dd9a846da8358a21846ddaf1b589c47193e92a1c96cc93692e67a6e3e1f149f9488e08f539026bbebdc0a",
-	"phoneProof": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737db8ed25b101429d3bbf5a5a85b6d995a7d15e863f8ff0723e2f594106088618f308730dc554b2610156c75acc6bda9b44c68ad7246aa9dc2c95eb7c2a8600405",
+	"hostProof":  "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f09e85d71ac80ace5c863e9e97dcdd7d8b8b5e0527059504207ddc38e9f1d4618f8530bd8c6ef4f989013c9cee45288136d09ac300c05549d795a4ea976e894c03",
+	"phoneProof": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737ae5e8c13d7ddd66340ea1d1d739b0b16eea2147629ee292b8aa8b867b4530b3ef1efda00b022ae185e803548057cf53ba45c4c1ce4542d94b67656c1071c310a",
 	"msg1":       "63a18e31b21e31a716b23029bf707e2b1ae7c3a654e4ed2f552f41e8306f85df",
-	"msg2":       "1f4027b771227fbabcc67b982c0ac8d5ec3a41f161f7780021146993a6f1f2e9",
-	"msg3":       "59dfe8a0a5282f395bc23c276ed1af4e6cc218c0ac35c4260fec58186d0b6ed7ae21123d310c1112781ff7ff119f6768f65515c8ba6a5942fbb584bf13708972b82a433cfcb0477eb1cb92d66935546f9960823de7336009cc9653f56941cfb8a2a4c0ee813b20cf9d92f34da91eff4b40b241b63696e5fedd8598af6b338fdd7282c9a5c5e3097a6cd75c23542cc1fc4031312158258785d56e547fd7e1a716",
+	"msg2":       "e22bd76997e6cfef5b04034f56a0c592adc2b255b148d5e964903550a16c6a3c",
+	"msg3":       "59dfe8a0a5282f395bc23c276ed1af4e6cc218c0ac35c4260fec58186d0b6ed7db12f1a68bdeab00a64cce0611ba0ecef65515c8ba6a5942fbb584bf13708972b82a433cfcb0477eb1cb92d66935546fecb0dc7520fa9fb93789eb4041b75df431133cfb502a0ec7f5cfdf3a7dc595fa81daab6ad3ff6df69669d84ba8f2d3529ab628cb671db92c13ffbd20fb50f4f387584f4d7293bf775f561e087117a1b7",
 	"rec1":       "9fb9f20b18af086853c756a7cf2272bf0e03203033bd7a75738945ea",
 	"rec2":       "5c833ca1b25b6ee4f3f4337ec74f11a258a65b223a916924e0a3865e",
 }
@@ -553,17 +558,67 @@ func TestLoginSignatureIsNotAProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The most a relay can do: a nonce that opens like a proof, then the
-	// remaining fields chosen to continue it.
-	nonce := append([]byte(staticTag), static.PublicKey().Bytes()...)[:device.NonceLen]
-	signed, err := device.ChallengeMessage(nonce, string(static.PublicKey().Bytes()[10:]), 0)
+	// remaining fields chosen to continue it as a transcript hash.
+	transcript := sha256.Sum256(static.PublicKey().Bytes())
+	nonce := proofMessage(roleResponder, transcript[:])[:device.NonceLen]
+	signed, err := device.ChallengeMessage(nonce, string(transcript[len(nonce)-len(proofTag)-1:]), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.HasPrefix(signed, []byte(staticTag)) {
+	if bytes.HasPrefix(signed, []byte(proofTag)) {
 		t.Fatal("a login message can begin like a proof")
 	}
 	payload := append(append([]byte(nil), phone.Public...), phone.Sign(signed)...)
-	if _, err := verifyProof(payload, static.PublicKey()); err == nil {
+	if _, err := verifyProof(payload, roleResponder, signed[len(proofTag)+1:]); err == nil {
 		t.Fatal("a login signature verified as an identity proof")
+	}
+}
+
+// zeroProof stands in for an identity proof where a test only needs the bytes.
+func zeroProof([]byte) []byte { return make([]byte, proofLen) }
+
+// A proof captured from one handshake is useless in the next, even with the
+// same static key: the transcript it signed holds that session's ephemerals.
+func TestProofReplayAcrossHandshakesFails(t *testing.T) {
+	phone, host := identities(t)
+	hostStatic := generateKey()
+	pro, err := prologueFor(phone.ID, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(prove func([]byte) []byte) ([]byte, []byte, error) {
+		p := newHandshake(true, pro, generateKey(), generateKey(), generateKEMKey())
+		h := newHandshake(false, pro, hostStatic, generateKey(), nil)
+		msg1, err := p.writeMessage1()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.readMessage1(msg1); err != nil {
+			t.Fatal(err)
+		}
+		msg2, err := h.writeMessage2(prove)
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload, transcript, err := p.readMessage2(msg2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return payload, transcript, nil
+	}
+	var captured []byte
+	payload, transcript, _ := run(func(tr []byte) []byte {
+		captured = proof(host.Sign, host.Public, roleResponder, tr)
+		return captured
+	})
+	if _, err := verifyProof(payload, roleResponder, transcript); err != nil {
+		t.Fatal("a fresh proof must verify:", err)
+	}
+	if _, err := verifyProof(payload, roleInitiator, transcript); err == nil {
+		t.Fatal("a responder proof verified as an initiator's")
+	}
+	payload, transcript, _ = run(func([]byte) []byte { return captured })
+	if _, err := verifyProof(payload, roleResponder, transcript); err == nil {
+		t.Fatal("a proof from an earlier handshake verified in a later one")
 	}
 }

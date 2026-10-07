@@ -1,6 +1,6 @@
 // Package securechan is the phone-to-host end-to-end channel: Noise XX with an
-// ML-KEM step (HFS) and the paired Ed25519 identities signing each side's
-// fresh X25519 static key.
+// ML-KEM step (HFS) and the paired Ed25519 identities each signing the
+// handshake transcript, which holds its fresh X25519 static key.
 // SecureChannel.swift in RemoteTransport mirrors this file function for function.
 package securechan
 
@@ -21,7 +21,12 @@ import (
 const (
 	protocolName = "Noise_XXhfs_25519+MLKEM1024_AESGCM_SHA256"
 	prologueTag  = "repogo-e2e-v1"
-	staticTag    = "repogo-noise-static-v1"
+	proofTag     = "repogo-noise-proof-v1"
+
+	// The role goes under the signature so one side's proof can never serve
+	// as the other's.
+	roleInitiator byte = 1
+	roleResponder byte = 2
 
 	dhLen     = 32
 	tagLen    = 16
@@ -159,6 +164,9 @@ func (s *symmetricState) mixHash(data []byte) {
 	sum.Write(data)
 	s.h = sum.Sum(nil)
 }
+
+// transcript is a copy of h, since the next step moves it.
+func (s *symmetricState) transcript() []byte { return append([]byte(nil), s.h...) }
 
 func (s *symmetricState) encryptAndHash(plain []byte) ([]byte, error) {
 	if !s.hasKey {
@@ -300,8 +308,9 @@ func (h *handshakeState) readMessage1(msg []byte) error {
 }
 
 // writeMessage2 is the responder's "e, ee, ekem1, s, es" with its identity
-// proof. ekem1 encrypts the ciphertext first, then mixes the KEM secret in.
-func (h *handshakeState) writeMessage2(payload []byte) ([]byte, error) {
+// proof; ekem1 encrypts the ciphertext first, then mixes the KEM secret in.
+// prove gets the transcript after the key tokens, so it signs every key here.
+func (h *handshakeState) writeMessage2(prove func(transcript []byte) []byte) ([]byte, error) {
 	if h.re == nil || h.re1 == nil {
 		return nil, errOrder
 	}
@@ -326,7 +335,7 @@ func (h *handshakeState) writeMessage2(payload []byte) ([]byte, error) {
 	if err := h.dh(h.s, h.re); err != nil {
 		return nil, err
 	}
-	sealed, err := h.ss.encryptAndHash(payload)
+	sealed, err := h.ss.encryptAndHash(prove(h.ss.transcript()))
 	if err != nil {
 		return nil, err
 	}
@@ -334,52 +343,57 @@ func (h *handshakeState) writeMessage2(payload []byte) ([]byte, error) {
 	return append(out, sealed...), nil
 }
 
-func (h *handshakeState) readMessage2(msg []byte) ([]byte, error) {
+// readMessage2 returns the payload and the transcript hash its sender signed
+// over, taken before the payload itself was mixed in.
+func (h *handshakeState) readMessage2(msg []byte) (payload, transcript []byte, err error) {
 	if h.e1 == nil {
-		return nil, errOrder
+		return nil, nil, errOrder
 	}
 	if len(msg) != msg2Len {
-		return nil, errLength
+		return nil, nil, errLength
 	}
 	re, rest, err := h.readKey(msg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	h.re = re
 	h.ss.mixHash(re.Bytes())
 	if err := h.dh(h.e, h.re); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// A wrong ciphertext of the right length still decapsulates (ML-KEM's
 	// implicit rejection) to a different key, so the next open fails instead.
 	ct, err := h.ss.decryptAndHash(rest[:kemCTLen+tagLen])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	kemKey, err := h.e1.Decapsulate(ct)
 	h.e1 = nil
 	if err != nil {
-		return nil, errLength
+		return nil, nil, errLength
 	}
 	if err := h.ss.mixKey(kemKey); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	rest = rest[kemCTLen+tagLen:]
 	sBytes, err := h.ss.decryptAndHash(rest[:dhLen+tagLen])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if h.rs, err = ecdh.X25519().NewPublicKey(sBytes); err != nil {
-		return nil, errLength
+		return nil, nil, errLength
 	}
 	if err := h.dh(h.e, h.rs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return h.ss.decryptAndHash(rest[dhLen+tagLen:])
+	transcript = h.ss.transcript()
+	payload, err = h.ss.decryptAndHash(rest[dhLen+tagLen:])
+	return payload, transcript, err
 }
 
-// writeMessage3 is the initiator's "s, se" with its identity proof.
-func (h *handshakeState) writeMessage3(payload []byte) ([]byte, error) {
+// writeMessage3 is the initiator's "s, se" with its identity proof; prove
+// is as in writeMessage2.
+func (h *handshakeState) writeMessage3(prove func(transcript []byte) []byte) ([]byte, error) {
 	if h.re == nil {
 		return nil, errOrder
 	}
@@ -390,28 +404,30 @@ func (h *handshakeState) writeMessage3(payload []byte) ([]byte, error) {
 	if err := h.dh(h.s, h.re); err != nil {
 		return nil, err
 	}
-	sealed, err := h.ss.encryptAndHash(payload)
+	sealed, err := h.ss.encryptAndHash(prove(h.ss.transcript()))
 	if err != nil {
 		return nil, err
 	}
 	return append(static, sealed...), nil
 }
 
-func (h *handshakeState) readMessage3(msg []byte) ([]byte, error) {
+func (h *handshakeState) readMessage3(msg []byte) (payload, transcript []byte, err error) {
 	if len(msg) != msg3Len {
-		return nil, errLength
+		return nil, nil, errLength
 	}
 	sBytes, err := h.ss.decryptAndHash(msg[:dhLen+tagLen])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if h.rs, err = ecdh.X25519().NewPublicKey(sBytes); err != nil {
-		return nil, errLength
+		return nil, nil, errLength
 	}
 	if err := h.dh(h.e, h.rs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return h.ss.decryptAndHash(msg[dhLen+tagLen:])
+	transcript = h.ss.transcript()
+	payload, err = h.ss.decryptAndHash(msg[dhLen+tagLen:])
+	return payload, transcript, err
 }
 
 // split hands out the transport keys: the initiator sends on the first.
@@ -423,19 +439,26 @@ func (h *handshakeState) split() (send, recv cipherState, err error) {
 	return c2, c1, err
 }
 
-// proof binds an identity to this session's static DH key: the peer checks
-// the signature, then that the identity is the one it pinned or routed to.
-func proof(sign func([]byte) []byte, identityPub ed25519.PublicKey, static *ecdh.PrivateKey) []byte {
-	msg := append([]byte(staticTag), static.PublicKey().Bytes()...)
-	return append(append([]byte(nil), identityPub...), sign(msg)...)
+// proof binds an identity to this handshake: the transcript hash already
+// holds both ephemerals, the KEM ciphertext and the signer's static key, so
+// the signature cannot serve another session, or the other role in this one.
+func proof(sign func([]byte) []byte, identityPub ed25519.PublicKey, role byte, transcript []byte) []byte {
+	return append(append([]byte(nil), identityPub...), sign(proofMessage(role, transcript))...)
 }
 
-func verifyProof(payload []byte, static *ecdh.PublicKey) (ed25519.PublicKey, error) {
+func proofMessage(role byte, transcript []byte) []byte {
+	msg := append([]byte(proofTag), role)
+	return append(msg, transcript...)
+}
+
+// verifyProof checks the payload against the transcript readMessage2/3
+// returned; the peer then checks the identity is the one it pinned or routed to.
+func verifyProof(payload []byte, role byte, transcript []byte) (ed25519.PublicKey, error) {
 	if len(payload) != proofLen {
 		return nil, errProof
 	}
 	pub := ed25519.PublicKey(payload[:ed25519.PublicKeySize])
-	msg := append([]byte(staticTag), static.Bytes()...)
+	msg := proofMessage(role, transcript)
 	if !ed25519.Verify(pub, msg, payload[ed25519.PublicKeySize:]) {
 		return nil, errProof
 	}

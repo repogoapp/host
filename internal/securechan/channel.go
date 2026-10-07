@@ -102,18 +102,20 @@ func Initiate(ctx context.Context, identity *device.Identity, host device.ID, ho
 	if err != nil {
 		return nil, err
 	}
-	payload, err := h.readMessage2(msg2)
+	payload, transcript, err := h.readMessage2(msg2)
 	if err != nil {
 		return nil, err
 	}
-	peer, err := verifyProof(payload, h.rs)
+	peer, err := verifyProof(payload, roleResponder, transcript)
 	if err != nil {
 		return nil, err
 	}
 	if !peer.Equal(hostPublic) {
 		return nil, fmt.Errorf("securechan: host identity does not match the paired key")
 	}
-	msg3, err := h.writeMessage3(proof(identity.Sign, identity.Public, h.s))
+	msg3, err := h.writeMessage3(func(transcript []byte) []byte {
+		return proof(identity.Sign, identity.Public, roleInitiator, transcript)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +162,9 @@ func Respond(identity *device.Identity, peer device.ID, msg1 []byte) (*Responder
 	if err := h.readMessage1(msg1[1:]); err != nil {
 		return nil, nil, err
 	}
-	msg2, err := h.writeMessage2(proof(identity.Sign, identity.Public, h.s))
+	msg2, err := h.writeMessage2(func(transcript []byte) []byte {
+		return proof(identity.Sign, identity.Public, roleResponder, transcript)
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,11 +177,11 @@ func (r *Responder) Finish(msg3 []byte) (*Session, error) {
 	if len(msg3) == 0 || msg3[0] != Handshake {
 		return nil, errLength
 	}
-	payload, err := r.h.readMessage3(msg3[1:])
+	payload, transcript, err := r.h.readMessage3(msg3[1:])
 	if err != nil {
 		return nil, err
 	}
-	peer, err := verifyProof(payload, r.h.rs)
+	peer, err := verifyProof(payload, roleInitiator, transcript)
 	if err != nil {
 		return nil, err
 	}
