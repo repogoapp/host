@@ -4,6 +4,7 @@
     "group_id": "group_id",
     "inviter_id": "inviter_id",
     "inviter_public": "aW52aXRlcl9wdWJsaWM=",
+    "label": "label",
     "code": "code",
     "expires_at": 1
   },

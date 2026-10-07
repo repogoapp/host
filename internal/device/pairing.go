@@ -54,6 +54,9 @@ type Invite struct {
 	// the machine whose screen it just scanned.
 	InviterID     ID     `json:"inviter_id"`
 	InviterPublic []byte `json:"inviter_public"`
+	// Label is the machine's name, shown before a link pairs: a sent link
+	// must not join a device to a machine it never saw named.
+	Label string `json:"label,omitempty"`
 
 	Code      string `json:"code"`
 	ExpiresAt int64  `json:"expires_at"`
@@ -191,6 +194,7 @@ func (p *Pairer) invite(address, code string, expires time.Time) Invite {
 		GroupID:       p.store.GroupID(),
 		InviterID:     id.ID,
 		InviterPublic: id.Public,
+		Label:         Label(),
 		Code:          code,
 		ExpiresAt:     expires.UnixMilli(),
 	}

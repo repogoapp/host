@@ -141,3 +141,16 @@ func TestReusableInviteBounds(t *testing.T) {
 		}
 	}
 }
+
+// The invite names the machine, so a phone opening a link can show whose
+// environment it is about to join.
+func TestInviteCarriesTheHostLabel(t *testing.T) {
+	p, _ := openPairer(t)
+	invite, err := p.Begin("ws://127.0.0.1:1/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invite.Label == "" || invite.Label != Label() {
+		t.Fatalf("invite label %q, want the host's %q", invite.Label, Label())
+	}
+}
