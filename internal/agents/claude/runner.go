@@ -40,21 +40,6 @@ func (r *runner) Available() error {
 func (r *runner) Close() { r.pool.Close() }
 
 func (r *runner) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
-	// A session open in a terminal or the desktop app owns its transcript, so
-	// the prompt goes to it rather than to a second process on the same file.
-	if open, ok := r.findOpenSession(req.SessionID); ok {
-		if s, ok := r.pool.Get(req.ChatID); ok {
-			s.mu.Lock()
-			busy := s.busyLocked()
-			s.mu.Unlock()
-			if busy {
-				r.pool.Release(req.ChatID, s)
-				return agent.Result{}, errors.New("Claude is still working in RepoGo; stop or wait for it before sending to the open session")
-			}
-			r.pool.Retire(req.ChatID, s)
-		}
-		return r.sendOpen(ctx, open, req, io)
-	}
 	s, err := r.acquireSession(ctx, req)
 	if err != nil {
 		return agent.Result{}, err

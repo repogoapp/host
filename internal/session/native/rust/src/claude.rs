@@ -250,14 +250,6 @@ struct Attachment {
     prompt: Content,
 }
 
-// Who sent a user record; mirrors Origin in agents/claude/sessions.go.
-#[derive(Deserialize, Default)]
-#[serde(default)]
-struct Origin {
-    #[serde(deserialize_with = "event::s")]
-    kind: String,
-}
-
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Line {
@@ -280,7 +272,6 @@ struct Line {
     prompt_id: String,
     message: Option<Message>,
     attachment: Option<Attachment>,
-    origin: Option<Origin>,
 }
 
 impl Provider for Claude {
@@ -292,12 +283,6 @@ impl Provider for Claude {
         let at = event::unix_ms(&l.timestamp);
         let (model, content) = l.message.map(|m| (m.model, m.content)).unwrap_or_default();
         let mut out = Vec::new();
-        if let (Some(origin), Content::Text(text)) = (&l.origin, &content) {
-            if let Some(prompt) = peer_prompt(&l.typ, &origin.kind, text) {
-                out.push(Event { kind: Kind::UserMessage, text: prompt, turn_id: l.prompt_id, at, ..Default::default() });
-                return out;
-            }
-        }
         match l.typ.as_str() {
             // What the CLI wrote in the user's place, and the compact summary.
             "user" if l.is_meta || l.is_compact_summary => return out,
@@ -450,16 +435,6 @@ const REMINDER_CLOSE: &str = "</system-reminder>";
 
 // Strips reminder blocks the CLI appends to a prompt; an unterminated one
 // takes everything after it.
-// The prompt inside an inbox message; mirrors peerPrompt in agents/claude/sessions.go.
-fn peer_prompt(typ: &str, origin: &str, text: &str) -> Option<String> {
-    if typ != "user" || origin != "peer" || !text.starts_with("Another Claude session sent a message") {
-        return None;
-    }
-    let body = text.split_once('\n').map(|(_, b)| b).unwrap_or("");
-    let body = body.split_once("\n\nThis came from another Claude session").map(|(b, _)| b).unwrap_or(body).trim();
-    (!body.is_empty()).then(|| body.to_string())
-}
-
 fn user_prose(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
