@@ -211,8 +211,8 @@ func (s *Service) live(t Tunnel) bool {
 	if t.ExpiresAt <= s.now().UnixMilli() {
 		return false
 	}
-	p, err := s.cfg.Peers.Peer(t.OpenedBy)
-	return err == nil && p.Active()
+	_, err := s.cfg.Peers.Peer(t.OpenedBy)
+	return err == nil
 }
 
 // prune drops expired tunnels and those whose opener was unpaired.

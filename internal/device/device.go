@@ -77,14 +77,7 @@ type Peer struct {
 	// are the ones running, by chat id, each with its own update token.
 	PushToStart *PushTarget           `json:"push_to_start,omitempty"`
 	Activities  map[string]PushTarget `json:"activities,omitempty"`
-
-	// Revoked devices are kept rather than deleted so a stale client gets a
-	// definite "you were removed" instead of the ambiguous "unknown device",
-	// and so the removal survives as a record.
-	RevokedAt int64 `json:"revoked_at,omitempty"`
 }
-
-func (p Peer) Active() bool { return p.RevokedAt == 0 }
 
 type PushTarget struct {
 	Token       string `json:"token"`
@@ -100,7 +93,6 @@ type PushTarget struct {
 
 var (
 	ErrUnknownDevice = errkind.New(errkind.NotFound, "device: unknown device")
-	ErrRevoked       = errkind.New(errkind.Denied, "device: revoked")
 	ErrRevokeSelf    = errkind.New(errkind.Invalid, "device: a device cannot revoke itself")
 	ErrRevokeHost    = errkind.New(errkind.Invalid, "device: the host cannot be revoked")
 	ErrBadKey        = errkind.New(errkind.Invalid, "device: public key is malformed or not the id's")
@@ -111,9 +103,6 @@ var (
 // the key's fingerprint first, or a caller could pair someone else's id with
 // their own key.
 func (p Peer) Verify(claimed ID, msg, sig []byte) error {
-	if !p.Active() {
-		return ErrRevoked
-	}
 	pub := ed25519.PublicKey(p.Public)
 	if len(pub) != ed25519.PublicKeySize {
 		return ErrUnknownDevice

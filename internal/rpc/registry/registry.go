@@ -71,6 +71,9 @@ type Config struct {
 	Host    *hostinfo.Service
 	Devices *device.Store
 	Pairer  *device.Pairer
+	// Online reports whether a device holds a live channel, resolved late:
+	// the transports are built after the router.
+	Online func(device.ID) bool
 
 	// Addr is the address a pairing invite advertises, resolved late.
 	Addr func() string
@@ -157,7 +160,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	turns.Register(r, turns.Deps{
 		Runner: cfg.Runner, Usage: cfg.AgentUsage,
 	})
-	devices.Register(r, devices.Deps{Store: cfg.Devices})
+	devices.Register(r, devices.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Online: cfg.Online})
 	pairing.Register(r, pairing.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr})
 	fsrpc.Register(r, fsrpc.Deps{Files: cfg.Files, Watch: cfg.Watch})
 	syncrpc.Register(r, syncrpc.Deps{Self: cfg.Devices.Identity().ID, Mirror: cfg.Store, ModelLabel: cfg.AgentCatalog.ModelLabel,

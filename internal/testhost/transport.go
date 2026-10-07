@@ -31,19 +31,35 @@ type Transports struct {
 	Pairing atomic.Bool
 }
 
+// Relay starts a local relay, shut down when the test ends, and returns its ws:// URL.
+func Relay(t testing.TB) string {
+	t.Helper()
+	rl, err := relay.New(relay.Config{Addr: "127.0.0.1:0", ServerID: "testhost-relay", Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	addr, err := rl.Listen()
+	if err != nil {
+		t.Fatalf("relay listen: %v", err)
+	}
+	shutdownAtCleanup(t, rl)
+	return fmt.Sprintf("ws://%s/ws", addr.(*net.TCPAddr))
+}
+
+func shutdownAtCleanup(t testing.TB, s interface{ Shutdown(context.Context) error }) {
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	})
+}
+
 // Serve starts both transports for router and returns once the host is
 // attached to the relay, since nothing is reachable through it before.
 func Serve(t testing.TB, devices *device.Store, router *rpc.Router) *Transports {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	tr := &Transports{}
-	shutdown := func(s interface{ Shutdown(context.Context) error }) {
-		t.Cleanup(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			_ = s.Shutdown(ctx)
-		})
-	}
 
 	srv, err := wsserver.New(wsserver.Config{
 		Token: Token, ServerID: "testhost", Devices: devices, Router: router,
@@ -56,19 +72,10 @@ func Serve(t testing.TB, devices *device.Store, router *rpc.Router) *Transports 
 	if err != nil {
 		t.Fatalf("wsserver listen: %v", err)
 	}
-	shutdown(srv)
+	shutdownAtCleanup(t, srv)
 	tr.WS = fmt.Sprintf("ws://%s/ws", wsAddr.(*net.TCPAddr))
 
-	rl, err := relay.New(relay.Config{Addr: "127.0.0.1:0", ServerID: "testhost-relay", Log: log})
-	if err != nil {
-		t.Fatalf("relay: %v", err)
-	}
-	relayAddr, err := rl.Listen()
-	if err != nil {
-		t.Fatalf("relay listen: %v", err)
-	}
-	shutdown(rl)
-	tr.Relay = fmt.Sprintf("ws://%s/ws", relayAddr.(*net.TCPAddr))
+	tr.Relay = Relay(t)
 
 	tr.Link, err = hostlink.New(hostlink.Config{
 		URL: tr.Relay, Devices: devices, Router: router, Log: log,

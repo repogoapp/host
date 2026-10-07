@@ -31,6 +31,7 @@ can pair and start chatting right away.
 | `npx @repogo/host pair` | Show a pairing code for another device |
 | `npx @repogo/host status` | Show whether the host is running |
 | `npx @repogo/host start` / `stop` | Start or stop the background host |
+| `npx @repogo/host devices` / `devices revoke <id>` | List the paired devices, or remove one: its connections close and it can no longer reach the host |
 | `npx @repogo/host logs` | Show the host's logs |
 | `npx @repogo/host update` | Update to the latest version; refuses while agents, terminals or builds are running (`--now` stops them) |
 | `npx @repogo/host power enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |

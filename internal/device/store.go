@@ -7,17 +7,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/repogo/host/internal/apphome"
 	"github.com/repogo/host/internal/errkind"
 )
-
-// tombstoneTTL is how long a revoked record is kept before being deleted
-// outright. Long enough that a device left in a drawer for a month still gets
-// told it was removed; short enough that the file does not accumulate.
-const tombstoneTTL = 30 * 24 * time.Hour
 
 // Store holds this device's identity and everyone it has paired with. The
 // private key is a 0600 file, not a keychain item.
@@ -28,6 +24,7 @@ type Store struct {
 	identity *Identity
 	peers    map[ID]Peer
 	groupID  string
+	revoked  []func(ID)
 }
 
 type fileFormat struct {
@@ -126,20 +123,6 @@ func (s *Store) Peers() []Peer {
 	return out
 }
 
-// ActivePeers returns the devices that can currently connect. Revoked records
-// are protocol bookkeeping, not anything the user still owns.
-func (s *Store) ActivePeers() []Peer {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]Peer, 0, len(s.peers))
-	for _, p := range s.peers {
-		if p.Active() {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 // Add records a paired device.
 func (s *Store) Add(p Peer) error {
 	if pub := ed25519.PublicKey(p.Public); len(pub) != ed25519.PublicKeySize || IDFor(pub) != p.ID {
@@ -154,30 +137,42 @@ func (s *Store) Add(p Peer) error {
 	return s.commit(func() { s.peers[p.ID] = p })
 }
 
-// Revoke marks rather than deletes, so a revoked device reconnecting is told it
-// was removed rather than that it never existed. caller is the device asking,
-// which removes itself by forgetting the host instead.
+// OnRevoke adds fn to what runs once a device is revoked, outside the lock, so
+// each transport can end the sessions that device still holds.
+func (s *Store) OnRevoke(fn func(ID)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.revoked = append(s.revoked, fn)
+}
+
+// Revoke deletes a paired device and its push targets; its next hello is
+// refused as unknown. caller is the device asking, which removes itself by
+// forgetting the host instead.
 func (s *Store) Revoke(caller, id ID) error {
+	listeners, err := s.revoke(caller, id)
+	for _, fn := range listeners {
+		fn(id)
+	}
+	return err
+}
+
+// revoke returns the listeners to tell once the lock is released.
+func (s *Store) revoke(caller, id ID) ([]func(ID), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch id {
 	case caller:
-		return ErrRevokeSelf
+		return nil, ErrRevokeSelf
 	case s.identity.ID:
-		return ErrRevokeHost
+		return nil, ErrRevokeHost
 	}
-	p, ok := s.peers[id]
-	if !ok {
-		return ErrUnknownDevice
+	if _, ok := s.peers[id]; !ok {
+		return nil, ErrUnknownDevice
 	}
-	return s.commit(func() {
-		if p.RevokedAt == 0 {
-			p.RevokedAt = time.Now().UnixMilli()
-			p.Push, p.PushToStart, p.Activities = nil, nil, nil
-			s.peers[id] = p
-		}
-		s.pruneTombstones()
-	})
+	if err := s.commit(func() { delete(s.peers, id) }); err != nil {
+		return nil, err
+	}
+	return slices.Clone(s.revoked), nil
 }
 
 // PushToStart is the RegisterPush kind of the token that starts a Live
@@ -279,9 +274,6 @@ func (s *Store) updatePush(id ID, update func(*Peer)) error {
 	if !ok {
 		return ErrUnknownDevice
 	}
-	if !p.Active() {
-		return ErrRevoked
-	}
 	return s.commit(func() {
 		update(&p)
 		s.peers[id] = p
@@ -298,18 +290,6 @@ func (s *Store) commit(change func()) error {
 		return err
 	}
 	return nil
-}
-
-// pruneTombstones drops revoked records past the window in which the device
-// might still reconnect; otherwise the file grows forever. Caller holds the
-// write lock.
-func (s *Store) pruneTombstones() {
-	cutoff := time.Now().Add(-tombstoneTTL).UnixMilli()
-	for id, p := range s.peers {
-		if !p.Active() && p.RevokedAt < cutoff {
-			delete(s.peers, id)
-		}
-	}
 }
 
 // Verify authenticates a connecting device against the paired set.

@@ -121,6 +121,11 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `output` string (omitted when empty)
 - `output_bytes` int (omitted when empty)
 
+## `devices.changed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+
 ## `env.request`
 
 Signal: not replayed; a missed one is recovered by refetching.

@@ -292,7 +292,7 @@ func (h *Host) projectsChanged(c store.ProjectChange) {
 // one that is offline catches up on its next list.
 func (h *Host) toEveryPhone(ev emit.Event) int {
 	sent := 0
-	for _, peer := range h.devices.ActivePeers() {
+	for _, peer := range h.devices.Peers() {
 		if err := h.emitter.To(peer.ID, ev); err != nil {
 			h.log.Debug("update not delivered", "event", ev.Method(), "device", peer.ID, "err", err)
 			continue

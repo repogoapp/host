@@ -12,7 +12,7 @@ import (
 // Peers is the paired devices a chat list change goes to.
 type Peers interface {
 	Identity() *device.Identity
-	ActivePeers() []device.Peer
+	Peers() []device.Peer
 }
 
 // Announcer is the one path for every way a chat row can move: the store
@@ -52,7 +52,7 @@ func (a *Announcer) Attention(at Attention) {
 }
 
 func (a *Announcer) send(ev emit.Event) {
-	for _, peer := range a.peers.ActivePeers() {
+	for _, peer := range a.peers.Peers() {
 		if err := a.emit.To(peer.ID, ev); err != nil {
 			a.log.Debug("chat list update not delivered", "device", peer.ID, "err", err)
 		}

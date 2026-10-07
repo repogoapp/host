@@ -147,10 +147,26 @@ func (p *Pairer) BeginReusable(address string, ttl time.Duration) (Invite, error
 }
 
 // RevokeReusable ends the reusable invite. Devices that joined with it stay
-// paired; Store.Revoke removes them.
+// paired; Remove removes them.
 func (p *Pairer) RevokeReusable() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.endReusable()
+}
+
+// Remove revokes a device and ends the reusable invite it may hold. Complete
+// holds the same lock, so the device cannot pair back in between the two.
+func (p *Pairer) Remove(caller, id ID) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.store.Revoke(caller, id); err != nil {
+		return err
+	}
+	return p.endReusable()
+}
+
+// endReusable assumes the caller holds p.mu.
+func (p *Pairer) endReusable() error {
 	if err := os.Remove(p.reusablePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

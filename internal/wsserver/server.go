@@ -64,6 +64,8 @@ type Server struct {
 
 	mu    sync.Mutex
 	conns map[device.ID]*conn
+	// open is every socket past its hello, a device's superseded ones included.
+	open map[*conn]struct{}
 }
 
 func New(cfg Config) (*Server, error) {
@@ -76,7 +78,31 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Router == nil || cfg.Devices == nil || cfg.Pushes == nil || cfg.OnDisconnect == nil {
 		return nil, errors.New("wsserver: router, devices, pushes and on-disconnect are required")
 	}
-	return &Server{cfg: cfg, log: cfg.Log, conns: map[device.ID]*conn{}}, nil
+	s := &Server{cfg: cfg, log: cfg.Log, conns: map[device.ID]*conn{}, open: map[*conn]struct{}{}}
+	cfg.Devices.OnRevoke(s.revoked)
+	return s, nil
+}
+
+// Online reports whether a device has a socket here.
+func (s *Server) Online(id device.ID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.conns[id] != nil
+}
+
+// revoked closes every socket a removed device holds; its calls end with them.
+func (s *Server) revoked(id device.ID) {
+	s.mu.Lock()
+	var gone []*conn
+	for c := range s.open {
+		if c.caller.Device == id {
+			gone = append(gone, c)
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range gone {
+		c.ws.CloseNow()
+	}
 }
 
 // Listen binds and serves; the address tells a caller that passed Port 0 the
@@ -125,12 +151,19 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	newConn(s, c).run(r.Context())
 }
 
-// attach makes c the device's current socket and routes its pushes here.
-func (s *Server) attach(c *conn) {
+// attach makes c the device's current socket and routes its pushes here. It
+// reports false for a device removed after its hello, which revoked missed.
+func (s *Server) attach(c *conn) bool {
 	s.mu.Lock()
 	s.conns[c.caller.Device] = c
+	s.open[c] = struct{}{}
 	s.mu.Unlock()
 	s.cfg.Pushes.Attach(c.caller.Device, c)
+	if c.caller.Scope != rpc.ScopeRemote {
+		return true
+	}
+	_, err := s.cfg.Devices.Peer(c.caller.Device)
+	return err == nil
 }
 
 // detach ignores a socket that closes after its successor attached, so the
@@ -138,6 +171,7 @@ func (s *Server) attach(c *conn) {
 func (s *Server) detach(c *conn) {
 	s.cfg.Pushes.Detach(c.caller.Device, c)
 	s.mu.Lock()
+	delete(s.open, c)
 	last := s.conns[c.caller.Device] == c
 	if last {
 		delete(s.conns, c.caller.Device)

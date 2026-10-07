@@ -41,11 +41,14 @@ func command(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo power [status|enable|disable]\nrepogo tunnels [close <slug>]\nrepogo account release\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
+		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo power [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo tunnels [close <slug>]\nrepogo account release\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
 		return nil
 	}
 	if verb == "power" {
 		return powerCommand(ctx, args)
+	}
+	if verb == "devices" {
+		return devicesCommand(ctx, args)
 	}
 	if verb == "tunnels" {
 		return tunnelsCommand(ctx, args)

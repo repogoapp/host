@@ -51,16 +51,13 @@ func TestPairingSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("paired device missing after restart: %v", err)
 	}
-	if !p.Active() {
-		t.Error("paired device came back revoked")
-	}
 	if p.Label != "Phone" {
 		t.Errorf("label = %q, want %q", p.Label, "Phone")
 	}
 }
 
-// A revoked device must stay revoked across a restart, or a server update would
-// silently readmit every phone the user removed.
+// A removed device must stay removed across a restart, or a host update would
+// silently readmit every phone the user removed. Its push targets go with it.
 func TestRevocationSurvivesRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "device.json")
 
@@ -68,63 +65,28 @@ func TestRevocationSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
+	id := addPeer(t, first, "Old phone")
+	if err := first.RegisterPush(id, "", "", PushTarget{Token: "ab", Environment: "sandbox"}); err != nil {
+		t.Fatalf("register push: %v", err)
 	}
-	id := IDFor(pub)
-	if err := first.Add(Peer{ID: id, Public: pub, Label: "Old phone"}); err != nil {
-		t.Fatalf("add: %v", err)
-	}
+	var told []ID
+	first.OnRevoke(func(id ID) { told = append(told, id) })
 	if err := first.Revoke("", id); err != nil {
 		t.Fatalf("revoke: %v", err)
+	}
+	if len(told) != 1 || told[0] != id {
+		t.Errorf("revoke listeners heard %v, want [%s]", told, id)
 	}
 
 	second, err := Open(path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	p, err := second.Peer(id)
-	if err != nil {
-		t.Fatalf("tombstone lost: %v", err)
+	if _, err := second.Peer(id); !errors.Is(err, ErrUnknownDevice) {
+		t.Errorf("a removed device came back: %v", err)
 	}
-	if p.Active() {
-		t.Error("a revoked device came back active")
-	}
-	if len(second.ActivePeers()) != 0 {
-		t.Errorf("revoked device is listed as active after restart")
-	}
-}
-
-// Tombstones are kept only while a removed device might still reconnect and
-// deserve a straight answer. Past that they are landfill, and without pruning
-// the file grows once per revocation forever.
-func TestOldTombstonesArePruned(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "device.json")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-
-	stale := addPeer(t, s, "Ancient")
-	fresh := addPeer(t, s, "Recent")
-
-	// Backdate one past the TTL, then revoke the other — pruning runs on revoke.
-	s.mu.Lock()
-	p := s.peers[stale]
-	p.RevokedAt = time.Now().Add(-tombstoneTTL - time.Hour).UnixMilli()
-	s.peers[stale] = p
-	s.mu.Unlock()
-
-	if err := s.Revoke("", fresh); err != nil {
-		t.Fatalf("revoke: %v", err)
-	}
-
-	if _, err := s.Peer(stale); err != ErrUnknownDevice {
-		t.Error("an expired tombstone was kept")
-	}
-	if _, err := s.Peer(fresh); err != nil {
-		t.Error("a fresh tombstone was pruned — a just-removed device would be told it never existed")
+	if len(second.Peers()) != 0 {
+		t.Errorf("a removed device is listed after restart")
 	}
 }
 
@@ -251,8 +213,8 @@ func TestFailedSaveRollsBack(t *testing.T) {
 	if err := s.Revoke("", kept); err == nil {
 		t.Fatal("revoke saved into a read-only directory")
 	}
-	if p, _ := s.Peer(kept); !p.Active() {
-		t.Error("an unsaved revoke took effect")
+	if _, err := s.Peer(kept); err != nil {
+		t.Errorf("an unsaved revoke took effect: %v", err)
 	}
 }
 

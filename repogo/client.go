@@ -14,6 +14,7 @@ import (
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/hostinfo"
 	"github.com/repogo/host/internal/release"
+	"github.com/repogo/host/internal/rpc/devices"
 )
 
 func call(ctx context.Context, method string, params, out any) error {
@@ -84,12 +85,10 @@ func waitReady(ctx context.Context, version string) error {
 	}
 }
 
-func peers(ctx context.Context) ([]device.Peer, error) {
-	var out struct {
-		Peers []device.Peer `json:"peers"`
-	}
+func peers(ctx context.Context) ([]devices.Device, error) {
+	var out devices.ListResult
 	err := call(ctx, "devices.list", nil, &out)
-	return out.Peers, err
+	return out.Devices, err
 }
 
 func printStatus(ctx context.Context) error {

@@ -247,7 +247,7 @@ func TestServesOnlyWhatItOpened(t *testing.T) {
 	}
 
 	// The phone that opened it is unpaired: the tunnel stops at once.
-	ps[phone] = device.Peer{ID: phone, RevokedAt: 1}
+	delete(ps, phone)
 	if status, _, _ := c.get(t, "s2", strconv.Itoa(shared), "abcdefghij12.repogo.dev"); status != http.StatusForbidden {
 		t.Fatalf("revoked opener still served: %d", status)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/hostclient"
+	"github.com/repogo/host/internal/rpc/devices"
 	"github.com/repogo/host/internal/rpc/registry"
 	"github.com/repogo/host/internal/testhost"
 )
@@ -114,16 +115,21 @@ func TestUnpairedDeviceIsRejected(t *testing.T) {
 	}
 }
 
-func TestRevokedDeviceCannotReconnect(t *testing.T) {
+// Revoking closes the device's open socket, so its next call fails, and its
+// reconnect is refused as an unknown device.
+func TestRevokedDeviceLosesItsSocket(t *testing.T) {
 	h := newHarness(t)
 	phone := h.pair("Old phone")
-	h.mustDial(phone)
+	c := h.mustDial(phone)
 
 	if err := h.devices.Revoke("", phone.ID); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if _, err := h.dial(phone); err == nil {
-		t.Fatal("a revoked device reconnected")
+	if err := call(t, c, "devices.list", nil, nil); err == nil {
+		t.Error("a revoked device's open socket still answered")
+	}
+	if _, err := h.dial(phone); err == nil || !strings.Contains(err.Error(), "unknown device") {
+		t.Fatalf("a revoked device reconnected or was refused for another reason: %v", err)
 	}
 }
 
@@ -162,7 +168,7 @@ func TestPairedDeviceMayNotFallBackToTheToken(t *testing.T) {
 	}
 }
 
-func TestDevicesListReturnsActivePeersOnly(t *testing.T) {
+func TestDevicesListLeavesOutRemovedDevices(t *testing.T) {
 	h := newHarness(t)
 	phone := h.pair("Phone")
 	gone := h.pair("Retired phone")
@@ -172,28 +178,16 @@ func TestDevicesListReturnsActivePeersOnly(t *testing.T) {
 
 	c := h.mustDial(phone)
 
-	var got struct {
-		You  string `json:"you"`
-		Self struct {
-			ID string `json:"id"`
-		} `json:"self"`
-		Peers []struct {
-			ID    string `json:"id"`
-			Label string `json:"label"`
-		} `json:"peers"`
-	}
+	var got devices.ListResult
 	if err := call(t, c, "devices.list", nil, &got); err != nil {
 		t.Fatalf("devices.list: %v", err)
 	}
 
-	if len(got.Peers) != 1 {
-		t.Fatalf("want 1 active peer, got %d — a revoked device is a tombstone, not a row", len(got.Peers))
+	if len(got.Devices) != 1 {
+		t.Fatalf("want 1 device, got %d", len(got.Devices))
 	}
-	if got.Peers[0].Label != "Phone" {
-		t.Errorf("listed the wrong peer: %q", got.Peers[0].Label)
-	}
-	if got.You != string(phone.ID) {
-		t.Errorf("`you` = %q, want the calling device's id", got.You)
+	if d := got.Devices[0]; d.Label != "Phone" || !d.You {
+		t.Errorf("listed %+v, want the calling phone marked as you", d)
 	}
 }
 

@@ -99,20 +99,14 @@ func TestStrangerMayHandshakeWhilePairing(t *testing.T) {
 	}
 }
 
-// Paired devices, including revoked ones, still reach the host; a revoked one
-// is told so rather than left to time out.
-func TestPairedAndRevokedDevicesAreAdmitted(t *testing.T) {
+// Revoking ends the device's channel and the calls on it at once, and from
+// then on it is a stranger: no pushes, and its redial is dropped.
+func TestRevokedDeviceLosesItsChannel(t *testing.T) {
 	h := newHarness(t)
-	phone, revoked := generate(t), generate(t)
-	for _, id := range []*device.Identity{phone, revoked} {
-		if err := h.devices.Add(device.Peer{ID: id.ID, Public: id.Public, Label: "phone", Platform: "ios"}); err != nil {
-			t.Fatalf("pair: %v", err)
-		}
+	phone := generate(t)
+	if err := h.devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "phone", Platform: "ios"}); err != nil {
+		t.Fatalf("pair: %v", err)
 	}
-	if err := h.devices.Revoke("", revoked.ID); err != nil {
-		t.Fatalf("revoke: %v", err)
-	}
-
 	c, err := h.dial(t, phone, 5*time.Second)
 	if err != nil {
 		t.Fatalf("paired phone: %v", err)
@@ -120,12 +114,23 @@ func TestPairedAndRevokedDevicesAreAdmitted(t *testing.T) {
 	if err := ping(t, c); err != nil {
 		t.Fatalf("paired phone call: %v", err)
 	}
-
-	r, err := h.dial(t, revoked, 5*time.Second)
-	if err != nil {
-		t.Fatalf("revoked phone: %v", err)
+	if !h.Link.Online(phone.ID) {
+		t.Fatal("a phone with a channel is not online")
 	}
-	if err := ping(t, r); !denied(err) {
-		t.Fatalf("revoked phone call: %v, want denied", err)
+
+	if err := h.devices.Revoke("", phone.ID); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if h.Link.Online(phone.ID) {
+		t.Error("a revoked phone's channel outlived the revoke")
+	}
+	if err := ping(t, c); err == nil {
+		t.Error("a revoked phone's open channel still answered")
+	}
+	if err := h.Link.Send(phone.ID, "test.event", []byte("{}")); err == nil {
+		t.Error("the link sealed a push to a revoked phone")
+	}
+	if _, err := h.dial(t, phone, 500*time.Millisecond); err == nil {
+		t.Error("a revoked phone opened a channel again")
 	}
 }

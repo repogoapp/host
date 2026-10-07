@@ -1,11 +1,3 @@
 {
-  "group_id": "",
-  "self": {
-    "id": "",
-    "label": "",
-    "platform": "",
-    "public_key": ""
-  },
-  "you": "",
-  "peers": []
+  "devices": []
 }

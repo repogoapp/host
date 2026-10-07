@@ -585,10 +585,7 @@ Params:
 
 Result:
 
-- `group_id` string
-- `self` object{Self}
-- `you` string
-- `peers` [object{Peer}]
+- `devices` [object{Device}]
 
 ## `devices.register_push`
 
@@ -602,6 +599,18 @@ Params:
 - `at` int (omitted when empty)
 - `chat_id` string
 - `kind` string
+
+Result:
+
+- `ok` bool
+
+## `devices.revoke`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `id` string
 
 Result:
 

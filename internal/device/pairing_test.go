@@ -48,7 +48,7 @@ func TestReusableInviteAdmitsManyDevices(t *testing.T) {
 			t.Fatalf("%s: host proof is not keyed by the reusable code", label)
 		}
 	}
-	if got := len(p.store.ActivePeers()); got != 2 {
+	if got := len(p.store.Peers()); got != 2 {
 		t.Fatalf("paired %d devices, want 2", got)
 	}
 }

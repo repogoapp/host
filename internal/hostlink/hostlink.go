@@ -86,7 +86,9 @@ func New(cfg Config) (*Link, error) {
 	if cfg.Devices == nil || cfg.Router == nil || cfg.Pairing == nil || cfg.OnDisconnect == nil {
 		return nil, errors.New("hostlink: devices, router, pairing and on-disconnect are required")
 	}
-	return &Link{cfg: cfg, log: cfg.Log, dialer: newDialer(), attached: make(chan struct{})}, nil
+	l := &Link{cfg: cfg, log: cfg.Log, dialer: newDialer(), attached: make(chan struct{})}
+	cfg.Devices.OnRevoke(l.revoked)
+	return l, nil
 }
 
 // Connected reports whether the link is attached to the relay.
@@ -94,6 +96,27 @@ func (l *Link) Connected() bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.current != nil
+}
+
+// Online reports whether a device holds an established channel.
+func (l *Link) Online(id device.ID) bool {
+	l.mu.RLock()
+	c := l.current
+	l.mu.RUnlock()
+	return c != nil && c.channel(id) != nil
+}
+
+// revoked ends a removed device's channel and the calls riding it; the reset
+// tells the phone, whose reconnect is then dropped as a stranger's.
+func (l *Link) revoked(id device.ID) {
+	l.mu.RLock()
+	c := l.current
+	l.mu.RUnlock()
+	if c == nil {
+		return
+	}
+	c.reset(c.base, id)
+	l.disconnected(id)
 }
 
 // Attached is closed once the link is attached to the relay, until it drops.
@@ -249,6 +272,10 @@ func (l *Link) Send(to device.ID, method string, payload []byte) error {
 	if c == nil {
 		return errors.New("hostlink: not attached to the relay")
 	}
+	// Only paired devices hear pushes; a channel can outlive its device's pairing.
+	if _, err := l.cfg.Devices.Peer(to); err != nil {
+		return err
+	}
 
 	b, err := jsonrpc.Encode(&jsonrpc.Message{
 		JSONRPC: jsonrpc.Version,
@@ -328,8 +355,7 @@ func (l *Link) reply(ctx context.Context, c *conn, caller device.ID, reply *json
 }
 
 // admits reports whether a caller may open or use a channel at all: any
-// device this host has paired, revoked ones included so they are told so, and
-// a stranger only while a pairing code is live.
+// device this host has paired, and a stranger only while a pairing code is live.
 func (l *Link) admits(caller device.ID) bool {
 	if _, err := l.cfg.Devices.Peer(caller); err == nil {
 		return true
@@ -343,13 +369,9 @@ func (l *Link) authorize(caller device.ID, method string) error {
 	if l.cfg.Router.Unpaired(method) {
 		return nil
 	}
-	peer, err := l.cfg.Devices.Peer(caller)
-	if err != nil {
+	if _, err := l.cfg.Devices.Peer(caller); err != nil {
 		l.log.Warn("hostlink: unpaired caller", "device", caller, "method", method)
 		return errors.New("this device is not paired with the host")
-	}
-	if !peer.Active() {
-		return errors.New("this device was revoked")
 	}
 	return nil
 }

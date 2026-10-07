@@ -205,7 +205,7 @@ func TestDeadActivityTokenIsForgotten(t *testing.T) {
 	sender.Reply = &jsonrpc.Error{Code: jsonrpc.CodeNotFound, Message: "apns: unregistered"}
 
 	d.Observe(context.Background(), notice("UserPromptSubmit"))
-	for _, p := range store.ActivePeers() {
+	for _, p := range store.Peers() {
 		if _, ok := p.Activities[key]; ok {
 			t.Fatal("dead activity token kept")
 		}

@@ -44,6 +44,7 @@ import (
 	"github.com/repogo/host/internal/projectwatch"
 	"github.com/repogo/host/internal/push"
 	"github.com/repogo/host/internal/repogomcp"
+	devicesrpc "github.com/repogo/host/internal/rpc/devices"
 	"github.com/repogo/host/internal/rpc/registry"
 	"github.com/repogo/host/internal/session"
 	"github.com/repogo/host/internal/shipping"
@@ -156,6 +157,7 @@ func (h *Host) openDevices() error {
 	// socket if it has one, else the relay, the fallback when there is one.
 	h.Pushes = emit.NewMux()
 	h.emitter = emit.New(h.Pushes, h.log)
+	h.devices.OnRevoke(func(device.ID) { h.toEveryPhone(devicesrpc.Changed{}) })
 
 	// Public tunnels: dialled only while one is open; every phone sees the list.
 	h.tunnels, err = tunnel.Open(tunnel.Config{
@@ -175,6 +177,7 @@ func (h *Host) openDevices() error {
 	s.Host = h.info
 	s.Devices = h.devices
 	s.Pairer = h.pairer
+	s.Online = h.online
 	// Resolved late: the listener has not picked a port yet.
 	s.Addr = func() string { addr, _ := h.invite.Load().(string); return addr }
 	s.Fetcher = forward.NewFetcher(h.log)
@@ -371,6 +374,11 @@ func (h *Host) disconnected(d device.ID) {
 	h.live.Unsubscribe(d)
 	h.watch.Stop(d)
 	h.emitter.LeaveAll(d)
+}
+
+// online reports whether a device has a loopback socket or a channel through the relay.
+func (h *Host) online(d device.ID) bool {
+	return h.srv.Online(d) || h.link != nil && h.link.Online(d)
 }
 
 func (h *Host) relayConnected() bool { return h.link != nil && h.link.Connected() }

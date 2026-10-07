@@ -49,8 +49,11 @@ func (c *conn) run(ctx context.Context) {
 	c.srv.log.Info("wsserver: connected", "device", c.caller.Device, "label", h.Label)
 	defer c.srv.log.Info("wsserver: disconnected", "device", c.caller.Device)
 	// Pushes for this device go out here for as long as the socket is up.
-	c.srv.attach(c)
+	attached := c.srv.attach(c)
 	defer c.srv.detach(c)
+	if !attached {
+		return
+	}
 
 	ctx, stopKeepalive := context.WithCancel(ctx)
 	defer stopKeepalive()

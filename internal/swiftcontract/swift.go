@@ -675,6 +675,7 @@ var EventExports = map[string]string{
 	"environment.status":  "Environment.Status",
 	"mcp.changed":         "MCP.Changed",
 	"tunnels.changed":     "Tunnels.Changed",
+	"devices.changed":     "Devices.Changed",
 	"project.changed":     "Project.Changed",
 }
 

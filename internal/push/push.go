@@ -138,7 +138,7 @@ func (n *Notifier) BrowserRequest(ctx context.Context, to device.ID, requestID s
 		"kind":       "browser_request",
 		"request_id": requestID,
 	})
-	for _, peer := range n.store.ActivePeers() {
+	for _, peer := range n.store.Peers() {
 		if peer.ID == to {
 			n.pushPeer(ctx, peer, "browser:"+requestID, payload)
 		}
@@ -176,7 +176,7 @@ func (n *Notifier) deliver(ctx context.Context, notice notify.Notice, a alert) {
 
 // push sends one APNs payload to every paired phone with a token.
 func (n *Notifier) push(ctx context.Context, collapseID string, payload []byte) {
-	for _, peer := range n.store.ActivePeers() {
+	for _, peer := range n.store.Peers() {
 		n.pushPeer(ctx, peer, collapseID, payload)
 	}
 }

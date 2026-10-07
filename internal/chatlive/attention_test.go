@@ -170,7 +170,7 @@ func TestAttentionFromTerminalHooks(t *testing.T) {
 type twoPeers struct{ ids []device.ID }
 
 func (p twoPeers) Identity() *device.Identity { return &device.Identity{ID: "host-1"} }
-func (p twoPeers) ActivePeers() []device.Peer {
+func (p twoPeers) Peers() []device.Peer {
 	out := make([]device.Peer, len(p.ids))
 	for i, id := range p.ids {
 		out[i] = device.Peer{ID: id}

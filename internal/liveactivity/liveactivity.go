@@ -309,7 +309,7 @@ func (d *Driver) push(ctx context.Context, c *chat) {
 	running := c.status == "running"
 	var starts []device.Peer
 	var updates []device.Peer
-	for _, peer := range d.store.ActivePeers() {
+	for _, peer := range d.store.Peers() {
 		if act, ok := peer.Activities[key]; ok && d.now().Sub(time.UnixMilli(act.At)) < maxActivityAge {
 			updates = append(updates, peer)
 			continue
