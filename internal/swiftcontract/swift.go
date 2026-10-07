@@ -25,7 +25,7 @@ var methodExports = map[string]bool{
 	"chats.subagent": true, "chats.neighbors": true,
 	"limits.read": true, "limits.reset": true,
 	// Usage, devices and project picking.
-	"usage.history": true, "usage.daily": true, "devices.register_push": true, "devices.list": true,
+	"usage.history": true, "usage.daily": true, "devices.register_push": true, "devices.list": true, "devices.revoke": true,
 	"github.repos": true, "github.clone": true, "fs.add_project": true, "fs.new_project": true,
 	// Editor, git and chat list rows.
 	"fs.write": true, "fs.replace": true, "fs.mkdir": true, "fs.rename": true,
