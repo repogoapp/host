@@ -118,8 +118,41 @@ func NewManager(log *slog.Logger, hooks Hooks, adapters ...Adapter) *Manager {
 	}
 	for _, a := range adapters {
 		m.adapters[a.Kind()] = a
+		if j, ok := a.(Joiner); ok {
+			j.OwnTurns(m.adopt)
+		}
 	}
 	return m
+}
+
+// adopt runs a turn the agent started by itself as one of the Manager's, so
+// it streams, stops and holds later sends in its chat's queue like a sent one.
+func (m *Manager) adopt(chatID, cwd string) {
+	kind, sessionID, ok := SplitChatID(chatID)
+	joiner, joins := m.adapters[kind].(Joiner)
+	if !ok || !joins {
+		return
+	}
+	t := m.newTurn(TurnRequest{ChatID: chatID, Cwd: cwd, Agent: kind, SessionID: sessionID}, uuid.NewString(), time.Now())
+	m.queueMu.Lock()
+	m.mu.Lock()
+	running := m.running[chatID]
+	updating := time.Now().Before(m.updateUntil)
+	if running == nil && !updating {
+		m.turns[t.status.TurnID] = t
+		m.running[chatID] = t
+	}
+	m.mu.Unlock()
+	m.queueMu.Unlock()
+	if running != nil || updating {
+		t.cancel()
+		m.log.Info("agent's own turn not adopted", "chat", chatID, "running", running != nil, "updating", updating)
+		return
+	}
+	m.log.Info("adopted the agent's own turn", "turn", t.status.TurnID, "chat", chatID)
+	go m.execute(t, func(ctx context.Context, _ TurnRequest, io TurnIO) (Result, error) {
+		return joiner.Join(ctx, chatID, io)
+	})
 }
 
 // queuedLocked is a chat's queue as state.db keeps it. Called with m.mu held.
@@ -335,7 +368,7 @@ func (m *Manager) Send(req TurnRequest) (TurnStatus, error) {
 	m.statusChanged(t.snapshot(), ChatQueued, t.status.QueuedAt)
 	reply := t.snapshot()
 	if start {
-		go m.execute(t, adapter)
+		go m.execute(t, adapter.Send)
 		// Starting, not waiting: a caller shows "queued" only for a turn
 		// that is behind another one.
 		reply.State = StateRunning
@@ -406,26 +439,16 @@ var ErrNotQueued = errkind.New(errkind.Invalid, "turn is no longer queued")
 // Stop cancels a running turn or drops a queued one.
 func (m *Manager) Stop(turnID string) error { return m.stop(turnID, false) }
 
-// StopChat stops what a chat is running: the Manager's turn, else a turn the
-// agent started on its own. ErrNotFound means neither is running here.
-func (m *Manager) StopChat(ctx context.Context, chatID string) error {
+// StopChat stops the turn a chat is running here, an adopted one included.
+// ErrNotFound means none is: a turn in the user's terminal is theirs to stop.
+func (m *Manager) StopChat(chatID string) error {
 	m.mu.Lock()
 	t := m.running[chatID]
 	m.mu.Unlock()
-	if t != nil {
-		return m.Stop(t.snapshot().TurnID)
+	if t == nil {
+		return ErrNotFound
 	}
-	for _, a := range m.adapters {
-		interrupter, ok := a.(Interrupter)
-		if !ok {
-			continue
-		}
-		stopped, err := interrupter.Interrupt(ctx, chatID)
-		if err != nil || stopped {
-			return err
-		}
-	}
-	return ErrNotFound
+	return m.Stop(t.snapshot().TurnID)
 }
 
 // Respond answers a pending approval.
@@ -603,7 +626,8 @@ func (m *Manager) Subscribe(turnID string) (<-chan Event, func(), error) {
 	return ch, unsub, nil
 }
 
-func (m *Manager) execute(t *turn, adapter Adapter) {
+// execute runs t with run, an adapter's Send or Join, and settles it.
+func (m *Manager) execute(t *turn, run func(context.Context, TurnRequest, TurnIO) (Result, error)) {
 	ctx, cancel := t.ctx, t.cancel
 	now := time.Now()
 	t.mu.Lock()
@@ -617,7 +641,7 @@ func (m *Manager) execute(t *turn, adapter Adapter) {
 	m.log.Info("turn started",
 		"turn", t.status.TurnID, "chat", t.req.ChatID, "agent", t.req.Agent, "cwd", t.req.Cwd)
 
-	res, err := adapter.Send(ctx, t.req, TurnIO{
+	res, err := run(ctx, t.req, TurnIO{
 		Emit:     t.publish,
 		Activity: t.activity,
 		Ask:      m.asker(t),
@@ -699,7 +723,7 @@ func (m *Manager) advance(chatID string) {
 	m.mu.Unlock()
 	m.saveQueue(chatID, queue)
 
-	go m.execute(next, adapter)
+	go m.execute(next, adapter.Send)
 }
 
 // Restore puts the turns a previous run left queued back in their chats'
@@ -769,7 +793,7 @@ func (m *Manager) SendQueued(turnID string, device device.ID) (TurnStatus, error
 	m.mu.Unlock()
 	m.saveQueue(chatID, queue)
 
-	go m.execute(t, adapter)
+	go m.execute(t, adapter.Send)
 	reply := t.snapshot()
 	reply.State = StateRunning
 	return reply, nil

@@ -4,16 +4,19 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/repogo/host/internal/agent"
 	"github.com/repogo/host/internal/claudecode"
+	"github.com/repogo/host/internal/testwait"
 )
 
 func TestMain(m *testing.M) {
@@ -81,7 +84,8 @@ func directTestRunner(t *testing.T) *runner {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	r := &runner{deps: agent.Dependencies{Root: root, Context: t.Context(), Env: []string{"REPOGO_FAKE_CLAUDE_RUNNER=1"}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}, executable: func() string { return executable }, home: root}
+	r := &runner{deps: agent.Dependencies{Root: root, Context: t.Context(), Env: []string{"REPOGO_FAKE_CLAUDE_RUNNER=1"}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}, executable: func() string { return executable }, home: root,
+		adopt: func(string, string) {}}
 	t.Cleanup(r.Close)
 	return r
 }
@@ -111,6 +115,13 @@ func TestDirectEnvironmentPreservesConfigDiscovery(t *testing.T) {
 				t.Fatalf("config directory = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDirectEnvironmentAsksForSessionState(t *testing.T) {
+	r := &runner{home: "/test/claude"}
+	if !slices.Contains(r.environment(), "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1") {
+		t.Fatal("Claude would never report its own turns running")
 	}
 }
 
@@ -173,9 +184,11 @@ func TestDirectRunnerStopAndProcessDeath(t *testing.T) {
 }
 
 // A turn Claude starts by itself after the host's turn ended, when a
-// background task finishes, is stopped through the chat's own process.
-func TestInterruptStopsATurnClaudeStartedItself(t *testing.T) {
+// background task finishes, goes to the Manager and runs as the host's own.
+func TestClaudesOwnTurnIsAdoptedAndJoined(t *testing.T) {
 	r := directTestRunner(t)
+	adopted := make(chan string, 1)
+	r.adopt = func(chatID, _ string) { adopted <- chatID }
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := r.Send(ctx, agent.TurnRequest{ChatID: "new", Cwd: t.TempDir(), Prompt: "hello"}, agent.TurnIO{TurnID: "turn", Emit: func(agent.Event) {}})
@@ -183,17 +196,37 @@ func TestInterruptStopsATurnClaudeStartedItself(t *testing.T) {
 		t.Fatal(err)
 	}
 	chatID := agent.ChatID(agent.KindClaude, result.SessionID)
-	if stopped, err := r.Interrupt(ctx, chatID); stopped || err != nil {
-		t.Fatalf("idle session: stopped=%v err=%v", stopped, err)
-	}
 	s, _ := r.pool.Get(chatID)
 	r.pool.Release(chatID, s)
-	feed(t, s, `{"type":"system","subtype":"session_state_changed","state":"running"}`)
-	if stopped, err := r.Interrupt(ctx, chatID); !stopped || err != nil {
-		t.Fatalf("Claude's own turn: stopped=%v err=%v", stopped, err)
+
+	join := func(ctx context.Context, text *strings.Builder) <-chan error {
+		done := make(chan error, 1)
+		feed(t, s, `{"type":"system","subtype":"session_state_changed","state":"running"}`)
+		if got := <-adopted; got != chatID {
+			t.Fatalf("adopted %q, want %q", got, chatID)
+		}
+		go func() {
+			_, err := r.Join(ctx, chatID, agent.TurnIO{TurnID: "own", Emit: func(e agent.Event) { text.WriteString(e.Text) }})
+			done <- err
+		}()
+		testwait.For(t, "the turn to bind", func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.io != nil })
+		return done
 	}
-	if stopped, _ := r.Interrupt(ctx, "claude:unknown"); stopped {
-		t.Fatal("interrupted a chat with no session")
+
+	var text strings.Builder
+	done := join(ctx, &text)
+	feed(t, s, `{"type":"assistant","message":{"id":"reply","content":[{"type":"text","text":"task done"}]}}`)
+	feed(t, s, `{"type":"result","subtype":"success","origin":{"kind":"task-notification"}}`)
+	if err := <-done; err != nil || text.String() != "task done" {
+		t.Fatalf("joined turn: %q, %v", text.String(), err)
+	}
+	feed(t, s, `{"type":"system","subtype":"session_state_changed","state":"idle"}`)
+
+	stopCtx, stop := context.WithCancel(ctx)
+	done = join(stopCtx, &strings.Builder{})
+	stop()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("stopped joined turn: %v", err)
 	}
 }
 

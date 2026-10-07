@@ -48,7 +48,11 @@ type liveSession struct {
 	owedIdle                  int
 	// working is Claude's own state: true from "running" to "idle", including
 	// a turn it starts by itself when a background task finishes.
-	working  bool
+	working bool
+	// The running turn is one Claude started by itself (join), not a prompt.
+	joined bool
+	// ownTurn tells the Manager Claude started a turn by itself.
+	ownTurn  func()
 	pending  int
 	consumed chan struct{}
 }
@@ -65,6 +69,50 @@ func (s *liveSession) send(ctx context.Context, req agent.TurnRequest, io agent.
 		s.mu.Unlock()
 		return agent.Result{}, errors.New("Claude session closed")
 	}
+	turnCtx, outcome, finish := s.beginLocked(ctx, io)
+	s.mu.Unlock()
+	defer finish()
+	if io.Session != nil {
+		io.Session(s.id)
+	}
+	configCtx, configCancel := context.WithTimeout(turnCtx, 20*time.Second)
+	err := s.applyConfig(configCtx, req.Config)
+	configCancel()
+	if err != nil {
+		return agent.Result{SessionID: s.id}, err
+	}
+	message := userMessage(req, s.id)
+	s.mu.Lock()
+	s.promptID = message.UUID
+	s.promptSent = true
+	s.mu.Unlock()
+	if err = s.client.Send(turnCtx, message); err != nil {
+		return agent.Result{SessionID: s.id}, err
+	}
+	return s.wait(ctx, outcome)
+}
+
+// join runs the turn Claude started by itself as the host's: it ends with
+// Claude's result or idle, the process exiting, or a stop.
+func (s *liveSession) join(ctx context.Context, io agent.TurnIO) (agent.Result, error) {
+	s.mu.Lock()
+	if s.closed || s.io != nil || !s.working {
+		s.mu.Unlock()
+		return agent.Result{SessionID: s.id}, nil
+	}
+	_, outcome, finish := s.beginLocked(ctx, io)
+	s.joined = true
+	s.promptSent = true
+	s.mu.Unlock()
+	defer finish()
+	if io.Session != nil {
+		io.Session(s.id)
+	}
+	return s.wait(ctx, outcome)
+}
+
+// beginLocked binds io as the session's running turn; finish unbinds it.
+func (s *liveSession) beginLocked(ctx context.Context, io agent.TurnIO) (context.Context, <-chan turnOutcome, func()) {
 	turnCtx, cancel := context.WithCancel(ctx)
 	s.io = &io
 	s.turnCtx = turnCtx
@@ -87,35 +135,22 @@ func (s *liveSession) send(ctx context.Context, req agent.TurnRequest, io agent.
 	s.promptSent = false
 	s.promptEchoed = false
 	s.sawText = false
-	outcome := s.outcome
-	s.mu.Unlock()
-	defer func() {
+	s.joined = false
+	finish := func() {
 		cancel()
 		s.mu.Lock()
 		s.io = nil
 		s.turnCtx = nil
 		s.turnCancel = nil
 		s.outcome = nil
+		s.joined = false
 		s.lastActivity = time.Now()
 		s.mu.Unlock()
-	}()
-	if io.Session != nil {
-		io.Session(s.id)
 	}
-	configCtx, configCancel := context.WithTimeout(turnCtx, 20*time.Second)
-	err := s.applyConfig(configCtx, req.Config)
-	configCancel()
-	if err != nil {
-		return agent.Result{SessionID: s.id}, err
-	}
-	message := userMessage(req, s.id)
-	s.mu.Lock()
-	s.promptID = message.UUID
-	s.promptSent = true
-	s.mu.Unlock()
-	if err = s.client.Send(turnCtx, message); err != nil {
-		return agent.Result{SessionID: s.id}, err
-	}
+	return turnCtx, s.outcome, finish
+}
+
+func (s *liveSession) wait(ctx context.Context, outcome <-chan turnOutcome) (agent.Result, error) {
 	select {
 	case result := <-outcome:
 		return result.result, result.err

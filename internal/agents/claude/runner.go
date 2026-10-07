@@ -23,6 +23,8 @@ type runner struct {
 	pool       agent.SessionPool[*liveSession]
 	executable func() string
 	home       string
+	// adopt is the Manager's, set once as it starts: see agent.Joiner.
+	adopt func(chatID, cwd string)
 }
 
 func (r *runner) Kind() agent.Kind { return agent.KindClaude }
@@ -50,21 +52,17 @@ func (r *runner) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnI
 	return result, err
 }
 
-// Interrupt stops a turn Claude started by itself between the host's turns,
-// which only the chat's own process can stop.
-func (r *runner) Interrupt(ctx context.Context, chatID string) (bool, error) {
+func (r *runner) OwnTurns(adopt func(chatID, cwd string)) { r.adopt = adopt }
+
+// Join runs the turn Claude started by itself in chatID's process, between
+// the host's turns, so it streams and stops as the host's own.
+func (r *runner) Join(ctx context.Context, chatID string, io agent.TurnIO) (agent.Result, error) {
 	s, ok := r.pool.Get(chatID)
 	if !ok {
-		return false, nil
+		return agent.Result{}, errors.New("Claude session closed")
 	}
 	defer r.pool.Release(chatID, s)
-	s.mu.Lock()
-	working := s.working && s.io == nil && !s.closed
-	s.mu.Unlock()
-	if !working {
-		return false, nil
-	}
-	return true, s.client.Interrupt(ctx)
+	return s.join(ctx, io)
 }
 
 func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*liveSession, error) {
@@ -127,6 +125,10 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	s := newLiveSession(id, req.Cwd)
 	s.key = agent.ChatID(agent.KindClaude, id)
+	s.ownTurn = func() {
+		r.deps.Log.Info("Claude started a turn by itself", "chat", s.key)
+		r.adopt(s.key, s.cwd)
+	}
 	if own {
 		entry, release := r.deps.Tools.Attach(s)
 		s.release = release
@@ -170,6 +172,9 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 
 func (r *runner) environment() []string {
 	env := append(agent.ChildEnv(), r.deps.Env...)
+	// Claude reports running and idle only when asked: running is how the host
+	// sees a turn Claude starts by itself, and idle settles a joined one.
+	env = append(env, "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1")
 	// An explicit config directory changes account discovery even at the default path.
 	if r.deps.Root != "" {
 		env = append(env, "CLAUDE_CONFIG_DIR="+r.home)

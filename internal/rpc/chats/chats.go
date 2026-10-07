@@ -43,8 +43,8 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "chats.resolve", d.resolve)
 	rpc.Add(r, "chats.update", d.update)
 	rpc.Add(r, "chats.delete", d.delete)
-	// stop is Stop on a chat rather than a turn: it also reaches a turn the
-	// agent started on its own, which has no turn id on the phone.
+	// stop is Stop on a chat rather than a turn, for a caller that knows the
+	// chat is running but not which turn.
 	rpc.Add(r, "chats.stop", d.stop)
 	rpc.Add(r, "chats.subscribe", d.subscribe)
 	rpc.Add(r, "chats.unsubscribe", d.unsubscribe)
@@ -137,8 +137,8 @@ func (d Deps) delete(_ context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, er
 	return rpc.OK, d.Chats.Delete(a.ChatID)
 }
 
-func (d Deps) stop(ctx context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, error) {
-	return rpc.OK, d.Chats.Stop(ctx, a.ChatID)
+func (d Deps) stop(_ context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, error) {
+	return rpc.OK, d.Chats.Stop(a.ChatID)
 }
 
 func (d Deps) subscribe(_ context.Context, c rpc.Caller, a SubscribeParams) (chatlive.Live, error) {

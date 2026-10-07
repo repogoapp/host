@@ -13,8 +13,8 @@ names there.
 
 | File | What it does |
 | --- | --- |
-| `runner.go` | The `agent.Adapter`. `Send` gets the chat's Claude process from the `SessionPool` (new or reused) and runs the turn; it passes the process its MCP servers and environment. |
-| `session.go` | One live Claude process (`liveSession`). `send` writes the prompt and waits for the result, the process exiting or a stop; `stop` interrupts, then closes the process after a grace period. |
+| `runner.go` | The `agent.Adapter`. `Send` gets the chat's Claude process from the `SessionPool` (new or reused) and runs the turn; it passes the process its MCP servers and environment. It is an `agent.Joiner` too: when Claude starts a turn by itself (a background task finished), the Manager adopts it and `Join` runs it as the host's own. |
+| `session.go` | One live Claude process (`liveSession`). `send` writes the prompt and waits for the result, the process exiting or a stop; `join` binds a turn Claude started by itself and waits the same way; `stop` interrupts, then closes the process after a grace period. |
 | `prompt.go` | The user message for Claude, built from the `TurnRequest`: the prompt and any attachments. |
 | `events.go` | What Claude streams (text, thinking, tool calls, results, usage) becomes `agent.Event`s. |
 | `tasks.go` | Tracks background tasks and subagents, so a turn isn't treated as finished or cleaned up while they still run. |

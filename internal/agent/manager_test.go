@@ -195,49 +195,57 @@ func TestSteerQueuesForAnAgentThatCannot(t *testing.T) {
 	m.Stop(second.TurnID)
 }
 
-// interruptingAdapter runs turns until stopped and has a turn of its own
-// running, outside the Manager, in the chats listed in working.
-type interruptingAdapter struct {
+// joiningAdapter runs turns until stopped, and keeps the Manager's adopt so a
+// test can start a turn as the agent would by itself.
+type joiningAdapter struct {
 	blockingAdapter
-	working     map[string]bool
-	interrupted chan string
+	adopt *func(chatID, cwd string)
 }
 
-func (a interruptingAdapter) Interrupt(_ context.Context, chatID string) (bool, error) {
-	if !a.working[chatID] {
-		return false, nil
-	}
-	a.interrupted <- chatID
-	return true, nil
+func (a joiningAdapter) OwnTurns(adopt func(chatID, cwd string)) { *a.adopt = adopt }
+func (a joiningAdapter) Join(ctx context.Context, _ string, io TurnIO) (Result, error) {
+	io.Session("own")
+	<-ctx.Done()
+	return Result{}, ctx.Err()
 }
 
-// Stop on a chat reaches the Manager's turn first, then a turn the agent
-// started by itself, and says when neither runs here.
-func TestStopChatStopsTheRunningTurnOrTheAgentsOwn(t *testing.T) {
-	adapter := interruptingAdapter{working: map[string]bool{"claude:own": true}, interrupted: make(chan string, 1)}
-	m := NewManager(discard(), quiet(), adapter)
-	ctx := t.Context()
+// A turn the agent starts by itself runs as the Manager's: it has an id, holds
+// a send in the queue behind it, and Stop on the chat ends it.
+func TestAdoptedTurnQueuesSendsAndStops(t *testing.T) {
+	var adopt func(chatID, cwd string)
+	sessions := make(chan TurnStatus, 4)
+	hooks := quiet()
+	hooks.Session = func(st TurnStatus) { sessions <- st }
+	m := NewManager(discard(), hooks, joiningAdapter{adopt: &adopt})
+	cwd := t.TempDir()
 
-	turn, err := m.Send(TurnRequest{ChatID: "claude:s1", Cwd: t.TempDir(), Agent: KindClaude, Prompt: "first"})
-	if err != nil {
+	adopt("claude:own", cwd)
+	own := <-sessions
+	if own.ChatID != "claude:own" || own.TurnID == "" {
+		t.Fatalf("adopted turn %#v", own)
+	}
+	adopt("claude:own", cwd)
+	if n := len(m.List()); n != 1 {
+		t.Fatalf("adopting a running chat again made %d turns", n)
+	}
+
+	next, err := m.Send(TurnRequest{ChatID: "claude:own", Cwd: cwd, Agent: KindClaude, Prompt: "after"})
+	if err != nil || next.State != StateQueued {
+		t.Fatalf("send behind the adopted turn: %#v: %v", next, err)
+	}
+	if err := m.StopChat("claude:own"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.StopChat(ctx, "claude:s1"); err != nil {
-		t.Fatal(err)
-	}
-	testwait.For(t, "the turn to stop", func() bool {
-		status, _ := m.Status(turn.TurnID)
-		return status.State == StateStopped
+	testwait.For(t, "the queued turn to start", func() bool {
+		status, _ := m.Status(next.TurnID)
+		return status.State == StateRunning
 	})
-
-	if err := m.StopChat(ctx, "claude:own"); err != nil {
-		t.Fatal(err)
+	if status, _ := m.Status(own.TurnID); status.State != StateStopped {
+		t.Fatalf("adopted turn %s, want stopped", status.State)
 	}
-	if got := <-adapter.interrupted; got != "claude:own" {
-		t.Fatalf("interrupted %q, want claude:own", got)
-	}
+	m.Stop(next.TurnID)
 
-	if err := m.StopChat(ctx, "claude:idle"); !errors.Is(err, ErrNotFound) {
+	if err := m.StopChat("claude:idle"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("idle chat: %v, want ErrNotFound", err)
 	}
 }

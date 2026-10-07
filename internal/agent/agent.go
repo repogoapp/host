@@ -277,11 +277,12 @@ type Steerer interface {
 	Steer(ctx context.Context, turnID string, req TurnRequest) error
 }
 
-// Interrupter is an Adapter whose process for a chat can start a turn of its
-// own between the Manager's turns, such as a reply to a finished background
-// task. Interrupt stops that turn and reports whether one was running.
-type Interrupter interface {
-	Interrupt(ctx context.Context, chatID string) (bool, error)
+// Joiner is an Adapter whose process for a chat can start a turn by itself,
+// such as a reply to a finished background task. It calls adopt when one
+// starts; Join then runs that turn as Send runs one it was given.
+type Joiner interface {
+	OwnTurns(adopt func(chatID, cwd string))
+	Join(ctx context.Context, chatID string, io TurnIO) (Result, error)
 }
 
 // Result is what an adapter learned about the turn as a whole.

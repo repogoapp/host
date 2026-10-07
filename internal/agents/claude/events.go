@@ -17,10 +17,13 @@ type streamBlock struct{ kind, text string }
 func (s *liveSession) handleMessage(m claudecode.Message) {
 	s.mu.Lock()
 	s.lastActivity = time.Now()
+	ownTurn := false
 	if m.Type == "system" {
 		s.updateTaskLocked(m)
 		if m.Subtype == "session_state_changed" {
-			s.working = m.State == "running"
+			// Running with no turn bound: a prompt from the host binds one first.
+			ownTurn = m.State == "running" && !s.working && s.io == nil && !s.closed
+			s.working = m.State != "idle"
 		}
 		if m.Subtype == "session_state_changed" && m.State == "running" {
 			s.owedIdle = 0
@@ -32,6 +35,9 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 			s.owedIdle--
 		}
 		s.mu.Unlock()
+		if ownTurn {
+			s.ownTurn()
+		}
 		return
 	}
 	if !s.promptSent {
@@ -101,13 +107,16 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 	}
 	var completion *turnOutcome
 	autonomous := slices.Contains([]string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}, m.Origin.Kind)
-	if m.Type == "result" && autonomous {
+	// A joined turn's own result is autonomous and answers no prompt of ours.
+	own := m.Type == "result" && m.ParentToolUseID == "" &&
+		(s.joined && s.deferred == nil || !autonomous && (m.UserMessageUUID == "" || m.UserMessageUUID == s.promptID))
+	if m.Type == "result" && autonomous && !own {
 		if s.deferred != nil && m.NumTurns > 0 && !s.awaitingSubagentsLocked() {
 			completion = s.deferred
 			s.owedIdle++
 		}
 	}
-	if m.Type == "result" && !autonomous && m.ParentToolUseID == "" && (m.UserMessageUUID == "" || m.UserMessageUUID == s.promptID) {
+	if own {
 		s.usage.InputTokens += m.Usage.InputTokens
 		s.usage.OutputTokens += m.Usage.OutputTokens
 		s.usage.CacheReadTokens += m.Usage.CacheReadTokens
@@ -150,6 +159,8 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 			}
 		case s.owedIdle > 0:
 			s.owedIdle--
+		case s.joined:
+			completion = &turnOutcome{result: agent.Result{SessionID: s.id, StopReason: "end_turn"}}
 		case s.promptEchoed:
 			completion = &turnOutcome{result: agent.Result{SessionID: s.id}, err: errors.New("Claude went idle without a result for the accepted prompt")}
 		}

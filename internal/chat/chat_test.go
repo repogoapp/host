@@ -1,7 +1,6 @@
 package chat_test
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -35,7 +34,7 @@ func (r *recorder) Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error) 
 	return status, false, err
 }
 
-func (r *recorder) StopChat(context.Context, string) error { return agent.ErrNotFound }
+func (r *recorder) StopChat(string) error { return agent.ErrNotFound }
 
 // transcripts is a Transcripts that remembers deletions and serves one subagent.
 type transcripts struct {
@@ -318,5 +317,32 @@ func TestStartCarriesTheTitle(t *testing.T) {
 	_, err = svc.Start(chat.Start{Path: h.Root, Agent: string(agent.KindClaude), Title: strings.Repeat("a", 121)}, turn)
 	if !errors.Is(err, errkind.ErrInvalid) || rec.n != 1 {
 		t.Fatalf("over-long title: err %v after %d sends, want ErrInvalid and nothing queued", err, rec.n)
+	}
+}
+
+// Stopping a chat the host no longer runs settles it when the cache shows a
+// host turn still working: that turn died with an earlier host process. A
+// turn run elsewhere stays the user's to stop.
+func TestStopSettlesATurnAnEarlierHostLeftWorking(t *testing.T) {
+	svc, _, _ := newService(t, agent.KindClaude)
+	started := time.Now().Add(-time.Minute)
+	if err := svc.Cache.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, started,
+		store.TurnObservation{Key: store.ManagerTurnPrefix + "dead", StartedAt: &started}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Stop("claude:sess-1"); err != nil {
+		t.Fatalf("Stop = %v, want the dead turn settled", err)
+	}
+	if info, _ := svc.Cache.Info("claude:sess-1"); info.Status != agent.ChatInterrupted {
+		t.Errorf("status = %s, want interrupted", info.Status)
+	}
+
+	later := time.Now()
+	if err := svc.Cache.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, later,
+		store.TurnObservation{Key: "hook-prompt:p1", StartedAt: &later}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Stop("claude:sess-1"); !errors.Is(err, agent.ErrNotFound) {
+		t.Fatalf("Stop of a terminal's turn = %v, want ErrNotFound", err)
 	}
 }
