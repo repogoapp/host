@@ -29,13 +29,61 @@ can pair and start chatting right away.
 | --- | --- |
 | `npx @repogo/host` | Install and start the host, then show a pairing code |
 | `npx @repogo/host pair` | Show a pairing code for another device |
+| `npx @repogo/host pair --reusable 14d` | Show a code any number of devices can pair with until it expires (days `d` or hours `h`, up to 30 days); `--reusable off` ends it |
 | `npx @repogo/host status` | Show whether the host is running |
-| `npx @repogo/host start` / `stop` | Start or stop the background host |
 | `npx @repogo/host devices` / `devices revoke <id>` | List the paired devices, or remove one: its connections close and it can no longer reach the host |
+| `npx @repogo/host start` / `stop` | Start or stop the background host |
 | `npx @repogo/host logs` | Show the host's logs |
 | `npx @repogo/host update` | Update to the latest version; refuses while agents, terminals or builds are running (`--now` stops them) |
 | `npx @repogo/host power enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
 | `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
+
+### Run it in an Apple container
+
+For an environment nobody sits at, such as a demo machine others pair with,
+run the host in a Linux container with Apple's
+[`container`](https://github.com/apple/container) tool on a Mac. Nothing on
+the Mac itself is touched.
+
+1. Create the container. The host runs as its main process (a container has
+   no launchd or systemd), and `npx` downloads the binary to
+   `/root/.repogo/bin` first:
+
+   ```sh
+   container system start
+   container run -d --name repogo-host -c 4 -m 4G \
+     docker.io/library/node:22-bookworm \
+     sh -c 'npx -y @repogo/host version && exec /root/.repogo/bin/repogo serve'
+   container logs repogo-host    # wait for "hostlink: attached to relay"
+   ```
+
+2. Make a reusable pairing code. A normal code admits one device and lasts
+   two minutes; this one admits any number until it expires:
+
+   ```sh
+   container exec repogo-host /root/.repogo/bin/repogo pair --reusable 21d
+   ```
+
+   It prints a QR, the 14-character code and its `https://repogo.app/<code>`
+   link. Open the link on an iPhone, scan the QR, or tap **Enter code** on
+   the pairing screen.
+
+3. When you're done, end it. Devices that already paired stay paired until
+   you remove them from the app:
+
+   ```sh
+   container exec repogo-host /root/.repogo/bin/repogo pair --reusable off
+   ```
+
+The pairing, the reusable code, chats and agent sign-ins live in the
+container's own filesystem: `container stop` and `container start` keep them,
+`container rm` loses them. To update, run
+`container exec repogo-host /root/.repogo/bin/repogo update`; the host
+replaces itself in place, so the container keeps running.
+
+Anyone with a reusable code can pair and run agents there until it expires,
+so use a container that holds nothing personal, and give its agents accounts
+with spending limits.
 
 ## How it works
 
