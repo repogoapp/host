@@ -729,3 +729,54 @@ func TestAStalledReaderDoesNotStallOthers(t *testing.T) {
 		}
 	}
 }
+
+// A frame to an id that is not here leaves nothing behind: the table must not
+// grow with whatever ids a stranger invents.
+func TestAFrameToAnAbsentIDLeavesNoRoute(t *testing.T) {
+	h := newHarness(t)
+	sender, _ := h.connect("group-a", handshake.RoleClient)
+	for i := range 50 {
+		sender.send(device.ID(fmt.Sprintf("%032x", i)), "anyone?")
+	}
+	sender.flush()
+	h.srv.mu.RLock()
+	defer h.srv.mu.RUnlock()
+	if n := len(h.srv.routes); n != 0 {
+		t.Fatalf("relay remembers %d routes to absent ids, want 0", n)
+	}
+}
+
+// One socket is remembered talking to at most routesPerSocket targets.
+func TestRoutesPerSocketAreCapped(t *testing.T) {
+	h := newHarness(t)
+	sender, _ := h.connect("group-a", handshake.RoleClient)
+	for range routesPerSocket + 4 {
+		target, _ := h.connect("group-a", handshake.RoleClient)
+		sender.send(target.id, "hello")
+		if _, _, err := target.recv(3 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.srv.mu.RLock()
+	defer h.srv.mu.RUnlock()
+	if n := len(h.srv.routes); n != routesPerSocket {
+		t.Fatalf("relay remembers %d routes for one socket, want %d", n, routesPerSocket)
+	}
+}
+
+// Sending a frame to a device does not sign the sender up for its presence:
+// only a peer in the device's group hears it go.
+func TestAStrangerOutsideTheGroupHearsNoPresence(t *testing.T) {
+	h := newHarness(t)
+	phone, _ := h.connect("group-a", handshake.RoleClient)
+	stranger, _ := h.connect("group-b", handshake.RoleClient)
+	stranger.send(phone.id, "watching you")
+	if _, _, err := phone.recv(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	phone.ws.Close(websocket.StatusNormalClosure, "")
+	h.gone(phone.id)
+	if method, p, err := stranger.presence(500 * time.Millisecond); err == nil {
+		t.Fatalf("a stranger outside the group was told %q about %s", method, p.Device)
+	}
+}

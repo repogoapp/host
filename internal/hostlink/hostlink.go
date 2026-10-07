@@ -42,6 +42,12 @@ const (
 	// message. A phone finishes in one round trip; anything older was abandoned.
 	handshakeTTL = 30 * time.Second
 
+	// Strangers may handshake only while a pairing code is live, and only this
+	// many at once; one that has not paired within strangerTTL is dropped, so
+	// an open code cannot be used to pile up sessions.
+	maxStrangers = 4
+	strangerTTL  = 2 * time.Minute
+
 	// strangerLogEvery bounds the log line for frames from devices this host
 	// does not know, which anyone with a key pair can send.
 	strangerLogEvery = time.Minute
@@ -77,6 +83,11 @@ type Link struct {
 	current *conn
 	// attached is closed while current is set.
 	attached chan struct{}
+
+	// strangers is when each unpaired device now holding a handshake or
+	// session was first admitted. now is the clock, replaced by tests.
+	strangers map[device.ID]time.Time
+	now       func() time.Time
 }
 
 func New(cfg Config) (*Link, error) {
@@ -86,7 +97,8 @@ func New(cfg Config) (*Link, error) {
 	if cfg.Devices == nil || cfg.Router == nil || cfg.Pairing == nil || cfg.OnDisconnect == nil {
 		return nil, errors.New("hostlink: devices, router, pairing and on-disconnect are required")
 	}
-	l := &Link{cfg: cfg, log: cfg.Log, dialer: newDialer(), attached: make(chan struct{})}
+	l := &Link{cfg: cfg, log: cfg.Log, dialer: newDialer(), attached: make(chan struct{}),
+		strangers: map[device.ID]time.Time{}, now: time.Now}
 	cfg.Devices.OnRevoke(l.revoked)
 	return l, nil
 }
@@ -224,7 +236,7 @@ func (l *Link) session(ctx context.Context) error {
 		// Anyone with a key pair can address this host through the relay. The
 		// relay has proved who the caller is, so a stranger is dropped here,
 		// before any key exchange, allocation, or reply.
-		if !l.admits(caller) {
+		if !l.admits(caller) || !l.allowStranger(c, caller) {
 			c.stranger(l.log, caller)
 			continue
 		}
@@ -582,3 +594,45 @@ func (l *Link) presence(payload []byte) bool {
 }
 
 func (l *Link) disconnected(id device.ID) { l.cfg.OnDisconnect(id) }
+
+// allowStranger admits an unpaired caller while a code is live, up to
+// maxStrangers at once; a paired caller always passes. Strangers that never
+// paired are dropped with their sessions once strangerTTL has passed.
+func (l *Link) allowStranger(c *conn, caller device.ID) bool {
+	if _, err := l.cfg.Devices.Peer(caller); err == nil {
+		return true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	for id, since := range l.strangers {
+		if _, err := l.cfg.Devices.Peer(id); err == nil {
+			delete(l.strangers, id)
+			continue
+		}
+		if now.Sub(since) >= strangerTTL {
+			delete(l.strangers, id)
+			c.drop(id)
+		}
+	}
+	if _, held := l.strangers[caller]; held {
+		return true
+	}
+	if len(l.strangers) >= maxStrangers {
+		return false
+	}
+	l.strangers[caller] = now
+	return true
+}
+
+// drop ends id's session and handshake, if any.
+func (c *conn) drop(id device.ID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if p := c.peers[id]; p != nil {
+		if p.ch != nil {
+			p.ch.cancel()
+		}
+		delete(c.peers, id)
+	}
+}

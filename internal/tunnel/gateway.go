@@ -18,6 +18,9 @@ import (
 	gw "github.com/repogo/host/internal/tunnel/wire/gateway"
 )
 
+// nonceLen is the challenge nonce's size; the gateway makes 32 bytes.
+const nonceLen = 32
+
 // ProofMessage is what the host signs to answer the gateway's challenge; the
 // gateway's hostproof.go builds the same bytes.
 func ProofMessage(nonce []byte, gatewayID string, timeMS uint64) []byte {
@@ -104,6 +107,11 @@ func (s *Service) connect(ctx context.Context) error {
 	// A challenge naming another gateway would let that one replay our proof.
 	if c.GatewayId != gatewayID {
 		return fmt.Errorf("gateway challenge names %q, not %q", c.GatewayId, gatewayID)
+	}
+	// A nonce of any other size would let the gateway choose how much of
+	// the signed message is its own.
+	if len(c.Nonce) != nonceLen {
+		return fmt.Errorf("gateway challenge nonce is %d bytes, not %d", len(c.Nonce), nonceLen)
 	}
 	proof := id.Sign(ProofMessage(c.Nonce, c.GatewayId, c.Time))
 	if err := l.send(&gw.ClientMessage{Body: &gw.ClientMessage_Proof{Proof: &gw.HostProof{Signature: proof}}}); err != nil {

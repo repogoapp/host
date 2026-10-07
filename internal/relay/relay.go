@@ -56,6 +56,11 @@ const (
 	// oldest, most likely a socket stranded by a network change, is closed.
 	socketsPerDevice = 8
 
+	// routesPerSocket bounds the targets one socket is remembered talking to.
+	// A phone talks to its hosts and a host to its phones; past this the
+	// frame still goes, it is just not remembered.
+	routesPerSocket = 16
+
 	// awayFor is how long the relay remembers who a departed device was
 	// talking to, so they hear when it is back. Past it, a return is silent.
 	awayFor = 24 * time.Hour
@@ -384,7 +389,7 @@ func (s *Server) attach(c *conn) {
 	if len(retired) > 0 && c.isHost() {
 		s.log.Info("relay: replaced host socket", "device", c.id, "retired", len(retired))
 	}
-	s.announce(c.id, PresenceBack, "", back)
+	s.announce(c.id, c.group, PresenceBack, "", back)
 }
 
 func (s *Server) detach(c *conn) {
@@ -434,7 +439,7 @@ func (s *Server) detach(c *conn) {
 	}
 	s.mu.Unlock()
 	s.log.Info("relay: detached", "device", c.id, "reason", reason)
-	s.announce(c.id, PresenceGone, reason, gone)
+	s.announce(c.id, c.group, PresenceGone, reason, gone)
 }
 
 // graceOver announces a host that closed cleanly and did not come back.
@@ -447,7 +452,7 @@ func (s *Server) graceOver(id device.ID) {
 	delete(s.pendingGone, id)
 	d := s.away[id]
 	s.mu.Unlock()
-	s.announce(id, PresenceGone, d.reason, d.peers)
+	s.announce(id, d.group, PresenceGone, d.reason, d.peers)
 }
 
 // mergePeers is a and b without repeats.
@@ -522,16 +527,16 @@ func (s *Server) unreachable(from *conn, target device.ID) {
 	}
 }
 
-// announce tells each peer, over the socket it last used to reach subject,
-// that subject has gone or is back. Best effort: a peer that is not attached
-// learns it on its own reconnect.
-func (s *Server) announce(subject device.ID, method, reason string, peers []device.ID) {
+// announce tells each peer in subject's group, over the socket it last used
+// to reach subject, that subject has gone or is back. Best effort; a peer
+// outside the group only ever sent frames and is told nothing.
+func (s *Server) announce(subject device.ID, group, method, reason string, peers []device.ID) {
 	if len(peers) == 0 {
 		return
 	}
 	told := 0
 	for _, peer := range peers {
-		if to := s.socketFor(peer, subject); to != nil && s.send(to, subject, method, reason) {
+		if to := s.socketFor(peer, subject); to != nil && to.group == group && s.send(to, subject, method, reason) {
 			told++
 		}
 	}
@@ -578,7 +583,9 @@ func (s *Server) socketFor(target, sender device.ID) *conn {
 	return nil
 }
 
-// noteRoute records that from's frames to target leave from c.
+// noteRoute records that from's frames to target leave from c. A target that
+// is not here is not recorded: a stranger writing to invented ids must not
+// grow this table, and presence for an absent target goes through away.
 func (s *Server) noteRoute(c *conn, target device.ID) {
 	r := leg{from: c.id, to: target}
 	s.mu.RLock()
@@ -588,15 +595,21 @@ func (s *Server) noteRoute(c *conn, target device.ID) {
 		return
 	}
 	s.mu.Lock()
-	// Only while c is attached: a frame read just before detach must not
-	// leave a route to a closed socket.
-	for _, other := range s.conns[c.id] {
-		if other == c {
-			s.routes[r] = c
-			break
+	defer s.mu.Unlock()
+	if len(s.conns[target]) == 0 || !slices.Contains(s.conns[c.id], c) {
+		// Only while c is attached: a frame read just before detach must not
+		// leave a route to a closed socket.
+		return
+	}
+	held := 0
+	for _, via := range s.routes {
+		if via == c {
+			held++
 		}
 	}
-	s.mu.Unlock()
+	if held < routesPerSocket {
+		s.routes[r] = c
+	}
 }
 
 // route forwards one message. Undeliverable messages are dropped, not queued:

@@ -11,6 +11,7 @@ import (
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/handshake"
 	"github.com/repogo/host/internal/hostclient"
+	"github.com/repogo/host/internal/hostlink"
 	"github.com/repogo/host/internal/jsonrpc"
 	"github.com/repogo/host/internal/rpc"
 	"github.com/repogo/host/internal/testhost"
@@ -132,5 +133,35 @@ func TestRevokedDeviceLosesItsChannel(t *testing.T) {
 	}
 	if _, err := h.dial(t, phone, 500*time.Millisecond); err == nil {
 		t.Error("a revoked phone opened a channel again")
+	}
+}
+
+// An open pairing code admits a few strangers at once, not a pile; one that
+// never pairs is dropped with its session once the code's lifetime passes.
+func TestStrangersAreCappedWhilePairing(t *testing.T) {
+	h := newHarness(t)
+	h.Pairing.Store(true)
+	for i := range hostlink.MaxStrangers {
+		if _, err := h.dial(t, generate(t), 5*time.Second); err != nil {
+			t.Fatalf("stranger %d could not open a channel: %v", i, err)
+		}
+	}
+	if _, err := h.dial(t, generate(t), 500*time.Millisecond); err == nil {
+		t.Fatal("a stranger past the cap opened a channel")
+	}
+	if n := h.Link.PeerCount(); n != hostlink.MaxStrangers {
+		t.Fatalf("host holds %d stranger sessions, want %d", n, hostlink.MaxStrangers)
+	}
+
+	h.Link.SetNow(func() time.Time { return time.Now().Add(hostlink.StrangerTTL) })
+	late, err := h.dial(t, generate(t), 5*time.Second)
+	if err != nil {
+		t.Fatalf("after the old strangers expired a new one could not open a channel: %v", err)
+	}
+	if err := ping(t, late); !denied(err) {
+		t.Fatalf("an unpaired joiner called a method: %v, want denied", err)
+	}
+	if n := h.Link.PeerCount(); n != 1 {
+		t.Fatalf("host holds %d sessions after the sweep, want 1", n)
 	}
 }
