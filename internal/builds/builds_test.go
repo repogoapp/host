@@ -261,6 +261,7 @@ func TestASuccessfulBuildPrunesItsExactDuplicatesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitDone(t, f.Service, started.ID)
+	testwait.For(t, "the build cleanup to finish", func() bool { return f.Running() == 0 })
 	list, err := f.List(f.project)
 	if err != nil {
 		t.Fatal(err)

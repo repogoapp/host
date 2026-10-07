@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/repogo/host/internal/device"
@@ -62,8 +63,8 @@ type pipe struct {
 	// Byte counters, reported on close. A pipe that carried nothing in either
 	// direction failed differently from one that carried a handshake and then
 	// stopped, and the close reason alone does not tell them apart.
-	fromServer int
-	toServer   int
+	fromServer atomic.Int64
+	toServer   atomic.Int64
 
 	closeOnce sync.Once
 }
@@ -141,7 +142,7 @@ func (p *Pipes) Send(caller device.ID, id string, data []byte) error {
 		return err
 	}
 	_ = pi.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	pi.toServer += len(data)
+	pi.toServer.Add(int64(len(data)))
 	if _, err := pi.conn.Write(data); err != nil {
 		p.closePipe(pi, err.Error())
 		return fmt.Errorf("forward: write: %w", err)
@@ -177,11 +178,11 @@ func (p *Pipes) pump(pi *pipe) {
 		_ = pi.conn.SetReadDeadline(time.Now().Add(pipeIdleTimeout))
 		n, err := pi.conn.Read(buf)
 		if n > 0 {
-			if pi.fromServer == 0 {
+			if pi.fromServer.Load() == 0 {
 				// The status line says whether the upgrade was accepted at all.
 				p.log.Info("forward: pipe reply", "pipe", pi.id, "line", firstLine(buf[:n]))
 			}
-			pi.fromServer += n
+			pi.fromServer.Add(int64(n))
 			if sendErr := p.emit.To(pi.caller, Data{PipeID: pi.id, Data: buf[:n]}); sendErr != nil {
 				// The client is gone or the link is down. Nothing will read
 				// this stream again, so holding the socket open serves no one.
@@ -221,7 +222,7 @@ func (p *Pipes) closePipe(pi *pipe, reason string) {
 		p.mu.Unlock()
 
 		p.log.Info("forward: pipe closed", "pipe", pi.id, "reason", reason,
-			"from_server", pi.fromServer, "from_client", pi.toServer)
+			"from_server", pi.fromServer.Load(), "from_client", pi.toServer.Load())
 		if pi.conn != nil {
 			pi.conn.Close()
 		}
