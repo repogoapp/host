@@ -206,7 +206,7 @@ func TestLaunchOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--include-partial-messages", "--permission-prompt-tool", "stdio", "--resume", "session", "--setting-sources=user,project,local", "--mcp-config", "--thinking-display", "summarized"} {
+	for _, flag := range []string{"--include-partial-messages", "--permission-prompt-tool", "stdio", "--resume", "session", "--setting-sources=user,project,local", "--mcp-config"} {
 		if !slices.Contains(args, flag) {
 			t.Errorf("missing %s", flag)
 		}

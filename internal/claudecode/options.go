@@ -30,9 +30,7 @@ func (o Options) args() ([]string, error) {
 		return nil, errors.New("claudecode: session and resume are mutually exclusive")
 	}
 	a := []string{"--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
-		"--include-partial-messages", "--permission-prompt-tool", "stdio", "--replay-user-messages",
-		// Newer models stream no readable thinking unless a summary is requested.
-		"--thinking-display", "summarized"}
+		"--include-partial-messages", "--permission-prompt-tool", "stdio", "--replay-user-messages"}
 	for _, pair := range [][2]string{{"--session-id", o.SessionID}, {"--resume", o.ResumeID}, {"--model", o.Model}, {"--permission-mode", o.PermissionMode}} {
 		if pair[1] != "" {
 			a = append(a, pair[0], pair[1])
