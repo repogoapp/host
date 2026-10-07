@@ -107,13 +107,30 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 // InterruptOrphans settles every chat left active by a turn this host ran. Those
 // turns end with the process, so at start nothing is behind such a status.
 func (s *Store) InterruptOrphans(at time.Time) (int, error) {
+	return s.interruptHostTurns(at, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(agent.ActiveStatuses))+`) AND last_turn_key LIKE ?`,
+		append(anys(agent.ActiveStatuses), ManagerTurnPrefix+"%")...)
+}
+
+// InterruptOrphan settles id if a turn a host ran left it active: a previous
+// host's last write can land after InterruptOrphans has run. False when the
+// row is not such a turn; a CLI in a terminal is the user's to stop.
+func (s *Store) InterruptOrphan(id ChatID, at time.Time) (bool, error) {
+	kind, sessionID, ok := id.split()
+	if !ok {
+		return false, fmt.Errorf("%w: chat id %q", ErrInvalid, id)
+	}
+	n, err := s.interruptHostTurns(at, `SELECT agent, session_id FROM sessions WHERE agent = ? AND session_id = ? AND status IN (`+marks(len(agent.ActiveStatuses))+`) AND last_turn_key LIKE ?`,
+		append([]any{kind, sessionID}, append(anys(agent.ActiveStatuses), ManagerTurnPrefix+"%")...)...)
+	return n > 0, err
+}
+
+func (s *Store) interruptHostTurns(at time.Time, query string, args ...any) (int, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	orphans, err := selectChats(tx, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(agent.ActiveStatuses))+`) AND last_turn_key LIKE ?`,
-		append(anys(agent.ActiveStatuses), ManagerTurnPrefix+"%")...)
+	orphans, err := selectChats(tx, query, args...)
 	if err != nil {
 		return 0, err
 	}

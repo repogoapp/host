@@ -217,9 +217,21 @@ func (s *Service) Steer(id store.ChatID, t Turn) (status agent.TurnStatus, steer
 }
 
 // Stop stops whatever the chat is running on this host, including a turn its
-// agent started without a prompt from a device.
+// agent started by itself. A host turn the cache shows working with nothing
+// behind it died with an earlier host process, so a stop settles it instead.
 func (s *Service) Stop(ctx context.Context, id store.ChatID) error {
-	return s.d.Sender.StopChat(ctx, string(id))
+	err := s.d.Sender.StopChat(ctx, string(id))
+	if !errors.Is(err, agent.ErrNotFound) {
+		return err
+	}
+	settled, settleErr := s.d.Cache.InterruptOrphan(id, time.Now())
+	if settleErr != nil {
+		return settleErr
+	}
+	if !settled {
+		return err
+	}
+	return nil
 }
 
 func (s *Service) send(id store.ChatID, t Turn, steer bool) (agent.TurnStatus, bool, error) {
