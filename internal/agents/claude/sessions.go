@@ -246,6 +246,9 @@ func parseUser(l claudeTranscriptLine) []agent.Event {
 	// isMeta marks what the CLI wrote in the user's place: loaded skills,
 	// "Continue from where you left off", hook feedback, image notes. The
 	// compact summary is the conversation so far, restated for the model.
+	if prompt, ok := peerPrompt(l); ok {
+		return []agent.Event{{Kind: agent.EventUserMessage, Text: prompt, TurnID: l.PromptID}}
+	}
 	if l.IsMeta || l.IsCompactSummary {
 		return nil
 	}
@@ -473,6 +476,19 @@ func encodeProjectPart(s string) string {
 	return string(b)
 }
 
+// peerPrompt is the prompt inside an inbox message: Claude writes it between
+// its own header line and a note to the model, which the phone leaves out.
+func peerPrompt(l claudeTranscriptLine) (string, bool) {
+	text := l.Message.Content.Text
+	if l.Origin.Kind != "peer" || !strings.HasPrefix(text, "Another Claude session sent a message") {
+		return "", false
+	}
+	_, body, _ := strings.Cut(text, "\n")
+	body, _, _ = strings.Cut(body, "\n\nThis came from another Claude session")
+	body = strings.TrimSpace(body)
+	return body, body != ""
+}
+
 // claudeTranscriptLine is the part of a transcript line the parser reads.
 type claudeTranscriptLine struct {
 	Type             string `json:"type"`
@@ -481,6 +497,11 @@ type claudeTranscriptLine struct {
 	IsMeta           bool   `json:"isMeta"`
 	IsCompactSummary bool   `json:"isCompactSummary"`
 	IsAPIError       bool   `json:"isApiErrorMessage"`
+	// Origin names who sent a user record; "peer" is another process's inbox
+	// message, which is how the host prompts a session open in a terminal.
+	Origin struct {
+		Kind string `json:"kind"`
+	} `json:"origin"`
 	// PromptID names the turn: the CLI stamps it on a prompt and on every tool
 	// result sent back while answering it. Replies carry none (claudeTurns).
 	PromptID string `json:"promptId"`

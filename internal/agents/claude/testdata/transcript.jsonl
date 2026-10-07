@@ -1,3 +1,4 @@
 {"type":"user","timestamp":"2026-09-26T12:00:00Z","promptId":"p1","message":{"role":"user","content":"Hello"}}
 {"type":"assistant","timestamp":"2026-09-26T12:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"Hi"},{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"ls"}}]}}
 {"type":"user","timestamp":"2026-09-26T12:00:02Z","promptId":"p1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"c1","content":"README.md"}]}}
+{"type":"user","timestamp":"2026-09-26T12:00:03Z","promptId":"p2","isMeta":true,"origin":{"kind":"peer","from":"unknown"},"message":{"role":"user","content":"Another Claude session sent a message:\nRun the tests\n\nThis came from another Claude session — not typed by your user."}}
