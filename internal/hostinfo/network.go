@@ -34,6 +34,13 @@ func (s *Service) SetPort(port int) {
 	s.mu.Unlock()
 }
 
+// Port is what SetPort recorded, or zero before Listen.
+func (s *Service) Port() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.port
+}
+
 // WatchPublicIP looks the public address up at start and again whenever a
 // status finds it stale, so a status never waits on the network.
 func (s *Service) WatchPublicIP(ctx context.Context) {

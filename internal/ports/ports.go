@@ -8,6 +8,7 @@ import (
 	"sort"
 	"syscall"
 
+	"github.com/repogo/host/internal/errkind"
 	"github.com/repogo/host/internal/files"
 )
 
@@ -46,17 +47,24 @@ type Killed struct {
 	Command string `json:"command,omitempty"`
 }
 
+// ErrSelf refuses the host's own listener: a phone clearing a stuck dev
+// server must not be able to take its own connection down.
+var ErrSelf = errkind.New(errkind.Invalid, "ports: that port is the host's own")
+
 // KillPort signals every listener on port, resolved now because a caller's scan
 // may be stale. IPv4 and IPv6 rows of one server are separate listeners; PIDs
 // reports only the signals the OS accepted.
-func KillPort(ctx context.Context, port int, force bool) Killed {
+func KillPort(ctx context.Context, port int, force bool) (Killed, error) {
 	out := Killed{PIDs: []int{}}
 	if port <= 0 {
-		return out
+		return out, nil
 	}
 	for _, p := range listPlatformPorts(ctx) {
 		if p.Port != port || p.PID <= 0 {
 			continue
+		}
+		if p.PID == os.Getpid() {
+			return Killed{PIDs: []int{}}, ErrSelf
 		}
 		if out.Command == "" {
 			out.Command = p.Command
@@ -65,7 +73,7 @@ func KillPort(ctx context.Context, port int, force bool) Killed {
 			out.PIDs = append(out.PIDs, p.PID)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // signalProcess asks a pid to stop, through os.Process rather than

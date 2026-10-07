@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -59,8 +60,25 @@ func TestListPortsFindsAListenerWithItsCwdAndPortlessName(t *testing.T) {
 }
 
 func TestKillPortIgnoresAnImpossiblePort(t *testing.T) {
-	got := KillPort(context.Background(), 0, false)
+	got, _ := KillPort(context.Background(), 0, false)
 	if len(got.PIDs) != 0 || got.Command != "" {
 		t.Fatalf("KillPort(0) = %+v, want nothing", got)
+	}
+}
+
+// The host's own listener is refused, whatever port it is on.
+func TestKillPortRefusesTheHost(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	got, err := KillPort(context.Background(), port, false)
+	if !errors.Is(err, ErrSelf) {
+		t.Fatalf("KillPort(own %d) = %+v, %v; want ErrSelf", port, got, err)
+	}
+	if len(got.PIDs) != 0 {
+		t.Fatalf("signalled %v", got.PIDs)
 	}
 }

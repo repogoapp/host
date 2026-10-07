@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -168,7 +169,7 @@ func newService(t *testing.T, gatewayAddr string, ps peers) (*Service, *device.I
 	}
 	s, err := Open(Config{
 		Path: filepath.Join(t.TempDir(), "tunnels.json"), Identity: id, Peers: ps,
-		Gateway: gatewayAddr, Plaintext: true, Changed: func(Changed) {}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Gateway: gatewayAddr, Plaintext: true, Changed: func(Changed) {}, OwnPort: func() int { return ownPort }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -386,7 +387,7 @@ func TestAllowlistPersistsPrivately(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v", info.Mode().Perm())
 	}
-	again, err := Open(Config{Path: s.cfg.Path, Identity: id, Peers: peers{phone: {ID: phone}}, Changed: func(Changed) {}, Log: s.cfg.Log})
+	again, err := Open(Config{Path: s.cfg.Path, Identity: id, Peers: peers{phone: {ID: phone}}, Changed: func(Changed) {}, OwnPort: s.cfg.OwnPort, Log: s.cfg.Log})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,5 +409,16 @@ func TestClosePortClosesOnlyThatPort(t *testing.T) {
 	}
 	if got := s.List(); len(got) != 1 || got[0].Port != 4000 {
 		t.Fatalf("left %v", got)
+	}
+}
+
+// ownPort stands in for the host's loopback listener in tests.
+const ownPort = 51999
+
+// A tunnel to the host's own port would put its RPC on the internet.
+func TestOpenRefusesTheHostsOwnPort(t *testing.T) {
+	s, _ := newService(t, "127.0.0.1:1", peers{phone: {ID: phone}})
+	if _, err := s.Open(phone, "abcdefghij12", ownPort, inAnHour()); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Open(own port) = %v, want ErrInvalid", err)
 	}
 }

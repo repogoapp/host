@@ -36,5 +36,5 @@ func list(ctx context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {
 }
 
 func kill(ctx context.Context, _ rpc.Caller, a KillParams) (portscore.Killed, error) {
-	return portscore.KillPort(ctx, a.Port, a.Force), nil
+	return portscore.KillPort(ctx, a.Port, a.Force)
 }

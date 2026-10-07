@@ -320,30 +320,3 @@ func TestStartCarriesTheTitle(t *testing.T) {
 		t.Fatalf("over-long title: err %v after %d sends, want ErrInvalid and nothing queued", err, rec.n)
 	}
 }
-
-// Stopping a chat the host no longer runs settles it when the cache shows a
-// host turn still working: that turn died with an earlier host process. A
-// turn run elsewhere stays the user's to stop.
-func TestStopSettlesATurnAnEarlierHostLeftWorking(t *testing.T) {
-	svc, _, _ := newService(t, agent.KindClaude)
-	started := time.Now().Add(-time.Minute)
-	if err := svc.Cache.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, started,
-		store.TurnObservation{Key: store.ManagerTurnPrefix + "dead", StartedAt: &started}); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Stop(context.Background(), "claude:sess-1"); err != nil {
-		t.Fatalf("Stop = %v, want the dead turn settled", err)
-	}
-	if info, _ := svc.Cache.Info("claude:sess-1"); info.Status != agent.ChatInterrupted {
-		t.Errorf("status = %s, want interrupted", info.Status)
-	}
-
-	later := time.Now()
-	if err := svc.Cache.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, later,
-		store.TurnObservation{Key: "hook-prompt:p1", StartedAt: &later}); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Stop(context.Background(), "claude:sess-1"); !errors.Is(err, agent.ErrNotFound) {
-		t.Fatalf("Stop of a terminal's turn = %v, want ErrNotFound", err)
-	}
-}

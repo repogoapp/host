@@ -163,7 +163,7 @@ func (h *Host) openDevices() error {
 	h.tunnels, err = tunnel.Open(tunnel.Config{
 		Path: h.state("tunnels.json"), Identity: h.devices.Identity(), Peers: h.devices,
 		Gateway: h.cfg.Gateway, Plaintext: h.cfg.GatewayPlaintext,
-		Changed: func(ev tunnel.Changed) { h.toEveryPhone(ev) }, Log: h.log,
+		Changed: func(ev tunnel.Changed) { h.toEveryPhone(ev) }, OwnPort: h.info.Port, Log: h.log,
 	})
 	if err != nil {
 		return err
