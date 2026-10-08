@@ -5,6 +5,5 @@
   "relay_connected": false,
   "network": {
     "port": 0
-  },
-  "capabilities": null
+  }
 }

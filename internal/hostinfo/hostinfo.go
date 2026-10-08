@@ -33,7 +33,7 @@ type Status struct {
 	Network Network `json:"network"`
 	// Capabilities are what a phone may ask of this host, such as
 	// CapabilitySchedules; a phone filters its pickers on them.
-	Capabilities []string `json:"capabilities"`
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // The capabilities a host reports. Schedules need a host that stays up to run
