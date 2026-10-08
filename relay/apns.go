@@ -16,7 +16,7 @@ import (
 // no key, so a dev relay answers Unavailable. The phone says which of sandbox
 // and production minted its token.
 func apnsPush(log *slog.Logger) func(context.Context, relay.PushRequest) error {
-	key := os.Getenv("APNS_KEY")
+	key := os.Getenv("APNS_AUTH_KEY")
 	if key == "" {
 		return nil
 	}
@@ -26,7 +26,7 @@ func apnsPush(log *slog.Logger) func(context.Context, relay.PushRequest) error {
 		return nil
 	}
 	tok := &token.Token{AuthKey: authKey, KeyID: os.Getenv("APNS_KEY_ID"), TeamID: os.Getenv("APNS_TEAM_ID")}
-	topic := env("APNS_TOPIC", "app.repogo")
+	topic := env("APPLE_BUNDLE_ID", "app.repogo")
 	// The relay refuses any other environment before calling this.
 	clients := map[string]*apns2.Client{
 		relay.EnvironmentSandbox:    apns2.NewTokenClient(tok).Development(),
