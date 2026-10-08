@@ -127,8 +127,11 @@ in a terminal or your editor, so their history shows up on your phone.
 
 - `~/.repogo/` holds the binary, your pairings, a cache of your chat list, and
   logs. Delete it to remove everything.
-- A launchd agent (macOS) or a systemd user service (Linux) starts the host at
-  login.
+- A launchd agent (macOS) or a systemd user service (Linux) starts the host.
+  On Linux, `install` also turns on lingering (`loginctl enable-linger`) so the
+  host starts at boot, not at your first login; where that needs root it
+  prints the `sudo` command. On macOS the host starts at login, so a Mac that
+  restarts unattended needs automatic login, which FileVault doesn't allow.
 - Hooks in `~/.claude/settings.json` and `~/.codex/hooks.json` tell the host
   when you run an agent outside RepoGo. Your own hooks are left untouched, and
   `uninstall` removes only RepoGo's. Codex asks you to trust them once

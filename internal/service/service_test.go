@@ -25,13 +25,13 @@ func TestPlistEscapesItsValues(t *testing.T) {
 }
 
 // systemd expands % specifiers everywhere and $ in ExecStart; a literal one
-// in a path must survive both.
+// in a path must survive both. WorkingDirectory takes no quotes.
 func TestUnitEscapesSpecifiers(t *testing.T) {
 	s := &Service{home: "/home/50%", log: "/home/50%/host.log"}
 	body := s.unit("linux", "/opt/$HOME/repogo", "/usr/bin:/x%y")
 	for _, want := range []string{
 		`ExecStart="/opt/$$HOME/repogo" serve`,
-		`WorkingDirectory="/home/50%%"`,
+		"WorkingDirectory=/home/50%%\n",
 		`Environment="PATH=/usr/bin:/x%%y"`,
 		`StandardOutput=append:/home/50%%/host.log`,
 	} {

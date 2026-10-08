@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -85,6 +86,26 @@ func (s *Service) Runs(binary string) (bool, error) {
 	return strings.Contains(string(body), program(runtime.GOOS, binary)), nil
 }
 
+// Linger lets the systemd user manager, and so the host, start at boot rather
+// than at the user's first login. logind allows it for oneself through polkit
+// on most distributions; elsewhere it needs root, and the error says how.
+func Linger(ctx context.Context) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	u, err := user.Current()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join("/var/lib/systemd/linger", u.Username)); err == nil {
+		return nil
+	}
+	if err := command(ctx, "loginctl", "enable-linger", u.Username); err != nil {
+		return fmt.Errorf("the host starts when %s logs in; to start it at boot, run: sudo loginctl enable-linger %s", u.Username, u.Username)
+	}
+	return nil
+}
+
 func (s *Service) Install(ctx context.Context, binary string) error {
 	// The invoking shell's PATH includes the user's Node and agent installations.
 	body := s.unit(runtime.GOOS, binary, os.Getenv("PATH"))
@@ -133,7 +154,7 @@ StandardOutput=append:%s
 StandardError=append:%s
 [Install]
 WantedBy=default.target
-`, program(goos, binary), systemdQuote(s.home), systemdQuote("PATH="+path), strings.ReplaceAll(s.log, "%", "%%"), strings.ReplaceAll(s.log, "%", "%%"))
+`, program(goos, binary), strings.ReplaceAll(s.home, "%", "%%"), systemdQuote("PATH="+path), strings.ReplaceAll(s.log, "%", "%%"), strings.ReplaceAll(s.log, "%", "%%"))
 }
 
 // program is the line of the unit that starts binary, as it is written there.
@@ -192,9 +213,8 @@ func (s *Service) Stop(ctx context.Context) error {
 		}
 		return s.waitUnloaded(ctx)
 	}
-	installed, err := s.Installed()
-	if err != nil || !installed {
-		return err
+	if !s.loaded(ctx) {
+		return nil
 	}
 	return command(ctx, "systemctl", "--user", "stop", label)
 }
