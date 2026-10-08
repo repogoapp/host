@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -159,6 +160,9 @@ type rig struct {
 	root     string
 	secrets  chan []string
 	announce chan Status
+	// asked is every start request sent; approve answers each pending one.
+	asked   chan Request
+	approve bool
 }
 
 func newRig(t *testing.T, manifest string) *rig {
@@ -173,6 +177,7 @@ func newRig(t *testing.T, manifest string) *rig {
 	r := &rig{
 		terms: &fakeTerms{live: map[string]terminal.Spec{}}, root: root,
 		secrets: make(chan []string, 4), announce: make(chan Status, 64),
+		asked: make(chan Request, 16), approve: true,
 	}
 	r.m = New(t.Context(), Deps{
 		Terminals: r.terms,
@@ -188,9 +193,25 @@ func newRig(t *testing.T, manifest string) *rig {
 			default:
 			}
 		},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Ask: func(req Request) int {
+			r.asked <- req
+			if req.State == StatePending && r.approve {
+				go r.m.Answer(req.RequestID, true)
+			}
+			return 1
+		},
+		Label: "Studio",
+		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	return r
+}
+
+// idle is true once no start is in flight for the rig's root.
+func (r *rig) idle() bool {
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	st, ok := r.m.states[r.root]
+	return ok && !st.starting
 }
 
 // running is true once every named service is up and the start that launched
@@ -202,10 +223,7 @@ func (r *rig) running(names ...string) func() bool {
 				return false
 			}
 		}
-		r.m.mu.Lock()
-		defer r.m.mu.Unlock()
-		st, ok := r.m.states[r.root]
-		return ok && !st.starting
+		return r.idle()
 	}
 }
 
@@ -364,5 +382,61 @@ func TestAPathWithoutEnvironmentJSONIsIgnored(t *testing.T) {
 	r.m.Active(other, false)
 	if got := r.terms.started(); len(got) != 0 {
 		t.Fatalf("started %v for a project with no environment.json", got)
+	}
+}
+
+// A start asks every device first: the request names the services that would
+// launch, and a deny launches none of them and tells the devices it is done.
+func TestStartWaitsForApproval(t *testing.T) {
+	r := newRig(t, `{"services": [
+		{"name": "web", "cmd": "x"},
+		{"name": "later", "cmd": "x", "autoStart": false}
+	]}`)
+	r.approve = false
+	r.m.Boot(context.Background(), r.root)
+
+	req := <-r.asked
+	if req.State != StatePending || req.HostLabel != "Studio" || req.Path != r.root ||
+		strings.Join(req.Services, ",") != "web" {
+		t.Fatalf("request = %+v", req)
+	}
+	if pending := r.m.Pending(); len(pending) != 1 || pending[0].RequestID != req.RequestID {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if got := r.terms.started(); len(got) != 0 {
+		t.Fatalf("started %v before an answer", got)
+	}
+
+	if err := r.m.Answer(req.RequestID, false); err != nil {
+		t.Fatal(err)
+	}
+	if done := <-r.asked; done.RequestID != req.RequestID || done.State != StateDone {
+		t.Fatalf("after the answer = %+v", done)
+	}
+	testwait.For(t, "the start to end", r.idle)
+	if got := r.terms.started(); len(got) != 0 {
+		t.Fatalf("started %v after a deny", got)
+	}
+	if err := r.m.Answer(req.RequestID, true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second answer = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUnansweredStartLapses(t *testing.T) {
+	r := newRig(t, `{"services": [{"name": "web", "cmd": "x"}]}`)
+	r.approve = false
+	r.m.approvalTimeout = time.Millisecond
+	r.m.Boot(context.Background(), r.root)
+
+	req := <-r.asked
+	if done := <-r.asked; done.RequestID != req.RequestID || done.State != StateDone {
+		t.Fatalf("after the timeout = %+v", done)
+	}
+	testwait.For(t, "the start to end", r.idle)
+	if got := r.terms.started(); len(got) != 0 {
+		t.Fatalf("started %v with no answer", got)
+	}
+	if pending := r.m.Pending(); len(pending) != 0 {
+		t.Fatalf("pending = %+v", pending)
 	}
 }

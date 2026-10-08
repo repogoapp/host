@@ -44,9 +44,13 @@ type Deps struct {
 	URLs func() map[int]string
 	// Secrets resolves one start's envFrom handles to their variables.
 	Secrets func(ctx context.Context, root string, handles, services []string) map[string]map[string]string
-	// Announce sends an services.status to every device.
+	// Announce sends a services.status to every device.
 	Announce func(Status)
-	Log      *slog.Logger
+	// Ask sends a start request to every device and says how many it reached.
+	Ask func(Request) int
+	// Label names this host in a start request.
+	Label string
+	Log   *slog.Logger
 }
 
 type Manager struct {
@@ -58,10 +62,16 @@ type Manager struct {
 	states map[string]*state
 	// opened is each active path's root, as resolved when it was opened.
 	opened map[string]string
+	// asks is each start request waiting for a device, by id.
+	asks            map[string]*asking
+	approvalTimeout time.Duration
 }
 
 func New(ctx context.Context, deps Deps) *Manager {
-	return &Manager{deps: deps, ctx: ctx, states: map[string]*state{}, opened: map[string]string{}}
+	return &Manager{
+		deps: deps, ctx: ctx, states: map[string]*state{}, opened: map[string]string{},
+		asks: map[string]*asking{}, approvalTimeout: ApprovalTimeout,
+	}
 }
 
 // Boot starts each root that has an environment.json: the clones this host
@@ -87,9 +97,8 @@ func readConfig(root string) []serviceConfig {
 	return parseEnvironmentConfig(raw)
 }
 
-// startRepo launches one repo's graph gated by dependsOn (setup deps on exit,
-// services on spawn or readyWhen). envFrom secrets are fetched once, on first
-// need, so a start asks for one approval. Returns at once.
+// startRepo asks a device to approve the start, then launches the repo's
+// graph. Returns at once.
 func (m *Manager) startRepo(ctx context.Context, root string) {
 	services := readConfig(root)
 	if services == nil {
@@ -105,6 +114,22 @@ func (m *Manager) startRepo(ctx context.Context, root string) {
 	st.starting = true
 	m.mu.Unlock()
 
+	go func() {
+		defer func() {
+			m.mu.Lock()
+			st.starting = false
+			m.mu.Unlock()
+		}()
+		if m.approve(ctx, root, services) {
+			m.launchAll(ctx, root, services)
+		}
+	}()
+}
+
+// launchAll runs the graph gated by dependsOn (setup deps on exit, services
+// on spawn or readyWhen) and returns when every launch has. envFrom secrets
+// are fetched once, on first need, so a start asks for one approval.
+func (m *Manager) launchAll(ctx context.Context, root string, services []serviceConfig) {
 	envMap := buildEnvMap(services, m.exposedURLs(services))
 
 	handles := map[string]bool{}
@@ -138,12 +163,7 @@ func (m *Manager) startRepo(ctx context.Context, root string) {
 			m.launchOne(ctx, service, root, envMap, satisfied, fetchSecrets)
 		}(service)
 	}
-	go func() {
-		wg.Wait()
-		m.mu.Lock()
-		st.starting = false
-		m.mu.Unlock()
-	}()
+	wg.Wait()
 }
 
 func (m *Manager) launchOne(

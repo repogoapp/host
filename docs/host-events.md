@@ -204,6 +204,17 @@ Signal: not replayed; a missed one is recovered by refetching.
 
 - `schedules` [object{Row}]
 
+## `services.request`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `request_id` string
+- `host_label` string
+- `path` string
+- `services` [string]
+- `expires_at` string
+- `state` string
+
 ## `services.status`
 
 Signal: not replayed; a missed one is recovered by refetching.

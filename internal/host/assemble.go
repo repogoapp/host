@@ -288,6 +288,8 @@ func (h *Host) openProjects() error {
 		Terminals: terminals, Paths: projectFiles, URLs: h.tunnels.URLs,
 		Secrets:  envRequests.Resolve,
 		Announce: func(st services.Status) { h.toEveryPhone(st) },
+		Ask:      func(req services.Request) int { return h.toEveryPhone(req) },
+		Label:    h.cfg.Label,
 		Log:      h.log,
 	})
 	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes, Active: h.envs.Active, Log: h.log})
@@ -343,6 +345,7 @@ func (h *Host) openProjects() error {
 	s.Builds = appBuilds
 	s.Updates = hostupdate.New(update)
 	s.EnvSources, s.EnvRequests = envSources, envRequests
+	s.Services = h.envs
 	return nil
 }
 

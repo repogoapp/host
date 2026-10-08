@@ -1545,6 +1545,27 @@ Result:
 - `host_id` string
 - `next_run_at` int
 
+## `services.answer`
+
+Params:
+
+- `request_id` string
+- `approved` bool
+
+Result:
+
+- `ok` bool
+
+## `services.pending`
+
+Params:
+
+- none
+
+Result:
+
+- `requests` [object{Request}]
+
 ## `terminals.attach`
 
 Params:
