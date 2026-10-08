@@ -31,7 +31,17 @@ type Status struct {
 	// Cloud is set on a host that runs for a bounded session.
 	Cloud   *Cloud  `json:"cloud,omitempty"`
 	Network Network `json:"network"`
+	// Capabilities are what a phone may ask of this host, such as
+	// CapabilitySchedules; a phone filters its pickers on them.
+	Capabilities []string `json:"capabilities"`
 }
+
+// The capabilities a host reports. Schedules need a host that stays up to run
+// on time, which a bounded session doesn't; usage is the agents' history.
+const (
+	CapabilitySchedules = "schedules"
+	CapabilityUsage     = "usage"
+)
 
 // Battery is the machine's last power reading.
 type Battery interface {
@@ -150,9 +160,12 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if b, ok := s.d.Power.Battery(); ok {
 		out.Battery = &b
 	}
+	out.Capabilities = []string{CapabilityUsage}
 	if s.cloud != nil {
 		c := *s.cloud
 		out.Cloud = &c
+	} else {
+		out.Capabilities = append(out.Capabilities, CapabilitySchedules)
 	}
 	return out, nil
 }

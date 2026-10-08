@@ -19,5 +19,8 @@
     "public_ip": "public_ip",
     "local_hostname": "local_hostname",
     "port": 1
-  }
+  },
+  "capabilities": [
+    "capabilities"
+  ]
 }

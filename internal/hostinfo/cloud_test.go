@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -23,8 +24,12 @@ func TestAMacHasNoCloudSession(t *testing.T) {
 	if _, err := s.SetStopsAt(time.Now().Add(time.Hour)); !errors.Is(err, ErrNotCloud) {
 		t.Fatalf("SetStopsAt on a Mac: %v, want ErrNotCloud", err)
 	}
-	if status, _ := s.Status(context.Background()); status.Cloud != nil {
+	status, _ := s.Status(context.Background())
+	if status.Cloud != nil {
 		t.Fatalf("status cloud %+v on a Mac", status.Cloud)
+	}
+	if !slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) {
+		t.Fatalf("capabilities %v on a Mac, want schedules and usage", status.Capabilities)
 	}
 }
 
@@ -44,8 +49,12 @@ func TestAnExtensionSurvivesARestartAndANewSessionReplacesIt(t *testing.T) {
 	if _, err := s.SetStopsAt(extended); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ := s.Status(context.Background()); status.Cloud == nil || !status.Cloud.StopsAt.Equal(extended) {
+	status, _ := s.Status(context.Background())
+	if status.Cloud == nil || !status.Cloud.StopsAt.Equal(extended) {
 		t.Fatalf("status cloud %+v, want until %v", status.Cloud, extended)
+	}
+	if slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) {
+		t.Fatalf("capabilities %v on a bounded session, want usage only", status.Capabilities)
 	}
 
 	// A restart within the session (a host update) has no environment of its

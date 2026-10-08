@@ -1159,6 +1159,7 @@ Result:
 - `battery` object{Battery} (omitted when empty) (nullable)
 - `cloud` object{Cloud} (omitted when empty) (nullable)
 - `network` object{Network}
+- `capabilities` [string] (nullable)
 
 ## `host.update`
 
