@@ -41,6 +41,10 @@
             "expires_at": 1
           }
         ]
+      },
+      "balance": {
+        "remaining": 1.5,
+        "unit": "unit"
       }
     }
   ]

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +56,7 @@ func parseCodexAccountUsage(raw json.RawMessage, now time.Time) (agentusage.Usag
 			RateLimitReachedType string          `json:"rateLimitReachedType"`
 			Primary              *codexWindowRaw `json:"primary"`
 			Secondary            *codexWindowRaw `json:"secondary"`
+			Credits              *codexCredits   `json:"credits"`
 		} `json:"rateLimits"`
 		RateLimitResetCredits *codexResetsRaw `json:"rateLimitResetCredits"`
 	}
@@ -69,6 +71,7 @@ func parseCodexAccountUsage(raw json.RawMessage, now time.Time) (agentusage.Usag
 		Detail:           "live from codex app-server account/rateLimits/read",
 		Resets:           body.RateLimitResetCredits.resets(),
 		Windows:          windows((*codexLogWindow)(body.RateLimits.Primary), (*codexLogWindow)(body.RateLimits.Secondary)),
+		Balance:          body.RateLimits.Credits.balance(),
 	}
 	// The logs never carry this, so it is the one thing the live read can say
 	// that the fallback cannot: the provider itself calling you blocked.
@@ -78,11 +81,39 @@ func parseCodexAccountUsage(raw json.RawMessage, now time.Time) (agentusage.Usag
 		}
 	}
 
-	if len(usage.Windows) == 0 {
+	if len(usage.Windows) == 0 && usage.Balance == nil {
 		return agentusage.Usage{}, false
 	}
 	usage.Available = true
 	return usage, true
+}
+
+// codexCredits is the account's prepaid Codex credits, spent once a window
+// runs out. The account endpoint spells it in camelCase; codexLogCredits is
+// the logs' snake_case.
+type codexCredits struct {
+	HasCredits bool    `json:"hasCredits"`
+	Unlimited  bool    `json:"unlimited"`
+	Balance    *string `json:"balance"`
+}
+
+type codexLogCredits struct {
+	HasCredits bool    `json:"has_credits"`
+	Unlimited  bool    `json:"unlimited"`
+	Balance    *string `json:"balance"`
+}
+
+// balance is the credits left, or nil when the account has none to count:
+// never bought, or unlimited.
+func (c *codexCredits) balance() *agentusage.Balance {
+	if c == nil || !c.HasCredits || c.Unlimited || c.Balance == nil {
+		return nil
+	}
+	remaining, err := strconv.ParseFloat(*c.Balance, 64)
+	if err != nil {
+		return nil
+	}
+	return &agentusage.Balance{Remaining: remaining, Unit: "credits"}
 }
 
 // codexWindowRaw is one window as the account endpoint spells it; the logs'
@@ -134,6 +165,7 @@ func (p *Provider) codexSessionLogUsage() (agentusage.Usage, bool) {
 		CapturedAtMS:     at.UnixMilli(),
 		Detail:           "reconstructed from local Codex session logs, not official account billing",
 		Windows:          windows(snapshot.Primary, snapshot.Secondary),
+		Balance:          (*codexCredits)(snapshot.Credits).balance(),
 	}
 	return usage, len(usage.Windows) > 0
 }
@@ -145,10 +177,11 @@ type codexLogWindow struct {
 }
 
 type codexLogRateLimits struct {
-	PlanType             string          `json:"plan_type"`
-	RateLimitReachedType string          `json:"rate_limit_reached_type"`
-	Primary              *codexLogWindow `json:"primary"`
-	Secondary            *codexLogWindow `json:"secondary"`
+	PlanType             string           `json:"plan_type"`
+	RateLimitReachedType string           `json:"rate_limit_reached_type"`
+	Primary              *codexLogWindow  `json:"primary"`
+	Secondary            *codexLogWindow  `json:"secondary"`
+	Credits              *codexLogCredits `json:"credits"`
 }
 
 // latestCodexRateLimits is the newest usable rate_limits block in any rollout.

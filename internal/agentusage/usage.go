@@ -49,6 +49,17 @@ type Usage struct {
 	// Service.Reset). Only Codex has them, and only its account endpoint lists
 	// them, so a reading from the logs carries none.
 	Resets *Resets `json:"resets,omitempty"`
+
+	// What is left to spend on an account billed by amount, not by window;
+	// absent when the provider reports none.
+	Balance *Balance `json:"balance,omitempty"`
+}
+
+// Balance is prepaid credit left on the account.
+type Balance struct {
+	Remaining float64 `json:"remaining"`
+	// "usd" or "credits"; the client formats the amount by it.
+	Unit string `json:"unit"`
 }
 
 // Resets is the account's reset credits as Codex reports them.

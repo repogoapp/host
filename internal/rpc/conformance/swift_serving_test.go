@@ -19,7 +19,7 @@ var (
 		"fs.list", "fs.read", "fs.write", "fs.replace", "fs.search", "fs.delete", "fs.rename",
 		"fs.mkdir", "fs.watch", "fs.stop",
 		"projects.list", "projects.detect_icon", "projects.rename", "projects.pin", "projects.add", "projects.create",
-		"host.status", "host.setup",
+		"host.status", "host.setup", "limits.read",
 		"github.repos", "github.clone", "github.publish", "github.pr_create", "github.avatar",
 		"chats.list", "chats.sync",
 		"tools.login_start", "tools.login_complete", "tools.login_cancel", "tools.logins", "tools.logout",

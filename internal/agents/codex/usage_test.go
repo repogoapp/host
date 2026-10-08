@@ -21,6 +21,29 @@ func TestAccountUsageMarksTheExhaustedWindow(t *testing.T) {
 	}
 }
 
+// Bought credits are the balance; an account that never bought any, or has
+// unlimited, has none to show.
+func TestAccountUsageReadsTheCreditBalance(t *testing.T) {
+	for credits, want := range map[string]float64{
+		`{"hasCredits":true,"unlimited":false,"balance":"504.4950000000"}`: 504.495,
+		`{"hasCredits":false,"unlimited":false,"balance":"0"}`:             -1,
+		`{"hasCredits":true,"unlimited":true,"balance":null}`:              -1,
+	} {
+		raw := `{"rateLimits":{"primary":{"usedPercent":10,"windowDurationMins":300},"credits":` + credits + `}}`
+		usage, ok := parseCodexAccountUsage(json.RawMessage(raw), time.Now())
+		got := -1.0
+		if usage.Balance != nil {
+			got = usage.Balance.Remaining
+			if usage.Balance.Unit != "credits" {
+				t.Errorf("%s: unit %q", credits, usage.Balance.Unit)
+			}
+		}
+		if !ok || got != want {
+			t.Errorf("%s: balance %v, want %v", credits, got, want)
+		}
+	}
+}
+
 // With no app-server, the newest rollout's newest block that names a window
 // is the reading; an exhausted plan's all-null block is skipped.
 func TestSessionLogUsage(t *testing.T) {
