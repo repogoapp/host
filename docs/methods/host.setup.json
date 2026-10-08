@@ -84,7 +84,8 @@
             "auto_mode": true,
             "modalities": [
               "modalities"
-            ]
+            ],
+            "company": "company"
           }
         ],
         "default_model": "default_model",

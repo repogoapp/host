@@ -96,6 +96,10 @@ type Model struct {
 
 	// text, image, ...; absent when the CLI does not say.
 	Modalities []string `json:"modalities,omitempty"`
+
+	// The company that makes the model, when it isn't the catalog's own: a
+	// router's models name their maker, which a phone asks consent for.
+	Company string `json:"company,omitempty"`
 }
 
 // Choice is one pickable value with the CLI's label for it.
