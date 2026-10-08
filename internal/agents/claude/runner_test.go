@@ -245,6 +245,8 @@ func TestOwnTurnWithoutIdleIsAdopted(t *testing.T) {
 	chatID := agent.ChatID(agent.KindClaude, result.SessionID)
 	s, _ := r.pool.Get(chatID)
 	r.pool.Release(chatID, s)
+	// The fake's idle after its result would clear working if it landed later.
+	testwait.For(t, "the turn's idle", func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.owedIdle == 0 })
 	s.mu.Lock()
 	s.working = true
 	s.mu.Unlock()
