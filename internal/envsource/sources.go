@@ -1,7 +1,7 @@
-// Package envsource is the secrets a repo's environment.json names by handle
+// Package envsource is the secrets a project names by handle
 // (`"envFrom": ["my-secrets"]`): each handle bound to a dotenv file on the
 // machine that has it, read when a paired device asks, and brokered to a
-// host starting services that need it. Values live in memory and in the
+// host starting a command that needs it. Values live in memory and in the
 // child process environment only; nothing here writes or logs one.
 package envsource
 

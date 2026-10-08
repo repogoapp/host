@@ -92,8 +92,6 @@ func vocabulary(root string) []check {
 		{method: "env.read", params: map[string]any{"handles": []string{"missing"}}, key: "results"},
 		{method: "env.pending", key: "requests"},
 		{method: "env.provide", params: map[string]any{"request_id": "missing", "approved": false}, key: "ok"},
-		{method: "services.pending", key: "requests"},
-		{method: "services.answer", params: map[string]any{"request_id": "missing", "approved": false}, key: "ok"},
 		{method: "browser.pending", key: "requests"},
 		{method: "browser.respond", params: map[string]any{"request_id": "missing", "result": map[string]any{"ok": true}}, key: "ok"},
 	}

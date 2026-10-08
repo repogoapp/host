@@ -59,8 +59,6 @@ var methodExports = map[string]bool{
 	// Env sources and folder browsing.
 	"env.sources.list": true, "env.sources.set": true, "env.sources.remove": true,
 	"env.read": true, "env.pending": true, "env.provide": true,
-	// Approving a start of a project's services.
-	"services.pending": true, "services.answer": true,
 	"fs.list": true,
 	// Browser requests.
 	"browser.pending": true, "browser.respond": true,
@@ -390,7 +388,6 @@ var typeFamilies = map[string]string{
 	"github.com/repogo/host/internal/repogomcp":   "browser",
 	"github.com/repogo/host/internal/rpc/env":     "env",
 	"github.com/repogo/host/internal/envsource":   "env",
-	"github.com/repogo/host/internal/services":    "services",
 	"github.com/repogo/host/internal/files":       "fs",
 	"github.com/repogo/host/internal/rpc":         "shared",
 	"github.com/repogo/host/internal/rpc/mcp":     "mcp",
@@ -402,7 +399,6 @@ var typeFamilies = map[string]string{
 
 	"github.com/repogo/host/internal/rpc/schedules": "schedules",
 	"github.com/repogo/host/internal/schedule":      "schedules",
-	"github.com/repogo/host/internal/rpc/services":  "services",
 }
 
 func (g *swiftGen) assignNames() {
@@ -688,8 +684,6 @@ var EventExports = map[string]string{
 	"host.setup_changed":  "Host.SetupChanged",
 	"browser.request":     "Browser.Request",
 	"env.request":         "Env.Request",
-	"services.status":     "Services.Status",
-	"services.request":    "Services.Request",
 	"mcp.changed":         "MCP.Changed",
 	"tunnels.changed":     "Tunnels.Changed",
 	"devices.changed":     "Devices.Changed",

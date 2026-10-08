@@ -159,9 +159,6 @@ func TestWorktreesBesideTheCloneAreProjects(t *testing.T) {
 	if !slices.Equal(roots, want) {
 		t.Fatalf("Roots = %v, want %v", roots, want)
 	}
-	if clones := NewLayout(dir).Clones(); !slices.Equal(clones, []string{clone}) {
-		t.Errorf("Clones = %v, want only the clone", clones)
-	}
 	if owner, repo, ok := CheckoutRepo(NewLayout(dir).Checkouts(), want[1]); !ok || owner != "octocat" || repo != "code" {
 		t.Errorf("CheckoutRepo = %q %q %v, want octocat code", owner, repo, ok)
 	}
@@ -204,9 +201,6 @@ func TestCloneIsTheRepoFolder(t *testing.T) {
 	}
 	if len(roots) != 1 || roots[0] != want {
 		t.Errorf("Roots = %v, want [%q]", roots, want)
-	}
-	if clones := s.Clones(); len(clones) != 1 || clones[0] != want {
-		t.Errorf("Clones = %v, want [%q]", clones, want)
 	}
 	if got := clonedPath(s.clonedPaths(), "Octocat/Code"); got != want {
 		t.Errorf("clonedPath = %q, want %q", got, want)
@@ -261,14 +255,14 @@ func (anyPath) Contain(path string) (string, error) { return path, nil }
 func newService(t *testing.T, dir string) *Service {
 	t.Helper()
 	log := slog.New(slog.DiscardHandler)
-	return New(NewLayout(dir), git.New(anyPath{}, log), log, func(string) {})
+	return New(NewLayout(dir), git.New(anyPath{}, log), log)
 }
 
 // Every path a client names is contained before gh or git runs in it, and a
 // missing title is refused before anything is pushed.
 func TestPathMethodsContainAndCreatePRNeedsATitle(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
-	s := New(NewLayout(t.TempDir()), git.New(files.New(files.Config{Roots: files.StaticRoots{t.TempDir()}}), log), log, func(string) {})
+	s := New(NewLayout(t.TempDir()), git.New(files.New(files.Config{Roots: files.StaticRoots{t.TempDir()}}), log), log)
 	ctx := context.Background()
 	outside := t.TempDir()
 

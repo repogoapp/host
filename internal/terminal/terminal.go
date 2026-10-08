@@ -36,7 +36,7 @@ const (
 
 	// maxSessions is per host, across all devices. Each session is a shell, a
 	// PTY and two goroutines; unbounded, a client that creates one per screen
-	// leaks them all. Managed sessions are bounded by their owner instead.
+	// leaks them all.
 	maxSessions = 16
 
 	maxDim = 500
@@ -88,15 +88,6 @@ type session struct {
 
 	pty *os.File
 	cmd *exec.Cmd
-
-	// managed is the owner's id for a session the host started itself; see
-	// managed.go. stopping hides it from lookups once its owner stops it.
-	// Both are guarded by Manager.mu.
-	managed  string
-	stopping bool
-	onExit   func(code int)
-	ended    chan struct{}
-	code     int
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -164,7 +155,7 @@ func (m *Manager) Create(caller device.ID, cwd string, cols, rows int) (Info, er
 func newSession(cwd, shell string, cmd *exec.Cmd, cols, rows int) *session {
 	return &session{
 		id: uuid.NewString(), cwd: cwd, shell: shell, cols: cols, rows: rows,
-		createdAt: time.Now(), cmd: cmd, ended: make(chan struct{}),
+		createdAt: time.Now(), cmd: cmd,
 		watchers: map[device.ID]struct{}{},
 	}
 }
@@ -335,18 +326,11 @@ func (m *Manager) Close(id string) error {
 	return s.pty.Close()
 }
 
-// Open is how many of the user's shells are running; managed sessions are
-// bounded, and stopped, by their owner.
+// Open is how many of the user's shells are running.
 func (m *Manager) Open() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	shells := 0
-	for _, s := range m.sessions {
-		if s.managed == "" {
-			shells++
-		}
-	}
-	return shells
+	return len(m.sessions)
 }
 
 // Shutdown kills every shell. Called when the host itself is going away, where
@@ -447,18 +431,12 @@ func (m *Manager) finish(s *session) {
 
 	m.mu.Lock()
 	delete(m.sessions, s.id)
-	s.code = code
-	onExit := s.onExit
 	m.mu.Unlock()
-	close(s.ended)
 
 	m.log.Info("terminal: session closed", "session", s.id, "exit", code)
 	m.push(s, Exit{SessionID: s.id, ExitCode: code})
 	// The tab is gone on every client, not just the ones watching this shell.
 	m.changed(s.cwd)
-	if onExit != nil {
-		onExit(code)
-	}
 }
 
 // push fans one message out to the attached devices. A device the transport

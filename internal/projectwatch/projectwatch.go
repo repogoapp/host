@@ -62,25 +62,18 @@ type Git interface {
 var gitFiles = []string{"HEAD", "index", "refs", "packed-refs", "MERGE_HEAD"}
 
 type Manager struct {
-	git      Git
-	log      *slog.Logger
-	totals   Totals
-	pub      emit.Transport
-	onActive func(path string, active bool)
-	workers  chan struct{}
-	linger   time.Duration
+	git     Git
+	log     *slog.Logger
+	totals  Totals
+	pub     emit.Transport
+	workers chan struct{}
+	linger  time.Duration
 
 	mu     sync.Mutex
 	rooms  map[string]*room
 	leases map[device.ID]time.Time
 	// sets is each device's last watch set, so only a change is logged.
 	sets map[device.ID][]string
-	// active is the paths a device has in front of the user, a subset of its
-	// watch set: path → devices.
-	active map[string]map[device.ID]struct{}
-	// announcing is taken before mu is let go, so onActive hears opens and
-	// closes in the order they happened, even from two devices at once.
-	announcing sync.Mutex
 }
 
 type room struct {
@@ -104,26 +97,20 @@ type Deps struct {
 	Totals Totals
 	// Pushes carries fs.changed and git.changed to the devices watching.
 	Pushes emit.Transport
-	// Active is told when a path becomes active on its first device and when
-	// its last lets go, lease expiry included: for work that runs only while a
-	// project is in front of the user.
-	Active func(path string, active bool)
 	Log    *slog.Logger
 }
 
 func New(d Deps) *Manager {
 	return &Manager{
-		git:      d.Git,
-		totals:   d.Totals,
-		pub:      d.Pushes,
-		onActive: d.Active,
-		workers:  make(chan struct{}, 4),
-		linger:   linger,
-		log:      d.Log,
-		rooms:    map[string]*room{},
-		leases:   map[device.ID]time.Time{},
-		sets:     map[device.ID][]string{},
-		active:   map[string]map[device.ID]struct{}{},
+		git:     d.Git,
+		totals:  d.Totals,
+		pub:     d.Pushes,
+		workers: make(chan struct{}, 4),
+		linger:  linger,
+		log:     d.Log,
+		rooms:   map[string]*room{},
+		leases:  map[device.ID]time.Time{},
+		sets:    map[device.ID][]string{},
 	}
 }
 
@@ -133,10 +120,9 @@ type Totals interface {
 	UpdateProjectDiff(path string, available bool, files, additions, deletions int) (bool, error)
 }
 
-// Watch replaces a device's watch set and renews its lease. active is the
-// part of paths the user has open. resync resends every watched path's last
+// Watch replaces a device's watch set and renews its lease. resync resends every watched path's last
 // git.changed, for a device that relaunched inside its lease and holds nothing.
-func (m *Manager) Watch(caller device.ID, paths, active []string, resync bool) error {
+func (m *Manager) Watch(caller device.ID, paths []string, resync bool) error {
 	if len(paths) > MaxPaths {
 		return fmt.Errorf("%w: %d, max %d", ErrTooManyPaths, len(paths), MaxPaths)
 	}
@@ -170,23 +156,12 @@ func (m *Manager) Watch(caller device.ID, paths, active []string, resync bool) e
 			greet = append(greet, last)
 		}
 	}
-	wantActive := map[string]bool{}
-	for _, path := range active {
-		if want[path] {
-			wantActive[path] = true
-		}
-	}
-	opened, closed := m.setActiveLocked(caller, wantActive)
 	set := sortedKeys(want)
 	changed := !slices.Equal(m.sets[caller], set)
 	m.sets[caller] = set
-	m.announcing.Lock()
 	m.mu.Unlock()
-	m.announce(closed, false)
-	m.announce(opened, true)
-	m.announcing.Unlock()
 	if changed {
-		m.log.Info("watch: device set", "device", caller, "paths", set, "active", sortedKeys(wantActive))
+		m.log.Info("watch: device set", "device", caller, "paths", set)
 	} else {
 		m.log.Debug("watch: renewed", "device", caller, "paths", len(set))
 	}
@@ -205,11 +180,7 @@ func (m *Manager) Watch(caller device.ID, paths, active []string, resync bool) e
 func (m *Manager) Stop(caller device.ID) {
 	m.mu.Lock()
 	n := m.dropLocked(caller)
-	_, closed := m.setActiveLocked(caller, nil)
-	m.announcing.Lock()
 	m.mu.Unlock()
-	m.announce(closed, false)
-	m.announcing.Unlock()
 	if n > 0 {
 		m.log.Info("watch: device stopped", "device", caller, "paths", n)
 	}
@@ -225,42 +196,6 @@ func (m *Manager) dropLocked(caller device.ID) int {
 		m.leaveLocked(path, r, caller)
 	}
 	return n
-}
-
-// setActiveLocked replaces a device's active paths and returns the paths that
-// gained their first device and the ones that lost their last.
-func (m *Manager) setActiveLocked(caller device.ID, want map[string]bool) (opened, closed []string) {
-	for path, devices := range m.active {
-		if _, ok := devices[caller]; ok && !want[path] {
-			delete(devices, caller)
-			if len(devices) == 0 {
-				delete(m.active, path)
-				closed = append(closed, path)
-			}
-		}
-	}
-	for path := range want {
-		devices := m.active[path]
-		if devices == nil {
-			devices = map[device.ID]struct{}{}
-			m.active[path] = devices
-		}
-		if _, ok := devices[caller]; !ok {
-			devices[caller] = struct{}{}
-			if len(devices) == 1 {
-				opened = append(opened, path)
-			}
-		}
-	}
-	return opened, closed
-}
-
-// announce runs outside mu, under announcing: the listener may take its time
-// without holding up pushes, but not reorder a close and an open.
-func (m *Manager) announce(paths []string, active bool) {
-	for _, path := range paths {
-		m.onActive(path, active)
-	}
 }
 
 // Run sweeps expired leases until ctx is cancelled.
@@ -286,16 +221,10 @@ func (m *Manager) sweep() {
 			expired = append(expired, id)
 		}
 	}
-	var closed []string
 	for _, id := range expired {
 		m.dropLocked(id)
-		_, gone := m.setActiveLocked(id, nil)
-		closed = append(closed, gone...)
 	}
-	m.announcing.Lock()
 	m.mu.Unlock()
-	m.announce(closed, false)
-	m.announcing.Unlock()
 
 	for _, id := range expired {
 		m.log.Info("watch: lease expired", "device", id)

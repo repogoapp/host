@@ -92,14 +92,11 @@ type Service struct {
 	Layout
 	git *git.Service
 	log *slog.Logger
-
-	onClone func(path string)
 }
 
-// New takes the directory clones land in, created on first clone. cloned is
-// told each fresh clone, so its services start.
-func New(layout Layout, g *git.Service, log *slog.Logger, cloned func(path string)) *Service {
-	return &Service{Layout: layout, git: g, log: log, onClone: cloned}
+// New takes the directory clones land in, created on first clone.
+func New(layout Layout, g *git.Service, log *slog.Logger) *Service {
+	return &Service{Layout: layout, git: g, log: log}
 }
 
 // CloneFolder is where clones land.

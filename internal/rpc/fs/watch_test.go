@@ -13,13 +13,13 @@ import (
 )
 
 type recordWatch struct {
-	paths, active []string
-	resync        bool
-	stopped       device.ID
+	paths   []string
+	resync  bool
+	stopped device.ID
 }
 
-func (w *recordWatch) Watch(_ device.ID, paths, active []string, resync bool) error {
-	w.paths, w.active, w.resync = paths, active, resync
+func (w *recordWatch) Watch(_ device.ID, paths []string, resync bool) error {
+	w.paths, w.resync = paths, resync
 	return nil
 }
 
@@ -43,7 +43,7 @@ func TestWatchPassesTheSetThrough(t *testing.T) {
 		if _, err := watchRouter(w).Call(context.Background(), rpc.Caller{Device: "a"}, "fs.watch", b); err != nil {
 			t.Fatal(err)
 		}
-		if want := []string{"/var/proj"}; !slices.Equal(w.paths, want) || !slices.Equal(w.active, want) || w.resync != resync {
+		if want := []string{"/var/proj"}; !slices.Equal(w.paths, want) || w.resync != resync {
 			t.Errorf("resync %v: got %+v", resync, w)
 		}
 	}

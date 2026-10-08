@@ -127,13 +127,13 @@ func (p *fakePub) total() int {
 }
 
 func newManager(g Git) *Manager {
-	return New(Deps{Git: g, Totals: fakeTotals{}, Pushes: newPub(), Active: func(string, bool) {}, Log: slog.New(slog.DiscardHandler)})
+	return New(Deps{Git: g, Totals: fakeTotals{}, Pushes: newPub(), Log: slog.New(slog.DiscardHandler)})
 }
 
 func TestThreeDevicesOnOneProjectShareOneRoom(t *testing.T) {
 	m := newManager(&fakeGit{})
 	for _, id := range []device.ID{"a", "b", "c"} {
-		if err := m.Watch(id, []string{"/proj"}, nil, false); err != nil {
+		if err := m.Watch(id, []string{"/proj"}, false); err != nil {
 			t.Fatalf("Watch(%s): %v", id, err)
 		}
 	}
@@ -191,8 +191,8 @@ func TestUnchangedStatusIsNotPushedAgain(t *testing.T) {
 
 func TestTheLastSubscriberOutStopsTheWatcher(t *testing.T) {
 	m := newManager(&fakeGit{})
-	_ = m.Watch("a", []string{"/proj"}, nil, false)
-	_ = m.Watch("b", []string{"/proj"}, nil, false)
+	_ = m.Watch("a", []string{"/proj"}, false)
+	_ = m.Watch("b", []string{"/proj"}, false)
 
 	m.Stop("a")
 	m.mu.Lock()
@@ -219,7 +219,7 @@ func idle(m *Manager, path string) bool {
 func TestAnIdleWatcherStopsAfterItsLinger(t *testing.T) {
 	m := newManager(&fakeGit{})
 	m.linger = 20 * time.Millisecond
-	_ = m.Watch("a", []string{"/proj"}, nil, false)
+	_ = m.Watch("a", []string{"/proj"}, false)
 	m.Stop("a")
 
 	testwait.For(t, "the watcher to stop after its linger", func() bool {
@@ -235,13 +235,13 @@ func TestComingBackInsideTheLingerResumesTheWatcher(t *testing.T) {
 	g := &fakeGit{status: git.Status{Repo: true, Branch: "main"}}
 	m := newManager(g)
 	m.linger = time.Hour
-	_ = m.Watch("a", []string{"/proj"}, nil, false)
+	_ = m.Watch("a", []string{"/proj"}, false)
 	m.mu.Lock()
 	first := m.rooms["/proj"]
 	m.mu.Unlock()
 
 	m.Stop("a")
-	_ = m.Watch("a", []string{"/proj"}, nil, false)
+	_ = m.Watch("a", []string{"/proj"}, false)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -271,13 +271,13 @@ func TestAnIdleRoomDoesNotPoll(t *testing.T) {
 // scrolls. Restarting every watcher each time would defeat the whole design.
 func TestResubscribeOnlyMovesWhatChanged(t *testing.T) {
 	m := newManager(&fakeGit{})
-	_ = m.Watch("a", []string{"/one", "/two"}, nil, false)
+	_ = m.Watch("a", []string{"/one", "/two"}, false)
 
 	m.mu.Lock()
 	kept := m.rooms["/two"]
 	m.mu.Unlock()
 
-	_ = m.Watch("a", []string{"/two", "/three"}, nil, false)
+	_ = m.Watch("a", []string{"/two", "/three"}, false)
 
 	if !idle(m, "/one") {
 		t.Error("/one was dropped from the set but its watcher is not winding down")
@@ -296,8 +296,8 @@ func TestResubscribeOnlyMovesWhatChanged(t *testing.T) {
 // standing between a vanished phone and a watcher that runs forever.
 func TestAnExpiredLeaseDropsTheSubscription(t *testing.T) {
 	m := newManager(&fakeGit{})
-	_ = m.Watch("gone", []string{"/proj"}, nil, false)
-	_ = m.Watch("here", []string{"/other"}, nil, false)
+	_ = m.Watch("gone", []string{"/proj"}, false)
+	_ = m.Watch("here", []string{"/other"}, false)
 
 	m.mu.Lock()
 	m.leases["gone"] = time.Now().Add(-time.Minute)
@@ -317,7 +317,7 @@ func TestSubscriptionsAreBounded(t *testing.T) {
 	for i := range paths {
 		paths[i] = filepath.Join("/proj", string(rune('a'+i%26)))
 	}
-	if err := newManager(&fakeGit{}).Watch("a", paths, nil, false); !errors.Is(err, ErrTooManyPaths) {
+	if err := newManager(&fakeGit{}).Watch("a", paths, false); !errors.Is(err, ErrTooManyPaths) {
 		t.Errorf("Watch = %v, want ErrTooManyPaths", err)
 	}
 }
@@ -402,14 +402,14 @@ func TestPushCarriesTheTotalsAndMovesWithThem(t *testing.T) {
 func TestJoiningARunningRoomGetsItsLastPush(t *testing.T) {
 	m := newManager(&fakeGit{status: git.Status{Repo: true, Branch: "main"}})
 	pub := m.pub.(*fakePub)
-	_ = m.Watch("a", []string{"/proj"}, nil, false)
+	_ = m.Watch("a", []string{"/proj"}, false)
 	m.poll(context.Background(), "/proj")
 
-	_ = m.Watch("b", []string{"/proj"}, nil, false)
+	_ = m.Watch("b", []string{"/proj"}, false)
 	if pub.count("b") != 1 {
 		t.Errorf("b got %d pushes on joining, want 1", pub.count("b"))
 	}
-	_ = m.Watch("b", []string{"/proj"}, nil, false)
+	_ = m.Watch("b", []string{"/proj"}, false)
 	if pub.count("b") != 1 {
 		t.Errorf("b got %d pushes after renewing, want still 1 — a renewal is not a join", pub.count("b"))
 	}
@@ -418,7 +418,7 @@ func TestJoiningARunningRoomGetsItsLastPush(t *testing.T) {
 func TestResyncResendsWhatAJoinedDeviceWasSent(t *testing.T) {
 	m := newManager(&fakeGit{status: git.Status{Repo: true, Branch: "main"}})
 	pub := m.pub.(*fakePub)
-	_ = m.Watch("a", []string{"/proj", "/other"}, nil, false)
+	_ = m.Watch("a", []string{"/proj", "/other"}, false)
 	m.poll(context.Background(), "/proj")
 	m.poll(context.Background(), "/other")
 	if pub.count("a") != 2 {
@@ -426,17 +426,17 @@ func TestResyncResendsWhatAJoinedDeviceWasSent(t *testing.T) {
 	}
 
 	// A relaunch inside the lease: already joined, so a plain renewal is silent.
-	_ = m.Watch("a", []string{"/proj", "/other"}, nil, false)
+	_ = m.Watch("a", []string{"/proj", "/other"}, false)
 	if pub.count("a") != 2 {
 		t.Fatalf("a got %d pushes after renewing, want still 2", pub.count("a"))
 	}
-	_ = m.Watch("a", []string{"/proj", "/other"}, nil, true)
+	_ = m.Watch("a", []string{"/proj", "/other"}, true)
 	if pub.count("a") != 4 {
 		t.Errorf("a got %d pushes after resync, want 4 — one per watched path", pub.count("a"))
 	}
 
 	// A path still on its first read has nothing to resend; its read pushes.
-	_ = m.Watch("a", []string{"/proj", "/other", "/new"}, nil, true)
+	_ = m.Watch("a", []string{"/proj", "/other", "/new"}, true)
 	if pub.count("a") != 6 {
 		t.Errorf("a got %d pushes after resync with a new path, want 6", pub.count("a"))
 	}
@@ -470,88 +470,18 @@ func TestRelevantFollowsAWorktreeGitDir(t *testing.T) {
 	}
 }
 
-// activeLog records OnActive calls, which run on the subscriber's goroutine.
-type activeLog struct {
-	mu     sync.Mutex
-	events []string
-}
-
-func (w *activeLog) record(path string, active bool) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if active {
-		w.events = append(w.events, "+"+path)
-	} else {
-		w.events = append(w.events, "-"+path)
-	}
-}
-
-func (w *activeLog) take() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	out := w.events
-	w.events = nil
-	return out
-}
-
-// The environment runner starts a project's services while a device has it in
-// front of the user and counts down once none does, so it must hear the first
-// active device and the last, and nothing for paths only watched.
-func TestOnActiveReportsTheFirstActiveDeviceAndTheLast(t *testing.T) {
-	m := newManager(&fakeGit{})
-	log := &activeLog{}
-	m.onActive = log.record
-
-	_ = m.Watch("a", []string{"/proj", "/bg"}, []string{"/proj"}, false)
-	_ = m.Watch("b", []string{"/proj"}, []string{"/proj"}, false)
-	_ = m.Watch("a", []string{"/proj", "/bg"}, []string{"/proj"}, false) // a renewal
-	if got := log.take(); len(got) != 1 || got[0] != "+/proj" {
-		t.Fatalf("events = %v, want one +/proj", got)
-	}
-
-	// Active must be watched: a path only named in active is ignored.
-	_ = m.Watch("c", []string{"/other"}, []string{"/nowhere"}, false)
-	if got := log.take(); len(got) != 0 {
-		t.Fatalf("events = %v for an unwatched active path", got)
-	}
-
-	m.Stop("a")
-	if got := log.take(); len(got) != 0 {
-		t.Fatalf("events = %v while b still has /proj active", got)
-	}
-
-	// Still watched, no longer active: the last device let go.
-	_ = m.Watch("b", []string{"/proj", "/other"}, []string{"/other"}, false)
-	got := log.take()
-	if len(got) != 2 || got[0] != "-/proj" || got[1] != "+/other" {
-		t.Fatalf("events = %v, want [-/proj +/other]", got)
-	}
-
-	// Lease expiry is the last way out.
-	m.mu.Lock()
-	m.leases["b"] = time.Now().Add(-time.Minute)
-	m.mu.Unlock()
-	m.sweep()
-	if got := log.take(); len(got) != 1 || got[0] != "-/other" {
-		t.Fatalf("events = %v, want [-/other] after the lease lapsed", got)
-	}
-}
-
 // A push names its project by the watched path and the phone routes it by its
 // own cwd, so the watch keeps the device's spelling; a path outside every root
 // is dropped rather than failing the rest.
 func TestWatchKeepsTheDevicesContainedPaths(t *testing.T) {
 	m := newManager(&fakeGit{})
-	if err := m.Watch("a", []string{"/var/proj", "/etc/nope"}, []string{"/var/proj", "/etc/nope"}, false); err != nil {
+	if err := m.Watch("a", []string{"/var/proj", "/etc/nope"}, false); err != nil {
 		t.Fatal(err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.rooms) != 1 || m.rooms["/var/proj"] == nil {
 		t.Errorf("rooms = %v, want only /var/proj as the device spelled it", m.rooms)
-	}
-	if len(m.active) != 1 || m.active["/var/proj"] == nil {
-		t.Errorf("active = %v, want only /var/proj", m.active)
 	}
 }
 
@@ -689,8 +619,8 @@ func TestClassifyNamesEachChangeFromTheDisk(t *testing.T) {
 func TestFileChangesReachTheRoom(t *testing.T) {
 	m := newManager(&fakeGit{})
 	pub := m.pub.(*fakePub)
-	_ = m.Watch("a", []string{"/proj"}, nil, false)
-	_ = m.Watch("b", []string{"/proj"}, nil, false)
+	_ = m.Watch("a", []string{"/proj"}, false)
+	_ = m.Watch("b", []string{"/proj"}, false)
 
 	m.sendChanges("/proj", nil, false)
 	if n := len(pub.filePushes()); n != 0 {

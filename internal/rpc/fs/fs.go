@@ -14,7 +14,7 @@ import (
 // Watcher runs one watcher per folder for the devices holding it, pushing
 // fs.changed and git.changed.
 type Watcher interface {
-	Watch(caller device.ID, paths, active []string, resync bool) error
+	Watch(caller device.ID, paths []string, resync bool) error
 	Stop(caller device.ID)
 }
 
@@ -24,7 +24,8 @@ type Deps struct {
 }
 
 // WatchParams is the device's whole watch set, which also renews its lease.
-// Active is the part the user has open: it starts a project's environment.
+// Active is the part the user has open; a phone serving its own projects warms
+// those, and this host has no use for it.
 type WatchParams struct {
 	Paths  []string `json:"paths" wire:"array"`
 	Active []string `json:"active" wire:"array"`
@@ -170,7 +171,7 @@ func (d Deps) mkdir(_ context.Context, _ rpc.Caller, a PathParams) (rpc.Ack, err
 }
 
 func (d Deps) watch(_ context.Context, c rpc.Caller, a WatchParams) (rpc.Ack, error) {
-	return rpc.OK, d.Watch.Watch(c.Device, a.Paths, a.Active, a.Resync)
+	return rpc.OK, d.Watch.Watch(c.Device, a.Paths, a.Resync)
 }
 
 func (d Deps) stop(_ context.Context, c rpc.Caller, _ rpc.None) (rpc.Ack, error) {

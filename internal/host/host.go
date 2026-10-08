@@ -38,7 +38,6 @@ import (
 	"github.com/repogo/host/internal/repogomcp"
 	"github.com/repogo/host/internal/rpc"
 	"github.com/repogo/host/internal/rpc/registry"
-	"github.com/repogo/host/internal/services"
 	"github.com/repogo/host/internal/session"
 	"github.com/repogo/host/internal/store"
 	"github.com/repogo/host/internal/tunnel"
@@ -135,8 +134,6 @@ type Host struct {
 	live      *chatlive.Manager
 	syncer    *chatsync.Syncer
 	watch     *projectwatch.Manager
-	envs      *services.Manager
-	clones    func() []string
 
 	srv *wsserver.Server
 	// Set in New only when there is a relay; APNs goes through it.
@@ -235,7 +232,6 @@ func (h *Host) Start() {
 	h.spawn(h.Services.Schedules.Run)
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
-	h.spawn(func(ctx context.Context) { h.envs.Boot(ctx, h.clones()...) })
 	if h.link != nil {
 		h.spawn(h.link.Run)
 	}

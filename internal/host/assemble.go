@@ -46,7 +46,6 @@ import (
 	devicesrpc "github.com/repogo/host/internal/rpc/devices"
 	"github.com/repogo/host/internal/rpc/registry"
 	"github.com/repogo/host/internal/schedule"
-	"github.com/repogo/host/internal/services"
 	"github.com/repogo/host/internal/session"
 	"github.com/repogo/host/internal/shipping"
 	"github.com/repogo/host/internal/store"
@@ -271,8 +270,6 @@ func (h *Host) openProjects() error {
 	}
 	h.onClose(appBuilds.Close)
 
-	// Each project's environment.json runs at boot, after a clone, and while a
-	// device has the project in front of the user, which its git watch marks active.
 	envSources, err := envsource.Open(h.state("env-sources.json"), h.cfg.Home)
 	if err != nil {
 		return err
@@ -284,18 +281,9 @@ func (h *Host) openProjects() error {
 				h.alerts.EnvRequest(h.ctx, req.RequestID, req.HostLabel, req.Handles)
 			}
 		}, h.log)
-	h.envs = services.New(h.ctx, services.Deps{
-		Terminals: terminals, Paths: projectFiles, URLs: h.tunnels.URLs,
-		Secrets:  envRequests.Resolve,
-		Announce: func(st services.Status) { h.toEveryPhone(st) },
-		Ask:      func(req services.Request) int { return h.toEveryPhone(req) },
-		Label:    h.cfg.Label,
-		Log:      h.log,
-	})
-	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes, Active: h.envs.Active, Log: h.log})
-	gh := ghcore.New(layout, gitService, h.log, func(path string) { h.envs.Boot(h.ctx, path) })
+	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes, Log: h.log})
+	gh := ghcore.New(layout, gitService, h.log)
 	h.Services.GitHub = gh
-	h.clones = gh.Clones
 
 	h.ChatDeps = chat.Deps{
 		Self: h.devices.Identity().ID, ModelLabel: h.Services.AgentCatalog.ModelLabel, Cache: h.db, Sender: h.mgr, Sync: h.syncer,
@@ -345,7 +333,6 @@ func (h *Host) openProjects() error {
 	s.Builds = appBuilds
 	s.Updates = hostupdate.New(update)
 	s.EnvSources, s.EnvRequests = envSources, envRequests
-	s.Services = h.envs
 	return nil
 }
 

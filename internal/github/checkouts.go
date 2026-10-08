@@ -76,13 +76,6 @@ func (l Layout) Roots() ([]string, error) {
 	return out, nil
 }
 
-// Clones is every clone this host made, one per repository: worktrees are
-// left out, since they share their clone's ports.
-func (l Layout) Clones() []string {
-	out, _ := l.clones()
-	return out
-}
-
 // clones is every `.repos/<owner>/<repo>` that is a checkout; anything else
 // there is a half-finished clone.
 func (l Layout) clones() ([]string, error) {
@@ -172,7 +165,6 @@ func (s *Service) Clone(ctx context.Context, nameWithOwner string) (Clone, error
 		os.Remove(dest) // only if empty: git clears what it wrote
 		return Clone{}, err
 	}
-	go s.onClone(dest)
 	return Clone{NameWithOwner: nameWithOwner, Path: dest}, nil
 }
 

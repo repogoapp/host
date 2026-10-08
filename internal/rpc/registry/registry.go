@@ -51,7 +51,6 @@ import (
 	portsrpc "github.com/repogo/host/internal/rpc/ports"
 	projectsrpc "github.com/repogo/host/internal/rpc/projects"
 	schedulesrpc "github.com/repogo/host/internal/rpc/schedules"
-	servicesrpc "github.com/repogo/host/internal/rpc/services"
 	shippingrpc "github.com/repogo/host/internal/rpc/shipping"
 	terminalsrpc "github.com/repogo/host/internal/rpc/terminals"
 	toolsrpc "github.com/repogo/host/internal/rpc/tools"
@@ -59,7 +58,6 @@ import (
 	"github.com/repogo/host/internal/rpc/turns"
 	vercelrpc "github.com/repogo/host/internal/rpc/vercel"
 	"github.com/repogo/host/internal/schedule"
-	servicescore "github.com/repogo/host/internal/services"
 	"github.com/repogo/host/internal/shipping"
 	"github.com/repogo/host/internal/store"
 	"github.com/repogo/host/internal/terminal"
@@ -141,8 +139,6 @@ type Config struct {
 	// host's own starts.
 	EnvSources  *envsource.Sources
 	EnvRequests *envsource.Requests
-	// Services runs each project's environment.json once a device approves the start.
-	Services *servicescore.Manager
 
 	// Account links this host to a RepoGo account; Tunnels serves its public URLs.
 	Account *account.Service
@@ -187,7 +183,6 @@ func New(cfg Config) (*rpc.Router, error) {
 	mcprpc.Register(r, mcprpc.Deps{MCP: cfg.MCP})
 	browserrpc.Register(r, browserrpc.Deps{Browser: cfg.Browser})
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources, Requests: cfg.EnvRequests})
-	servicesrpc.Register(r, servicesrpc.Deps{Services: cfg.Services})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
 	chats.Register(r, chats.Deps{Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire})

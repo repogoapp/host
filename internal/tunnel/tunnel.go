@@ -168,8 +168,8 @@ func (s *Service) List() []Tunnel {
 	return s.listLocked()
 }
 
-// URLs is the public URL serving each local port, for environment.json's
-// `expose`; the one expiring last wins when a port has two.
+// URLs is the public URL serving each local port; the one expiring last wins
+// when a port has two.
 func (s *Service) URLs() map[int]string {
 	out := map[int]string{}
 	for _, t := range s.List() {
