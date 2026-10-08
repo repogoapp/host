@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/repogo/host/internal/errkind"
 )
@@ -89,6 +90,10 @@ type PushTarget struct {
 	// At is when the host saved the token, in Unix milliseconds. iOS ends a
 	// Live Activity after eight hours, so an older activity token is dead.
 	At int64 `json:"at,omitempty"`
+	// Grant is the phone's signature over PushGrantMessage for this host and
+	// token, GrantedAt when it signed; the relay sends nothing without one.
+	Grant     []byte `json:"grant,omitempty"`
+	GrantedAt int64  `json:"granted_at,omitempty"`
 }
 
 var (
@@ -97,6 +102,7 @@ var (
 	ErrRevokeHost    = errkind.New(errkind.Invalid, "device: the host cannot be revoked")
 	ErrBadKey        = errkind.New(errkind.Invalid, "device: public key is malformed or not the id's")
 	ErrBadSignature  = errors.New("device: signature does not verify")
+	ErrBadGrant      = errkind.New(errkind.Invalid, "device: push grant does not verify for this host and token")
 )
 
 // Verify checks a signature against a paired device. The id is checked against
@@ -141,4 +147,26 @@ func ChallengeMessage(nonce []byte, serverID string, wallMS uint64) ([]byte, err
 	msg = append(msg, serverID...)
 	msg = binary.BigEndian.AppendUint64(msg, wallMS)
 	return msg, nil
+}
+
+// PushGrantMessage is what a phone signs to let one host push to one of its
+// tokens: tag first, every field length-framed, so no other signature the
+// identity key makes can read as a grant.
+func PushGrantMessage(host ID, token, environment string, grantedMS int64) []byte {
+	msg := []byte("repogo-push-grant-v1")
+	for _, field := range []string{string(host), token, environment} {
+		msg = binary.BigEndian.AppendUint16(msg, uint16(len(field)))
+		msg = append(msg, field...)
+	}
+	return binary.BigEndian.AppendUint64(msg, uint64(grantedMS))
+}
+
+// GrantPush signs target for host as the phone would: the canonical builder
+// the app mirrors, and what tests register tokens with.
+func (i *Identity) GrantPush(host ID, target PushTarget) PushTarget {
+	if target.GrantedAt == 0 {
+		target.GrantedAt = time.Now().UnixMilli()
+	}
+	target.Grant = i.Sign(PushGrantMessage(host, target.Token, target.Environment, target.GrantedAt))
+	return target
 }

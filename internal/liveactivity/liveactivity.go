@@ -327,7 +327,7 @@ func (d *Driver) push(ctx context.Context, c *chat) {
 		payload, _ := json.Marshal(map[string]any{"aps": map[string]any{
 			"timestamp": now, "event": "update", "content-state": state,
 		}})
-		if d.deliver(ctx, act, payload) {
+		if d.deliver(ctx, peer, act, payload) {
 			continue
 		}
 		// Apple says the activity is gone: dismissed, or ended by iOS.
@@ -344,7 +344,7 @@ func (d *Driver) push(ctx context.Context, c *chat) {
 			"attributes-type": "LiveActivityAttributes", "attributes": attributes,
 			"alert": alert, "input-push-token": 1,
 		}})
-		if d.deliver(ctx, *peer.PushToStart, payload) {
+		if d.deliver(ctx, peer, *peer.PushToStart, payload) {
 			continue
 		}
 		if err := d.store.ForgetPushToStart(peer.ID); err != nil {
@@ -355,11 +355,10 @@ func (d *Driver) push(ctx context.Context, c *chat) {
 
 // deliver sends one Live Activity push; false means the token is dead. Always
 // high priority: Apple holds low-priority updates while the phone is locked.
-func (d *Driver) deliver(ctx context.Context, to device.PushTarget, payload []byte) bool {
-	return !push.Send(ctx, d.send, d.log, relay.PushRequest{
-		Token: to.Token, Environment: to.Environment, Payload: payload,
-		PushType: relay.PushTypeLiveActivity, Priority: 10,
-	})
+func (d *Driver) deliver(ctx context.Context, peer device.Peer, to device.PushTarget, payload []byte) bool {
+	req := push.Request(peer, to)
+	req.Payload, req.PushType, req.Priority = payload, relay.PushTypeLiveActivity, 10
+	return !push.Send(ctx, d.send, d.log, req)
 }
 
 // contentState is the activity as the widget decodes it

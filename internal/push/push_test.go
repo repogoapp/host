@@ -29,7 +29,7 @@ func storeWithPhones(t *testing.T) (*device.Store, device.ID) {
 			t.Fatal(err)
 		}
 	}
-	if err := store.RegisterPush(withToken.ID, "", "", device.PushTarget{Token: "abcd", Environment: "sandbox"}); err != nil {
+	if err := store.RegisterPush(withToken.ID, "", "", withToken.GrantPush(store.Identity().ID, device.PushTarget{Token: "abcd", Environment: "sandbox"})); err != nil {
 		t.Fatal(err)
 	}
 	return store, withToken.ID

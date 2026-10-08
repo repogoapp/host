@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,7 +46,10 @@ func setup(t *testing.T) (*Driver, *pushtest.Sender, *device.Store, device.ID) {
 	if err := store.Add(device.Peer{ID: phone.ID, Public: phone.Public}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RegisterPush(phone.ID, device.PushToStart, "", device.PushTarget{Token: "57a4", Environment: "sandbox"}); err != nil {
+	phoneKeysMu.Lock()
+	phoneKeys[phone.ID] = phone
+	phoneKeysMu.Unlock()
+	if err := store.RegisterPush(phone.ID, device.PushToStart, "", granted(store, phone.ID, device.PushTarget{Token: "57a4", Environment: "sandbox"})); err != nil {
 		t.Fatal(err)
 	}
 	sender := &pushtest.Sender{}
@@ -109,7 +113,7 @@ func TestToolCallsUpdateTheActivity(t *testing.T) {
 	d, sender, store, phone := setup(t)
 	ctx := context.Background()
 	key := "claude:s1@" + string(store.Identity().ID)
-	if err := store.RegisterPush(phone, "", key, device.PushTarget{Token: "ac71", Environment: "sandbox"}); err != nil {
+	if err := store.RegisterPush(phone, "", key, granted(store, phone, device.PushTarget{Token: "ac71", Environment: "sandbox"})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +145,7 @@ func TestToolUpdatesWaitTheirTurn(t *testing.T) {
 	d, sender, store, phone := setup(t)
 	ctx := context.Background()
 	key := "claude:s1@" + string(store.Identity().ID)
-	_ = store.RegisterPush(phone, "", key, device.PushTarget{Token: "ac71", Environment: "sandbox"})
+	_ = store.RegisterPush(phone, "", key, granted(store, phone, device.PushTarget{Token: "ac71", Environment: "sandbox"}))
 
 	d.Observe(ctx, notice("UserPromptSubmit"))
 	d.Observe(ctx, notice("PreToolUse", tool("Read", "t1", `{"file_path":"/a/b.go"}`)))
@@ -160,7 +164,7 @@ func TestApprovalCarriesTheButtonsAnswers(t *testing.T) {
 	d, sender, store, phone := setup(t)
 	ctx := context.Background()
 	key := "claude:s1@" + string(store.Identity().ID)
-	_ = store.RegisterPush(phone, "", key, device.PushTarget{Token: "ac71", Environment: "sandbox"})
+	_ = store.RegisterPush(phone, "", key, granted(store, phone, device.PushTarget{Token: "ac71", Environment: "sandbox"}))
 
 	d.Observe(ctx, notice("UserPromptSubmit"))
 	d.Observe(ctx, notice("PermissionRequest", tool("Bash", "t1", `{"command":"make","description":"Build the app"}`),
@@ -186,7 +190,7 @@ func TestStopSettlesWithTheTurnsLength(t *testing.T) {
 	d, sender, store, phone := setup(t)
 	ctx := context.Background()
 	key := "claude:s1@" + string(store.Identity().ID)
-	_ = store.RegisterPush(phone, "", key, device.PushTarget{Token: "ac71", Environment: "sandbox"})
+	_ = store.RegisterPush(phone, "", key, granted(store, phone, device.PushTarget{Token: "ac71", Environment: "sandbox"}))
 
 	d.Observe(ctx, notice("UserPromptSubmit"))
 	d.Observe(ctx, notice("Stop", func(n *notify.Notice) {
@@ -201,7 +205,7 @@ func TestStopSettlesWithTheTurnsLength(t *testing.T) {
 func TestDeadActivityTokenIsForgotten(t *testing.T) {
 	d, sender, store, phone := setup(t)
 	key := "claude:s1@" + string(store.Identity().ID)
-	_ = store.RegisterPush(phone, "", key, device.PushTarget{Token: "ac71", Environment: "sandbox"})
+	_ = store.RegisterPush(phone, "", key, granted(store, phone, device.PushTarget{Token: "ac71", Environment: "sandbox"}))
 	sender.Reply = &jsonrpc.Error{Code: jsonrpc.CodeNotFound, Message: "apns: unregistered"}
 
 	d.Observe(context.Background(), notice("UserPromptSubmit"))
@@ -232,4 +236,17 @@ func TestLabels(t *testing.T) {
 	if a, r := lineChanges("Write", json.RawMessage(`{"content":"a\nb\n"}`)); a != 2 || r != 0 {
 		t.Errorf("write changes +%d -%d", a, r)
 	}
+}
+
+// phoneKeys holds each test phone's identity, so a token can be registered
+// with the grant the real phone would sign.
+var (
+	phoneKeysMu sync.Mutex
+	phoneKeys   = map[device.ID]*device.Identity{}
+)
+
+func granted(store *device.Store, phone device.ID, target device.PushTarget) device.PushTarget {
+	phoneKeysMu.Lock()
+	defer phoneKeysMu.Unlock()
+	return phoneKeys[phone].GrantPush(store.Identity().ID, target)
 }

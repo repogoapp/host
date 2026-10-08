@@ -48,3 +48,17 @@ func TestChallengeMessageRefusesOtherNonceSizes(t *testing.T) {
 		}
 	}
 }
+
+// Fixed bytes: PushGrantTests.swift signs the same vector, so the phone and
+// the relay agree on what a push grant covers.
+func TestPushGrantMessageVector(t *testing.T) {
+	got := PushGrantMessage("1003b698e1b7b906d8099bd95f5866fd", "abcd", "sandbox", 1700000000000)
+	want := "7265706f676f2d707573682d6772616e742d7631" + // "repogo-push-grant-v1"
+		"0020" + hex.EncodeToString([]byte("1003b698e1b7b906d8099bd95f5866fd")) +
+		"0004" + "61626364" + // "abcd"
+		"0007" + "73616e64626f78" + // "sandbox"
+		"0000018bcfe56800"
+	if hex.EncodeToString(got) != want {
+		t.Fatalf("got %x\nwant %s", got, want)
+	}
+}

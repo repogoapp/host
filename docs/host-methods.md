@@ -626,6 +626,8 @@ Params:
 - `environment` string
 - `install_id` string (omitted when empty)
 - `at` int (omitted when empty)
+- `grant` base64 (omitted when empty) (nullable)
+- `granted_at` int (omitted when empty)
 - `chat_id` string
 - `kind` string
 

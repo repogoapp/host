@@ -184,14 +184,22 @@ func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, collapseID st
 	if peer.Push == nil {
 		return
 	}
-	dead := Send(ctx, n.send, n.log, relay.PushRequest{
-		Token: peer.Push.Token, Environment: peer.Push.Environment,
-		CollapseID: collapseID, Payload: payload,
-	})
+	req := Request(peer, *peer.Push)
+	req.CollapseID, req.Payload = collapseID, payload
+	dead := Send(ctx, n.send, n.log, req)
 	// The app registers a fresh token on its next launch.
 	if dead {
 		if err := n.store.ForgetPush(peer.ID, ""); err != nil {
 			n.log.Warn("push: could not forget token", "device", peer.ID, "err", err)
 		}
+	}
+}
+
+// Request addresses one of peer's tokens, carrying the grant the phone signed
+// for this host; the relay refuses a push without it.
+func Request(peer device.Peer, target device.PushTarget) relay.PushRequest {
+	return relay.PushRequest{
+		Token: target.Token, Environment: target.Environment,
+		Grant: relay.PushGrant{Device: peer.ID, PublicKey: peer.Public, Signature: target.Grant, GrantedAt: target.GrantedAt},
 	}
 }

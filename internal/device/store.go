@@ -186,6 +186,16 @@ func (s *Store) RegisterPush(id ID, kind, chatID string, target PushTarget) erro
 	if err := target.validate(kind); err != nil {
 		return err
 	}
+	if target.Token != "" {
+		peer, err := s.Peer(id)
+		if err != nil {
+			return err
+		}
+		msg := PushGrantMessage(s.identity.ID, target.Token, target.Environment, target.GrantedAt)
+		if !ed25519.Verify(ed25519.PublicKey(peer.Public), msg, target.Grant) {
+			return ErrBadGrant
+		}
+	}
 	// The host stamps when it saved an activity token; a client's value is ignored.
 	target.At = 0
 	if kind == PushToStart {
@@ -247,6 +257,9 @@ func (t PushTarget) validate(kind string) error {
 	}
 	if t.Environment != "sandbox" && t.Environment != "production" {
 		return fmt.Errorf("%w: environment must be sandbox or production", errkind.ErrInvalid)
+	}
+	if len(t.Grant) != ed25519.SignatureSize || t.GrantedAt <= 0 {
+		return fmt.Errorf("%w: a token needs the phone's grant", errkind.ErrInvalid)
 	}
 	return nil
 }

@@ -122,6 +122,10 @@ type Server struct {
 	connsPerIP  int
 	ipMu        sync.Mutex
 	ips         map[string]int
+
+	// Pushes per token this minute, whoever asked.
+	tokenMu sync.Mutex
+	tokens  map[string]*tokenWindow
 }
 
 func New(cfg Config) (*Server, error) {
@@ -137,7 +141,7 @@ func New(cfg Config) (*Server, error) {
 		conns: map[device.ID][]*conn{}, routes: map[leg]*conn{}, away: map[device.ID]departure{},
 		toldUnreachable: map[leg]time.Time{},
 		pendingGone:     map[device.ID]*time.Timer{},
-		limits:          defaultLimits, outboxBytes: outboxBytes, connsPerIP: perIP, ips: map[string]int{},
+		limits:          defaultLimits, outboxBytes: outboxBytes, connsPerIP: perIP, ips: map[string]int{}, tokens: map[string]*tokenWindow{},
 	}, nil
 }
 
