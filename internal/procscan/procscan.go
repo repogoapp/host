@@ -1,6 +1,6 @@
-// Package procscan reads processes' working directories, so a listening port
-// can be attributed to the project it serves. `ps` and lsof rather than pgrep,
-// which omits hardened binaries on macOS.
+// Package procscan reads other processes: their working directories, so a port
+// is attributed to its project (`ps` and lsof, as pgrep omits hardened
+// binaries on macOS), and start times, so a pid is known across a restart.
 package procscan
 
 import "time"

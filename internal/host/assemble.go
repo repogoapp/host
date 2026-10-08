@@ -259,7 +259,14 @@ func (h *Host) openProjects() error {
 	gitService := gitcore.New(projectFiles, h.log)
 	terminals := terminal.New(projectFiles, h.emitter, h.log)
 	h.onClose(terminals.Shutdown)
-	acts := actions.New(projectFiles, h.log)
+	acts, err := actions.New(actions.Deps{
+		Paths: projectFiles, Store: h.db, Terminals: terminals,
+		Changed: func(snap actions.Snapshot) { h.toEveryPhone(snap) },
+		Logs:    h.state("action-runs"), Log: h.log,
+	})
+	if err != nil {
+		return err
+	}
 	h.onClose(acts.Shutdown)
 	// Builds run on the host's context; Close waits for them to settle.
 	appBuilds, err := builds.Open(h.ctx, builds.Config{

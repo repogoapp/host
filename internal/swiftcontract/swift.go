@@ -273,8 +273,8 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 	if (t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "Project") ||
 		(t.PkgPath() == "github.com/repogo/host/internal/rpc/projects" && t.Name() == "ListResult") ||
 		t.PkgPath() == "github.com/repogo/host/internal/agentcatalog" ||
-		(t.PkgPath() == "github.com/repogo/host/internal/actions" && t.Name() == "Action") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/rpc/actions" && t.Name() == "ListResult") {
+		(t.PkgPath() == "github.com/repogo/host/internal/actions" && (t.Name() == "Action" || t.Name() == "Snapshot")) ||
+		(t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "ActionRun") {
 		return "Codable"
 	}
 	// The agent picker paints the last host.setup it saved before asking again.
@@ -413,6 +413,8 @@ func (g *swiftGen) assignNames() {
 				family = "chats"
 			case "Schedule":
 				family = "schedules"
+			case "ActionRun":
+				family = "actions"
 			}
 		}
 		if t.PkgPath() == "github.com/repogo/host/internal/projectwatch" && (t.Name() == "FilesChanged" || t.Name() == "FileChange") {
@@ -689,6 +691,7 @@ var EventExports = map[string]string{
 	"devices.changed":     "Devices.Changed",
 	"projects.changed":    "Projects.Changed",
 	"schedules.changed":   "Schedules.Changed",
+	"actions.changed":     "Actions.Changed",
 }
 
 func eventGenerator(catalog []hostemit.Event) *swiftGen {

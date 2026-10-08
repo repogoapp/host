@@ -311,6 +311,7 @@ func TestStateTablesHaveOneWriter(t *testing.T) {
 		"queued_turns":  {"queue.go"},
 		"chat_queues":   {"queue.go"},
 		"schedules":     {"schedules.go"},
+		"action_runs":   {"actionruns.go"},
 	}
 	shape, err := stateShape()
 	if err != nil {

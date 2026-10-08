@@ -11,7 +11,21 @@ Params:
 
 Result:
 
+- `path` string
+- `revision` int
 - `actions` [object{Action}]
+- `runs` [object{ActionRun}]
+
+## `actions.output`
+
+Params:
+
+- `run_id` string
+
+Result:
+
+- `text` string
+- `truncated` bool
 
 ## `actions.run`
 
@@ -38,7 +52,7 @@ Params:
 
 Result:
 
-- `run_id` string
+- `run` object{ActionRun}
 
 ## `actions.stop`
 

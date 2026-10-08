@@ -25,7 +25,6 @@ var backgrounds = map[string]string{
 	"internal/power/power.go:Keeper.Release":                   "runs at shutdown, after the host's context has ended",
 	"internal/agent/manager.go:Manager.newTurn":                "a turn outlives the call that queued it; Stop cancels it",
 	"internal/clilogin/clilogin.go:launch":                     "a sign-in CLI outlives the call that started it; its timeout ends it",
-	"internal/actions/actions.go:Service.Start":                "an action outlives the call that started it; the watchdog and Stop end it",
 	"internal/wsserver/conn.go:conn.Send":                      "a push belongs to no request; wsconn bounds the write",
 	"internal/projectwatch/projectwatch.go:Manager.joinLocked": "a watch room lives until its last subscriber leaves and its linger ends",
 	"internal/hostclient/hostclient.go:Client.read":            "the Go test client's read loop; Close ends the socket",

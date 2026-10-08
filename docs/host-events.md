@@ -3,6 +3,15 @@
 Generated from the Go event catalog by `go test ./internal/emit -update`. Each is a JSON-RPC notification whose method is the heading and whose params are the fields.
 Fields are additive only: a breaking change is a new method.
 
+## `actions.changed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `path` string
+- `revision` int
+- `actions` [object{Action}]
+- `runs` [object{ActionRun}]
+
 ## `browser.request`
 
 Signal: not replayed; a missed one is recovered by refetching.

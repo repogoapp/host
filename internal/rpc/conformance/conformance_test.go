@@ -179,10 +179,11 @@ var unchecked = map[string]string{
 
 	"github.avatar": "fetches the signed-in account's picture from GitHub",
 
-	"actions.list":  "needs a real project directory; covered in the actions package",
-	"actions.run":   "runs a shell command from the project's actions.json",
-	"actions.start": "same, detached",
-	"actions.stop":  "needs a detached run",
+	"actions.list":   "needs a real project directory; covered in the actions package",
+	"actions.run":    "runs a shell command from the project's actions.json",
+	"actions.start":  "same, detached",
+	"actions.stop":   "needs a detached run",
+	"actions.output": "needs a detached run",
 
 	"builds.start":        "spawns xcodebuild or Gradle; covered with fakes in internal/builds",
 	"builds.get":          "needs a build on disk; covered in internal/builds",

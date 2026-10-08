@@ -232,6 +232,7 @@ func (h *Host) Start() {
 	h.spawn(h.Services.Schedules.Run)
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
+	h.spawn(h.Services.Actions.Watch)
 	if h.link != nil {
 		h.spawn(h.link.Run)
 	}

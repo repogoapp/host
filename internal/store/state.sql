@@ -77,3 +77,24 @@ CREATE TABLE IF NOT EXISTS schedules (
   -- second tick never runs it twice.
   last_due_at INTEGER
 ) WITHOUT ROWID;
+
+-- One run of a project's action, so every device sees what is running, who
+-- started it and how the last one ended. pid with pid_started names the
+-- process across a host restart, since pids are reused. One writer:
+-- actionruns.go.
+CREATE TABLE IF NOT EXISTS action_runs (
+  id          TEXT    PRIMARY KEY,
+  path        TEXT    NOT NULL,  -- the project
+  action      TEXT    NOT NULL,  -- its name in actions.json
+  cmd         TEXT    NOT NULL,  -- as it ran; the file may change after
+  mode        TEXT    NOT NULL,  -- blocking | detached | terminal
+  device_id   TEXT    NOT NULL,  -- the device that started it
+  pid         INTEGER NOT NULL,
+  pid_started INTEGER NOT NULL,  -- the process's start time, ms; 0 unknown
+  session_id  TEXT    NOT NULL,  -- a terminal run's tab, else ''
+  status      TEXT    NOT NULL,  -- running | exited | stopped | timed_out | lost
+  started_at  INTEGER NOT NULL,
+  ended_at    INTEGER,
+  exit_code   INTEGER            -- NULL unless it exited and the host saw the code
+);
+CREATE INDEX IF NOT EXISTS idx_action_runs ON action_runs(path, action, started_at);
