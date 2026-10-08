@@ -83,7 +83,13 @@ func command(ctx context.Context, args []string) error {
 		if base := os.Getenv(devlog.EnvVar); base != "" {
 			handler = devlog.Tee(ctx, handler, base)
 		}
-		return serve(ctx, slog.New(handler), *port, *relay)
+		log := slog.New(handler)
+		if addr := os.Getenv(pprofEnvVar); addr != "" {
+			if err := servePprof(log, addr); err != nil {
+				return err
+			}
+		}
+		return serve(ctx, log, *port, *relay)
 	}
 	now := flags.Bool("now", false, "stop running chats, terminals and actions before updating")
 	pairHost := flags.String("pair-host", defaultPairHost, "pairing link origin")
@@ -131,6 +137,9 @@ func command(ctx context.Context, args []string) error {
 			}
 			if err := s.Install(ctx, binary); err != nil {
 				return err
+			}
+			if err := service.Linger(ctx); err != nil {
+				fmt.Fprintln(os.Stderr, err)
 			}
 		}
 		if err := s.Start(ctx); err != nil {
