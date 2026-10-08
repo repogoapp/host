@@ -43,20 +43,20 @@ func newCollector() *collector {
 // Send decodes what a client would: the events as JSON off the wire.
 func (c *collector) Send(to device.ID, method string, payload []byte) error {
 	switch method {
-	case "terminal.output":
+	case "terminals.output":
 		var ev terminal.Output
 		_ = json.Unmarshal(payload, &ev)
 		c.mu.Lock()
 		c.out.Write(ev.Data)
 		c.mu.Unlock()
-	case "terminal.exit":
+	case "terminals.exit":
 		var ev terminal.Exit
 		_ = json.Unmarshal(payload, &ev)
 		select {
 		case c.exit <- ev.ExitCode:
 		default:
 		}
-	case "terminal.changed":
+	case "terminals.changed":
 		var ev terminal.Changed
 		_ = json.Unmarshal(payload, &ev)
 		select {
@@ -144,7 +144,7 @@ func waitChanged(t *testing.T, c *collector) changedPush {
 	case got := <-c.changed:
 		return got
 	case <-time.After(10 * time.Second):
-		t.Fatal("no terminal.changed push")
+		t.Fatal("no terminals.changed push")
 		return changedPush{}
 	}
 }
@@ -165,7 +165,7 @@ func TestCloseEndsTheSessionAndAnnouncesIt(t *testing.T) {
 	select {
 	case <-c.exit:
 	case <-time.After(10 * time.Second):
-		t.Fatal("no terminal.exit push after close")
+		t.Fatal("no terminals.exit push after close")
 	}
 	if err := m.Input(info.SessionID, []byte("x")); err == nil {
 		t.Fatal("a closed session still accepted input")

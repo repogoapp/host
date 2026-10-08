@@ -230,6 +230,46 @@ func TestClaudesOwnTurnIsAdoptedAndJoined(t *testing.T) {
 	}
 }
 
+// Claude can take up a queued task notification right after the host's turn
+// ends, with no idle between; that turn is adopted and stoppable too.
+func TestOwnTurnWithoutIdleIsAdopted(t *testing.T) {
+	r := directTestRunner(t)
+	adopted := make(chan string, 2)
+	r.adopt = func(chatID, _ string) { adopted <- chatID }
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := r.Send(ctx, agent.TurnRequest{ChatID: "new", Cwd: t.TempDir(), Prompt: "hello"}, agent.TurnIO{TurnID: "turn", Emit: func(agent.Event) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatID := agent.ChatID(agent.KindClaude, result.SessionID)
+	s, _ := r.pool.Get(chatID)
+	r.pool.Release(chatID, s)
+	s.mu.Lock()
+	s.working = true
+	s.mu.Unlock()
+
+	feed(t, s, `{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":[{"type":"text","text":"<task-notification>"}]}}`)
+	if got := <-adopted; got != chatID {
+		t.Fatalf("adopted %q, want %q", got, chatID)
+	}
+	feed(t, s, `{"type":"stream_event","event":{"type":"message_start"}}`)
+	if len(adopted) != 0 {
+		t.Fatal("adopted the same turn twice")
+	}
+	stopCtx, stop := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.Join(stopCtx, chatID, agent.TurnIO{TurnID: "own", Emit: func(agent.Event) {}})
+		done <- err
+	}()
+	testwait.For(t, "the turn to bind", func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.io != nil })
+	stop()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("stopped joined turn: %v", err)
+	}
+}
+
 func boundSession(t *testing.T) (*liveSession, *[]agent.Event, <-chan turnOutcome) {
 	t.Helper()
 	s := newLiveSession("session", t.TempDir())

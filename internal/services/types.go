@@ -1,10 +1,10 @@
-// Package environment runs a project's committed environment.json: named
+// Package services runs a project's committed environment.json: named
 // services and run-once setup steps as managed terminal sessions, in a
 // dependsOn graph gated by readyWhen, with ENVIRONMENT_* peer variables and
 // envFrom secrets. Services start at boot for the clones this host made,
 // after a fresh clone, and while a device has the project open; they stop on
 // an idle countdown once none does.
-package environment
+package services
 
 import (
 	"encoding/json"

@@ -76,7 +76,7 @@ func TestParameterPresence(t *testing.T) {
 }
 
 func TestFamilyNames(t *testing.T) {
-	for family, want := range map[string]string{"mcp": "MCP", "fs": "FS", "tunnels": "Tunnels", "hosts": "Hosts"} {
+	for family, want := range map[string]string{"mcp": "MCP", "fs": "FS", "tunnels": "Tunnels", "terminals": "Terminals"} {
 		if got := swiftFamily(family); got != want {
 			t.Errorf("%s: %s, want %s", family, got, want)
 		}

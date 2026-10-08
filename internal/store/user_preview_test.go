@@ -44,7 +44,7 @@ func TestLastUserMessagePreviewFollowsSavedTranscript(t *testing.T) {
 			if len(page.Chats) != 1 || page.Chats[0].LastUserMessagePreview != step.want {
 				t.Fatalf("list = %+v", page.Chats)
 			}
-			pull, err := db.Pull(PullRequest{Family: "chats", Epoch: epoch, Since: rev}, "host")
+			pull, err := db.SyncChats(SyncParams{Epoch: epoch, Since: rev}, "host")
 			if err != nil {
 				t.Fatal(err)
 			}

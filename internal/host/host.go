@@ -25,7 +25,6 @@ import (
 	"github.com/repogo/host/internal/chatsync"
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/environment"
 	"github.com/repogo/host/internal/hostinfo"
 	"github.com/repogo/host/internal/hostlink"
 	"github.com/repogo/host/internal/hostupdate"
@@ -39,6 +38,7 @@ import (
 	"github.com/repogo/host/internal/repogomcp"
 	"github.com/repogo/host/internal/rpc"
 	"github.com/repogo/host/internal/rpc/registry"
+	"github.com/repogo/host/internal/services"
 	"github.com/repogo/host/internal/session"
 	"github.com/repogo/host/internal/store"
 	"github.com/repogo/host/internal/tunnel"
@@ -135,7 +135,7 @@ type Host struct {
 	live      *chatlive.Manager
 	syncer    *chatsync.Syncer
 	watch     *projectwatch.Manager
-	envs      *environment.Manager
+	envs      *services.Manager
 	clones    func() []string
 
 	srv *wsserver.Server
@@ -161,7 +161,7 @@ func New(parent context.Context, cfg Config) (*Host, error) {
 	}
 	h := &Host{cfg: cfg, log: cfg.Log}
 	h.ctx, h.cancel = context.WithCancel(parent)
-	for _, open := range []func() error{h.openAgents, h.openDevices, h.openChats, h.openWorkspace, h.openTransports} {
+	for _, open := range []func() error{h.openAgents, h.openDevices, h.openChats, h.openProjects, h.openTransports} {
 		if err := open(); err != nil {
 			h.Close()
 			return nil, err
@@ -232,6 +232,7 @@ func (h *Host) Start() {
 	h.spawn(h.syncer.Run)
 	h.spawn(h.Services.ProjectSync.Run)
 	h.spawn(h.Services.Usage.Run)
+	h.spawn(h.Services.Schedules.Run)
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
 	h.spawn(func(ctx context.Context) { h.envs.Boot(ctx, h.clones()...) })
@@ -279,7 +280,7 @@ func (h *Host) Close() {
 }
 
 // projectsChanged sends a projectsync pass's moved rows to every phone, each
-// stamped with this host as project.list stamps them.
+// stamped with this host as projects.list stamps them.
 func (h *Host) projectsChanged(c store.ProjectChange) {
 	host := string(h.devices.Identity().ID)
 	for i := range c.Changed {

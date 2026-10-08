@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -82,6 +83,10 @@ func fakeAppServer() {
 		case "thread/resume":
 			if p.ThreadID == "missing" {
 				send(map[string]any{"id": f.ID, "error": map[string]any{"code": -32600, "message": "no rollout found"}})
+				continue
+			}
+			if p.ThreadID == "locked" {
+				send(map[string]any{"id": f.ID, "error": map[string]any{"code": -32600, "message": "thread locked already has an active writer"}})
 				continue
 			}
 			thread = p.ThreadID
@@ -231,6 +236,14 @@ func TestResumeFailureIsAnErrorNotAFork(t *testing.T) {
 	r := testRunner(t)
 	_, _, _, err := turnOf(t, r, agent.TurnRequest{ChatID: "codex:missing", SessionID: "missing", Cwd: t.TempDir(), Prompt: "hello"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "reopen Codex chat") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestResumeRefusedByAnotherWriterSaysWhere(t *testing.T) {
+	r := testRunner(t)
+	_, _, _, err := turnOf(t, r, agent.TurnRequest{ChatID: "codex:locked", SessionID: "locked", Cwd: t.TempDir(), Prompt: "hello"}, nil)
+	if !errors.Is(err, errOpenElsewhere) {
 		t.Fatalf("got %v", err)
 	}
 }

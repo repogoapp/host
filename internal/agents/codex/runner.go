@@ -20,6 +20,10 @@ import (
 // take longer than a fresh start.
 const openTimeout = 60 * time.Second
 
+// errOpenElsewhere is a resume refused because another Codex app is writing
+// the thread; Codex lets one process write a thread at a time.
+var errOpenElsewhere = errors.New("This chat is open in Codex on your environment. Close it there, then send again.")
+
 type runner struct {
 	deps       agent.Dependencies
 	pool       agent.SessionPool[*liveSession]
@@ -126,6 +130,9 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 // new one. A resume that fails is the turn's error: a fresh thread would
 // answer in a different conversation than the one on the user's screen.
 func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool) (*liveSession, error) {
+	if req.SessionID != "" && threadOpenElsewhere(r.home, req.SessionID) {
+		return nil, errOpenElsewhere
+	}
 	s := newLiveSession(req.Cwd, r.deps.Log)
 	if own {
 		entry, release := r.deps.Tools.Attach(s)
@@ -159,6 +166,9 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	if err != nil {
 		s.close()
+		if req.SessionID != "" && strings.Contains(err.Error(), "already has an active writer") {
+			return nil, errOpenElsewhere
+		}
 		if req.SessionID != "" {
 			return nil, fmt.Errorf("reopen Codex chat: %w", withStderr(err, client))
 		}

@@ -9,7 +9,7 @@ import (
 // once and sends the bytes itself, because a watch here is a lease.
 
 func init() {
-	emit.Register(Changed{}, Change{})
+	emit.Register(Changed{}, FilesChanged{})
 }
 
 // Changed is a project's git status after something moved: a git.status row
@@ -25,10 +25,10 @@ type Project struct {
 
 func (Changed) Method() string { return "git.changed" }
 
-// Change is the files that moved under a watched folder, git repository or
+// FilesChanged is the files that moved under a watched folder, git repository or
 // not. Only where there is a tree watcher (FSEvents): polling cannot tell
 // which file changed.
-type Change struct {
+type FilesChanged struct {
 	// Path is the folder as the device watched it.
 	Path string `json:"path"`
 	// Changes are sorted by file.
@@ -38,7 +38,7 @@ type Change struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
-func (Change) Method() string { return "fs.change" }
+func (FilesChanged) Method() string { return "fs.changed" }
 
 // FileChange is one file or folder, relative to the watched folder.
 type FileChange struct {

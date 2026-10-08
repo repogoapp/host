@@ -12,7 +12,7 @@ import (
 )
 
 // Watcher runs one watcher per folder for the devices holding it, pushing
-// fs.change and git.changed.
+// fs.changed and git.changed.
 type Watcher interface {
 	Watch(caller device.ID, paths, active []string, resync bool) error
 	Stop(caller device.ID)
@@ -30,17 +30,6 @@ type WatchParams struct {
 	Active []string `json:"active" wire:"array"`
 	// Resync resends every path's git state: the device relaunched and holds nothing.
 	Resync bool `json:"resync,omitempty"`
-}
-
-type NewProjectParams struct {
-	Name string `json:"name"`
-
-	// Parent is a folder the picker can show; empty makes it under ~/RepoGo.
-	Parent string `json:"parent"`
-}
-
-type NewProjectResult struct {
-	Path string `json:"path"`
 }
 
 type PathParams struct {
@@ -137,8 +126,6 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "fs.delete", d.delete)
 	rpc.Add(r, "fs.rename", d.rename)
 	rpc.Add(r, "fs.mkdir", d.mkdir)
-	rpc.Add(r, "fs.new_project", d.newProject)
-	rpc.Add(r, "fs.add_project", d.addProject)
 }
 
 func (d Deps) list(_ context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {
@@ -180,17 +167,6 @@ func (d Deps) rename(_ context.Context, _ rpc.Caller, a RenameParams) (rpc.Ack, 
 
 func (d Deps) mkdir(_ context.Context, _ rpc.Caller, a PathParams) (rpc.Ack, error) {
 	return rpc.OK, d.Files.Mkdir(a.Path)
-}
-
-func (d Deps) newProject(_ context.Context, _ rpc.Caller, a NewProjectParams) (NewProjectResult, error) {
-	path, err := d.Files.NewProject(a.Parent, a.Name)
-	return NewProjectResult{Path: path}, err
-}
-
-// addProject is the picker's Select, making a folder it could only see a root.
-func (d Deps) addProject(_ context.Context, _ rpc.Caller, a PathParams) (NewProjectResult, error) {
-	path, err := d.Files.AddProject(a.Path)
-	return NewProjectResult{Path: path}, err
 }
 
 func (d Deps) watch(_ context.Context, c rpc.Caller, a WatchParams) (rpc.Ack, error) {

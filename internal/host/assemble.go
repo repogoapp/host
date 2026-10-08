@@ -24,7 +24,6 @@ import (
 	"github.com/repogo/host/internal/cloudprojects"
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/environment"
 	"github.com/repogo/host/internal/envsource"
 	"github.com/repogo/host/internal/files"
 	"github.com/repogo/host/internal/fly"
@@ -46,6 +45,8 @@ import (
 	"github.com/repogo/host/internal/repogomcp"
 	devicesrpc "github.com/repogo/host/internal/rpc/devices"
 	"github.com/repogo/host/internal/rpc/registry"
+	"github.com/repogo/host/internal/schedule"
+	"github.com/repogo/host/internal/services"
 	"github.com/repogo/host/internal/session"
 	"github.com/repogo/host/internal/shipping"
 	"github.com/repogo/host/internal/store"
@@ -245,9 +246,9 @@ func (h *Host) openChats() error {
 	return nil
 }
 
-// openWorkspace opens what works on the user's projects: files, git, GitHub,
+// openProjects opens what works on the user's projects: files, git, GitHub,
 // terminals, actions, environments, chats and host updates.
-func (h *Host) openWorkspace() error {
+func (h *Host) openProjects() error {
 	// The projects layout is a root source as well: a fresh clone has no chat in it yet.
 	layout := ghcore.NewLayout(h.cfg.Projects)
 	// Git, projects, terminals and actions all share Files' containment. The
@@ -283,10 +284,10 @@ func (h *Host) openWorkspace() error {
 				h.alerts.EnvRequest(h.ctx, req.RequestID, req.HostLabel, req.Handles)
 			}
 		}, h.log)
-	h.envs = environment.New(h.ctx, environment.Deps{
+	h.envs = services.New(h.ctx, services.Deps{
 		Terminals: terminals, Paths: projectFiles, URLs: h.tunnels.URLs,
 		Secrets:  envRequests.Resolve,
-		Announce: func(st environment.Status) { h.toEveryPhone(st) },
+		Announce: func(st services.Status) { h.toEveryPhone(st) },
 		Log:      h.log,
 	})
 	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes, Active: h.envs.Active, Log: h.log})
@@ -306,8 +307,17 @@ func (h *Host) openWorkspace() error {
 	update := h.cfg.Update
 	update.Turns, update.Terminals, update.Actions, update.Builds = h.mgr, terminals.Open, acts.Running, appBuilds.Running
 
+	schedules, err := schedule.New(schedule.Deps{
+		Self: h.devices.Identity().ID, Store: h.db, Chats: chats, Files: projectFiles, Agents: h.agents.Kinds(),
+		Changed: func(c schedule.Changed) { h.toEveryPhone(c) }, Log: h.log,
+	})
+	if err != nil {
+		return err
+	}
+
 	s := &h.Services
 	s.Chats = chats
+	s.Schedules = schedules
 	s.Files = projectFiles
 	// Every CLI in one inventory, in the order the Environment screen shows
 	// them: source control, agents, cloud. Phones hear when a sign-in ends or

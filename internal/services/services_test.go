@@ -1,4 +1,4 @@
-package environment
+package services
 
 import (
 	"context"
@@ -271,7 +271,7 @@ func TestBootHonoursTheOptOut(t *testing.T) {
 	}
 }
 
-// status is the path's environment as its environment.status push reports it.
+// status is the path's services as its services.status push reports it.
 func (r *rig) status(t *testing.T, path string) Status {
 	t.Helper()
 	root, err := r.m.root(path)

@@ -17,7 +17,7 @@ type Changed struct {
 	Sessions []Info `json:"sessions" wire:"array"`
 }
 
-func (Changed) Method() string { return "terminal.changed" }
+func (Changed) Method() string { return "terminals.changed" }
 
 // Output is bytes the shell wrote, coalesced over a short window.
 type Output struct {
@@ -25,7 +25,7 @@ type Output struct {
 	Data      []byte `json:"data"`
 }
 
-func (Output) Method() string { return "terminal.output" }
+func (Output) Method() string { return "terminals.output" }
 
 // Exit is the shell ending, with what it left in the last chunk already sent.
 type Exit struct {
@@ -33,4 +33,4 @@ type Exit struct {
 	ExitCode  int    `json:"exit_code"`
 }
 
-func (Exit) Method() string { return "terminal.exit" }
+func (Exit) Method() string { return "terminals.exit" }

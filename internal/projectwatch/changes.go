@@ -13,7 +13,7 @@ import (
 	"sync"
 )
 
-// maxFiles bounds one fs.change; past it the push says Truncated and the
+// maxFiles bounds one fs.changed; past it the push says Truncated and the
 // device re-reads everything it has open. A checkout or an install moves
 // thousands of files and no one needs their names.
 const maxFiles = 200
@@ -169,13 +169,13 @@ func (m *Manager) sendChanges(path string, changes []FileChange, truncated bool)
 	if len(changes) == 0 && !truncated {
 		return
 	}
-	payload, err := json.Marshal(Change{Path: path, Changes: changes, Truncated: truncated})
+	payload, err := json.Marshal(FilesChanged{Path: path, Changes: changes, Truncated: truncated})
 	if err != nil {
 		return
 	}
 	for _, id := range m.subscribers(path) {
-		if err := m.pub.Send(id, Change{}.Method(), payload); err != nil {
-			m.log.Debug("watch: fs.change push failed", "device", id, "err", err)
+		if err := m.pub.Send(id, FilesChanged{}.Method(), payload); err != nil {
+			m.log.Debug("watch: fs.changed push failed", "device", id, "err", err)
 		}
 	}
 }

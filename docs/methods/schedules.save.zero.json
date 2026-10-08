@@ -1,0 +1,16 @@
+{
+  "id": "",
+  "title": "",
+  "prompt": "",
+  "path": "",
+  "agent": "",
+  "config": {},
+  "frequency": "",
+  "hour": 0,
+  "minute": 0,
+  "weekday": 0,
+  "timezone": "",
+  "enabled": false,
+  "host_id": "",
+  "next_run_at": 0
+}

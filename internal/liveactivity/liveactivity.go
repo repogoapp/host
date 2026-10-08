@@ -300,11 +300,11 @@ func (d *Driver) push(ctx context.Context, c *chat) {
 	c.lastPush = d.now()
 	hostID := d.store.Identity().ID
 	key := c.id + "@" + string(hostID)
-	state := c.contentState(d.now(), d.agentName(c.agent), d.workspaceLabel(c.cwd))
+	state := c.contentState(d.now(), d.agentName(c.agent), d.projectLabel(c.cwd))
 	attributes := map[string]any{
 		"name":        state.Title,
 		"chatId":      key,
-		"workspaceId": workspaceID(string(hostID), c.cwd),
+		"workspaceId": projectID(string(hostID), c.cwd),
 	}
 	running := c.status == "running"
 	var starts []device.Peer
@@ -364,7 +364,7 @@ func (d *Driver) deliver(ctx context.Context, to device.PushTarget, payload []by
 
 // contentState is the activity as the widget decodes it
 // (`LiveActivityAttributes.ContentState`). Caller holds d.mu.
-func (c *chat) contentState(now time.Time, name, workspace string) contentState {
+func (c *chat) contentState(now time.Time, name, project string) contentState {
 	s := contentState{
 		CurrentEvent:            c.current,
 		StartTimeInMilliseconds: float64(c.startedAt.UnixMilli()),
@@ -373,7 +373,7 @@ func (c *chat) contentState(now time.Time, name, workspace string) contentState 
 		Deletions:               c.deletions,
 		FileCount:               len(c.files),
 		RecentEvents:            append([]event{}, c.recent...),
-		WorkspaceLabel:          workspace,
+		ProjectLabel:            project,
 		Subtitle:                name + " is working",
 		Title:                   c.title,
 		AgentID:                 string(c.agent),
@@ -408,7 +408,7 @@ type contentState struct {
 	Deletions               int     `json:"deletions,omitempty"`
 	FileCount               int     `json:"fileCount,omitempty"`
 	RecentEvents            []event `json:"recentEvents"`
-	WorkspaceLabel          string  `json:"workspaceLabel,omitempty"`
+	ProjectLabel            string  `json:"workspaceLabel,omitempty"`
 	Subtitle                string  `json:"subtitle,omitempty"`
 	Title                   string  `json:"title,omitempty"`
 	AgentID                 string  `json:"agentId,omitempty"`
@@ -476,16 +476,16 @@ func headline(s, fallback string) string {
 	return s
 }
 
-func (d *Driver) workspaceLabel(cwd string) string {
+func (d *Driver) projectLabel(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
 	return d.projectName(cwd)
 }
 
-// workspaceID is the app's `WorkspaceAddress.workspaceId` for a folder on this
-// host, which keys the workspace icon the app mirrors for the widget.
-func workspaceID(hostID, cwd string) string {
+// projectID is the app's `ProjectRef.fileKey` for a folder on this
+// host, which keys the project icon the app mirrors for the widget.
+func projectID(hostID, cwd string) string {
 	if cwd == "" {
 		return ""
 	}

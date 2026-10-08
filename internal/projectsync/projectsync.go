@@ -1,4 +1,4 @@
-// Package projectsync materializes the project list project.list reads. Written
+// Package projectsync materializes the project list projects.list reads. Written
 // down rather than recomputed so a repository resolved once, a subprocess each,
 // is not resolved again on every call. Rows that move go to every device.
 package projectsync
@@ -92,7 +92,7 @@ func (s *Syncer) Nudge() {
 }
 
 // Run makes a pass at start, then one a settle after each nudge, until ctx
-// ends. project.list reads the table this keeps, so the first pass fills it.
+// ends. projects.list reads the table this keeps, so the first pass fills it.
 func (s *Syncer) Run(ctx context.Context) {
 	s.Once(ctx)
 	for {

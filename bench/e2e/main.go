@@ -156,13 +156,13 @@ func main() {
 		More   bool              `json:"more"`
 		Upsert []json.RawMessage `json:"upsert"`
 	}
-	pull := func(family string) (last delta, rows []json.RawMessage, pages int) {
+	pull := func() (last delta, rows []json.RawMessage, pages int) {
 		for {
 			var page delta
-			pageDone := step(family + ".page1")
-			must(c.Call(ctx, "sync.pull", map[string]any{
-				"family": family, "epoch": last.Epoch, "since": last.Rev, "ids": []string{},
-			}, &page), "sync.pull "+family)
+			pageDone := step("chats.page1")
+			must(c.Call(ctx, "chats.sync", map[string]any{
+				"epoch": last.Epoch, "since": last.Rev, "ids": []string{},
+			}, &page), "chats.sync")
 			if pages == 0 {
 				pageDone()
 			}
@@ -187,11 +187,11 @@ func main() {
 	cold.Add(2)
 	go func() {
 		defer cold.Done()
-		must(c.Call(ctx, "project.list", map[string]any{}, &projectList), "project.list")
+		must(c.Call(ctx, "projects.list", map[string]any{}, &projectList), "projects.list")
 	}()
 	go func() {
 		defer cold.Done()
-		chatCursor, chatRaw, chatPages = pull("chats")
+		chatCursor, chatRaw, chatPages = pull()
 	}()
 	cold.Wait()
 	done()
@@ -254,9 +254,9 @@ func main() {
 	//    after the first costs, which is the number the app actually lives on.
 	done = step("chats.again")
 	var again delta
-	must(c.Call(ctx, "sync.pull", map[string]any{
-		"family": "chats", "epoch": chatCursor.Epoch, "since": chatCursor.Rev, "ids": []string{},
-	}, &again), "sync.pull chats again")
+	must(c.Call(ctx, "chats.sync", map[string]any{
+		"epoch": chatCursor.Epoch, "since": chatCursor.Rev, "ids": []string{},
+	}, &again), "chats.sync again")
 	done()
 	fmt.Printf("chats.again %d row(s) changed since rev %d\n", len(again.Upsert), chatCursor.Rev)
 

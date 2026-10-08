@@ -453,6 +453,21 @@ Result:
 - `streaming` object{Streaming} (nullable)
 - `approval` object{Approval} (nullable)
 
+## `chats.sync`
+
+Params:
+
+- `epoch` string
+- `since` int
+
+Result:
+
+- `epoch` string
+- `rev` int
+- `more` bool
+- `upsert` [object{Chat}]
+- `delete` [string]
+
 ## `chats.tools_subscribe`
 
 Params:
@@ -729,16 +744,6 @@ Result:
 
 - `ok` bool
 
-## `fs.add_project`
-
-Params:
-
-- `path` string
-
-Result:
-
-- `path` string
-
 ## `fs.delete`
 
 Params:
@@ -774,17 +779,6 @@ Params:
 Result:
 
 - `ok` bool
-
-## `fs.new_project`
-
-Params:
-
-- `name` string
-- `parent` string
-
-Result:
-
-- `path` string
 
 ## `fs.read`
 
@@ -1098,6 +1092,33 @@ Result:
 
 - `repos` [object{Repo}]
 
+## `host.claim`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `uid` string
+- `nonce` string
+
+Result:
+
+- `host_id` string
+- `public_key` base64 (nullable)
+- `signature` base64 (nullable)
+
+## `host.release`
+
+Local only: refused to a paired device.
+
+Params:
+
+- none
+
+Result:
+
+- `ok` bool
+
 ## `host.set_stops_at`
 
 Params:
@@ -1152,33 +1173,6 @@ Result:
 - `from` string
 - `to` string (omitted when empty)
 - `busy` object{Busy} (omitted when empty) (nullable)
-
-## `hosts.claim`
-
-Paired devices only: refused at the machine.
-
-Params:
-
-- `uid` string
-- `nonce` string
-
-Result:
-
-- `host_id` string
-- `public_key` base64 (nullable)
-- `signature` base64 (nullable)
-
-## `hosts.release`
-
-Local only: refused to a paired device.
-
-Params:
-
-- none
-
-Result:
-
-- `ok` bool
 
 ## `limits.read`
 
@@ -1399,7 +1393,28 @@ Result:
 
 - `ports` [object{Port}]
 
-## `project.detect_icon`
+## `projects.add`
+
+Params:
+
+- `path` string
+
+Result:
+
+- `path` string
+
+## `projects.create`
+
+Params:
+
+- `name` string
+- `parent` string
+
+Result:
+
+- `path` string
+
+## `projects.detect_icon`
 
 Params:
 
@@ -1416,7 +1431,7 @@ Result:
 - `not_modified` bool (omitted when empty)
 - `remote` string (omitted when empty)
 
-## `project.list`
+## `projects.list`
 
 Params:
 
@@ -1426,7 +1441,7 @@ Result:
 
 - `projects` [object{Project}]
 
-## `project.pin`
+## `projects.pin`
 
 Params:
 
@@ -1451,7 +1466,7 @@ Result:
 - `pinned_at` int (omitted when empty) (nullable)
 - `host_id` string
 
-## `project.rename`
+## `projects.rename`
 
 Params:
 
@@ -1476,23 +1491,61 @@ Result:
 - `pinned_at` int (omitted when empty) (nullable)
 - `host_id` string
 
-## `sync.pull`
+## `schedules.delete`
 
 Params:
 
-- `family` string
-- `epoch` string
-- `since` int
+- `id` string
 
 Result:
 
-- `epoch` string
-- `rev` int
-- `more` bool
-- `upsert` [object{Chat}]
-- `delete` [string]
+- `ok` bool
 
-## `terminal.attach`
+## `schedules.list`
+
+Params:
+
+- none
+
+Result:
+
+- `schedules` [object{Row}]
+
+## `schedules.save`
+
+Params:
+
+- `id` string
+- `title` string
+- `prompt` string
+- `path` string
+- `agent` string
+- `config` object{TurnConfig}
+- `frequency` string
+- `hour` int
+- `minute` int
+- `weekday` int
+- `timezone` string
+- `enabled` bool
+
+Result:
+
+- `id` string
+- `title` string
+- `prompt` string
+- `path` string
+- `agent` string
+- `config` object{TurnConfig}
+- `frequency` string
+- `hour` int
+- `minute` int
+- `weekday` int
+- `timezone` string
+- `enabled` bool
+- `host_id` string
+- `next_run_at` int
+
+## `terminals.attach`
 
 Params:
 
@@ -1509,7 +1562,7 @@ Result:
 - `created_at_ms` int
 - `buffered_output` base64 (nullable)
 
-## `terminal.close`
+## `terminals.close`
 
 Params:
 
@@ -1519,7 +1572,7 @@ Result:
 
 - `ok` bool
 
-## `terminal.create`
+## `terminals.create`
 
 Params:
 
@@ -1537,7 +1590,7 @@ Result:
 - `rows` int
 - `created_at_ms` int
 
-## `terminal.detach`
+## `terminals.detach`
 
 Params:
 
@@ -1547,7 +1600,7 @@ Result:
 
 - `ok` bool
 
-## `terminal.input`
+## `terminals.input`
 
 Params:
 
@@ -1558,7 +1611,7 @@ Result:
 
 - `ok` bool
 
-## `terminal.list`
+## `terminals.list`
 
 Params:
 
@@ -1568,7 +1621,7 @@ Result:
 
 - `sessions` [object{Info}]
 
-## `terminal.resize`
+## `terminals.resize`
 
 Params:
 
@@ -1580,7 +1633,7 @@ Result:
 
 - `ok` bool
 
-## `terminal.subscribe`
+## `terminals.subscribe`
 
 Params:
 
@@ -1590,7 +1643,7 @@ Result:
 
 - `ok` bool
 
-## `terminal.unsubscribe`
+## `terminals.unsubscribe`
 
 Params:
 
@@ -1855,7 +1908,7 @@ Params:
 
 Result:
 
-- `machine_id` string
+- `host_id` string
 - `captured_at_ms` int
 - `time_zone` string
 - `buckets` [object{Bucket}]
@@ -1869,7 +1922,7 @@ Params:
 
 Result:
 
-- `machine_id` string
+- `host_id` string
 - `captured_at_ms` int
 - `complete` bool
 - `homes` [object{Home}]

@@ -21,7 +21,7 @@ var (
 	ErrInvalid = errkind.New(errkind.Invalid, "invalid claim")
 	// ErrClaimedElsewhere is a second account asking; only the user at the
 	// machine can release the first (`repogo account release`).
-	ErrClaimedElsewhere = errkind.New(errkind.Denied, "this computer is linked to another RepoGo account; run repogo account release on it first")
+	ErrClaimedElsewhere = errkind.New(errkind.Denied, "this environment is linked to another RepoGo account; run repogo account release on it first")
 )
 
 // Firebase uids are at most 128 characters; the separator never appears in one.

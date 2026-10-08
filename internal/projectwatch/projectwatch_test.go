@@ -86,7 +86,7 @@ type fakePub struct {
 	mu   sync.Mutex
 	sent map[device.ID]int
 	last []byte
-	// files is every fs.change payload, in order.
+	// files is every fs.changed payload, in order.
 	files [][]byte
 }
 
@@ -95,7 +95,7 @@ func newPub() *fakePub { return &fakePub{sent: map[device.ID]int{}} }
 func (p *fakePub) Send(to device.ID, method string, payload []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if method == (Change{}).Method() {
+	if method == (FilesChanged{}).Method() {
 		p.files = append(p.files, payload)
 		return nil
 	}
@@ -702,7 +702,7 @@ func TestFileChangesReachTheRoom(t *testing.T) {
 	if len(pushes) != 2 {
 		t.Fatalf("pushes = %d, want 2 — one per device", len(pushes))
 	}
-	var got Change
+	var got FilesChanged
 	if err := json.Unmarshal(pushes[0], &got); err != nil {
 		t.Fatal(err)
 	}

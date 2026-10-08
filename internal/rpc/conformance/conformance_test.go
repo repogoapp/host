@@ -57,7 +57,7 @@ func vocabulary(root string) []check {
 		{method: "devices.list", key: "devices"},
 		{method: "devices.revoke", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "turns.list", key: "turns"},
-		{method: "terminal.list", key: "sessions"},
+		{method: "terminals.list", key: "sessions"},
 		{method: "fs.list", params: map[string]any{"path": root}, key: "entries"},
 		{method: "fs.read", params: map[string]any{"path": file}, key: "content"},
 		{method: "fs.write", params: map[string]any{"path": file, "content": []byte("hello")}, key: "path"},
@@ -66,17 +66,19 @@ func vocabulary(root string) []check {
 		{method: "fs.mkdir", params: map[string]any{"path": filepath.Join(missing, "new")}, key: "ok"},
 		{method: "fs.rename", params: map[string]any{"path": filepath.Join(missing, "a"), "new_path": filepath.Join(missing, "b")}, key: "ok"},
 		{method: "fs.delete", params: map[string]any{"path": filepath.Join(missing, "a")}, key: "ok"},
-		{method: "fs.new_project", params: map[string]any{"name": ".refused"}, key: "path"},
-		{method: "fs.add_project", params: map[string]any{"path": missing}, key: "path"},
+		{method: "projects.create", params: map[string]any{"name": ".refused"}, key: "path"},
+		{method: "projects.add", params: map[string]any{"path": missing}, key: "path"},
 		// A mirror pull with no rows and no cursor: the empty case is the one every
 		// client starts from, and it must answer the same however it was reached.
-		{method: "sync.pull", params: map[string]any{"family": "chats"}, key: "upsert"},
-		{method: "project.list", key: "projects"},
+		{method: "chats.sync", params: map[string]any{}, key: "upsert"},
+		{method: "projects.list", key: "projects"},
 		{method: "mcp.list", params: map[string]any{"project": root}, key: "installed"},
 		{method: "mcp.rename", params: map[string]any{"id": "missing", "label": "x"}, key: "ok"},
 		{method: "mcp.set_enabled", params: map[string]any{"id": "missing", "project": root, "enabled": true}, key: "ok"},
 		{method: "mcp.remove", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "tunnels.list", key: "tunnels"},
+		{method: "schedules.list", key: "schedules"},
+		{method: "schedules.delete", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "builds.apps", params: map[string]any{"project": root}, key: "apps"},
 		{method: "builds.list", params: map[string]any{"project": root}, key: "builds"},
 		{method: "builds.publish", params: map[string]any{"request_id": "00000000000000000000000000000001", "project": root, "path": "missing.xcodeproj", "target": "Demo", "version": "1.0.0", "build_number": "1"}, key: "publication"},
@@ -97,7 +99,7 @@ func vocabulary(root string) []check {
 
 // localOnly must be refused to every caller that did not prove it is on this
 // machine. Listed here so the refusal is asserted rather than assumed.
-var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reusable_revoke", "hosts.release"}
+var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reusable_revoke", "host.release"}
 
 // unchecked is the vocabulary this suite deliberately does not drive, each with
 // a reason. Anything else new fails TestEveryMethodIsAccountedFor, which is the
@@ -129,8 +131,9 @@ var unchecked = map[string]string{
 	"turns.edit_queued":    "needs a queued turn; covered in internal/agent",
 	"turns.remove_queued":  "needs a queued turn; covered in internal/agent",
 	"turns.send_queued":    "needs a queued turn; covered in internal/agent",
-	"project.rename":       "needs a listed project; covered in internal/store",
-	"project.pin":          "needs a listed project; covered in internal/store",
+	"projects.rename":      "needs a listed project; covered in internal/store",
+	"schedules.save":       "needs an installed agent and a project; covered in internal/schedule",
+	"projects.pin":         "needs a listed project; covered in internal/store",
 	"turns.respond":        "needs a turn waiting on approval",
 	"chats.resolve":        "needs a chat cache; covered in the chats family suite",
 	"chats.update":         "writes provider files; covered in the chats family suite",
@@ -160,11 +163,11 @@ var unchecked = map[string]string{
 	"usage.daily":   "scans the user's agent transcripts; covered with temporary homes in internal/agents (shipping_test.go)",
 	"usage.history": "scans the user's agent transcripts; covered with temporary homes in internal/agents (shipping_test.go)",
 
-	"forward.fetch":       "driven against a real dev server by TestForwardFetchOverEveryTransport",
-	"forward.pipe_open":   "the pipe lane pushes, and pushes only reach a relay-side client; covered in internal/forward",
-	"forward.pipe_send":   "same",
-	"forward.pipe_close":  "same",
-	"project.detect_icon": "needs a real project directory; covered by the project core",
+	"forward.fetch":        "driven against a real dev server by TestForwardFetchOverEveryTransport",
+	"forward.pipe_open":    "the pipe lane pushes, and pushes only reach a relay-side client; covered in internal/forward",
+	"forward.pipe_send":    "same",
+	"forward.pipe_close":   "same",
+	"projects.detect_icon": "needs a real project directory; covered by the project core",
 
 	"chats.start": "spawns an agent; covered in internal/chat and the Manager",
 
@@ -189,21 +192,21 @@ var unchecked = map[string]string{
 	"builds.install_link": "needs a finished build and an open tunnel; covered in internal/builds",
 	"builds.app_numbers":  "spawns xcodebuild; covered with a fake in internal/builds",
 
-	"terminal.create":      "spawns a login shell; covered in the terminal package",
-	"terminal.subscribe":   "pushes the tab set; covered in the terminal package",
-	"terminal.unsubscribe": "same",
-	"terminal.attach":      "needs a live session",
-	"terminal.detach":      "same",
-	"terminal.input":       "same",
-	"terminal.resize":      "same",
-	"terminal.close":       "same",
+	"terminals.create":      "spawns a login shell; covered in the terminal package",
+	"terminals.subscribe":   "pushes the tab set; covered in the terminal package",
+	"terminals.unsubscribe": "same",
+	"terminals.attach":      "needs a live session",
+	"terminals.detach":      "same",
+	"terminals.input":       "same",
+	"terminals.resize":      "same",
+	"terminals.close":       "same",
 
 	"mcp.probe":        "reaches the pasted URL; covered against httptest servers in internal/mcp",
 	"mcp.connect":      "needs a live probe; covered in internal/mcp",
 	"mcp.oauth_start":  "same",
 	"mcp.oauth_finish": "same, and it calls the server's token endpoint",
 
-	"hosts.claim":   "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
+	"host.claim":    "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
 	"tunnels.open":  "same",
 	"tunnels.close": "same",
 }
@@ -399,7 +402,7 @@ func TestPairedOnlyMethods(t *testing.T) {
 			claim := map[string]any{"uid": "conformance_uid", "nonce": nonce}
 			open := map[string]any{"slug": "conformance" + strings.ReplaceAll(c.name, "-", ""), "port": 3000, "expires_at": expires}
 			if c.name == "in-process" {
-				for method, params := range map[string]any{"hosts.claim": claim, "tunnels.open": open} {
+				for method, params := range map[string]any{"host.claim": claim, "tunnels.open": open} {
 					if _, err := c.call(t, method, params); !isCode(err, jsonrpc.CodeDenied) {
 						t.Errorf("%s from the machine answered %v, want denied", method, err)
 					}
@@ -411,7 +414,7 @@ func TestPairedOnlyMethods(t *testing.T) {
 				params any
 				key    string
 			}{
-				{"hosts.claim", claim, "signature"},
+				{"host.claim", claim, "signature"},
 				{"tunnels.open", open, "tunnel"},
 				{"tunnels.close", map[string]any{"slug": open["slug"]}, "ok"},
 			} {

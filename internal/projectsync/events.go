@@ -11,10 +11,10 @@ func init() {
 
 // Changed is the project rows a pass moved, whole, and the paths that are no
 // longer projects; sent to every paired device, so a list stays in order
-// without asking project.list again.
+// without asking projects.list again.
 type Changed struct {
 	Projects []store.Project `json:"projects" wire:"array"`
 	Removed  []string        `json:"removed" wire:"array"`
 }
 
-func (Changed) Method() string { return "project.changed" }
+func (Changed) Method() string { return "projects.changed" }

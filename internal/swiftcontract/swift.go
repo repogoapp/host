@@ -26,7 +26,7 @@ var methodExports = map[string]bool{
 	"limits.read": true, "limits.reset": true,
 	// Usage, devices and project picking.
 	"usage.history": true, "usage.daily": true, "devices.register_push": true, "devices.list": true, "devices.revoke": true,
-	"github.repos": true, "github.clone": true, "fs.add_project": true, "fs.new_project": true,
+	"github.repos": true, "github.clone": true, "projects.add": true, "projects.create": true,
 	// Editor, git and chat list rows.
 	"fs.write": true, "fs.replace": true, "fs.mkdir": true, "fs.rename": true,
 	"fs.delete": true, "fs.search": true, "fs.watch": true, "fs.stop": true,
@@ -35,18 +35,18 @@ var methodExports = map[string]bool{
 	"git.create_branch": true, "git.patch": true, "git.commit_push": true,
 	"github.pr_create": true, "github.publish": true,
 	"chats.list": true, "chats.info": true, "chats.resolve": true, "chats.update": true,
-	"chats.delete": true, "chats.handoff": true, "sync.pull": true,
+	"chats.delete": true, "chats.handoff": true, "chats.sync": true,
 	// A chat's turns, in the order the user acts on them.
 	"chats.send": true, "chats.start": true, "turns.list": true, "turns.get": true, "turns.stop": true, "chats.stop": true,
 	"turns.respond": true, "turns.edit_queued": true, "turns.remove_queued": true,
 	"turns.send_queued": true, "chats.queue": true,
 	// Projects and actions.
-	"project.list": true, "project.detect_icon": true, "project.rename": true, "project.pin": true,
+	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
 	"actions.list": true, "actions.run": true, "actions.start": true, "actions.stop": true,
 	// Terminal and forwarding.
-	"terminal.create": true, "terminal.list": true, "terminal.subscribe": true,
-	"terminal.unsubscribe": true, "terminal.attach": true, "terminal.detach": true,
-	"terminal.input": true, "terminal.resize": true, "terminal.close": true,
+	"terminals.create": true, "terminals.list": true, "terminals.subscribe": true,
+	"terminals.unsubscribe": true, "terminals.attach": true, "terminals.detach": true,
+	"terminals.input": true, "terminals.resize": true, "terminals.close": true,
 	"ports.list": true, "ports.kill": true, "forward.fetch": true,
 	"forward.pipe_open": true, "forward.pipe_send": true, "forward.pipe_close": true,
 	"fs.read": true,
@@ -67,7 +67,9 @@ var methodExports = map[string]bool{
 	"mcp.oauth_start": true, "mcp.oauth_finish": true, "mcp.rename": true,
 	"mcp.set_enabled": true, "mcp.remove": true,
 	// Tunnels.
-	"tunnels.list": true, "tunnels.open": true, "tunnels.close": true, "hosts.claim": true,
+	"tunnels.list": true, "tunnels.open": true, "tunnels.close": true, "host.claim": true,
+	// Schedules.
+	"schedules.list": true, "schedules.save": true, "schedules.delete": true,
 	// A cloud card's environment variables.
 	"cloud.env.list": true, "cloud.env.value": true, "cloud.env.set": true, "cloud.env.remove": true,
 }
@@ -269,7 +271,7 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 		return "Codable"
 	}
 	if (t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "Project") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/rpc/project" && t.Name() == "ListResult") ||
+		(t.PkgPath() == "github.com/repogo/host/internal/rpc/projects" && t.Name() == "ListResult") ||
 		t.PkgPath() == "github.com/repogo/host/internal/agentcatalog" ||
 		(t.PkgPath() == "github.com/repogo/host/internal/actions" && t.Name() == "Action") ||
 		(t.PkgPath() == "github.com/repogo/host/internal/rpc/actions" && t.Name() == "ListResult") {
@@ -281,6 +283,12 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 		(t.PkgPath() == "github.com/repogo/host/internal/clilogin" && t.Name() == "Code") ||
 		(t.PkgPath() == "github.com/repogo/host/internal/hostinfo" && t.Name() == "Release") ||
 		(t.PkgPath() == "github.com/repogo/host/internal/github" && t.Name() == "CloneFolder") {
+		return "Codable"
+	}
+	// The phone saves each host's schedules to show them while it is offline.
+	if t.PkgPath() == "github.com/repogo/host/internal/schedule" ||
+		(t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "Schedule") ||
+		(t.PkgPath() == "github.com/repogo/host/internal/agent" && t.Name() == "TurnConfig") {
 		return "Codable"
 	}
 	// Battery is persisted in widget snapshots; status is encoded for diagnostics.
@@ -350,16 +358,15 @@ var typeFamilies = map[string]string{
 	"github.com/repogo/host/internal/rpc/chats":     "chats",
 	"github.com/repogo/host/internal/chat":          "chats",
 	"github.com/repogo/host/internal/chatlive":      "chats",
-	"github.com/repogo/host/internal/rpc/sync":      "sync",
-	"github.com/repogo/host/internal/rpc/project":   "project",
-	"github.com/repogo/host/internal/project":       "project",
-	"github.com/repogo/host/internal/projectsync":   "project",
-	"github.com/repogo/host/internal/store":         "project",
+	"github.com/repogo/host/internal/rpc/projects":  "projects",
+	"github.com/repogo/host/internal/project":       "projects",
+	"github.com/repogo/host/internal/projectsync":   "projects",
+	"github.com/repogo/host/internal/store":         "projects",
 	"github.com/repogo/host/internal/rpc/actions":   "actions",
 	"github.com/repogo/host/internal/actions":       "actions",
 	"github.com/repogo/host/internal/agentcatalog":  "agents",
-	"github.com/repogo/host/internal/rpc/terminal":  "terminal",
-	"github.com/repogo/host/internal/terminal":      "terminal",
+	"github.com/repogo/host/internal/rpc/terminals": "terminals",
+	"github.com/repogo/host/internal/terminal":      "terminals",
 	"github.com/repogo/host/internal/rpc/ports":     "ports",
 	"github.com/repogo/host/internal/ports":         "ports",
 	"github.com/repogo/host/internal/rpc/forward":   "forward",
@@ -381,16 +388,18 @@ var typeFamilies = map[string]string{
 	"github.com/repogo/host/internal/repogomcp":   "browser",
 	"github.com/repogo/host/internal/rpc/env":     "env",
 	"github.com/repogo/host/internal/envsource":   "env",
-	"github.com/repogo/host/internal/environment": "environment",
+	"github.com/repogo/host/internal/services":    "services",
 	"github.com/repogo/host/internal/files":       "fs",
 	"github.com/repogo/host/internal/rpc":         "shared",
 	"github.com/repogo/host/internal/rpc/mcp":     "mcp",
 	"github.com/repogo/host/internal/mcp":         "mcp",
 	"github.com/repogo/host/internal/rpc/tunnels": "tunnels",
 	"github.com/repogo/host/internal/tunnel":      "tunnels",
-	"github.com/repogo/host/internal/rpc/hosts":   "hosts",
-	"github.com/repogo/host/internal/account":     "hosts",
+	"github.com/repogo/host/internal/account":     "host",
 	"github.com/repogo/host/internal/rpc/fs":      "fs",
+
+	"github.com/repogo/host/internal/rpc/schedules": "schedules",
+	"github.com/repogo/host/internal/schedule":      "schedules",
 }
 
 func (g *swiftGen) assignNames() {
@@ -401,16 +410,20 @@ func (g *swiftGen) assignNames() {
 		}
 		if t.PkgPath() == "github.com/repogo/host/internal/store" {
 			switch t.Name() {
-			case "Chat", "VoiceHandle", "Queue", "QueuedTurn":
+			case "Chat", "VoiceHandle", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
 				family = "chats"
-			case "PullRequest", "PullReply":
-				family = "sync"
+			case "Schedule":
+				family = "schedules"
 			}
 		}
-		if t.PkgPath() == "github.com/repogo/host/internal/projectwatch" && (t.Name() == "Change" || t.Name() == "FileChange") {
+		if t.PkgPath() == "github.com/repogo/host/internal/projectwatch" && (t.Name() == "FilesChanged" || t.Name() == "FileChange") {
 			family = "fs"
 		}
 		name := cleanName(t.Name())
+		// FilesChanged shares projectwatch with git's Changed; in Swift it is FS.Changed.
+		if t.PkgPath() == "github.com/repogo/host/internal/projectwatch" && t.Name() == "FilesChanged" {
+			name = "Changed"
+		}
 		if swiftTypeNames[name] {
 			name += "Value"
 		}
@@ -658,25 +671,26 @@ func cleanName(n string) string {
 var EventExports = map[string]string{
 	"chats.appended": "Chats.Appended", "chats.streaming": "Chats.Streaming",
 	"chats.approval": "Chats.Approval", "chats.tool": "Chats.ToolChanged",
-	"fs.change":           "FS.Change",
+	"fs.changed":          "FS.Changed",
 	"git.changed":         "Git.Changed",
 	"chats.changed":       "Chats.Changed",
 	"chats.removed":       "Chats.Removed",
 	"chats.attention":     "Chats.Attention",
-	"terminal.changed":    "Terminal.Changed",
-	"terminal.output":     "Terminal.Output",
-	"terminal.exit":       "Terminal.Exit",
+	"terminals.changed":   "Terminals.Changed",
+	"terminals.output":    "Terminals.Output",
+	"terminals.exit":      "Terminals.Exit",
 	"forward.pipe_data":   "Forward.PipeData",
 	"forward.pipe_closed": "Forward.PipeClosed",
 	"host.power":          "Host.Power",
 	"host.setup_changed":  "Host.SetupChanged",
 	"browser.request":     "Browser.Request",
 	"env.request":         "Env.Request",
-	"environment.status":  "Environment.Status",
+	"services.status":     "Services.Status",
 	"mcp.changed":         "MCP.Changed",
 	"tunnels.changed":     "Tunnels.Changed",
 	"devices.changed":     "Devices.Changed",
-	"project.changed":     "Project.Changed",
+	"projects.changed":    "Projects.Changed",
+	"schedules.changed":   "Schedules.Changed",
 }
 
 func eventGenerator(catalog []hostemit.Event) *swiftGen {
@@ -713,7 +727,7 @@ func eventGenerator(catalog []hostemit.Event) *swiftGen {
 }
 
 // EventFamilies preserve wire order when a consumer needs several event kinds.
-var EventFamilies = map[string]bool{"terminal": true, "forward": true, "chats": true}
+var EventFamilies = map[string]bool{"terminals": true, "forward": true, "chats": true}
 
 // Events owns shared snapshot types so a method and its push use one shape.
 func Events(catalog []hostemit.Event) string {
@@ -734,7 +748,7 @@ func Events(catalog []hostemit.Event) string {
 			fmt.Fprintf(&b, "\nextension HostAPI.%s: HostEvent {\n  public static let method = %q\n}\n", name, ev.Method())
 		}
 	}
-	for _, family := range []string{"terminal", "forward", "chats"} {
+	for _, family := range []string{"terminals", "forward", "chats"} {
 		namespace := swiftFamily(family)
 		fmt.Fprintf(&b, "\nextension HostAPI.%s {\n  public nonisolated enum Event: HostEventFamily {\n", namespace)
 		for _, ev := range catalog {

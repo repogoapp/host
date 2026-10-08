@@ -1,4 +1,4 @@
-package environment
+package services
 
 import (
 	"context"
@@ -44,7 +44,7 @@ type Deps struct {
 	URLs func() map[int]string
 	// Secrets resolves one start's envFrom handles to their variables.
 	Secrets func(ctx context.Context, root string, handles, services []string) map[string]map[string]string
-	// Announce sends an environment.status to every device.
+	// Announce sends an services.status to every device.
 	Announce func(Status)
 	Log      *slog.Logger
 }
@@ -73,7 +73,7 @@ func (m *Manager) Boot(ctx context.Context, roots ...string) {
 	}
 	for _, root := range roots {
 		if _, err := os.Stat(filepath.Join(root, configName)); err == nil {
-			m.deps.Log.Info("environment: starting", "root", root)
+			m.deps.Log.Info("services: starting", "root", root)
 			m.startRepo(ctx, root)
 		}
 	}
@@ -93,7 +93,7 @@ func readConfig(root string) []serviceConfig {
 func (m *Manager) startRepo(ctx context.Context, root string) {
 	services := readConfig(root)
 	if services == nil {
-		m.deps.Log.Warn("environment: invalid or empty environment.json", "root", root)
+		m.deps.Log.Warn("services: invalid or empty environment.json", "root", root)
 		return
 	}
 	m.mu.Lock()
@@ -163,7 +163,7 @@ func (m *Manager) launchOne(
 		case <-gate:
 		case <-time.After(depWaitTimeout):
 			// A cycle or a stuck dep must never wedge the graph forever.
-			m.deps.Log.Warn("environment: dep wait timed out; starting anyway", "service", service.Name, "dep", dep)
+			m.deps.Log.Warn("services: dep wait timed out; starting anyway", "service", service.Name, "dep", dep)
 		case <-ctx.Done():
 			return
 		}
@@ -194,28 +194,28 @@ func (m *Manager) launchOne(
 	if service.Cwd != "" {
 		dir = filepath.Join(root, service.Cwd)
 		if !files.Within(root, dir) {
-			m.deps.Log.Warn("environment: service cwd escapes repo root, skipping", "service", service.Name)
+			m.deps.Log.Warn("services: service cwd escapes repo root, skipping", "service", service.Name)
 			return
 		}
 	}
 	spec := terminal.Spec{Managed: managedID(root, service.Name), Project: root, Dir: dir, Env: serviceEnv, Cmd: service.Cmd}
 
 	if service.Type == "setup" {
-		m.deps.Log.Info("environment: setup running", "service", service.Name, "dir", dir)
+		m.deps.Log.Info("services: setup running", "service", service.Name, "dir", dir)
 		code, err := m.deps.Terminals.Run(spec)
-		m.deps.Log.Info("environment: setup finished", "service", service.Name, "exit", code, "err", err)
+		m.deps.Log.Info("services: setup finished", "service", service.Name, "exit", code, "err", err)
 		return
 	}
 
 	info, running, err := m.deps.Terminals.Start(spec, func(int) { m.bumpAndPush(root) })
 	if err != nil {
-		m.deps.Log.Warn("environment: service launch failed", "service", service.Name, "err", err)
+		m.deps.Log.Warn("services: service launch failed", "service", service.Name, "err", err)
 		return
 	}
 	if !running {
 		m.bumpAndPush(root)
 	}
-	m.deps.Log.Info("environment: service started", "service", service.Name, "session", info.SessionID, "already_running", running)
+	m.deps.Log.Info("services: service started", "service", service.Name, "session", info.SessionID, "already_running", running)
 
 	// A service with readyWhen holds its dependents until it's actually serving.
 	if service.Ready != nil {
@@ -237,12 +237,12 @@ func (m *Manager) waitForReady(ctx context.Context, service serviceConfig) {
 	for !checkReady(ctx, service.Ready) {
 		select {
 		case <-ctx.Done():
-			m.deps.Log.Warn("environment: readiness timed out; starting dependents anyway", "service", service.Name)
+			m.deps.Log.Warn("services: readiness timed out; starting dependents anyway", "service", service.Name)
 			return
 		case <-poll.C:
 		}
 	}
-	m.deps.Log.Info("environment: service ready", "service", service.Name)
+	m.deps.Log.Info("services: service ready", "service", service.Name)
 }
 
 func checkReady(ctx context.Context, ready *readyWhen) bool {

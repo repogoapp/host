@@ -76,19 +76,18 @@ type alert struct{ Title, Body string }
 func alertFor(s agent.ChatStatus) (alert, bool) {
 	switch s {
 	case agent.ChatAwaitingApproval:
-		return alert{"Approval needed", "Your computer is waiting for you."}, true
+		return alert{"Approval needed", "Your environment is waiting for you."}, true
 	case agent.ChatAwaitingUser:
-		return alert{"Question for you", "Your computer is waiting for you."}, true
-	case agent.ChatCompleted:
-		return alert{"Task finished", "Your computer finished a task."}, true
-	case agent.ChatFailed:
-		return alert{"Task failed", "A task on your computer stopped with an error."}, true
+		return alert{"Question for you", "Your environment is waiting for you."}, true
+		// Off while the app shows a turn's end as a brand alert from chats.attention.
+		// case agent.ChatCompleted: return alert{"Task finished", "Your environment finished a task."}, true
+		// case agent.ChatFailed: return alert{"Task failed", "A task in your environment stopped with an error."}, true
 	}
 	return alert{}, false
 }
 
 // Battery takes each battery reading in turn and alerts the phones when the
-// Mac is about to die unplugged, so a task on it is not lost to a dark screen.
+// host is about to die unplugged, so a task on it is not lost to a dark screen.
 func (n *Notifier) Battery(ctx context.Context, b power.Battery) {
 	switch {
 	case b.Percent > lowBatteryRearm || b.PluggedIn:
@@ -98,7 +97,7 @@ func (n *Notifier) Battery(ctx context.Context, b power.Battery) {
 		payload, _ := json.Marshal(map[string]any{
 			"aps": map[string]any{
 				"alert": map[string]string{"title": "Low battery",
-					"body": fmt.Sprintf("Your Mac has %d%% battery left. Plug it in to keep your work running.", b.Percent)},
+					"body": fmt.Sprintf("Your environment has %d%% battery left. Plug it in to keep your work running.", b.Percent)},
 				"sound": "default",
 			},
 			"host_id": n.store.Identity().ID,

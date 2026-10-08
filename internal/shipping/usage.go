@@ -78,9 +78,9 @@ func micros(usd float64) int64 {
 	return int64(usd*1_000_000 + 0.5)
 }
 
-// machineID fingerprints the machine, not the host process, the same way v1
+// hostID fingerprints the machine, not the host process, the same way v1
 // did, so rows for one Mac keep their key and two hosts never double count.
-func machineID() string {
+func hostID() string {
 	hostname, _ := os.Hostname()
 	home, _ := os.UserHomeDir()
 	sum := sha256.Sum256([]byte(hostname + "\x00" + home))

@@ -1,5 +1,5 @@
-// Package terminal is the `terminal.*` methods; the PTY lives in internal/terminal.
-package terminal
+// Package terminals is the `terminals.*` methods; the PTY lives in internal/terminal.
+package terminals
 
 import (
 	"context"
@@ -49,19 +49,19 @@ type AttachResult struct {
 func Register(r *rpc.Router, d Deps) {
 	// create opens a shell in a project directory. Remote-reachable, unlike
 	// turns.create: the cwd goes through containment rather than being named.
-	rpc.Add(r, "terminal.create", d.create)
+	rpc.Add(r, "terminals.create", d.create)
 	// list is one project's tabs, or every session when no project is named.
-	rpc.Add(r, "terminal.list", d.list)
+	rpc.Add(r, "terminals.list", d.list)
 	// subscribe keeps a tab strip live; renewing is calling it again.
-	rpc.Add(r, "terminal.subscribe", d.subscribe)
-	rpc.Add(r, "terminal.unsubscribe", d.unsubscribe)
+	rpc.Add(r, "terminals.subscribe", d.subscribe)
+	rpc.Add(r, "terminals.unsubscribe", d.unsubscribe)
 	// attach subscribes and replays scrollback in the reply, so it cannot
 	// interleave with the first live push.
-	rpc.Add(r, "terminal.attach", d.attach)
-	rpc.Add(r, "terminal.detach", d.detach)
-	rpc.Add(r, "terminal.input", d.input)
-	rpc.Add(r, "terminal.resize", d.resize)
-	rpc.Add(r, "terminal.close", d.close)
+	rpc.Add(r, "terminals.attach", d.attach)
+	rpc.Add(r, "terminals.detach", d.detach)
+	rpc.Add(r, "terminals.input", d.input)
+	rpc.Add(r, "terminals.resize", d.resize)
+	rpc.Add(r, "terminals.close", d.close)
 }
 
 func (d Deps) create(_ context.Context, c rpc.Caller, a CreateParams) (terminal.Info, error) {

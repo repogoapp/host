@@ -18,6 +18,7 @@ same names there.
 | `events.go` | Codex's notifications (message and reasoning deltas, `item/started`, `item/completed`, token usage) become `agent.Event`s. Only the chat's own thread speaks; a subagent's prose stays in its own rollout. |
 | `permission.go` | Answers Codex's command and file-change approvals. RepoGo's own tools are allowed; the rest become an `agent.Approval` for the phone, with Codex's decisions (`accept`, `acceptForSession`, `decline`, …) as the options. |
 | `ask.go` | Codex's `request_user_input` and MCP question forms, as `agent.Question`s. |
+| `writerlock.go` | Codex lets one process write a thread at a time, through a lock file under `~/.codex/thread-writer-locks`. Before resuming, `startSession` checks that lock, so a chat open in a terminal or the desktop app fails at once with "open in Codex on your environment" instead of after starting an app server. |
 
 ## History on disk
 

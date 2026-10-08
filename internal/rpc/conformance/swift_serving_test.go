@@ -17,22 +17,23 @@ var (
 		"git.status", "git.changes", "git.branches", "git.diff", "git.patch", "git.pull",
 		"git.reset_hard", "git.switch_branch", "git.create_branch", "git.commit_push",
 		"fs.list", "fs.read", "fs.write", "fs.replace", "fs.search", "fs.delete", "fs.rename",
-		"fs.mkdir", "fs.new_project", "fs.add_project", "fs.watch", "fs.stop",
-		"project.list", "project.detect_icon", "project.rename", "project.pin", "host.status", "host.setup",
+		"fs.mkdir", "fs.watch", "fs.stop",
+		"projects.list", "projects.detect_icon", "projects.rename", "projects.pin", "projects.add", "projects.create",
+		"host.status", "host.setup",
 		"github.repos", "github.clone", "github.publish", "github.pr_create", "github.avatar",
-		"chats.list", "sync.pull",
+		"chats.list", "chats.sync",
 		"tools.login_start", "tools.login_complete", "tools.login_cancel", "tools.logins", "tools.logout",
 		"chats.start", "chats.send", "chats.messages", "chats.subscribe", "chats.unsubscribe", "chats.info",
 		"chats.queue", "chats.update", "chats.resolve", "chats.delete", "chats.tools_subscribe", "chats.tools_unsubscribe",
 		"turns.get", "turns.stop", "turns.list",
 		"ports.list", "forward.pipe_open", "forward.pipe_send", "forward.pipe_close",
-		"terminal.create", "terminal.input", "terminal.resize", "terminal.close", "terminal.list",
-		"terminal.attach", "terminal.detach", "terminal.subscribe", "terminal.unsubscribe",
+		"terminals.create", "terminals.input", "terminals.resize", "terminals.close", "terminals.list",
+		"terminals.attach", "terminals.detach", "terminals.subscribe", "terminals.unsubscribe",
 	}
-	servedEvents = []string{"git.changed", "fs.change", "project.changed",
+	servedEvents = []string{"git.changed", "fs.changed", "projects.changed",
 		"chats.appended", "chats.streaming", "chats.changed", "chats.attention", "chats.removed",
-		"forward.pipe_data", "forward.pipe_closed", "project.changed",
-		"terminal.output", "terminal.exit", "terminal.changed"}
+		"forward.pipe_data", "forward.pipe_closed", "projects.changed",
+		"terminals.output", "terminals.exit", "terminals.changed"}
 )
 
 // The phone's local handlers answer with the host's own shapes.

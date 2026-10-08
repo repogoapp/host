@@ -46,18 +46,18 @@ import (
 	gitrpc "github.com/repogo/host/internal/rpc/git"
 	ghrpc "github.com/repogo/host/internal/rpc/github"
 	"github.com/repogo/host/internal/rpc/host"
-	hostsrpc "github.com/repogo/host/internal/rpc/hosts"
 	mcprpc "github.com/repogo/host/internal/rpc/mcp"
 	"github.com/repogo/host/internal/rpc/pairing"
 	portsrpc "github.com/repogo/host/internal/rpc/ports"
-	projectrpc "github.com/repogo/host/internal/rpc/project"
+	projectsrpc "github.com/repogo/host/internal/rpc/projects"
+	schedulesrpc "github.com/repogo/host/internal/rpc/schedules"
 	shippingrpc "github.com/repogo/host/internal/rpc/shipping"
-	syncrpc "github.com/repogo/host/internal/rpc/sync"
-	terminalrpc "github.com/repogo/host/internal/rpc/terminal"
+	terminalsrpc "github.com/repogo/host/internal/rpc/terminals"
 	toolsrpc "github.com/repogo/host/internal/rpc/tools"
 	tunnelsrpc "github.com/repogo/host/internal/rpc/tunnels"
 	"github.com/repogo/host/internal/rpc/turns"
 	vercelrpc "github.com/repogo/host/internal/rpc/vercel"
+	"github.com/repogo/host/internal/schedule"
 	"github.com/repogo/host/internal/shipping"
 	"github.com/repogo/host/internal/store"
 	"github.com/repogo/host/internal/terminal"
@@ -144,6 +144,9 @@ type Config struct {
 	Account *account.Service
 	Tunnels *tunnel.Service
 
+	// Schedules is the prompts this host starts as new chats at set times.
+	Schedules *schedule.Scheduler
+
 	Log *slog.Logger
 }
 
@@ -153,7 +156,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	}
 
 	r := rpc.New(cfg.Log)
-	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates,
+	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates, Account: cfg.Account,
 		Setup: hostsetup.Sources{
 			Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Runner: cfg.Runner, Catalog: cfg.AgentCatalog,
 		}})
@@ -163,10 +166,8 @@ func New(cfg Config) (*rpc.Router, error) {
 	devices.Register(r, devices.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Online: cfg.Online})
 	pairing.Register(r, pairing.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr})
 	fsrpc.Register(r, fsrpc.Deps{Files: cfg.Files, Watch: cfg.Watch})
-	syncrpc.Register(r, syncrpc.Deps{Self: cfg.Devices.Identity().ID, Mirror: cfg.Store, ModelLabel: cfg.AgentCatalog.ModelLabel,
-		Imported: cfg.Chats.Imported})
-	projectrpc.Register(r, projectrpc.Deps{
-		Projects: cfg.Projects, Self: cfg.Devices.Identity().ID, Store: cfg.Store, Sync: cfg.ProjectSync,
+	projectsrpc.Register(r, projectsrpc.Deps{
+		Projects: cfg.Projects, Self: cfg.Devices.Identity().ID, Store: cfg.Store, Sync: cfg.ProjectSync, Files: cfg.Files,
 	})
 	gitrpc.Register(r, gitrpc.Deps{Git: cfg.Git})
 	ghrpc.Register(r, ghrpc.Deps{GitHub: cfg.GitHub})
@@ -176,14 +177,14 @@ func New(cfg Config) (*rpc.Router, error) {
 	shippingrpc.Register(r, shippingrpc.Deps{Usage: cfg.Usage, ModelLabel: cfg.AgentCatalog.ModelLabel})
 	portsrpc.Register(r)
 	forwardrpc.Register(r, forwardrpc.Deps{Fetcher: cfg.Fetcher, Pipes: cfg.Pipes})
-	terminalrpc.Register(r, terminalrpc.Deps{Terminals: cfg.Terminals})
+	terminalsrpc.Register(r, terminalsrpc.Deps{Terminals: cfg.Terminals})
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})
 	buildsrpc.Register(r, buildsrpc.Deps{Builds: cfg.Builds})
 	mcprpc.Register(r, mcprpc.Deps{MCP: cfg.MCP})
 	browserrpc.Register(r, browserrpc.Deps{Browser: cfg.Browser})
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources, Requests: cfg.EnvRequests})
-	hostsrpc.Register(r, hostsrpc.Deps{Account: cfg.Account})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
+	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
 	chats.Register(r, chats.Deps{Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire})
 	return r, nil
 }

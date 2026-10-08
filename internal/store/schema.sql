@@ -96,7 +96,7 @@ CREATE TABLE events (
 -- FTS4 because the driver builds it in; FTS5 needs a build tag on every build.
 CREATE VIRTUAL TABLE chat_search USING fts4(title, body, tokenize=porter);
 
--- Where sync.pull's revisions stand, so a device's cursor outlives a restart
+-- Where chats.sync's revisions stand, so a device's cursor outlives a restart
 -- (sync.go). One row. The epoch is this file's: a rebuilt cache drops every
 -- row's rev, so devices start over. rev_floor is the counter when a row was
 -- last deleted, which MAX(sessions.rev) no longer shows.
@@ -105,7 +105,7 @@ CREATE TABLE sync_meta (
   rev_floor INTEGER NOT NULL
 );
 
--- A chat deleted from this file, at the revision it went, so sync.pull tells
+-- A chat deleted from this file, at the revision it went, so chats.sync tells
 -- a device by cursor instead of the device sending every id it holds. Kept as
 -- long as the file: a rebuild takes a new epoch, and devices start over.
 CREATE TABLE deleted_sessions (
@@ -116,7 +116,7 @@ CREATE TABLE deleted_sessions (
 );
 CREATE INDEX deleted_sessions_rev ON deleted_sessions (rev);
 
--- Materialized so project.list is one read, and so what a sweep learned (the
+-- Materialized so projects.list is one read, and so what a sweep learned (the
 -- repository) and what a watch measured (the diff totals) outlast the call.
 CREATE TABLE projects (
   path       TEXT PRIMARY KEY,
@@ -136,7 +136,7 @@ CREATE TABLE projects (
 
   -- clone | managed | worktree | folder; see projectsync.kindOf.
   kind       TEXT NOT NULL DEFAULT 'folder',
-  -- project.detect_icon's content_hash, '' for no icon, so a device fetches an
+  -- projects.detect_icon's content_hash, '' for no icon, so a device fetches an
   -- icon only when this moves.
   icon_hash  TEXT NOT NULL DEFAULT '',
   diff_available INTEGER NOT NULL DEFAULT 0,

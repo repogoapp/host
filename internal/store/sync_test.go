@@ -15,7 +15,7 @@ func TestRestartKeepsTheCursorAfterDeletingTheNewestRow(t *testing.T) {
 	}
 	write(t, db, "a", 100, 1)
 	write(t, db, "b", 200, 1)
-	held, err := db.Pull(PullRequest{Family: "chats"}, "host")
+	held, err := db.SyncChats(SyncParams{}, "host")
 	if err != nil || len(held.Upsert) != 2 {
 		t.Fatalf("first pull = %d rows, %v", len(held.Upsert), err)
 	}
@@ -37,7 +37,7 @@ func TestRestartKeepsTheCursorAfterDeletingTheNewestRow(t *testing.T) {
 	if err != nil || chat.Rev <= held.Rev {
 		t.Fatalf("new chat at rev %d, want past the held %d (%v)", chat.Rev, held.Rev, err)
 	}
-	next, err := db.Pull(PullRequest{Family: "chats", Epoch: held.Epoch, Since: held.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Rev}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,25 +126,25 @@ func TestSyncProjectsReportsWhatMoved(t *testing.T) {
 
 // A device hears of a deletion by its cursor: a pull from before the delete
 // reports it, and one from after does not.
-func TestAPullReportsADeletionOnce(t *testing.T) {
+func TestASyncReportsADeletionOnce(t *testing.T) {
 	db := newStore(t)
 	write(t, db, "a", 100, 1)
 	write(t, db, "b", 200, 1)
-	held, err := db.Pull(PullRequest{Family: "chats"}, "host")
+	held, err := db.SyncChats(SyncParams{}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Delete("claude:a"); err != nil {
 		t.Fatal(err)
 	}
-	next, err := db.Pull(PullRequest{Family: "chats", Epoch: held.Epoch, Since: held.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Rev}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(next.Upsert) != 0 || len(next.Delete) != 1 || next.Delete[0] != "claude:a" || next.Rev <= held.Rev {
 		t.Fatalf("pull after delete = upsert %d delete %v rev %d, want a's removal past %d", len(next.Upsert), next.Delete, next.Rev, held.Rev)
 	}
-	again, err := db.Pull(PullRequest{Family: "chats", Epoch: next.Epoch, Since: next.Rev}, "host")
+	again, err := db.SyncChats(SyncParams{Epoch: next.Epoch, Since: next.Rev}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,14 +158,14 @@ func TestAPrunedChatIsReportedAsDeleted(t *testing.T) {
 	db := newStore(t)
 	write(t, db, "a", 100, 1)
 	write(t, db, "b", 200, 1)
-	held, err := db.Pull(PullRequest{Family: "chats"}, "host")
+	held, err := db.SyncChats(SyncParams{}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n, err := db.Prune(map[string]bool{key("claude", "b"): true}); err != nil || n != 1 {
 		t.Fatalf("prune = %d, %v", n, err)
 	}
-	next, err := db.Pull(PullRequest{Family: "chats", Epoch: held.Epoch, Since: held.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Rev}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestAPrunedChatIsReportedAsDeleted(t *testing.T) {
 func TestAChatMadeAgainIsARowNotADeletion(t *testing.T) {
 	db := newStore(t)
 	write(t, db, "a", 100, 1)
-	held, err := db.Pull(PullRequest{Family: "chats"}, "host")
+	held, err := db.SyncChats(SyncParams{}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestAChatMadeAgainIsARowNotADeletion(t *testing.T) {
 	}
 	write(t, db, "a", 300, 2)
 	for _, since := range []int64{0, held.Rev} {
-		next, err := db.Pull(PullRequest{Family: "chats", Epoch: held.Epoch, Since: since}, "host")
+		next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: since}, "host")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,7 +208,7 @@ func TestRowsAndDeletionsInterleaveByRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, db, "c", 300, 1)
-	all, err := db.Pull(PullRequest{Family: "chats"}, "host")
+	all, err := db.SyncChats(SyncParams{}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestRowsAndDeletionsInterleaveByRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := db.Pull(PullRequest{Family: "chats", Epoch: all.Epoch, Since: b.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: all.Epoch, Since: b.Rev}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}

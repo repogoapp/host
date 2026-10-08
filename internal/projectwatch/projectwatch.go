@@ -1,5 +1,5 @@
 // Package projectwatch runs one watcher per project folder, however many
-// devices hold it, and pushes what moved there: fs.change for files and
+// devices hold it, and pushes what moved there: fs.changed for files and
 // git.changed for the git state. FSEvents where it exists; polling elsewhere.
 package projectwatch
 
@@ -24,7 +24,7 @@ const (
 	// How often the fingerprint is checked when there is no tree watcher.
 	tick = 3 * time.Second
 
-	// settle coalesces a burst of writes into one git run and one fs.change.
+	// settle coalesces a burst of writes into one git run and one fs.changed.
 	settle = 250 * time.Millisecond
 
 	// backstop re-reads a tree watcher's project anyway: FSEvents can drop.
@@ -102,7 +102,7 @@ type Deps struct {
 	Git Git
 	// Totals keeps each project's diff totals for the project list.
 	Totals Totals
-	// Pushes carries fs.change and git.changed to the devices watching.
+	// Pushes carries fs.changed and git.changed to the devices watching.
 	Pushes emit.Transport
 	// Active is told when a path becomes active on its first device and when
 	// its last lets go, lease expiry included: for work that runs only while a

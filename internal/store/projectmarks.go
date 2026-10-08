@@ -23,7 +23,7 @@ func (m ProjectMarks) empty() bool {
 
 // updateProjectMarks is the one writer of state.project_marks, written whole
 // or deleted when nothing is set. Devices read a project's marks on their
-// next project.list, so nothing fans out.
+// next projects.list, so nothing fans out.
 func (s *Store) updateProjectMarks(path string, change func(*ProjectMarks) bool) (bool, error) {
 	tx, err := s.db.Begin()
 	if err != nil {

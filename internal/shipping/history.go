@@ -31,7 +31,7 @@ var ErrRange = errkind.New(errkind.Invalid, "since_ms must be before until_ms, a
 // and model: small enough to send, fine enough for the phone to group into
 // its own local days and to add to other environments' answers.
 type History struct {
-	MachineID    string `json:"machine_id"`
+	HostID       string `json:"host_id"`
 	CapturedAtMs int64  `json:"captured_at_ms"`
 	// False while the first index is still reading history.
 	Complete bool          `json:"complete"`
@@ -152,7 +152,7 @@ func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64) (History, 
 		return History{}, err
 	}
 	out := History{
-		MachineID:    machineID(),
+		HostID:       hostID(),
 		CapturedAtMs: now.UnixMilli(),
 		Complete:     l.indexed(),
 		Homes:        l.homes(),
@@ -209,7 +209,7 @@ func (l *Ledger) homes() []Home {
 
 // Report is the leaderboard's calendar year so far in the host's zone.
 type Report struct {
-	MachineID    string   `json:"machine_id"`
+	HostID       string   `json:"host_id"`
 	CapturedAtMs int64    `json:"captured_at_ms"`
 	TimeZone     string   `json:"time_zone"`
 	Buckets      []Bucket `json:"buckets" wire:"array"`
@@ -313,7 +313,7 @@ func (l *Ledger) report(ctx context.Context, now time.Time) (Report, error) {
 		return cmp.Or(strings.Compare(x.Day, y.Day), strings.Compare(x.Provider, y.Provider))
 	})
 	return Report{
-		MachineID:    machineID(),
+		HostID:       hostID(),
 		CapturedAtMs: now.UnixMilli(),
 		TimeZone:     zoneName(loc),
 		Buckets:      buckets,

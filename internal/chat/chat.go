@@ -59,9 +59,6 @@ type Service struct {
 	d Deps
 }
 
-// Imported waits for the chat cache's first sweep since the host started.
-func (s *Service) Imported(ctx context.Context) error { return s.d.Sync.Imported(ctx) }
-
 // New refuses Deps with a field unset rather than failing on first use.
 func New(d Deps) (*Service, error) {
 	var missing []string
@@ -104,6 +101,19 @@ func (s *Service) Info(id store.ChatID) (store.Chat, error) {
 	chat, err := s.d.Cache.Info(id)
 	s.stamp(&chat)
 	return chat, err
+}
+
+// Sync is the rows changed and chats deleted past the phone's cursor. It waits
+// for the first sweep: a cache rebuilt at startup would read as most chats deleted.
+func (s *Service) Sync(ctx context.Context, req store.SyncParams) (store.SyncResult, error) {
+	if err := s.d.Sync.Imported(ctx); err != nil {
+		return store.SyncResult{}, err
+	}
+	result, err := s.d.Cache.SyncChats(req, string(s.d.Self))
+	for i := range result.Upsert {
+		s.stamp(&result.Upsert[i])
+	}
+	return result, err
 }
 
 func (s *Service) stamp(c *store.Chat) { c.Stamp(string(s.d.Self), s.d.ModelLabel) }

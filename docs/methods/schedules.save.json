@@ -1,0 +1,23 @@
+{
+  "id": "id",
+  "title": "title",
+  "prompt": "prompt",
+  "path": "path",
+  "agent": "agent",
+  "config": {
+    "permission_mode": "permission_mode",
+    "mode": "mode",
+    "model": "model",
+    "reasoning_level": "reasoning_level",
+    "context_window": "context_window",
+    "fast_mode": true
+  },
+  "frequency": "frequency",
+  "hour": 1,
+  "minute": 1,
+  "weekday": 1,
+  "timezone": "timezone",
+  "enabled": true,
+  "host_id": "host_id",
+  "next_run_at": 1
+}

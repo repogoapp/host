@@ -28,6 +28,18 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 		if m.Subtype == "session_state_changed" && m.State == "running" {
 			s.owedIdle = 0
 		}
+		if m.Subtype == "session_state_changed" && m.State == "idle" {
+			s.adoptAsked = false
+		}
+	}
+	// Claude can go from one turn straight into the next, such as a queued task
+	// notification, without passing idle: its output with no turn bound starts one too.
+	if !ownTurn && s.working && s.io == nil && !s.closed && !s.adoptAsked && startsOwnTurn(m) {
+		ownTurn = true
+		s.owedIdle = 0
+	}
+	if ownTurn {
+		s.adoptAsked = true
 	}
 	io := s.io
 	if io == nil || s.outcome == nil {
@@ -106,7 +118,7 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 		}
 	}
 	var completion *turnOutcome
-	autonomous := slices.Contains([]string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}, m.Origin.Kind)
+	autonomous := autonomousOrigin(m.Origin.Kind)
 	// A joined turn's own result is autonomous and answers no prompt of ours.
 	own := m.Type == "result" && m.ParentToolUseID == "" &&
 		(s.joined && s.deferred == nil || !autonomous && (m.UserMessageUUID == "" || m.UserMessageUUID == s.promptID))
@@ -186,6 +198,19 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 	if completion != nil {
 		outcome <- *completion
 	}
+}
+
+// autonomousOrigin is a message Claude queued for itself rather than a prompt.
+func autonomousOrigin(kind string) bool {
+	return slices.Contains([]string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}, kind)
+}
+
+// startsOwnTurn is main-thread work no prompt of the host's asked for.
+func startsOwnTurn(m claudecode.Message) bool {
+	if m.ParentToolUseID != "" {
+		return false
+	}
+	return m.Type == "user" && autonomousOrigin(m.Origin.Kind) || m.Type == "assistant" || m.Type == "stream_event"
 }
 
 func (s *liveSession) streamLocked(e claudecode.StreamEvent) []agent.Event {

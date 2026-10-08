@@ -54,3 +54,26 @@ CREATE TABLE IF NOT EXISTS chat_queues (
   chat_id TEXT    PRIMARY KEY,
   rev     INTEGER NOT NULL
 ) WITHOUT ROWID;
+
+-- A prompt this host runs on its own at a set time, each run a new chat.
+-- One writer: the schedule methods in schedules.go.
+CREATE TABLE IF NOT EXISTS schedules (
+  id          TEXT    PRIMARY KEY,
+  title       TEXT    NOT NULL,
+  prompt      TEXT    NOT NULL,
+  path        TEXT    NOT NULL,  -- the project
+  agent       TEXT    NOT NULL,
+  config      TEXT    NOT NULL,  -- agent.TurnConfig as JSON
+  frequency   TEXT    NOT NULL,  -- hourly | daily | weekly
+  hour        INTEGER NOT NULL,
+  minute      INTEGER NOT NULL,
+  weekday     INTEGER NOT NULL,  -- 1..7, Sunday = 1
+  timezone    TEXT    NOT NULL,  -- IANA
+  enabled     INTEGER NOT NULL,
+  -- Nothing due at or before the last save runs, so an edit never fires a
+  -- time already passed.
+  saved_at    INTEGER NOT NULL,
+  -- The last due time taken. A due time is taken once, so a restart or a
+  -- second tick never runs it twice.
+  last_due_at INTEGER
+) WITHOUT ROWID;

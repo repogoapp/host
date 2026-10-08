@@ -41,7 +41,7 @@ func TestOnlyPeersWithTokensAreNotified(t *testing.T) {
 	n := New(store, sender, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	n.deliver(context.Background(), notify.Notice{Agent: agent.Kind("claude"), SessionID: "s1"},
-		alert{"Task finished", "Your computer finished a task."})
+		alert{"Task finished", "Your environment finished a task."})
 
 	if len(sender.Calls) != 1 {
 		t.Fatalf("sent %d pushes, want 1", len(sender.Calls))
@@ -74,10 +74,10 @@ func TestDeadTokenIsForgotten(t *testing.T) {
 	}
 }
 
-func TestOnlyBlockingAndTerminalStatusesPush(t *testing.T) {
+func TestOnlyBlockingStatusesPush(t *testing.T) {
 	pushes := map[agent.ChatStatus]bool{
 		agent.ChatAwaitingApproval: true, agent.ChatAwaitingUser: true,
-		agent.ChatCompleted: true, agent.ChatFailed: true,
+		agent.ChatCompleted: false, agent.ChatFailed: false,
 		agent.ChatWorking: false, agent.ChatQueued: false, agent.ChatIdle: false,
 		agent.ChatCancelled: false, agent.ChatInterrupted: false,
 	}

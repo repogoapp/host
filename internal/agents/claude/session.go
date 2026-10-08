@@ -52,9 +52,11 @@ type liveSession struct {
 	// The running turn is one Claude started by itself (join), not a prompt.
 	joined bool
 	// ownTurn tells the Manager Claude started a turn by itself.
-	ownTurn  func()
-	pending  int
-	consumed chan struct{}
+	ownTurn func()
+	// adoptAsked holds back a second ownTurn until a turn binds or Claude idles.
+	adoptAsked bool
+	pending    int
+	consumed   chan struct{}
 }
 
 func newLiveSession(id, cwd string) *liveSession {
@@ -136,6 +138,7 @@ func (s *liveSession) beginLocked(ctx context.Context, io agent.TurnIO) (context
 	s.promptEchoed = false
 	s.sawText = false
 	s.joined = false
+	s.adoptAsked = false
 	finish := func() {
 		cancel()
 		s.mu.Lock()

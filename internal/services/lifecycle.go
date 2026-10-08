@@ -1,4 +1,4 @@
-package environment
+package services
 
 import (
 	"context"
@@ -86,9 +86,9 @@ func (m *Manager) demanded(root, path string) {
 	m.disarmLocked(st)
 	demand := len(st.demand)
 	m.mu.Unlock()
-	m.deps.Log.Info("environment: demand", "root", root, "path", path, "open", true, "demand", demand)
+	m.deps.Log.Info("services: demand", "root", root, "path", path, "open", true, "demand", demand)
 	if cancelled {
-		m.deps.Log.Info("environment: countdown cancelled, demand returned", "root", root)
+		m.deps.Log.Info("services: countdown cancelled, demand returned", "root", root)
 	}
 	if first {
 		m.ensureUp(m.ctx, root)
@@ -110,7 +110,7 @@ func (m *Manager) released(path string) {
 	delete(st.demand, path)
 	demand := len(st.demand)
 	m.mu.Unlock()
-	m.deps.Log.Info("environment: demand", "root", root, "path", path, "open", false, "demand", demand)
+	m.deps.Log.Info("services: demand", "root", root, "path", path, "open", false, "demand", demand)
 	if demand == 0 {
 		m.armCountdown(root)
 	}
@@ -128,7 +128,7 @@ func (m *Manager) ensureUp(ctx context.Context, root string) {
 			return
 		}
 	}
-	m.deps.Log.Info("environment: starting on demand", "root", root)
+	m.deps.Log.Info("services: starting on demand", "root", root)
 	m.startRepo(ctx, root)
 }
 
@@ -148,7 +148,7 @@ func (m *Manager) armCountdown(root string) {
 		}
 	}
 	if len(eager) > 0 {
-		m.deps.Log.Info("environment: idleStop=now, stopping without grace", "root", root, "services", len(eager))
+		m.deps.Log.Info("services: idleStop=now, stopping without grace", "root", root, "services", len(eager))
 		m.stopManaged(root, eager)
 	}
 	if remaining == 0 {
@@ -164,7 +164,7 @@ func (m *Manager) armCountdown(root string) {
 	st.deadline = deadline
 	st.timer = time.AfterFunc(countdown, func() { m.expire(root, deadline) })
 	m.mu.Unlock()
-	m.deps.Log.Info("environment: countdown armed", "root", root, "deadline", deadline)
+	m.deps.Log.Info("services: countdown armed", "root", root, "deadline", deadline)
 	m.bumpAndPush(root)
 }
 
@@ -189,7 +189,7 @@ func (m *Manager) expire(root string, deadline time.Time) {
 			victims[name] = true
 		}
 	}
-	m.deps.Log.Info("environment: countdown expired, stopping services", "root", root, "stopping", len(victims))
+	m.deps.Log.Info("services: countdown expired, stopping services", "root", root, "stopping", len(victims))
 	m.stopManaged(root, victims)
 	m.bumpAndPush(root)
 }
@@ -281,5 +281,5 @@ func (m *Manager) stopManaged(root string, only map[string]bool) {
 	}
 }
 
-func managedID(root, name string) string { return "environment:" + root + ":" + name }
-func managedPrefix(root string) string   { return "environment:" + root + ":" }
+func managedID(root, name string) string { return "services:" + root + ":" + name }
+func managedPrefix(root string) string   { return "services:" + root + ":" }

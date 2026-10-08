@@ -57,12 +57,12 @@ func TestUsageSumsEachProviderDayAndPricesIt(t *testing.T) {
 	if !reflect.DeepEqual(report.Buckets, want) {
 		t.Fatalf("buckets:\n got %+v\nwant %+v", report.Buckets, want)
 	}
-	if len(report.MachineID) != 16 || report.TimeZone != "UTC" || report.CapturedAtMs != now.UnixMilli() {
+	if len(report.HostID) != 16 || report.TimeZone != "UTC" || report.CapturedAtMs != now.UnixMilli() {
 		t.Fatalf("envelope: %+v", report)
 	}
 
 	b, _ := json.Marshal(report)
-	for _, key := range []string{`"machine_id"`, `"captured_at_ms"`, `"time_zone"`, `"buckets"`, `"day"`, `"provider"`, `"input_tokens"`, `"output_tokens"`, `"cost_usd_micros"`} {
+	for _, key := range []string{`"host_id"`, `"captured_at_ms"`, `"time_zone"`, `"buckets"`, `"day"`, `"provider"`, `"input_tokens"`, `"output_tokens"`, `"cost_usd_micros"`} {
 		if !strings.Contains(string(b), key) {
 			t.Fatalf("missing %s in %s", key, b)
 		}
@@ -169,7 +169,7 @@ func TestUsageHistoryCountsCopiesOnceByModel(t *testing.T) {
 	if want := []shipping.AgentCount{{Agent: "claude", Count: 2}, {Agent: "codex", Count: 2}}; !reflect.DeepEqual(h.Sessions, want) {
 		t.Fatalf("sessions: %+v", h.Sessions)
 	}
-	if !h.Complete || len(h.MachineID) != 16 || len(h.Homes) != 2 || h.Homes[0].Path != claude || h.Homes[1].Path != codex {
+	if !h.Complete || len(h.HostID) != 16 || len(h.Homes) != 2 || h.Homes[0].Path != claude || h.Homes[1].Path != codex {
 		t.Fatalf("envelope: %+v", h)
 	}
 	if want := []string{"claude-sonnet-x", "gpt-a", "gpt-b", "gpt-c"}; !reflect.DeepEqual(h.Pricing.UnpricedModels, want) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,15 +17,18 @@ import (
 	"github.com/repogo/host/internal/jsonrpc"
 	"github.com/repogo/host/internal/rpc"
 	fsrpc "github.com/repogo/host/internal/rpc/fs"
+	projectsrpc "github.com/repogo/host/internal/rpc/projects"
 )
 
 type roots = files.StaticRoots
 
-// register serves the fs family over svc.
+// register serves the fs family over svc, and the projects methods the folder
+// picker ends in.
 func register(t *testing.T, svc *files.Service) *rpc.Router {
 	t.Helper()
 	router := rpc.New(slog.New(slog.DiscardHandler))
 	fsrpc.Register(router, fsrpc.Deps{Files: svc, Watch: &recordWatch{}})
+	projectsrpc.Register(router, projectsrpc.Deps{Files: svc})
 	return router
 }
 
@@ -110,7 +114,7 @@ func TestNewProjectRPC(t *testing.T) {
 	}
 	call := func(name string) (json.RawMessage, error) {
 		params, _ := json.Marshal(map[string]any{"name": name})
-		return router.Call(context.Background(), rpc.Caller{}, "fs.new_project", params)
+		return router.Call(context.Background(), rpc.Caller{}, "projects.create", params)
 	}
 	reply, err := call("site")
 	if err != nil {
@@ -138,6 +142,9 @@ func TestNewProjectRPC(t *testing.T) {
 func TestFilesystemRPCGuards(t *testing.T) {
 	router := register(t, files.New(files.Config{Roots: roots{t.TempDir()}, Folders: ghcore.NewLayout(t.TempDir()), Picks: &picks{}}))
 	for _, method := range router.Names() {
+		if method != "projects.add" && method != "projects.create" && !strings.HasPrefix(method, "fs.") {
+			continue // the rest of the projects family needs the store
+		}
 		t.Run(method, func(t *testing.T) {
 			for _, p := range []string{`{`, `[]`, `{"path":1}`} {
 				if p == `{"path":1}` && (method == "fs.watch" || method == "fs.stop") {
@@ -203,8 +210,8 @@ type picks []string
 
 func (p *picks) Pick(path string, _ time.Time) error { *p = append(*p, path); return nil }
 
-// The folder picker: fs.list with dirs_only opens on home, fs.add_project makes
-// the chosen folder a root, and fs.new_project with a parent makes and picks one.
+// The folder picker: fs.list with dirs_only opens on home, projects.add makes
+// the chosen folder a root, and projects.create with a parent makes and picks one.
 func TestFolderPickerRPC(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -247,13 +254,13 @@ func TestFolderPickerRPC(t *testing.T) {
 		t.Fatalf("fs.list outside home: %v, want denied", err)
 	}
 
-	if _, err := call("fs.add_project", map[string]any{"path": app}); err != nil {
+	if _, err := call("projects.add", map[string]any{"path": app}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := call("fs.add_project", map[string]any{"path": home}); err != nil {
+	if _, err := call("projects.add", map[string]any{"path": home}); err != nil {
 		t.Fatalf("picking home: %v", err)
 	}
-	if _, err := call("fs.new_project", map[string]any{"name": "site", "parent": filepath.Join(home, "Desktop")}); err != nil {
+	if _, err := call("projects.create", map[string]any{"name": "site", "parent": filepath.Join(home, "Desktop")}); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{app, home, filepath.Join(home, "Desktop", "site")}; !slices.Equal(*picked, want) {

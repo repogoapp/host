@@ -58,6 +58,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `agents`, `agents/<provider>` | Construct fresh providers; own each provider's protocol/configuration and home resolution | a shared service importing a provider |
 | `session` | Shared transcript reading, tailing, and caching; provider interfaces | provider-specific parsing or kind dispatch |
 | `store` | `cache.db`, the disposable SQLite cache of what `session` parsed (drop and reparse, never migrate), and `state.db`, what the user made (added to, never wiped; one writer per table) | a version ledger; state in the cache |
+| `schedule` | The user's schedules: validates them, computes each next run, and on a minute ticker starts every due one as a new chat; rows in `state.db` through `store` | writing SQL itself |
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
 | `git`, `github`, `ship` | Git reporting, `gh` wrapper, PR glue. One git runner in `git` | a second `exec.Command("git"` |
 | leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, …) | One resource each | |

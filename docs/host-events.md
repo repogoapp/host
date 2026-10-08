@@ -138,16 +138,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `expires_at` string
 - `state` string
 
-## `environment.status`
-
-Signal: not replayed; a missed one is recovered by refetching.
-
-- `path` string
-- `root` string
-- `revision` int
-- `idle_deadline` string (omitted when empty)
-- `services` [object{Service}]
-
 ## `forward.pipe_closed`
 
 Signal: not replayed; a missed one is recovered by refetching.
@@ -162,7 +152,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `pipe_id` string
 - `data` base64 (nullable)
 
-## `fs.change`
+## `fs.changed`
 
 Signal: not replayed; a missed one is recovered by refetching.
 
@@ -201,28 +191,44 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `servers` [object{Server}]
 - `builtins` [object{Builtin}]
 
-## `project.changed`
+## `projects.changed`
 
 Signal: not replayed; a missed one is recovered by refetching.
 
 - `projects` [object{Project}]
 - `removed` [string]
 
-## `terminal.changed`
+## `schedules.changed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `schedules` [object{Row}]
+
+## `services.status`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `path` string
+- `root` string
+- `revision` int
+- `idle_deadline` string (omitted when empty)
+- `services` [object{Service}]
+
+## `terminals.changed`
 
 Signal: not replayed; a missed one is recovered by refetching.
 
 - `cwd` string
 - `sessions` [object{Info}]
 
-## `terminal.exit`
+## `terminals.exit`
 
 Signal: not replayed; a missed one is recovered by refetching.
 
 - `session_id` string
 - `exit_code` int
 
-## `terminal.output`
+## `terminals.output`
 
 Signal: not replayed; a missed one is recovered by refetching.
 

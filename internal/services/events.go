@@ -1,4 +1,4 @@
-package environment
+package services
 
 import "github.com/repogo/host/internal/emit"
 
@@ -6,8 +6,7 @@ func init() {
 	emit.Register(Status{})
 }
 
-// Status is a project's environment, sent to every device on each transition
-// and returned by every environment.* method.
+// Status is a project's services, sent to every device on each transition.
 type Status struct {
 	Path     string `json:"path"`
 	Root     string `json:"root"`
@@ -17,7 +16,7 @@ type Status struct {
 	Services     []Service `json:"services" wire:"array"`
 }
 
-func (Status) Method() string { return "environment.status" }
+func (Status) Method() string { return "services.status" }
 
 // Service is one entry of environment.json and whether it is running now.
 type Service struct {

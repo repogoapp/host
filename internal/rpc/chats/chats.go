@@ -30,6 +30,8 @@ func Register(r *rpc.Router, d Deps) {
 	// info is one chat's row without its transcript, for refreshing a snapshot
 	// from chats.list without refetching fifty.
 	rpc.Add(r, "chats.info", d.info)
+	// sync keeps the phone's copy of every chat row current from a cursor.
+	rpc.Add(r, "chats.sync", d.sync)
 	rpc.Add(r, "chats.neighbors", d.neighbors)
 	rpc.Add(r, "chats.messages", d.messages)
 	rpc.Add(r, "chats.subagent", d.subagent)
@@ -60,6 +62,10 @@ func (d Deps) list(ctx context.Context, _ rpc.Caller, a ListParams) (ListResult,
 	q.Limit, q.Cursor = a.Limit, a.Cursor
 	page, err := d.Chats.List(ctx, q, a.Refresh)
 	return ListResult{Chats: page.Chats, NextCursor: page.NextCursor, HostID: string(d.Chats.Self())}, err
+}
+
+func (d Deps) sync(ctx context.Context, _ rpc.Caller, a store.SyncParams) (store.SyncResult, error) {
+	return d.Chats.Sync(ctx, a)
 }
 
 func (d Deps) info(_ context.Context, _ rpc.Caller, a ChatParams) (store.Chat, error) {

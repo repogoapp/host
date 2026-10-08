@@ -15,7 +15,7 @@ import (
 // content changed, and an `epoch` per cache file. A revision is never handed
 // out twice, so a device's cursor stays valid across restarts. Rows go whole.
 
-// maxProjects bounds project.list. Membership is decided by the host, so two
+// maxProjects bounds projects.list. Membership is decided by the host, so two
 // clients cannot disagree about a scope parameter.
 const maxProjects = 200
 
@@ -32,7 +32,7 @@ type Project struct {
 
 	Kind ProjectKind `json:"kind"`
 	// The project icon's content hash, "" when it has none: a device fetches
-	// the icon (project.detect_icon) only when this differs from the one it holds.
+	// the icon (projects.detect_icon) only when this differs from the one it holds.
 	IconHash      string `json:"icon_hash"`
 	DiffAvailable bool   `json:"diff_available"`
 	FilesChanged  int    `json:"files_changed"`
@@ -324,18 +324,17 @@ func (s *Store) UpdateProjectDiff(path string, available bool, files, additions,
 	return err == nil, err
 }
 
-// maxPullBytes bounds one Pull: half the message limit, so a cold start is one
+// maxSyncBytes bounds one SyncChats: half the message limit, so a cold start is one
 // round trip for any set that fits, and `more` loops only for one that does not.
-const maxPullBytes = jsonrpc.MaxMessageBytes / 2
+const maxSyncBytes = jsonrpc.MaxMessageBytes / 2
 
-// PullRequest asks for one mirrored table's rows and deletions past a revision.
-type PullRequest struct {
-	Family string `json:"family"`
-	Epoch  string `json:"epoch"`
-	Since  int64  `json:"since"`
+// SyncParams asks for the chat rows and deletions past a revision.
+type SyncParams struct {
+	Epoch string `json:"epoch"`
+	Since int64  `json:"since"`
 }
 
-type PullReply struct {
+type SyncResult struct {
 	Epoch  string   `json:"epoch"`
 	Rev    int64    `json:"rev"`
 	More   bool     `json:"more"`
@@ -359,13 +358,10 @@ func (s *Store) ListProjects(host string) ([]Project, error) {
 	return projects, nil
 }
 
-// Pull answers one mirror request for the "chats" table: rows written and chats
-// deleted past the cursor, each row stamped with host, in one revision order,
-// so a capped answer is a prefix the cursor advances through.
-func (s *Store) Pull(req PullRequest, host string) (PullReply, error) {
-	if req.Family != "chats" {
-		return PullReply{}, fmt.Errorf("%w: no synced family %q", ErrInvalid, req.Family)
-	}
+// SyncChats is the chat rows written and chats deleted past the cursor, each
+// row stamped with host, in one revision order, so a capped answer is a
+// prefix the cursor advances through.
+func (s *Store) SyncChats(req SyncParams, host string) (SyncResult, error) {
 	// An epoch mismatch means the revision counter restarted; everything is new.
 	since := req.Since
 	if req.Epoch != s.epoch {
@@ -375,21 +371,21 @@ func (s *Store) Pull(req PullRequest, host string) (PullReply, error) {
 	// leave a row and its removal on different sides of the cursor.
 	tx, err := s.db.Begin()
 	if err != nil {
-		return PullReply{}, err
+		return SyncResult{}, err
 	}
 	defer tx.Rollback()
 	chats, err := readChats(tx, chatSelect+` WHERE s.rev > ? ORDER BY s.rev`, since)
 	if err != nil {
-		return PullReply{}, err
+		return SyncResult{}, err
 	}
 	// A chat made again after it was deleted is in sessions, past its deletion.
 	deleted, err := deletedSince(tx, since)
 	if err != nil {
-		return PullReply{}, err
+		return SyncResult{}, err
 	}
 
 	// The cut falls on a byte budget; the first item always goes, however large.
-	out := PullReply{Epoch: s.epoch, Rev: since, Upsert: []Chat{}, Delete: []string{}}
+	out := SyncResult{Epoch: s.epoch, Rev: since, Upsert: []Chat{}, Delete: []string{}}
 	size, c, d := 0, 0, 0
 	for c < len(chats) || d < len(deleted) {
 		takeChat := d == len(deleted) || (c < len(chats) && chats[c].Rev < deleted[d].rev)
@@ -399,13 +395,13 @@ func (s *Store) Pull(req PullRequest, host string) (PullReply, error) {
 			chats[c].HostID = host
 			b, err := json.Marshal(chats[c])
 			if err != nil {
-				return PullReply{}, err
+				return SyncResult{}, err
 			}
 			bytes, rev = len(b), chats[c].Rev
 		} else {
 			bytes, rev = len(deleted[d].id)+3, deleted[d].rev
 		}
-		if size+bytes > maxPullBytes && (len(out.Upsert) > 0 || len(out.Delete) > 0) {
+		if size+bytes > maxSyncBytes && (len(out.Upsert) > 0 || len(out.Delete) > 0) {
 			out.More = true
 			break
 		}
