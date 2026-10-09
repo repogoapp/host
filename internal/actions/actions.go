@@ -34,9 +34,6 @@ const (
 	// few kilobytes; past this the file is not an actions file.
 	MaxFileBytes = 1 << 20
 
-	// MaxActions bounds one file's rows, matching the clients' cap.
-	MaxActions = 20
-
 	// MaxOutputBytes bounds each captured stream of a blocking run. The
 	// answer travels to a phone.
 	MaxOutputBytes = 1 << 20
@@ -665,9 +662,6 @@ func load(dir string) ([]Action, error) {
 			continue
 		}
 		out = append(out, a)
-		if len(out) == MaxActions {
-			break
-		}
 	}
 	return out, nil
 }
