@@ -61,11 +61,7 @@ func (s *Service) Search(path, query string, mode SearchMode, limit int, caseSen
 	if query == "" || len(query) > maxQueryBytes || (mode != SearchFilename && mode != SearchContent) || limit < 0 {
 		return result, fmt.Errorf("%w: invalid search arguments", ErrInvalidOperation)
 	}
-	full, err := s.Contain(path)
-	if err != nil {
-		return result, err
-	}
-	root, err := os.OpenRoot(full)
+	root, _, err := s.directory(path, Scope{})
 	if err != nil {
 		return result, wrap(err)
 	}

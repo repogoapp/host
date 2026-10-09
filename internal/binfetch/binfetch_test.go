@@ -188,6 +188,37 @@ func sum(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
+func TestUntarRejectsComposedSymlinkEscape(t *testing.T) {
+	for _, withFile := range []bool{false, true} {
+		dir := t.TempDir()
+		dest := filepath.Join(dir, "unpacked")
+		outside := filepath.Join(dir, "outside")
+		if err := os.Mkdir(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(outside, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		victim := filepath.Join(outside, "file")
+		if err := os.WriteFile(victim, []byte("untouched"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		headers := []*tar.Header{
+			{Name: "pkg/a", Typeflag: tar.TypeSymlink, Linkname: "."},
+			{Name: "pkg/b", Typeflag: tar.TypeSymlink, Linkname: "a/../outside"},
+		}
+		if withFile {
+			headers = append(headers, &tar.Header{Name: "pkg/b/file", Typeflag: tar.TypeReg, Mode: 0o644})
+		}
+		if err := Untar(tree(t, headers...), dest); err == nil {
+			t.Fatalf("withFile=%v: accepted escape", withFile)
+		}
+		if got, err := os.ReadFile(victim); err != nil || string(got) != "untouched" {
+			t.Fatalf("outside file: %q, %v", got, err)
+		}
+	}
+}
+
 // A download that is not the archive its checksum names is never unpacked.
 func TestInstallTreeRefusesAChecksumMismatch(t *testing.T) {
 	archive := tree(t, &tar.Header{Name: "pkg/tool", Typeflag: tar.TypeReg, Mode: 0o755})

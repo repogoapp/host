@@ -4,8 +4,10 @@
 package files
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -168,11 +170,12 @@ func (s *Service) Projects() ([]Entry, error) {
 func (s *Service) Contain(path string) (string, error) { return s.contain(path, false) }
 
 func (s *Service) List(path string) ([]Entry, error) {
-	dir, err := s.contain(path, false)
+	root, dir, err := s.directory(path, Scope{})
 	if err != nil {
 		return nil, err
 	}
-	items, err := os.ReadDir(dir)
+	defer root.Close()
+	items, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return nil, wrap(err)
 	}
@@ -202,28 +205,48 @@ func (s *Service) List(path string) ([]Entry, error) {
 }
 
 func (s *Service) Read(path string) (File, error) {
-	full, limit, err := s.containRead(path)
+	file, _, err := s.read(path, Scope{}, 0)
+	return file, err
+}
+
+func (s *Service) read(path string, scope Scope, modTime int64) (File, bool, error) {
+	p, err := s.filePath(path, scope, false)
 	if err != nil {
-		return File{}, err
+		return File{}, false, err
 	}
-	info, err := os.Stat(full)
+	defer p.root.Close()
+	// Resolution already followed the final link; a replacement must not redirect the read.
+	f, err := p.open()
 	if err != nil {
-		return File{}, wrap(err)
+		return File{}, false, wrap(err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return File{}, false, wrap(err)
 	}
 	if info.IsDir() {
-		return File{}, fmt.Errorf("%w: %s", ErrIsDirectory, path)
+		return File{}, false, fmt.Errorf("%w: %s", ErrIsDirectory, path)
 	}
-	if info.Size() > limit {
-		return File{}, fmt.Errorf("%w: %d bytes", ErrTooLarge, info.Size())
+	if !info.Mode().IsRegular() {
+		return File{}, false, fmt.Errorf("%w: not a regular file", ErrInvalidOperation)
 	}
-	content, err := os.ReadFile(full)
+	file := File{Path: p.full, Size: info.Size(), ModTime: info.ModTime().UnixMilli()}
+	if modTime != 0 && file.ModTime == modTime {
+		return file, false, nil
+	}
+	if info.Size() > p.limit {
+		return File{}, false, ErrTooLarge
+	}
+	content, err := io.ReadAll(io.LimitReader(f, p.limit+1))
 	if err != nil {
-		return File{}, wrap(err)
+		return File{}, false, wrap(err)
 	}
-	return File{
-		Path: full, Content: content, Size: info.Size(),
-		ModTime: info.ModTime().UnixMilli(), Binary: isBinary(content),
-	}, nil
+	if int64(len(content)) > p.limit {
+		return File{}, false, ErrTooLarge
+	}
+	file.Content, file.Binary = content, isBinary(content)
+	return file, true, nil
 }
 
 // Write replaces a file's contents through a temp file and rename, so a running
@@ -245,68 +268,68 @@ func (s *Service) write(path string, content []byte, opts WriteOptions) (File, e
 	if opts.Scope.narrows() && len(content) > MaxFileBytes {
 		return File{}, fmt.Errorf("%w: %d bytes", ErrTooLarge, len(content))
 	}
-	full, err := s.contain(path, true)
+	p, err := s.filePath(path, opts.Scope, true)
 	if err != nil {
 		return File{}, err
 	}
-	if err := opts.Scope.check(full); err != nil {
-		return File{}, err
+	defer p.root.Close()
+	info, err := p.root.Lstat(p.name)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return File{}, wrap(err)
 	}
-	if create {
-		if _, err := os.Lstat(full); err == nil {
+	mode := os.FileMode(0o644)
+	if err == nil {
+		if create {
 			return File{}, fmt.Errorf("%w: %s already exists", ErrInvalidOperation, path)
 		}
-	} else if info, err := os.Stat(full); err == nil && info.IsDir() {
-		return File{}, fmt.Errorf("%w: %s", ErrIsDirectory, path)
+		if info.IsDir() {
+			return File{}, fmt.Errorf("%w: %s", ErrIsDirectory, path)
+		}
+		if !info.Mode().IsRegular() {
+			return File{}, fmt.Errorf("%w: not a regular file", ErrInvalidOperation)
+		}
+		mode = info.Mode().Perm()
 	}
 
-	dir := filepath.Dir(full)
-	tmp, err := os.CreateTemp(dir, ".repogo-*")
+	// Both names stay relative to the pinned parent even if its path is replaced.
+	tmpName := ".repogo-" + rand.Text()
+	tmp, err := p.root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return File{}, wrap(err)
 	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once renamed; after a link, drops the temp name
-
+	defer p.root.Remove(tmpName)
+	defer tmp.Close()
 	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
+		return File{}, wrap(err)
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		return File{}, wrap(err)
+	}
+	info, err = tmp.Stat()
+	if err != nil {
 		return File{}, wrap(err)
 	}
 	if err := tmp.Close(); err != nil {
 		return File{}, wrap(err)
 	}
-	// CreateTemp is 0600. A source file the user's own tools also read should
-	// keep the ordinary mode, or the next `git status` looks like a permissions
-	// change.
-	if err := os.Chmod(tmpName, existingMode(full)); err != nil {
-		return File{}, wrap(err)
-	}
-	// The changed-file check runs last, just before the rename: an editor
-	// saving in the same instant can still land first, which this narrows,
-	// not closes.
+	// A stale editor must not overwrite a newer save.
 	if !create && opts.ModTime != 0 {
-		if info, err := os.Stat(full); err != nil || info.ModTime().UnixMilli() != opts.ModTime {
+		current, err := p.root.Lstat(p.name)
+		if err != nil || !current.Mode().IsRegular() || current.ModTime().UnixMilli() != opts.ModTime {
 			return File{}, fmt.Errorf("%w: %s", ErrChanged, path)
 		}
 	}
 	if create {
-		if err := os.Link(tmpName, full); err != nil {
+		if err := p.root.Link(tmpName, p.name); err != nil {
 			if errors.Is(err, fs.ErrExist) {
 				return File{}, fmt.Errorf("%w: %s already exists", ErrInvalidOperation, path)
 			}
 			return File{}, wrap(err)
 		}
-	} else if err := os.Rename(tmpName, full); err != nil {
+	} else if err := p.root.Rename(tmpName, p.name); err != nil {
 		return File{}, wrap(err)
 	}
-
-	info, err := os.Stat(full)
-	if err != nil {
-		return File{}, wrap(err)
-	}
-	return File{
-		Path: full, Size: info.Size(), ModTime: info.ModTime().UnixMilli(),
-	}, nil
+	return File{Path: p.full, Size: info.Size(), ModTime: info.ModTime().UnixMilli()}, nil
 }
 
 // contain resolves symlinks before the check, so `project/link` pointing at
@@ -323,46 +346,55 @@ func (s *Service) contain(path string, allowMissing bool) (string, error) {
 // containIn is contain against roots already resolved, for a call that
 // contains more than one path.
 func containIn(roots []string, path string, allowMissing bool) (string, error) {
+	full, _, err := resolveIn(roots, path, allowMissing)
+	return full, err
+}
+
+func resolveIn(roots []string, path string, allowMissing bool) (string, string, error) {
 	if path == "" {
-		return "", fmt.Errorf("%w: empty path", ErrOutsideRoots)
+		return "", "", fmt.Errorf("%w: empty path", ErrOutsideRoots)
 	}
 	if len(roots) == 0 {
-		return "", ErrNoRoots
+		return "", "", ErrNoRoots
 	}
 
 	clean := filepath.Clean(path)
 	if !filepath.IsAbs(clean) {
-		return "", fmt.Errorf("%w: %s is not an absolute path", ErrOutsideRoots, path)
+		return "", "", fmt.Errorf("%w: %s is not an absolute path", ErrOutsideRoots, path)
 	}
 
 	resolved, err := resolveExisting(clean, allowMissing)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	for _, root := range roots {
 		if Within(root, resolved) {
-			return resolved, nil
+			return resolved, root, nil
 		}
 	}
-	return "", fmt.Errorf("%w: %s", ErrOutsideRoots, path)
+	return "", "", fmt.Errorf("%w: %s", ErrOutsideRoots, path)
 }
 
 // containRead is contain widened by the ReadOnly directories, checked first so
 // a host with no projects still shows what it was sent. Symlinks resolve before
 // the check, so a link in there to `~/.ssh` falls through and is refused.
-func (s *Service) containRead(path string) (string, int64, error) {
+func (s *Service) containRead(path string) (string, string, int64, error) {
 	if clean := filepath.Clean(path); path != "" && filepath.IsAbs(clean) {
 		if resolved, err := filepath.EvalSymlinks(clean); err == nil {
 			for _, dir := range s.cfg.ReadOnly {
 				root, err := filepath.EvalSymlinks(dir.Path)
 				if err == nil && Within(root, resolved) {
-					return resolved, dir.MaxBytes, nil
+					return resolved, root, dir.MaxBytes, nil
 				}
 			}
 		}
 	}
-	full, err := s.contain(path, false)
-	return full, MaxFileBytes, err
+	roots, err := s.resolvedRoots()
+	if err != nil {
+		return "", "", 0, err
+	}
+	full, base, err := resolveIn(roots, path, false)
+	return full, base, MaxFileBytes, err
 }
 
 // resolveExisting follows symlinks on the deepest part of the path that exists.
@@ -431,13 +463,6 @@ func isBinary(content []byte) bool {
 		}
 	}
 	return false
-}
-
-func existingMode(path string) os.FileMode {
-	if info, err := os.Stat(path); err == nil {
-		return info.Mode().Perm()
-	}
-	return 0o644
 }
 
 // wrap keeps the OS error readable while giving callers a sentinel to match on.

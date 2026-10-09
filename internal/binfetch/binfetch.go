@@ -19,8 +19,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/repogo/host/internal/files"
 )
 
 // Base is GitHub; tests point it at a local server.
@@ -163,14 +161,27 @@ func InstallTree(ctx context.Context, url, sum, dest string) error {
 // Untar writes every entry below its first path component into dir. An entry
 // or link that would land outside dir is refused rather than cleaned.
 func Untar(archive []byte, dir string) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return err
 	}
+	defer gz.Close()
 	tr := tar.NewReader(gz)
+	var links []string
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
+			// Check complete link chains after every target has been extracted.
+			for _, name := range links {
+				if _, err := root.Stat(name); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("binfetch: unsafe link %s: %w", name, err)
+				}
+			}
 			return nil
 		}
 		if err != nil {
@@ -180,21 +191,23 @@ func Untar(archive []byte, dir string) error {
 		if !ok || rel == "" {
 			continue
 		}
-		target := filepath.Join(dir, rel)
-		if !files.Within(dir, target) {
+		// os.Root refuses a trailing slash, which tar gives every directory.
+		rel = filepath.Clean(rel)
+		if !filepath.IsLocal(rel) {
 			return fmt.Errorf("binfetch: %s leaves the archive", h.Name)
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
-			err = os.MkdirAll(target, 0o755)
+			err = root.MkdirAll(rel, 0o755)
 		case tar.TypeReg:
-			err = writeFile(target, tr, os.FileMode(h.Mode)&0o777)
+			err = writeFile(root, rel, tr, os.FileMode(h.Mode)&0o777)
 		case tar.TypeSymlink:
-			if filepath.IsAbs(h.Linkname) || !files.Within(dir, filepath.Join(filepath.Dir(target), h.Linkname)) {
+			if filepath.IsAbs(h.Linkname) || !filepath.IsLocal(filepath.Join(filepath.Dir(rel), h.Linkname)) {
 				return fmt.Errorf("binfetch: %s links outside the archive", h.Name)
 			}
-			if err = os.MkdirAll(filepath.Dir(target), 0o755); err == nil {
-				err = os.Symlink(h.Linkname, target)
+			if err = root.MkdirAll(filepath.Dir(rel), 0o755); err == nil {
+				err = root.Symlink(h.Linkname, rel)
+				links = append(links, rel)
 			}
 		}
 		if err != nil {
@@ -203,11 +216,11 @@ func Untar(archive []byte, dir string) error {
 	}
 }
 
-func writeFile(path string, r io.Reader, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func writeFile(root *os.Root, path string, r io.Reader, mode os.FileMode) error {
+	if err := root.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	f, err := root.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}

@@ -3,7 +3,6 @@ package files
 import (
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -67,14 +66,7 @@ func (s *Service) ListFiles(path string, extensions []string, within string) (en
 	if len(extensions) == 0 {
 		return nil, false, fmt.Errorf("%w: no extensions", ErrInvalidOperation)
 	}
-	dir, err := s.contain(path, false)
-	if err != nil {
-		return nil, false, err
-	}
-	if err := (Scope{Within: within}).check(dir); err != nil {
-		return nil, false, err
-	}
-	root, err := os.OpenRoot(dir)
+	root, dir, err := s.directory(path, Scope{Within: within})
 	if err != nil {
 		return nil, false, wrap(err)
 	}
@@ -119,38 +111,13 @@ func (s *Service) ListFiles(path string, extensions []string, within string) (en
 
 // ReadIn is Read held to scope.
 func (s *Service) ReadIn(path string, scope Scope) (File, error) {
-	file, err := s.Read(path)
-	if err != nil {
-		return File{}, err
-	}
-	if err := scope.check(file.Path); err != nil {
-		return File{}, err
-	}
-	return file, nil
+	file, _, err := s.read(path, scope, 0)
+	return file, err
 }
 
-// ReadChanged is ReadIn for a caller holding a copy read at modTime. A file
-// whose mod time still matches comes back without content and changed false;
-// a zero modTime always reads.
-func (s *Service) ReadChanged(path string, scope Scope, modTime int64) (file File, changed bool, err error) {
-	if modTime != 0 {
-		full, _, err := s.containRead(path)
-		if err != nil {
-			return File{}, false, err
-		}
-		info, err := os.Stat(full)
-		if err != nil {
-			return File{}, false, wrap(err)
-		}
-		if !info.IsDir() && info.ModTime().UnixMilli() == modTime {
-			if err := scope.check(full); err != nil {
-				return File{}, false, err
-			}
-			return File{Path: full, Size: info.Size(), ModTime: modTime}, false, nil
-		}
-	}
-	file, err = s.ReadIn(path, scope)
-	return file, err == nil, err
+// ReadChanged skips content when the opened file still has the caller's mod time.
+func (s *Service) ReadChanged(path string, scope Scope, modTime int64) (File, bool, error) {
+	return s.read(path, scope, modTime)
 }
 
 // WriteWith is Write or Create with opts' scope and changed-file check.
