@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -20,32 +21,34 @@ type liveSession struct {
 	catalog                   claudecode.InitializeResponse
 	id, key, cwd, fingerprint string
 	release                   func()
-	mu                        sync.Mutex
-	closed                    bool
-	io                        *agent.TurnIO
-	turnCtx                   context.Context
-	turnCancel                context.CancelFunc
-	outcome                   chan turnOutcome
-	lastActivity              time.Time
-	mode                      string
-	prePlanMode               string
-	allowBypass               bool
-	tasks                     map[string]*liveTask
-	blocks                    map[string]map[int]*streamBlock
-	messageID                 string
-	calls                     map[string]string
-	seenResults               map[string]bool
-	seenMessages              map[string]bool
-	deferred                  *turnOutcome
-	usage                     agent.Usage
-	lastModel                 string
-	promptID                  string
-	planRejected              string
-	planRejectionSeen         bool
-	promptSent                bool
-	promptEchoed              bool
-	sawText                   bool
-	owedIdle                  int
+	// log records background task changes at debug, which only a dev host keeps.
+	log               *slog.Logger
+	mu                sync.Mutex
+	closed            bool
+	io                *agent.TurnIO
+	turnCtx           context.Context
+	turnCancel        context.CancelFunc
+	outcome           chan turnOutcome
+	lastActivity      time.Time
+	mode              string
+	prePlanMode       string
+	allowBypass       bool
+	tasks             map[string]*liveTask
+	blocks            map[string]map[int]*streamBlock
+	messageID         string
+	calls             map[string]string
+	seenResults       map[string]bool
+	seenMessages      map[string]bool
+	deferred          *turnOutcome
+	usage             agent.Usage
+	lastModel         string
+	promptID          string
+	planRejected      string
+	planRejectionSeen bool
+	promptSent        bool
+	promptEchoed      bool
+	sawText           bool
+	owedIdle          int
 	// working is Claude's own state: true from "running" to "idle", including
 	// a turn it starts by itself when a background task finishes.
 	working bool
@@ -60,7 +63,7 @@ type liveSession struct {
 }
 
 func newLiveSession(id, cwd string) *liveSession {
-	return &liveSession{id: id, cwd: cwd, lastActivity: time.Now(), tasks: map[string]*liveTask{}, consumed: make(chan struct{}), mode: "default"}
+	return &liveSession{id: id, cwd: cwd, log: slog.New(slog.DiscardHandler), lastActivity: time.Now(), tasks: map[string]*liveTask{}, consumed: make(chan struct{}), mode: "default"}
 }
 
 // send runs one turn: the prompt goes to Claude, and the turn ends with its

@@ -181,6 +181,9 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 	if completion != nil {
 		s.outcome = nil
 		s.deferred = nil
+		if running := s.runningTasksLocked(); len(running) > 0 {
+			s.log.Debug("Claude turn ended with background work running", "turn", io.TurnID, "running", running)
+		}
 	}
 	busy := s.pending > 0 || s.awaitingSubagentsLocked()
 	for _, event := range events {

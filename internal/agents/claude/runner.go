@@ -125,6 +125,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	s := newLiveSession(id, req.Cwd)
 	s.key = agent.ChatID(agent.KindClaude, id)
+	s.log = r.deps.Log.With("chat", s.key)
 	s.ownTurn = func() {
 		r.deps.Log.Info("Claude started a turn by itself", "chat", s.key)
 		r.adopt(s.key, s.cwd)

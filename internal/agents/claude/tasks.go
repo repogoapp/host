@@ -1,6 +1,10 @@
 package claude
 
-import "github.com/repogo/host/internal/claudecode"
+import (
+	"slices"
+
+	"github.com/repogo/host/internal/claudecode"
+)
 
 type liveTask struct {
 	owner      string
@@ -25,6 +29,7 @@ func (s *liveSession) updateTaskLocked(m claudecode.Message) {
 				task.terminal = true
 			}
 		}
+		s.log.Debug("Claude background tasks changed", "running", s.runningTasksLocked())
 		return
 	}
 	if m.TaskID == "" {
@@ -43,8 +48,10 @@ func (s *liveSession) updateTaskLocked(m claudecode.Message) {
 		if s.io != nil && task.owner == "" {
 			task.owner = s.io.TurnID
 		}
+		s.log.Debug("Claude task started", "task", m.TaskID, "type", m.TaskType, "subagent", m.SubagentType, "background", task.background, "ambient", task.ambient)
 	case "task_notification":
 		task.terminal = true
+		s.log.Debug("Claude task finished", "task", m.TaskID, "status", m.Status, "running", s.runningTasksLocked())
 	case "task_updated":
 		if m.Patch.IsBackgrounded != nil {
 			task.background = *m.Patch.IsBackgrounded
@@ -58,7 +65,21 @@ func (s *liveSession) updateTaskLocked(m claudecode.Message) {
 				task.owner = s.io.TurnID
 			}
 		}
+		s.log.Debug("Claude task updated", "task", m.TaskID, "status", m.Patch.Status, "background", task.background, "running", s.runningTasksLocked())
 	}
+}
+
+// runningTasksLocked is the ids of the tasks that keep the process busy, as
+// busyLocked counts them.
+func (s *liveSession) runningTasksLocked() []string {
+	var ids []string
+	for id, task := range s.tasks {
+		if !task.terminal && !task.ambient {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 func (s *liveSession) awaitingSubagentsLocked() bool {
