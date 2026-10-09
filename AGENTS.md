@@ -46,6 +46,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | --- | --- | --- |
 | `jsonrpc`, `handshake` | Wire structs and codes, no behaviour | any import |
 | `wsserver`, `relay/`, `internal/relay`, `hostlink`, `hostclient`, `securechan` | Move bytes: server, dumb router, host dial, Go test client, end-to-end seal/open | knows what a chat is |
+| `appattest` | Verify Apple app attestation and assertions for push authorization | app or host state |
 | `rpc`, `rpc/<family>` | One method → one core call; typed params and result, access and lifetime on the `rpc.Add` line. Thin | logic a second transport would copy |
 | `rpc/registry` | Wiring table only; every service required | needs helper funcs |
 | `host` | Build and wire every service (`New`), admit devices (`Listen`), run owned workers (`Start`), stop admission, cancel, wait, then close storage (`Close`) | a second assembly anywhere else |

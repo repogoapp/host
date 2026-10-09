@@ -21,6 +21,10 @@ const (
 	// included, so one machine cannot fill the relay. Generous because carrier
 	// NAT puts many phones behind one address.
 	defaultConnsPerIP = 64
+
+	// Reconnects spend a budget even after their concurrent socket slot is freed.
+	connectionAttemptsPerMinute = 240
+	maxAttemptIPs               = 4096
 )
 
 type limits struct {
@@ -68,21 +72,43 @@ func (b *bucket) wait(ctx context.Context, n float64) error {
 // else the socket's peer.
 func (s *Server) clientIP(r *http.Request) string {
 	if h := s.cfg.ClientIPHeader; h != "" {
-		if ip := r.Header.Get(h); ip != "" {
-			return ip
+		if ip := net.ParseIP(r.Header.Get(h)); ip != nil {
+			return subscriber(ip)
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
+	if ip := net.ParseIP(host); ip != nil {
+		return subscriber(ip)
+	}
 	return host
 }
 
+// subscriber is an IPv6 address's /64: one subscriber holds the whole prefix.
+func subscriber(ip net.IP) string {
+	if ip.To4() != nil {
+		return ip.String()
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
 // admitIP reserves a socket for ip, or reports that it already holds its share.
-func (s *Server) admitIP(ip string) bool {
+func (s *Server) admitIP(ip string, now time.Time) bool {
 	s.ipMu.Lock()
 	defer s.ipMu.Unlock()
+	if now.Sub(s.attemptWindow) >= time.Minute {
+		s.attempts = map[string]int{}
+		s.attemptWindow = now
+	}
+	// A full table skips the budget: refusing new addresses would lock everyone out.
+	if _, held := s.attempts[ip]; held || len(s.attempts) < maxAttemptIPs {
+		if s.attempts[ip] >= connectionAttemptsPerMinute {
+			return false
+		}
+		s.attempts[ip]++
+	}
 	if s.ips[ip] >= s.connsPerIP {
 		return false
 	}

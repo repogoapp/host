@@ -570,6 +570,13 @@ func TestAStrangerLeavesSilently(t *testing.T) {
 	phone, _ := h.connect("group-a", handshake.RoleClient)
 
 	phone.ws.Close(websocket.StatusNormalClosure, "")
+	h.gone(phone.id)
+	h.srv.mu.RLock()
+	_, retained := h.srv.away[phone.id]
+	h.srv.mu.RUnlock()
+	if retained {
+		t.Error("a device with no peers left retained presence state")
+	}
 	if method, _, err := host.presence(500 * time.Millisecond); err == nil {
 		t.Errorf("host was told %q about a device it never heard from", method)
 	}
@@ -579,9 +586,10 @@ func TestAStrangerLeavesSilently(t *testing.T) {
 // not from a timeout.
 func TestALateJoinerIsToldTheTargetIsGone(t *testing.T) {
 	h := newHarness(t)
-	host, _ := h.connect("group-a", handshake.RoleRuntime)
+	host, _ := talking(t, h)
 	host.ws.Close(websocket.StatusNormalClosure, "")
 	h.gone(host.id)
+	h.srv.graceOver(host.id)
 
 	phone, _ := h.connect("group-a", handshake.RoleClient)
 	phone.send(host.id, "anyone there?")
@@ -605,9 +613,10 @@ func TestALateJoinerIsToldTheTargetIsGone(t *testing.T) {
 // is online.
 func TestAStrangerIsNotToldWhoIsGone(t *testing.T) {
 	h := newHarness(t)
-	host, _ := h.connect("group-a", handshake.RoleRuntime)
+	host, _ := talking(t, h)
 	host.ws.Close(websocket.StatusNormalClosure, "")
 	h.gone(host.id)
+	h.srv.graceOver(host.id)
 
 	stranger, _ := h.connect("group-b", handshake.RoleClient)
 	stranger.send(host.id, "anyone there?")

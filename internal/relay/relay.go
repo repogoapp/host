@@ -65,6 +65,12 @@ const (
 	// talking to, so they hear when it is back. Past it, a return is silent.
 	awayFor = 24 * time.Hour
 
+	// Presence is best effort; churn must not turn it into unbounded storage.
+	maxDepartures    = 4096
+	maxPresencePeers = 128
+	maxUnreachable   = 8192
+	maxHelloBytes    = 8 << 10
+
 	// unreachableEvery bounds how often one sender is told the same device is
 	// gone when its frames to it keep finding no route.
 	unreachableEvery = 5 * time.Second
@@ -81,6 +87,9 @@ type Config struct {
 	// Push delivers one APNs notification for `push.send`; nil means this
 	// relay answers Unavailable, never a silent OK.
 	Push func(context.Context, PushRequest) error
+
+	// VerifyPush authenticates the app instance; a self-signed identity cannot own a token.
+	VerifyPush func(identity, message, attestation, assertion []byte, environment string, signedAt time.Time) error
 
 	// ClientIPHeader names the header a trusted proxy puts the caller's
 	// address in (Fly-Client-IP on Fly). Empty uses the socket's peer, which
@@ -108,7 +117,8 @@ type Server struct {
 
 	// Who each device that has gone was talking to, and when it went: the
 	// peers told it went are told it is back.
-	away map[device.ID]departure
+	away          map[device.ID]departure
+	presenceSweep time.Time
 
 	// When each sender was last told a device it wrote to is gone.
 	toldUnreachable map[leg]time.Time
@@ -117,11 +127,13 @@ type Server struct {
 	// announced when the timer fires, unless they attach first.
 	pendingGone map[device.ID]*time.Timer
 
-	limits      limits
-	outboxBytes int64
-	connsPerIP  int
-	ipMu        sync.Mutex
-	ips         map[string]int
+	limits        limits
+	outboxBytes   int64
+	connsPerIP    int
+	ipMu          sync.Mutex
+	ips           map[string]int
+	attempts      map[string]int
+	attemptWindow time.Time
 
 	// Pushes per token this minute, whoever asked.
 	tokenMu sync.Mutex
@@ -132,6 +144,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.ServerID == "" {
 		return nil, errors.New("relay: server id is required")
 	}
+	if cfg.Push != nil && cfg.VerifyPush == nil {
+		return nil, errors.New("relay: push verifier is required")
+	}
 	perIP := cfg.MaxConnsPerIP
 	if perIP <= 0 {
 		perIP = defaultConnsPerIP
@@ -141,6 +156,7 @@ func New(cfg Config) (*Server, error) {
 		conns: map[device.ID][]*conn{}, routes: map[leg]*conn{}, away: map[device.ID]departure{},
 		toldUnreachable: map[leg]time.Time{},
 		pendingGone:     map[device.ID]*time.Timer{},
+		attempts:        map[string]int{},
 		limits:          defaultLimits, outboxBytes: outboxBytes, connsPerIP: perIP, ips: map[string]int{}, tokens: map[string]*tokenWindow{},
 	}, nil
 }
@@ -182,7 +198,7 @@ func (s *Server) connectionCount() int {
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
-	if !s.admitIP(ip) {
+	if !s.admitIP(ip, time.Now()) {
 		http.Error(w, "too many connections from this address", http.StatusTooManyRequests)
 		return
 	}
@@ -199,7 +215,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("relay: accept failed", "err", err)
 		return
 	}
-	ws.SetReadLimit(MaxFrameBytes)
+	ws.SetReadLimit(maxHelloBytes)
 	newConn(s, ws).run(r.Context())
 }
 
@@ -243,6 +259,7 @@ func (c *conn) run(ctx context.Context) {
 		return
 	}
 	c.id = device.ID(h.DeviceID)
+	c.ws.SetReadLimit(MaxFrameBytes)
 	c.group = h.GroupID
 	c.role = h.Role
 
@@ -333,8 +350,14 @@ func check(h handshake.Hello, signed []byte) error {
 		// invite a client to treat it as a credential that travels.
 		return errors.New("local token is not accepted by the relay")
 	}
-	if h.GroupID == "" {
-		return errors.New("missing group id")
+	if h.GroupID == "" || len(h.GroupID) > 128 {
+		return errors.New("group id must be 1 to 128 bytes")
+	}
+	if len(h.DeviceID) != 2*device.IDLen || len(h.Label) > 256 || len(h.Platform) > 64 || len(h.ClientVersion) > 64 {
+		return errors.New("invalid hello field length")
+	}
+	if h.Role != handshake.RoleRuntime && h.Role != handshake.RoleClient {
+		return errors.New("invalid role")
 	}
 	pub := ed25519.PublicKey(h.PublicKey)
 	if len(pub) != ed25519.PublicKeySize {
@@ -364,7 +387,9 @@ func (s *Server) attach(c *conn) {
 	var back []device.ID
 	first := len(s.conns[c.id]) == 0
 	if first || c.isHost() {
-		back = s.away[c.id].peers
+		if d := s.away[c.id]; time.Since(d.at) < awayFor {
+			back = d.peers
+		}
 		delete(s.away, c.id)
 	}
 	if t := s.pendingGone[c.id]; t != nil {
@@ -425,13 +450,12 @@ func (s *Server) detach(c *conn) {
 		delete(s.conns, c.id)
 		// Its last socket: the device is gone, not moving to a new network.
 		now := time.Now()
-		for id, d := range s.away {
-			if now.Sub(d.at) > awayFor {
-				delete(s.away, id)
-			}
+		s.prunePresence(now)
+		remember := len(peers) > 0 && s.roomForDeparture(c.id)
+		if remember {
+			s.away[c.id] = departure{peers: peers, group: c.group, reason: reason, at: now}
 		}
-		s.away[c.id] = departure{peers: peers, group: c.group, reason: reason, at: now}
-		if c.isHost() && reason == ReasonClosed && len(peers) > 0 {
+		if remember && c.isHost() && reason == ReasonClosed {
 			// A clean close is usually a restart: give it hostGrace to return.
 			id := c.id
 			s.pendingGone[id] = time.AfterFunc(hostGrace, func() { s.graceOver(id) })
@@ -462,6 +486,9 @@ func (s *Server) graceOver(id device.ID) {
 // mergePeers is a and b without repeats.
 func mergePeers(a, b []device.ID) []device.ID {
 	for _, id := range b {
+		if len(a) >= maxPresencePeers {
+			break
+		}
 		if !slices.Contains(a, id) {
 			a = append(a, id)
 		}
@@ -496,6 +523,9 @@ func (s *Server) peersLocked(id device.ID) []device.ID {
 		if !seen[peer] {
 			seen[peer] = true
 			out = append(out, peer)
+			if len(out) == maxPresencePeers {
+				break
+			}
 		}
 	}
 	return out
@@ -507,27 +537,65 @@ func (s *Server) unreachable(from *conn, target device.ID) {
 	now := time.Now()
 	r := leg{from: from.id, to: target}
 	s.mu.Lock()
+	s.prunePresence(now)
 	d, known := s.away[target]
 	_, inGrace := s.pendingGone[target]
 	// Inside a host's grace its return is expected: say nothing yet.
-	if !known || inGrace || d.group == "" || d.group != from.group || now.Sub(s.toldUnreachable[r]) < unreachableEvery {
+	if !known || now.Sub(d.at) >= awayFor || inGrace || d.group == "" || d.group != from.group || now.Sub(s.toldUnreachable[r]) < unreachableEvery {
 		s.mu.Unlock()
 		return
 	}
-	for l, at := range s.toldUnreachable {
-		if now.Sub(at) > time.Minute {
-			delete(s.toldUnreachable, l)
-		}
+	if _, held := s.toldUnreachable[r]; !held && len(s.toldUnreachable) >= maxUnreachable {
+		s.mu.Unlock()
+		return
 	}
 	s.toldUnreachable[r] = now
 	// It hears the target come back, as the peers it left behind do.
-	if !slices.Contains(d.peers, from.id) {
+	if len(d.peers) < maxPresencePeers && !slices.Contains(d.peers, from.id) {
 		d.peers = append(d.peers, from.id)
 		s.away[target] = d
 	}
 	s.mu.Unlock()
 	if s.send(from, target, PresenceGone, d.reason) {
 		s.log.Info("relay: presence", "device", target, "method", PresenceGone, "to", from.id, "why", "no route")
+	}
+}
+
+// roomForDeparture evicts the oldest departure outside a grace when the cache
+// is full, so churn displaces old entries instead of freezing the cache.
+func (s *Server) roomForDeparture(id device.ID) bool {
+	if _, held := s.away[id]; held || len(s.away) < maxDepartures {
+		return true
+	}
+	var oldest device.ID
+	var at time.Time
+	for other, d := range s.away {
+		if _, inGrace := s.pendingGone[other]; !inGrace && (oldest == "" || d.at.Before(at)) {
+			oldest, at = other, d.at
+		}
+	}
+	if oldest == "" {
+		return false
+	}
+	delete(s.away, oldest)
+	return true
+}
+
+// prunePresence runs at most once a minute under s.mu, keeping disconnects cheap.
+func (s *Server) prunePresence(now time.Time) {
+	if now.Before(s.presenceSweep) {
+		return
+	}
+	s.presenceSweep = now.Add(time.Minute)
+	for id, d := range s.away {
+		if now.Sub(d.at) >= awayFor {
+			delete(s.away, id)
+		}
+	}
+	for l, at := range s.toldUnreachable {
+		if now.Sub(at) >= time.Minute {
+			delete(s.toldUnreachable, l)
+		}
 	}
 }
 

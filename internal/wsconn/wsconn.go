@@ -46,6 +46,8 @@ type Conn struct {
 
 func Wrap(ws *websocket.Conn) *Conn { return &Conn{ws: ws} }
 
+func (c *Conn) SetReadLimit(n int64) { c.ws.SetReadLimit(n) }
+
 // Listen binds addr and serves mux in the background, adding an
 // unauthenticated /healthz that reveals nothing but liveness.
 func Listen(addr string, mux *http.ServeMux, log *slog.Logger) (*http.Server, net.Addr, error) {

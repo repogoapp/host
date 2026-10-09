@@ -52,8 +52,8 @@ type PushRequest struct {
 	Grant PushGrant `json:"grant"`
 }
 
-// PushGrant is a phone's signature over device.PushGrantMessage naming the
-// host that may push to one of its tokens, with the key it signed with.
+// PushGrant carries the device.PushProof envelope in Signature and the paired
+// key whose grant authorizes this host to push to the token.
 type PushGrant struct {
 	Device    device.ID `json:"device"`
 	PublicKey []byte    `json:"public_key"`
@@ -83,18 +83,18 @@ const pushBurst = 240
 // is what an abuser targets, and identities are free to mint.
 const tokenBurst = 120
 
-// A grant is good for grantMaxAge; grantSkew allows a phone clock ahead of ours.
+// A grant is good for grantMaxAge, which bounds how long an unpaired host can
+// still push; phones re-sign on every connection. grantSkew allows a fast phone clock.
 const (
-	grantMaxAge = 90 * 24 * time.Hour
+	grantMaxAge = 7 * 24 * time.Hour
 	grantSkew   = 5 * time.Minute
 )
 
 var errGrant = errors.New("push grant does not verify for this host and token")
 
-// verifyGrant checks that the token's phone let this host push to it: the
-// key is the phone it names, the signature covers this host, token and
-// environment, and it was signed recently and not in the future.
-func verifyGrant(host device.ID, req PushRequest, now time.Time) error {
+// Both signatures bind the host and token; App Attest authenticates the app
+// that restricts signing to tokens obtained from its notification APIs.
+func (s *Server) verifyGrant(host device.ID, req PushRequest, now time.Time) error {
 	g := req.Grant
 	pub := ed25519.PublicKey(g.PublicKey)
 	if len(pub) != ed25519.PublicKeySize || device.IDFor(pub) != g.Device {
@@ -105,10 +105,12 @@ func verifyGrant(host device.ID, req PushRequest, now time.Time) error {
 		return errGrant
 	}
 	msg := device.PushGrantMessage(host, req.Token, req.Environment, g.GrantedAt)
-	if !ed25519.Verify(pub, msg, g.Signature) {
+	proof, err := device.VerifyPushProof(pub, msg, g.Signature)
+	if err != nil {
 		return errGrant
 	}
-	return nil
+	// Apple's certificates last about a day; a grant is checked as of when it was signed.
+	return s.cfg.VerifyPush(pub, msg, proof.Attestation, proof.Assertion, req.Environment, granted)
 }
 
 const (
@@ -157,7 +159,7 @@ func (s *Server) answer(ctx context.Context, from *conn, msg *jsonrpc.Message) *
 	if req.Environment != EnvironmentSandbox && req.Environment != EnvironmentProduction {
 		return jsonrpc.Fail(msg.ID, jsonrpc.CodeInvalidParams, "environment must be sandbox or production")
 	}
-	if err := verifyGrant(from.id, req, time.Now()); err != nil {
+	if err := s.verifyGrant(from.id, req, time.Now()); err != nil {
 		return jsonrpc.Fail(msg.ID, jsonrpc.CodeDenied, err.Error())
 	}
 	if !s.allowToken(req.Token) {

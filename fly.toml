@@ -4,6 +4,10 @@ primary_region = "ewr"
 [build]
   dockerfile = "Dockerfile"
 
+[env]
+  # Fly's proxy terminates every connection and sets this to the real caller.
+  RELAY_CLIENT_IP_HEADER = "Fly-Client-IP"
+
 [deploy]
   # Start the new machine and pass its health check before stopping the old
   # one, so clients reconnect at once instead of backing off through a gap.

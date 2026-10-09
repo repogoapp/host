@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/repogo/host/internal/appattest"
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/handshake"
 	"github.com/repogo/host/internal/jsonrpc"
@@ -17,7 +18,9 @@ import (
 
 func pushHarness(t *testing.T, push func(context.Context, PushRequest) error) *harness {
 	t.Helper()
-	return newHarnessWith(t, Config{Push: push})
+	return newHarnessWith(t, Config{Push: push, VerifyPush: func([]byte, []byte, []byte, []byte, string, time.Time) error {
+		return nil
+	}})
 }
 
 // control sends one push.send and returns the relay's reply.
@@ -50,6 +53,52 @@ func TestPushSendReachesAPNsAndReplies(t *testing.T) {
 	if got := <-sent; got.Token != "abcd" || got.Environment != "sandbox" || got.CollapseID != "c1" ||
 		!strings.Contains(string(got.Payload), `"alert":"hi"`) {
 		t.Fatalf("relay handed APNs %+v", got)
+	}
+}
+
+func TestSelfSignedIdentityCannotClaimAPNsToken(t *testing.T) {
+	v, err := appattest.New("ABCDEFGHIJ.app.repogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent atomic.Int32
+	h := newHarnessWith(t, Config{Push: func(context.Context, PushRequest) error { sent.Add(1); return nil }, VerifyPush: v.Verify})
+	host, _ := h.connect("g", handshake.RoleRuntime)
+	reply := host.control(pushParams(t, host, "abcd", "sandbox", ""))
+	if reply.Error == nil || reply.Error.Code != jsonrpc.CodeDenied {
+		t.Fatalf("self-signed grant: %v", reply.Error)
+	}
+	if sent.Load() != 0 {
+		t.Fatal("unattested token reached APNs")
+	}
+}
+
+// Apple's certificates expire long before a grant does, so they are checked
+// as of the grant's signed time.
+func TestPushChecksAppleEvidenceAtTheGrantTime(t *testing.T) {
+	var at time.Time
+	h := newHarnessWith(t, Config{Push: func(context.Context, PushRequest) error { return nil },
+		VerifyPush: func(_, _, _, _ []byte, _ string, signedAt time.Time) error { at = signedAt; return nil }})
+	phone, err := device.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := device.ID("00000000000000000000000000000001")
+	granted := time.Now().Add(-3 * 24 * time.Hour).Truncate(time.Millisecond)
+	target := phone.GrantPush(host, device.PushTarget{Token: "abcd", Environment: "sandbox", GrantedAt: granted.UnixMilli()})
+	req := PushRequest{Token: "abcd", Environment: "sandbox",
+		Grant: PushGrant{Device: phone.ID, PublicKey: phone.Public, Signature: target.Grant, GrantedAt: target.GrantedAt}}
+	if err := h.srv.verifyGrant(host, req, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !at.Equal(granted) {
+		t.Fatalf("verified at %v, want the grant time %v", at, granted)
+	}
+}
+
+func TestPushRequiresAnAppVerifier(t *testing.T) {
+	if _, err := New(Config{ServerID: "test", Push: func(context.Context, PushRequest) error { return nil }}); err == nil {
+		t.Fatal("enabled push without an app verifier")
 	}
 }
 

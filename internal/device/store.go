@@ -192,7 +192,7 @@ func (s *Store) RegisterPush(id ID, kind, chatID string, target PushTarget) erro
 			return err
 		}
 		msg := PushGrantMessage(s.identity.ID, target.Token, target.Environment, target.GrantedAt)
-		if !ed25519.Verify(ed25519.PublicKey(peer.Public), msg, target.Grant) {
+		if _, err := VerifyPushProof(peer.Public, msg, target.Grant); err != nil {
 			return ErrBadGrant
 		}
 	}
@@ -258,7 +258,7 @@ func (t PushTarget) validate(kind string) error {
 	if t.Environment != "sandbox" && t.Environment != "production" {
 		return fmt.Errorf("%w: environment must be sandbox or production", errkind.ErrInvalid)
 	}
-	if len(t.Grant) != ed25519.SignatureSize || t.GrantedAt <= 0 {
+	if len(t.Grant) == 0 || len(t.Grant) > MaxPushProofBytes || t.GrantedAt <= 0 {
 		return fmt.Errorf("%w: a token needs the phone's grant", errkind.ErrInvalid)
 	}
 	return nil

@@ -101,6 +101,34 @@ then runs a Noise XX handshake with an ML-KEM-1024 step
 AES-GCM and the key exchange is post-quantum. The phone and the host each check
 the other's paired identity before anything is sent.
 
+The relay bounds handshakes to 8 KiB and allows 240 connection attempts per
+address in each one-minute window, counting an IPv6 /64 as one address. It
+tracks at most 4,096 addresses per window; past that, new addresses keep only
+the concurrent-connection cap until the next window. Offline presence is best
+effort: it remembers at most 4,096 departed devices with 128 peers each, and
+never retains a device with no peers. When that cache is full, the oldest
+departure is forgotten; connected devices still exchange traffic.
+
+Push notifications require a grant signed by the paired phone and an Apple App
+Attest assertion covering the host, token, APNs environment, and grant time. The
+app only grants tokens received through its notification APIs. The relay pins
+Apple's App Attest root and the app's identifier; a self-created identity and a
+leaked token are insufficient. Grants are reusable for up to 7 days, with Apple's
+certificates checked as of the grant's signed time, so their assertion counters
+are not treated as one-shot login counters. The attestation binds the app key to the phone identity.
+
+The relay can't revoke a grant, so an unpaired host can push until its last
+grant expires; phones re-sign on every connection. Behind a proxy, set
+`RELAY_CLIENT_IP_HEADER` to the header it puts the caller's address in, and
+only when it sets that header on every request; otherwise leave it unset.
+
+Self-hosted relays that send push notifications need `APPLE_APP_ID_PREFIX`
+(defaults to `APNS_TEAM_ID`) and `APPLE_BUNDLE_ID` (defaults to `app.repogo`).
+The iOS app needs the App Attest capability in its provisioning profile; the
+App Clip receives no pushes. This grant format requires matching iOS, host, and
+relay releases; signature-only grants are refused, and phones must reconnect to
+register fresh grants. Push registration fails closed when App Attest is unavailable.
+
 ### RPC calls
 
 The phone talks to the host in JSON-RPC 2.0 over that encrypted channel: list

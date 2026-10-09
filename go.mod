@@ -7,6 +7,7 @@ require (
 	github.com/coder/websocket v1.8.12
 	github.com/creack/pty v1.1.24
 	github.com/flynn/noise v1.1.0
+	github.com/fxamacker/cbor/v2 v2.9.6
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/sideshow/apns2 v0.25.0
@@ -24,6 +25,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.4.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/text v0.41.0 // indirect

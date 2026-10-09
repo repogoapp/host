@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -90,8 +91,8 @@ type PushTarget struct {
 	// At is when the host saved the token, in Unix milliseconds. iOS ends a
 	// Live Activity after eight hours, so an older activity token is dead.
 	At int64 `json:"at,omitempty"`
-	// Grant is the phone's signature over PushGrantMessage for this host and
-	// token, GrantedAt when it signed; the relay sends nothing without one.
+	// Grant carries PushProof for this host and token; GrantedAt is when the
+	// phone signed it. The relay requires the accompanying Apple evidence.
 	Grant     []byte `json:"grant,omitempty"`
 	GrantedAt int64  `json:"granted_at,omitempty"`
 }
@@ -161,12 +162,12 @@ func PushGrantMessage(host ID, token, environment string, grantedMS int64) []byt
 	return binary.BigEndian.AppendUint64(msg, uint64(grantedMS))
 }
 
-// GrantPush signs target for host as the phone would: the canonical builder
-// the app mirrors, and what tests register tokens with.
+// GrantPush supplies the identity signature for Go test clients; production
+// push also requires Apple evidence in the proof envelope.
 func (i *Identity) GrantPush(host ID, target PushTarget) PushTarget {
 	if target.GrantedAt == 0 {
 		target.GrantedAt = time.Now().UnixMilli()
 	}
-	target.Grant = i.Sign(PushGrantMessage(host, target.Token, target.Environment, target.GrantedAt))
+	target.Grant, _ = json.Marshal(PushProof{Signature: i.Sign(PushGrantMessage(host, target.Token, target.Environment, target.GrantedAt))})
 	return target
 }
