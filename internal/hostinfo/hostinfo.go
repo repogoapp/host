@@ -37,8 +37,10 @@ type Status struct {
 }
 
 // The capabilities a host reports. Schedules need a host that stays up to run
-// on time, which a bounded session doesn't; usage is the agents' history.
+// on time, which a bounded session doesn't; usage is the agents' history;
+// devices are the phones paired with it, which every host lists and revokes.
 const (
+	CapabilityDevices   = "devices"
 	CapabilitySchedules = "schedules"
 	CapabilityUsage     = "usage"
 )
@@ -160,7 +162,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if b, ok := s.d.Power.Battery(); ok {
 		out.Battery = &b
 	}
-	out.Capabilities = []string{CapabilityUsage}
+	out.Capabilities = []string{CapabilityDevices, CapabilityUsage}
 	if s.cloud != nil {
 		c := *s.cloud
 		out.Cloud = &c

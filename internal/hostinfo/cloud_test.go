@@ -28,8 +28,9 @@ func TestAMacHasNoCloudSession(t *testing.T) {
 	if status.Cloud != nil {
 		t.Fatalf("status cloud %+v on a Mac", status.Cloud)
 	}
-	if !slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) {
-		t.Fatalf("capabilities %v on a Mac, want schedules and usage", status.Capabilities)
+	if !slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) ||
+		!slices.Contains(status.Capabilities, CapabilityDevices) {
+		t.Fatalf("capabilities %v on a Mac, want devices, schedules and usage", status.Capabilities)
 	}
 }
 
@@ -53,8 +54,9 @@ func TestAnExtensionSurvivesARestartAndANewSessionReplacesIt(t *testing.T) {
 	if status.Cloud == nil || !status.Cloud.StopsAt.Equal(extended) {
 		t.Fatalf("status cloud %+v, want until %v", status.Cloud, extended)
 	}
-	if slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) {
-		t.Fatalf("capabilities %v on a bounded session, want usage only", status.Capabilities)
+	if slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) ||
+		!slices.Contains(status.Capabilities, CapabilityDevices) {
+		t.Fatalf("capabilities %v on a bounded session, want devices and usage only", status.Capabilities)
 	}
 
 	// A restart within the session (a host update) has no environment of its
