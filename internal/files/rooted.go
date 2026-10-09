@@ -19,6 +19,10 @@ func (s *Service) directory(path string, scope Scope) (*os.Root, string, error) 
 	if err != nil {
 		return nil, "", err
 	}
+	// Go 1.25's OpenRoot(".") gives a root whose walks name entries "./x"; reuse the open one.
+	if p.name == "." {
+		return p.root, p.full, nil
+	}
 	defer p.root.Close()
 	root, err := p.root.OpenRoot(p.name)
 	return root, p.full, wrap(err)
@@ -62,13 +66,18 @@ func (s *Service) filePath(path string, scope Scope, write bool) (rootedPath, er
 	if err != nil {
 		return rootedPath{}, wrap(err)
 	}
-	defer func() { root.Close() }()
+	keep := false
+	defer func() {
+		if !keep {
+			root.Close()
+		}
+	}()
 	if scope.Within != "" {
 		within, err := filepath.EvalSymlinks(scope.Within)
 		if err != nil || !Within(within, full) {
 			return rootedPath{}, ErrOutsideScope
 		}
-		if Within(base, within) {
+		if Within(base, within) && within != base {
 			rel, err := filepath.Rel(base, within)
 			if err != nil {
 				return rootedPath{}, err
@@ -85,9 +94,13 @@ func (s *Service) filePath(path string, scope Scope, write bool) (rootedPath, er
 	if err != nil {
 		return rootedPath{}, err
 	}
-	parent, err := root.OpenRoot(filepath.Dir(rel))
-	if err != nil {
-		return rootedPath{}, wrap(err)
+	parent := root
+	if dir := filepath.Dir(rel); dir != "." {
+		if parent, err = root.OpenRoot(dir); err != nil {
+			return rootedPath{}, wrap(err)
+		}
+	} else {
+		keep = true
 	}
 	return rootedPath{root: parent, name: filepath.Base(rel), full: full, limit: limit}, nil
 }
