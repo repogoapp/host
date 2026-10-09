@@ -95,7 +95,7 @@ func (s *Service) ListFiles(path string, extensions []string, within string) (en
 		if !entry.Type().IsRegular() || !hasExtension(name, extensions) {
 			return nil
 		}
-		info, err := entry.Info()
+		info, err := root.Lstat(name)
 		if err != nil {
 			return nil // vanished mid-walk
 		}

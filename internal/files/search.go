@@ -125,7 +125,7 @@ type searchScan struct {
 // scanFile adds name's matching lines; a file too large, binary, or not UTF-8 is
 // skipped, the first two marking the result truncated.
 func (sc *searchScan) scanFile(name string, entry fs.DirEntry) error {
-	info, err := entry.Info()
+	info, err := sc.root.Lstat(name)
 	if err != nil {
 		return err
 	}

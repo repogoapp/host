@@ -19,7 +19,7 @@ func (s *Service) directory(path string, scope Scope) (*os.Root, string, error) 
 	if err != nil {
 		return nil, "", err
 	}
-	// Go 1.25's OpenRoot(".") gives a root whose walks name entries "./x"; reuse the open one.
+	// The project folder itself: the open root already is it.
 	if p.name == "." {
 		return p.root, p.full, nil
 	}

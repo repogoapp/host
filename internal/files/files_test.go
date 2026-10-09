@@ -73,6 +73,19 @@ func TestListsDirectoriesFirst(t *testing.T) {
 	}
 }
 
+// A folder below the project root opens as a nested root, which stats its
+// entries differently from the root itself.
+func TestListsASubfolder(t *testing.T) {
+	svc, root, _ := project(t)
+	entries, err := svc.List(filepath.Join(root, "src"))
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name != "main.go" || entries[0].Size == 0 {
+		t.Fatalf("entries = %+v, want src/main.go", entries)
+	}
+}
+
 // --- the escapes -------------------------------------------------------------
 
 func TestRefusesAPathOutsideEveryRoot(t *testing.T) {

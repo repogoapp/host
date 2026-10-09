@@ -185,7 +185,8 @@ func (s *Service) List(path string) ([]Entry, error) {
 		if len(out) >= MaxEntries {
 			break
 		}
-		info, err := item.Info()
+		// Not item.Info: on Go 1.25 a nested root's entries stat "./name" and fail.
+		info, err := root.Lstat(item.Name())
 		if err != nil {
 			continue // vanished between the read and the stat; not worth failing over
 		}
