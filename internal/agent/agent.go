@@ -186,6 +186,38 @@ type ToolCall struct {
 	Input   json.RawMessage `json:"input,omitempty"`
 	Output  string          `json:"output,omitempty"`
 	IsError bool            `json:"is_error,omitempty"`
+
+	// Result is what the agent recorded about the run beyond its text; nil
+	// when it recorded nothing a tool page draws.
+	Result *ToolResult `json:"result,omitempty"`
+}
+
+// ToolResult is a call's outcome as the agent stored it. Each field is set
+// only when the agent recorded it; ExitCode is a pointer because 0 is a result.
+type ToolResult struct {
+	ExitCode    *int          `json:"exit_code,omitempty"`
+	DurationMS  int64         `json:"duration_ms,omitempty"`
+	Interrupted bool          `json:"interrupted,omitempty"`
+	TimedOut    bool          `json:"timed_out,omitempty"`
+	Stderr      string        `json:"stderr,omitempty"`
+	Commands    []ToolCommand `json:"commands,omitempty"`
+	Created     bool          `json:"created,omitempty"`
+	URLs        []ToolURL     `json:"urls,omitempty"`
+	HTTPStatus  int           `json:"http_status,omitempty"`
+}
+
+// ToolCommand is one command a Codex code cell ran.
+type ToolCommand struct {
+	Command    string `json:"command,omitempty"`
+	ExitCode   *int   `json:"exit_code,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	Output     string `json:"output,omitempty"`
+}
+
+// ToolURL is one page a web search returned.
+type ToolURL struct {
+	Title string `json:"title,omitempty"`
+	URL   string `json:"url,omitempty"`
 }
 
 type Usage struct {

@@ -72,7 +72,8 @@ func firstDiff(want, got []agent.Event) string {
 		if a.Kind != b.Kind || a.TurnID != b.TurnID || a.At != b.At || a.Text != b.Text || a.Error != b.Error ||
 			(a.Tool == nil) != (b.Tool == nil) ||
 			(a.Tool != nil && (a.Tool.CallID != b.Tool.CallID || a.Tool.Name != b.Tool.Name || a.Tool.Output != b.Tool.Output ||
-				a.Tool.IsError != b.Tool.IsError || string(a.Tool.Input) != string(b.Tool.Input))) {
+				a.Tool.IsError != b.Tool.IsError || string(a.Tool.Input) != string(b.Tool.Input) ||
+				!reflect.DeepEqual(a.Tool.Result, b.Tool.Result))) {
 			if !reflect.DeepEqual(a, b) {
 				return fmt.Sprintf("event %d (%s): go %s | native %s", i, a.Kind, summarize(a), summarize(b))
 			}

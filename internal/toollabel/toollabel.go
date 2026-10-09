@@ -123,15 +123,15 @@ func Delete(args map[string]any) Label {
 func Shell(args map[string]any) Label {
 	line := String(args, "description")
 	if line == "" {
-		line = shellCommand(args)
+		line = ShellCommand(args)
 	}
 	line = Preview(line, 40, "command")
 	return New("terminal", line, line, "Command attempted")
 }
 
-// shellCommand is the command a shell call runs: `command` or `cmd` as text,
+// ShellCommand is the command a shell call runs: `command` or `cmd` as text,
 // or an argv, whose `sh -lc <script>` form reads as the script.
-func shellCommand(args map[string]any) string {
+func ShellCommand(args map[string]any) string {
 	if command, ok := args["command"].(string); ok {
 		return command
 	}

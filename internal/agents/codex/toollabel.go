@@ -55,6 +55,7 @@ func (p *Provider) Resolve(call agent.ToolCall) agent.ToolCall {
 	}
 	_, script := toollabel.Input(call.Input)
 	calls := codeCellCalls(script)
+	call.Result = cellResult(calls, call.Output)
 	if len(calls) != 1 {
 		return call
 	}

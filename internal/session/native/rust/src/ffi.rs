@@ -18,8 +18,9 @@ pub const REPOGO_AGENT_CODEX: u32 = 1;
 //
 //   u32 count
 //   per event: u8 kind, i64 at, u8 has_tool, u8 is_error,
-//              then strings turn_id, text, error, call_id, name, input, output
-//   string:    u32 len, bytes   (len 0xFFFFFFFF = absent, used for tool.input)
+//              then strings turn_id, text, error, call_id, name, input, output, result
+//   string:    u32 len, bytes   (len 0xFFFFFFFF = absent: tool.input, and
+//              tool.result, which is the ToolResult as JSON)
 //
 // Kind is its position in agent.EventKind's list; see native.go.
 const NONE: u32 = u32::MAX;
@@ -64,12 +65,17 @@ fn encode(events: &[Event]) -> Vec<u8> {
                     None => out.extend_from_slice(&NONE.to_le_bytes()),
                 }
                 put_str(&mut out, &t.output);
+                match t.result.as_ref().and_then(|r| serde_json::to_string(r).ok()) {
+                    Some(json) => put_str(&mut out, &json),
+                    None => out.extend_from_slice(&NONE.to_le_bytes()),
+                }
             }
             None => {
                 put_str(&mut out, "");
                 put_str(&mut out, "");
                 out.extend_from_slice(&NONE.to_le_bytes());
                 put_str(&mut out, "");
+                out.extend_from_slice(&NONE.to_le_bytes());
             }
         }
     }

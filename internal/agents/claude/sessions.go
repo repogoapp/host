@@ -2,6 +2,7 @@ package claude
 
 import (
 	"cmp"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -269,10 +270,12 @@ func parseUser(l claudeTranscriptLine) []agent.Event {
 	for _, b := range l.Message.Content.Blocks {
 		switch b.Type {
 		case "tool_result":
+			output, result := toolResult(l.ToolUseResult, b.contentText(), b.IsError)
 			out = append(out, agent.Event{Kind: agent.EventToolResult, TurnID: l.PromptID, Tool: &agent.ToolCall{
 				CallID:  b.ToolUseID,
-				Output:  b.contentText(),
+				Output:  output,
 				IsError: b.IsError,
+				Result:  result,
 			}})
 		case "text":
 			if p := userProse(b.Text); p != "" {
@@ -484,6 +487,8 @@ type claudeTranscriptLine struct {
 	// PromptID names the turn: the CLI stamps it on a prompt and on every tool
 	// result sent back while answering it. Replies carry none (claudeTurns).
 	PromptID string `json:"promptId"`
+	// ToolUseResult is the CLI's own record of a tool result, beside it.
+	ToolUseResult json.RawMessage `json:"toolUseResult"`
 
 	Message struct {
 		Model   string        `json:"model"`

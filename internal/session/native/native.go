@@ -12,6 +12,7 @@ import "C"
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"math"
 	"unsafe"
@@ -118,7 +119,7 @@ func ParseFile(parser Parser, path, sessionID string) ([]agent.Event, error) {
 	defer C.repogo_free(buf, n)
 
 	// The layout is documented in ffi.rs: a count, then per event a kind
-	// byte, i64 at, two flag bytes, and seven length-prefixed strings. Each
+	// byte, i64 at, two flag bytes, and eight length-prefixed strings. Each
 	// string is copied once into Go memory; nothing is parsed.
 	raw := unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(n))
 	r := reader{buf: raw}
@@ -136,10 +137,17 @@ func ParseFile(parser Parser, path, sessionID string) ([]agent.Event, error) {
 		callID, name := r.str(), r.str()
 		input, hasInput := r.optStr()
 		output := r.str()
+		result, hasResult := r.optStr()
 		if hasTool {
 			t := &agent.ToolCall{CallID: callID, Name: name, Output: output, IsError: isError}
 			if hasInput {
 				t.Input = []byte(input)
+			}
+			if hasResult {
+				t.Result = &agent.ToolResult{}
+				if json.Unmarshal([]byte(result), t.Result) != nil {
+					return nil, errors.New("native: malformed tool result")
+				}
 			}
 			e.Tool = t
 		}

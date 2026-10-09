@@ -129,6 +129,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `input` json (omitted when empty) (nullable)
 - `output` string (omitted when empty)
 - `output_bytes` int (omitted when empty)
+- `result` object{ToolResult} (omitted when empty) (nullable)
 
 ## `devices.changed`
 

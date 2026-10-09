@@ -56,6 +56,42 @@ pub struct ToolCall {
     pub output: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_error: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<ToolResult>,
+}
+
+// Go's agent.ToolResult less Commands, which only a Codex cell has and Go reads.
+#[derive(Serialize, Debug, Default)]
+pub struct ToolResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub duration_ms: i64,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub interrupted: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub timed_out: bool,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub stderr: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub created: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<ToolUrl>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub http_status: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(default)]
+pub struct ToolUrl {
+    #[serde(skip_serializing_if = "String::is_empty", deserialize_with = "s")]
+    pub title: String,
+    #[serde(skip_serializing_if = "String::is_empty", deserialize_with = "s")]
+    pub url: String,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Default)]
@@ -116,6 +152,10 @@ pub fn b<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
 
 pub fn i<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
     Ok(Option::<i64>::deserialize(d)?.unwrap_or_default())
+}
+
+pub fn f<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    Ok(Option::<f64>::deserialize(d)?.unwrap_or_default())
 }
 
 pub fn v<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Vec<T>, D::Error> {

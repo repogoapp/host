@@ -113,7 +113,8 @@ func (s *liveSession) handleMessage(m claudecode.Message) {
 				if name == "" {
 					continue
 				}
-				events = append(events, agent.Event{Kind: agent.EventToolResult, Tool: &agent.ToolCall{CallID: block.ToolUseID, Name: name, Output: flattenBlocks(block.Content), IsError: block.IsError}})
+				output, result := toolResult(m.ToolUseResult, flattenBlocks(block.Content), block.IsError)
+				events = append(events, agent.Event{Kind: agent.EventToolResult, Tool: &agent.ToolCall{CallID: block.ToolUseID, Name: name, Output: output, IsError: block.IsError, Result: result}})
 			}
 		}
 	}

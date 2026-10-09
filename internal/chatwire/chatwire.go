@@ -129,6 +129,10 @@ type ToolDetail struct {
 
 	// OutputBytes is the output's full size when it was cut to MaxOutput.
 	OutputBytes int `json:"output_bytes,omitempty"`
+
+	// Result is what the agent recorded beyond the output: exit code, time,
+	// stderr, a cell's commands, a search's links. Only the sheet gets it.
+	Result *agent.ToolResult `json:"result,omitempty"`
 }
 
 // MaxOutput is how much of a call's output a sheet gets; a command can print
@@ -219,6 +223,9 @@ func (b *Builder) Details(kind agent.Kind, rows []store.Message) []ToolDetail {
 		if row.Output != "" {
 			call.Output = row.Output
 		}
+		if row.Result != nil {
+			call.Result = row.Result
+		}
 		call.IsError = call.IsError || row.IsError
 		finished[row.CallID] = finished[row.CallID] || agent.EventKind(m.Kind) == agent.EventToolResult
 	}
@@ -240,12 +247,39 @@ func (b *Builder) detail(kind agent.Kind, call agent.ToolCall, finished bool) To
 	if l, ok := b.labelers[kind]; ok {
 		call = l.Resolve(call)
 	}
-	d := ToolDetail{CallID: call.CallID, Name: call.Name, State: state, Input: call.Input, Output: call.Output}
+	d := ToolDetail{CallID: call.CallID, Name: call.Name, State: state, Input: call.Input, Output: call.Output, Result: capped(call.Result)}
 	if len(d.Output) > MaxOutput {
 		d.OutputBytes = len(d.Output)
-		d.Output = strings.ToValidUTF8(d.Output[:MaxOutput], "")
+		d.Output = cut(d.Output)
 	}
 	return d
+}
+
+// capped is r with its stderr and each command's output cut to MaxOutput,
+// copied so the stored call is left whole.
+func capped(r *agent.ToolResult) *agent.ToolResult {
+	if r == nil {
+		return nil
+	}
+	out := *r
+	out.Stderr = cut(out.Stderr)
+	out.Commands = make([]agent.ToolCommand, len(r.Commands))
+	for i, c := range r.Commands {
+		c.Output = cut(c.Output)
+		out.Commands[i] = c
+	}
+	if len(out.Commands) == 0 {
+		out.Commands = nil
+	}
+	return &out
+}
+
+// cut is s at most MaxOutput bytes, a rune split at the end dropped.
+func cut(s string) string {
+	if len(s) <= MaxOutput {
+		return s
+	}
+	return strings.ToValidUTF8(s[:MaxOutput], "")
 }
 
 // Labeled is the row for a named call: its name and label, and the file it

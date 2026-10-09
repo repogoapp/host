@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 
 use crate::contextwindow::context_window_for;
-use crate::event::{self, Agent, Event, Kind, Meta, ToolCall};
+use crate::event::{self, Agent, Event, Kind, Meta, ToolCall, ToolResult, ToolUrl};
 use crate::home::claude_home;
 use crate::images;
 use crate::peek::{scan_head, scan_tail, PeekResult};
@@ -270,6 +270,8 @@ struct Line {
     // Names the turn on a prompt and its tool results; mirrors PromptID in agents/claude/sessions.go.
     #[serde(rename = "promptId", deserialize_with = "event::s")]
     prompt_id: String,
+    #[serde(rename = "toolUseResult", deserialize_with = "event::raw")]
+    tool_use_result: Option<Box<RawValue>>,
     message: Option<Message>,
     attachment: Option<Attachment>,
 }
@@ -357,17 +359,16 @@ impl Provider for Claude {
                 for b in blocks {
                     match b.typ.as_str() {
                         "image" => images.push(b.source.unwrap_or_default()),
-                        "tool_result" => out.push(Event {
-                            kind: Kind::ToolResult,
-                            turn_id: l.prompt_id.clone(),
-                            tool: Some(ToolCall {
-                                call_id: b.tool_use_id,
-                                output: flatten_blocks(b.content.as_deref()),
-                                is_error: b.is_error,
+                        "tool_result" => {
+                            let (output, result) =
+                                tool_result(l.tool_use_result.as_deref(), flatten_blocks(b.content.as_deref()), b.is_error);
+                            out.push(Event {
+                                kind: Kind::ToolResult,
+                                turn_id: l.prompt_id.clone(),
+                                tool: Some(ToolCall { call_id: b.tool_use_id, output, is_error: b.is_error, result, ..Default::default() }),
                                 ..Default::default()
-                            }),
-                            ..Default::default()
-                        }),
+                            })
+                        }
                         "text" => {
                             let p = user_prose(&b.text);
                             if !p.is_empty() {
@@ -511,4 +512,78 @@ pub fn flatten_blocks(raw: Option<&RawValue>) -> String {
             .collect();
     }
     text.to_string()
+}
+
+// Mirrors claudeToolUseResult in agents/claude/toolresult.go.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ToolUseResult {
+    #[serde(rename = "type", deserialize_with = "event::s")]
+    typ: String,
+    #[serde(deserialize_with = "event::s")]
+    stdout: String,
+    #[serde(deserialize_with = "event::s")]
+    stderr: String,
+    interrupted: Option<bool>,
+    #[serde(rename = "timedOutAfterMs", deserialize_with = "event::i")]
+    timed_out_after_ms: i64,
+    #[serde(deserialize_with = "event::i")]
+    code: i64,
+    #[serde(rename = "durationMs", deserialize_with = "event::f")]
+    duration_ms: f64,
+    #[serde(rename = "durationSeconds", deserialize_with = "event::f")]
+    duration_seconds: f64,
+    #[serde(deserialize_with = "event::v")]
+    results: Vec<Box<RawValue>>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SearchBlock {
+    #[serde(deserialize_with = "event::v")]
+    content: Vec<ToolUrl>,
+}
+
+// Mirrors toolResult in agents/claude/toolresult.go.
+fn tool_result(raw: Option<&RawValue>, mut output: String, is_error: bool) -> (String, Option<ToolResult>) {
+    let mut r = ToolResult::default();
+    if is_error {
+        r.exit_code = exit_code(&output);
+    }
+    let parsed = raw
+        .map(|v| v.get())
+        .filter(|v| v.starts_with('{'))
+        .and_then(|v| serde_json::from_str::<ToolUseResult>(v).ok());
+    if let Some(u) = parsed {
+        if let Some(interrupted) = u.interrupted {
+            r.interrupted = interrupted;
+            r.timed_out = u.timed_out_after_ms > 0;
+            if !u.stderr.trim().is_empty() {
+                r.stderr = u.stderr;
+                output = u.stdout;
+            }
+        }
+        r.created = u.typ == "create";
+        r.http_status = u.code;
+        r.duration_ms = u.duration_ms as i64;
+        if u.duration_seconds > 0.0 {
+            r.duration_ms = (u.duration_seconds * 1000.0) as i64;
+        }
+        for block in &u.results {
+            let raw = block.get();
+            if !raw.starts_with('{') {
+                continue;
+            }
+            let Ok(b) = serde_json::from_str::<SearchBlock>(raw) else { continue };
+            r.urls.extend(b.content.into_iter().filter(|u| !u.url.is_empty()));
+        }
+    }
+    let empty = r.exit_code.is_none() && r.duration_ms == 0 && !r.interrupted && !r.timed_out && r.stderr.is_empty()
+        && !r.created && r.urls.is_empty() && r.http_status == 0;
+    (output, if empty { None } else { Some(r) })
+}
+
+fn exit_code(output: &str) -> Option<i64> {
+    let line = output.split('\n').next().unwrap_or("");
+    line.strip_prefix("Exit code ")?.parse().ok()
 }

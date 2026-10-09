@@ -9,7 +9,30 @@
         "input": "input"
       },
       "output": "output",
-      "output_bytes": 1
+      "output_bytes": 1,
+      "result": {
+        "exit_code": 1,
+        "duration_ms": 1,
+        "interrupted": true,
+        "timed_out": true,
+        "stderr": "stderr",
+        "commands": [
+          {
+            "command": "command",
+            "exit_code": 1,
+            "duration_ms": 1,
+            "output": "output"
+          }
+        ],
+        "created": true,
+        "urls": [
+          {
+            "title": "title",
+            "url": "url"
+          }
+        ],
+        "http_status": 1
+      }
     }
   ]
 }
