@@ -310,6 +310,7 @@ Result:
 - `queued_count` int (omitted when empty)
 - `queue_rev` int (omitted when empty)
 - `match` string (omitted when empty)
+- `match_idx` int (omitted when empty) (nullable)
 
 ## `chats.list`
 
@@ -373,6 +374,17 @@ Result:
 - `previous` object{Chat} (nullable)
 - `next` object{Chat} (nullable)
 - `host_id` string
+
+## `chats.outline`
+
+Params:
+
+- `chat_id` string
+
+Result:
+
+- `prompts` [int]
+- `generation` int
 
 ## `chats.queue`
 

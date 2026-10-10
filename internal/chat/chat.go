@@ -134,6 +134,9 @@ func (s *Service) Neighbors(id store.ChatID, q store.ChatQuery) (previous, next 
 	return previous, next, err
 }
 
+// Outline is the index of every prompt in one chat, for the message scrubber.
+func (s *Service) Outline(id store.ChatID) (store.Outline, error) { return s.d.Cache.Outline(id) }
+
 // Page selects a transcript read. A transcript opens at the bottom and pages
 // upward, so the two directions need separate cursors; absent both, this is
 // the live push cursor's read.

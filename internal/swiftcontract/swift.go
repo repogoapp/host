@@ -22,7 +22,7 @@ var methodExports = map[string]bool{
 	"vercel.deployments":  true,
 	"chats.messages":      true, "chats.subscribe": true, "chats.unsubscribe": true,
 	"chats.tools_subscribe": true, "chats.tools_unsubscribe": true,
-	"chats.subagent": true, "chats.neighbors": true,
+	"chats.subagent": true, "chats.neighbors": true, "chats.outline": true,
 	"limits.read": true, "limits.reset": true,
 	// Usage, devices and project picking.
 	"usage.history": true, "usage.daily": true, "devices.register_push": true, "devices.list": true, "devices.revoke": true,
@@ -289,6 +289,12 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 	if t.PkgPath() == "github.com/repogo/host/internal/schedule" ||
 		(t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "Schedule") ||
 		(t.PkgPath() == "github.com/repogo/host/internal/agent" && t.Name() == "TurnConfig") {
+		return "Codable"
+	}
+	// The phone caches each chat's newest transcript rows to paint on open.
+	if (t.PkgPath() == "github.com/repogo/host/internal/chatwire" && (t.Name() == "Message" || t.Name() == "Tool" || t.Name() == "Todo")) ||
+		(t.PkgPath() == "github.com/repogo/host/internal/chatlive" && t.Name() == "Appended") ||
+		(t.PkgPath() == "github.com/repogo/host/internal/toollabel" && t.Name() == "Lines") {
 		return "Codable"
 	}
 	// Battery is persisted in widget snapshots; status is encoded for diagnostics.

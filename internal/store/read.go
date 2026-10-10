@@ -122,6 +122,9 @@ type Chat struct {
 	// Under a search, the words around the hit in the chat's prompts and
 	// replies, each matched word marked ⟪…⟫; empty when the title matched.
 	Match string `json:"match,omitempty"`
+	// The index of the prompt or reply Match was cut from, where the phone
+	// opens the chat; nil when the title matched.
+	MatchIdx *int `json:"match_idx,omitempty"`
 }
 
 // Stamp adds what the cache does not store, for a row leaving this host: the
@@ -556,6 +559,35 @@ func (s *Store) header(id ChatID) (Page, int64, error) {
 	}
 	page.NextIdx = page.EventCount
 	return page, sid, nil
+}
+
+// Outline is the index of every prompt in one chat, oldest first: the stops
+// the phone's message scrubber jumps between, held or not.
+type Outline struct {
+	Prompts    []int
+	Generation int64
+}
+
+func (s *Store) Outline(id ChatID) (Outline, error) {
+	page, sid, err := s.header(id)
+	if err != nil {
+		return Outline{}, err
+	}
+	rows, err := s.db.Query(`SELECT idx FROM events WHERE sid = ? AND kind = ? ORDER BY idx`,
+		sid, string(agent.EventUserMessage))
+	if err != nil {
+		return Outline{}, fmt.Errorf("store: outline: %w", err)
+	}
+	defer rows.Close()
+	out := Outline{Prompts: []int{}, Generation: page.Generation}
+	for rows.Next() {
+		var idx int
+		if err := rows.Scan(&idx); err != nil {
+			return Outline{}, err
+		}
+		out.Prompts = append(out.Prompts, idx)
+	}
+	return out, rows.Err()
 }
 
 // backward selects the last `limit` events below beforeIdx, or of the whole

@@ -50,6 +50,7 @@ func vocabulary(root string) []check {
 		{method: "chats.messages", params: map[string]any{"chat_id": "claude:missing", "tail": true}, key: "events"},
 		{method: "chats.unsubscribe", key: "ok"},
 		{method: "chats.queue", params: map[string]any{"chat_id": "claude:missing"}, key: "queued"},
+		{method: "chats.outline", params: map[string]any{"chat_id": "claude:missing"}, key: "prompts"},
 		{method: "chats.tools_subscribe", params: map[string]any{"chat_id": "claude:missing", "call_ids": []string{"c1"}}, key: "tools"},
 		{method: "chats.tools_unsubscribe", params: map[string]any{"chat_id": "claude:missing", "call_ids": []string{"c1"}}, key: "ok"},
 		{method: "fs.stop", key: "ok"},

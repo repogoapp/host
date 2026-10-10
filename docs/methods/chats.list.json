@@ -35,7 +35,8 @@
       },
       "queued_count": 1,
       "queue_rev": 1,
-      "match": "match"
+      "match": "match",
+      "match_idx": 1
     }
   ],
   "next_cursor": "next_cursor",

@@ -34,6 +34,8 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "chats.sync", d.sync)
 	rpc.Add(r, "chats.neighbors", d.neighbors)
 	rpc.Add(r, "chats.messages", d.messages)
+	// Every prompt's index, so the scrubber reaches prompts not yet paged in.
+	rpc.Add(r, "chats.outline", d.outline)
 	rpc.Add(r, "chats.subagent", d.subagent)
 	// A tool sheet's calls whole, and each again as its rows land while open.
 	rpc.Add(r, "chats.tools_subscribe", d.toolsSubscribe)
@@ -83,6 +85,11 @@ func (d Deps) messages(_ context.Context, _ rpc.Caller, a MessagesParams) (chatw
 		return chatwire.Page{}, err
 	}
 	return d.Wire.Page(page), nil
+}
+
+func (d Deps) outline(_ context.Context, _ rpc.Caller, a ChatParams) (OutlineResult, error) {
+	outline, err := d.Chats.Outline(a.ChatID)
+	return OutlineResult{Prompts: outline.Prompts, Generation: outline.Generation}, err
 }
 
 // subagent is in the same event shape as chats.messages.

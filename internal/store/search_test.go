@@ -89,6 +89,29 @@ func TestSearchMarksTheWordsAroundTheHit(t *testing.T) {
 	}
 }
 
+// The match carries the index of the event it came from, so the phone opens
+// the chat there; a word in several events takes the one the snippet shows.
+func TestSearchPointsAtTheMatchedEvent(t *testing.T) {
+	db := newStore(t)
+	syncChat(t, db, "a", "Release notes",
+		prompt("rename the drawer"), reply("Renamed it."),
+		prompt("the sparkle updater fails"), reply("Fixed the sparkle appcast signature."))
+
+	for search, want := range map[string]int{"sparkle updater": 2, "appcast": 3, "drawer": 0} {
+		page, err := db.Chats(ChatQuery{Search: search})
+		if err != nil || len(page.Chats) != 1 {
+			t.Fatalf("search %q = %+v, %v", search, page.Chats, err)
+		}
+		if got := page.Chats[0].MatchIdx; got == nil || *got != want {
+			t.Errorf("search %q match_idx = %v, want %d", search, got, want)
+		}
+	}
+	page, err := db.Chats(ChatQuery{Search: "release"})
+	if err != nil || len(page.Chats) != 1 || page.Chats[0].MatchIdx != nil {
+		t.Errorf("title-only search = %+v, %v; want no match_idx", page.Chats, err)
+	}
+}
+
 // Tool output and reasoning are left out: a file dump or a thought would make
 // nearly every chat match.
 func TestSearchSkipsToolOutputAndReasoning(t *testing.T) {
@@ -302,5 +325,21 @@ func TestSearchPages(t *testing.T) {
 	second, err := db.Chats(ChatQuery{Search: "sparkle", Limit: 2, Cursor: first.NextCursor})
 	if err != nil || len(second.Chats) != 1 || second.Chats[0].ID != "claude:a" {
 		t.Errorf("second page = %+v, %v; want only claude:a", second.Chats, err)
+	}
+}
+
+func TestOutlineListsEveryPrompt(t *testing.T) {
+	db := newStore(t)
+	syncChat(t, db, "a", "Release notes",
+		prompt("rename the drawer"), reply("Renamed it."),
+		prompt("the sparkle updater fails"), reply("Fixed."), reply("Anything else?"),
+		prompt("thanks"))
+
+	outline, err := db.Outline("claude:a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int{0, 2, 5}; !slices.Equal(outline.Prompts, want) {
+		t.Errorf("prompts = %v, want %v", outline.Prompts, want)
 	}
 }

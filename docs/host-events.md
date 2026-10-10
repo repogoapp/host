@@ -95,6 +95,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `queued_count` int (omitted when empty)
 - `queue_rev` int (omitted when empty)
 - `match` string (omitted when empty)
+- `match_idx` int (omitted when empty) (nullable)
 
 ## `chats.removed`
 

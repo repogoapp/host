@@ -159,8 +159,9 @@ const (
 	matchClose = "⟫"
 )
 
-// addMatches sets each chat's Match: the words around the hit in its prompts
-// and replies. A chat found by its title alone keeps an empty Match.
+// addMatches sets each chat's Match, the words around the hit in its prompts
+// and replies, and MatchIdx, the event they came from. A chat found by its
+// title alone keeps both empty.
 func (s *Store) addMatches(chats []Chat, match string) error {
 	if len(chats) == 0 {
 		return nil
@@ -177,17 +178,20 @@ func (s *Store) addMatches(chats []Chat, match string) error {
 		args = append(args, agent, sessionID)
 		byID[chats[i].ID] = &chats[i]
 	}
-	rows, err := s.db.Query(`SELECT s.agent, s.session_id, snippet(chat_search, ?, ?, '…', 1, 16)
+	rows, err := s.db.Query(`SELECT s.sid, s.agent, s.session_id, snippet(chat_search, ?, ?, '…', 1, 16)
 		FROM chat_search JOIN sessions s ON s.sid = chat_search.rowid
 		WHERE chat_search MATCH ? AND (s.agent, s.session_id) IN (VALUES `+strings.Join(values, ", ")+`)`,
 		append([]any{matchOpen, matchClose}, args...)...)
 	if err != nil {
 		return fmt.Errorf("store: search snippets: %w", err)
 	}
-	defer rows.Close()
+	snippets := map[int64]string{}
+	sids := map[int64]*Chat{}
 	for rows.Next() {
+		var sid int64
 		var agent, sessionID, snippet string
-		if err := rows.Scan(&agent, &sessionID, &snippet); err != nil {
+		if err := rows.Scan(&sid, &agent, &sessionID, &snippet); err != nil {
+			rows.Close()
 			return err
 		}
 		chat := byID[chatID(agent, sessionID)]
@@ -195,6 +199,59 @@ func (s *Store) addMatches(chats []Chat, match string) error {
 			continue
 		}
 		chat.Match = strings.Join(strings.Fields(snippet), " ")
+		snippets[sid], sids[sid] = snippet, chat
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for sid, chat := range sids {
+		idx, err := s.matchIdx(sid, snippets[sid])
+		if err != nil {
+			return err
+		}
+		chat.MatchIdx = idx
+	}
+	return nil
+}
+
+// matchIdx is the prompt or reply a snippet was cut from, so the phone can open
+// the chat there. The body joins events with a blank line, so the snippet's
+// part holding the first hit lies inside one event. Nil when none holds it.
+func (s *Store) matchIdx(sid int64, snippet string) (*int, error) {
+	part := snippet
+	for p := range strings.SplitSeq(snippet, "\n\n") {
+		if strings.Contains(p, matchOpen) {
+			part = p
+			break
+		}
+	}
+	word := part[strings.Index(part, matchOpen)+len(matchOpen):]
+	word, _, _ = strings.Cut(word, matchClose)
+	part = strings.NewReplacer(matchOpen, "", matchClose, "", "…", "").Replace(part)
+	part = strings.Join(strings.Fields(part), " ")
+
+	rows, err := s.db.Query(`SELECT idx, text FROM events WHERE sid = ? AND kind IN (?, ?) AND text != '' ORDER BY idx`,
+		sid, string(agent.EventUserMessage), string(agent.EventText))
+	if err != nil {
+		return nil, fmt.Errorf("store: search match event: %w", err)
+	}
+	defer rows.Close()
+	var first *int
+	for rows.Next() {
+		var idx int
+		var text string
+		if err := rows.Scan(&idx, &text); err != nil {
+			return nil, err
+		}
+		text = strings.Join(strings.Fields(indexText(text)), " ")
+		if strings.Contains(text, part) {
+			return &idx, nil
+		}
+		if first == nil && strings.Contains(text, word) {
+			first = &idx
+		}
+	}
+	return first, rows.Err()
 }
