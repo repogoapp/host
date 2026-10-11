@@ -422,3 +422,39 @@ func TestOpenRefusesTheHostsOwnPort(t *testing.T) {
 		t.Fatalf("Open(own port) = %v, want ErrInvalid", err)
 	}
 }
+
+func TestNoEndLastsUntilClosed(t *testing.T) {
+	s, _ := newService(t, "127.0.0.1:1", peers{phone: {ID: phone}})
+	if _, err := s.Open(phone, "abcdefghij12", 3000, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Open(phone, "zzzzzzzzzz12", 3001, inAnHour()); err != nil {
+		t.Fatal(err)
+	}
+	s.now = func() time.Time { return time.Now().Add(365 * 24 * time.Hour) }
+	if port, ok := s.allowed("abcdefghij12"); !ok || port != 3000 {
+		t.Fatalf("a tunnel with no end stopped: %d %v", port, ok)
+	}
+	if _, ok := s.allowed("zzzzzzzzzz12"); ok {
+		t.Fatal("an expired tunnel is still served")
+	}
+	if err := s.Close("abcdefghij12"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.allowed("abcdefghij12"); ok {
+		t.Fatal("a closed tunnel is still served")
+	}
+}
+
+func TestNoEndListsLast(t *testing.T) {
+	s, _ := newService(t, "127.0.0.1:1", peers{phone: {ID: phone}})
+	if _, err := s.Open(phone, "abcdefghij12", 3000, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Open(phone, "zzzzzzzzzz12", 3001, inAnHour()); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.List(); len(got) != 2 || got[0].Slug != "zzzzzzzzzz12" || got[1].ExpiresAt != 0 {
+		t.Fatalf("order: %+v", got)
+	}
+}
