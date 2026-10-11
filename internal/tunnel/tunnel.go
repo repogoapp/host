@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"regexp"
 	"sort"
 	"sync"
@@ -34,9 +33,7 @@ const Domain = "repogo.dev"
 // every proof, so a proof made for it is useless anywhere else.
 const DefaultGateway = "gateway.repogo.dev:50051"
 
-// MaxDuration bounds a tunnel that has an end; one with no end (ExpiresAt 0)
-// lasts until it is closed, and repogo.app stops routing it when its owner's
-// subscription lapses.
+// MaxDuration matches repogo.app's longest tunnel, with room for clock skew.
 const MaxDuration = 7*24*time.Hour + 5*time.Minute
 
 // Slugs are repogo.app's random base36 names.
@@ -47,7 +44,7 @@ type Tunnel struct {
 	Slug      string    `json:"slug"`
 	URL       string    `json:"url"`
 	Port      int       `json:"port"`
-	ExpiresAt int64     `json:"expires_at"` // Unix ms, as repogo.app granted it; 0 is until closed
+	ExpiresAt int64     `json:"expires_at"` // Unix ms, as repogo.app granted it
 	OpenedBy  device.ID `json:"opened_by"`
 	OpenedAt  int64     `json:"opened_at"`
 }
@@ -102,9 +99,8 @@ func Open(cfg Config) (*Service, error) {
 	return s, nil
 }
 
-// Open allows slug to reach port until expiresAt, or until closed when it is
-// 0. The phone calls it after repogo.app granted the slug; opening the same
-// slug again updates it.
+// Open allows slug to reach port until expiresAt. The phone calls it after
+// repogo.app granted the slug; opening the same slug again updates it.
 func (s *Service) Open(by device.ID, slug string, port int, expiresAt int64) (Tunnel, error) {
 	now := s.now()
 	switch {
@@ -114,8 +110,8 @@ func (s *Service) Open(by device.ID, slug string, port int, expiresAt int64) (Tu
 		return Tunnel{}, fmt.Errorf("%w: port must be from 1024 to 65535", ErrInvalid)
 	case port == s.cfg.OwnPort():
 		return Tunnel{}, fmt.Errorf("%w: port %d is the host's own", ErrInvalid, port)
-	case expiresAt != 0 && (expiresAt <= now.UnixMilli() || expiresAt > now.Add(MaxDuration).UnixMilli()):
-		return Tunnel{}, fmt.Errorf("%w: expires_at must be 0 or within seven days from now", ErrInvalid)
+	case expiresAt <= now.UnixMilli() || expiresAt > now.Add(MaxDuration).UnixMilli():
+		return Tunnel{}, fmt.Errorf("%w: expires_at must be within seven days from now", ErrInvalid)
 	}
 	t := Tunnel{Slug: slug, URL: "https://" + slug + "." + Domain, Port: port, ExpiresAt: expiresAt, OpenedBy: by, OpenedAt: now.UnixMilli()}
 	s.mu.Lock()
@@ -164,7 +160,7 @@ func (s *Service) ClosePort(port int) error {
 	return nil
 }
 
-// List is the open tunnels, soonest to expire first, then those with no end.
+// List is the open tunnels, soonest to expire first.
 func (s *Service) List() []Tunnel {
 	s.prune()
 	s.mu.Lock()
@@ -196,20 +192,12 @@ func (s *Service) listLocked() []Tunnel {
 		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if a, b := sortKey(out[i]), sortKey(out[j]); a != b {
-			return a < b
+		if out[i].ExpiresAt != out[j].ExpiresAt {
+			return out[i].ExpiresAt < out[j].ExpiresAt
 		}
 		return out[i].Slug < out[j].Slug
 	})
 	return out
-}
-
-// sortKey puts a tunnel with no end after every one that expires.
-func sortKey(t Tunnel) int64 {
-	if t.ExpiresAt == 0 {
-		return math.MaxInt64
-	}
-	return t.ExpiresAt
 }
 
 // allowed is the port slug may reach, if it is open, unexpired, and its
@@ -225,7 +213,7 @@ func (s *Service) allowed(slug string) (int, bool) {
 }
 
 func (s *Service) live(t Tunnel) bool {
-	if t.ExpiresAt != 0 && t.ExpiresAt <= s.now().UnixMilli() {
+	if t.ExpiresAt <= s.now().UnixMilli() {
 		return false
 	}
 	_, err := s.cfg.Peers.Peer(t.OpenedBy)
