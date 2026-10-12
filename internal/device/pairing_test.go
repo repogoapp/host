@@ -78,6 +78,31 @@ func TestOneTimePairingBesideReusable(t *testing.T) {
 	}
 }
 
+// The reviewer's phone reaches the host over the relay, which admits
+// strangers only while Accepting says so.
+func TestAcceptingWithOnlyAReusableInvite(t *testing.T) {
+	p, _ := openPairer(t)
+	if p.Accepting() {
+		t.Fatal("accepting with no code or invite")
+	}
+	if _, err := p.BeginReusable("addr", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Accepting() {
+		t.Fatal("not accepting while a reusable invite is live")
+	}
+	p.reusable.ExpiresAt = time.Now().Add(-time.Second).UnixMilli()
+	if p.Accepting() {
+		t.Fatal("accepting after the reusable invite expired")
+	}
+	if _, err := p.Begin("addr"); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Accepting() {
+		t.Fatal("not accepting while a one-time code is live")
+	}
+}
+
 func TestReusableInviteEnds(t *testing.T) {
 	p, path := openPairer(t)
 	invite, err := p.BeginReusable("addr", time.Hour)

@@ -221,6 +221,14 @@ func (p *Pairer) Pending() (bool, time.Time) {
 	return true, p.expires
 }
 
+// Accepting reports whether a stranger may pair now: a one-time code or the
+// reusable invite is live.
+func (p *Pairer) Accepting() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return (p.code != "" && !time.Now().After(p.expires)) || p.reusableLive()
+}
+
 // Proof binds a joining device's public key to the pairing code. HMAC rather
 // than a hash so only someone holding the code can produce or check it.
 func Proof(code string, pub []byte) []byte {

@@ -364,7 +364,7 @@ func (h *Host) openTransports() error {
 	h.link, err = hostlink.New(hostlink.Config{
 		URL: h.cfg.Relay, Devices: h.devices, Router: h.Router, Log: h.log,
 		OnDisconnect: h.disconnected,
-		Pairing:      func() bool { pending, _ := h.pairer.Pending(); return pending },
+		Pairing:      h.pairer.Accepting,
 	})
 	if err != nil {
 		return err
