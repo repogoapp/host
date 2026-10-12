@@ -51,6 +51,15 @@ const (
 	outboxBytes  = 4 * MaxFrameBytes
 	outboxFrames = 1024
 
+	// defaultBufferedBytes bounds the frames held across every socket, queued
+	// or still arriving, so sockets that stall together cannot run the relay
+	// out of memory.
+	defaultBufferedBytes = 64 << 20
+
+	// frameWithin bounds how long one frame may take to arrive once started:
+	// the largest frame over a slow phone link, not a sender trickling bytes.
+	frameWithin = 2 * time.Minute
+
 	// socketsPerDevice bounds how many sockets one device holds at once. A
 	// phone opens one per paired host, all under its one id; past this the
 	// oldest, most likely a socket stranded by a network change, is closed.
@@ -100,6 +109,10 @@ type Config struct {
 	// defaultConnsPerIP.
 	MaxConnsPerIP int
 
+	// MaxBufferedBytes bounds the frames held across every socket; size it
+	// well under the machine's memory. Zero means defaultBufferedBytes.
+	MaxBufferedBytes int64
+
 	Log *slog.Logger
 }
 
@@ -129,6 +142,9 @@ type Server struct {
 
 	limits        limits
 	outboxBytes   int64
+	maxBuffered   int64
+	buffered      atomic.Int64
+	frameWithin   time.Duration
 	connsPerIP    int
 	ipMu          sync.Mutex
 	ips           map[string]int
@@ -151,13 +167,17 @@ func New(cfg Config) (*Server, error) {
 	if perIP <= 0 {
 		perIP = defaultConnsPerIP
 	}
+	maxBuffered := cfg.MaxBufferedBytes
+	if maxBuffered <= 0 {
+		maxBuffered = defaultBufferedBytes
+	}
 	return &Server{
 		cfg: cfg, log: cfg.Log,
 		conns: map[device.ID][]*conn{}, routes: map[leg]*conn{}, away: map[device.ID]departure{},
 		toldUnreachable: map[leg]time.Time{},
 		pendingGone:     map[device.ID]*time.Timer{},
 		attempts:        map[string]int{},
-		limits:          defaultLimits, outboxBytes: outboxBytes, connsPerIP: perIP, ips: map[string]int{}, tokens: map[string]*tokenWindow{},
+		limits:          defaultLimits, outboxBytes: outboxBytes, maxBuffered: maxBuffered, frameWithin: frameWithin, connsPerIP: perIP, ips: map[string]int{}, tokens: map[string]*tokenWindow{},
 	}, nil
 }
 
@@ -235,6 +255,12 @@ type conn struct {
 	// goes through here, so no read loop ever waits on another socket.
 	out    chan []byte
 	queued atomic.Int64
+	// Bytes of the frame still arriving, counted against the relay's budget.
+	reading atomic.Int64
+	// gone is set, under queueMu, once the writer has stopped; frames routed
+	// to c after that are refused so their bytes are never counted.
+	queueMu sync.Mutex
+	gone    bool
 
 	// Control requests running now, each off the read loop.
 	controls chan struct{}
@@ -265,7 +291,12 @@ func (c *conn) run(ctx context.Context) {
 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	go c.write(ctx)
+	writing := make(chan struct{})
+	go func() {
+		defer close(writing)
+		c.write(ctx)
+	}()
+	defer c.release(stop, writing)
 	c.srv.attach(c)
 	defer c.srv.detach(c)
 
@@ -286,24 +317,45 @@ func (c *conn) run(ctx context.Context) {
 	lim := c.srv.limits
 	messages := newBucket(lim.messages, lim.messageBurst)
 	bytes := newBucket(lim.bytes, lim.byteBurst)
+	defer c.readDone()
 	for {
-		typ, msg, err := c.ws.Read(ctx)
-		if err != nil {
+		typ, msg, err := c.ws.ReadHeld(ctx, c.srv.frameWithin, c.hold)
+		if err != nil || messages.wait(ctx, 1) != nil || bytes.wait(ctx, float64(len(msg))) != nil {
 			return
 		}
-		if messages.wait(ctx, 1) != nil || bytes.wait(ctx, float64(len(msg))) != nil {
-			return
-		}
-		if typ != websocket.MessageBinary {
-			continue
-		}
-		target, payload, err := Decode(msg)
-		if err != nil {
-			c.srv.log.Warn("relay: bad envelope", "device", c.id, "err", err)
-			continue
-		}
-		c.srv.route(ctx, c, target, payload)
+		c.forward(ctx, typ, msg)
+		c.readDone()
 	}
+}
+
+// forward routes one binary frame; any other type is ignored.
+func (c *conn) forward(ctx context.Context, typ websocket.MessageType, msg []byte) {
+	if typ != websocket.MessageBinary {
+		return
+	}
+	target, payload, err := Decode(msg)
+	if err != nil {
+		c.srv.log.Warn("relay: bad envelope", "device", c.id, "err", err)
+		return
+	}
+	c.srv.route(ctx, c, target, payload)
+}
+
+// hold counts n more bytes of the frame arriving on c, refusing past the
+// relay's budget after closing the socket furthest behind.
+func (c *conn) hold(n int) error {
+	c.reading.Add(int64(n))
+	if c.srv.buffered.Add(int64(n)) <= c.srv.maxBuffered {
+		return nil
+	}
+	c.srv.shed()
+	c.srv.log.Warn("relay: buffer budget full, closing a socket mid-frame", "device", c.id)
+	return errRelayFull
+}
+
+// readDone returns the frame c has finished with to the relay's budget.
+func (c *conn) readDone() {
+	c.srv.buffered.Add(-c.reading.Swap(0))
 }
 
 // write sends queued frames in order until ctx ends or a write fails.
@@ -314,7 +366,7 @@ func (c *conn) write(ctx context.Context) {
 			return
 		case b := <-c.out:
 			err := c.ws.SendBinary(ctx, b)
-			c.queued.Add(-int64(len(b)))
+			c.unqueue(int64(len(b)))
 			if err != nil {
 				if ctx.Err() == nil {
 					c.srv.log.Warn("relay: write failed", "to", c.id, "err", err)
@@ -327,20 +379,76 @@ func (c *conn) write(ctx context.Context) {
 }
 
 // enqueue hands a frame to c's writer, or closes c when it is too far behind:
-// waiting on it would stall whoever is sending to it.
+// waiting on it would stall whoever is sending to it. Past the relay's budget
+// the frame is refused and the socket furthest behind is closed to free it.
 func (c *conn) enqueue(b []byte) bool {
-	if c.queued.Add(int64(len(b))) <= c.srv.outboxBytes {
+	n := int64(len(b))
+	c.queueMu.Lock()
+	if c.gone {
+		c.queueMu.Unlock()
+		return false
+	}
+	ownOK := c.queued.Add(n) <= c.srv.outboxBytes
+	totalOK := c.srv.buffered.Add(n) <= c.srv.maxBuffered
+	if ownOK && totalOK {
 		select {
 		case c.out <- b:
+			c.queueMu.Unlock()
 			return true
 		default:
 		}
 	}
-	c.queued.Add(-int64(len(b)))
-	c.srv.log.Warn("relay: closing a socket that stopped reading", "device", c.id)
+	c.unqueue(n)
+	c.queueMu.Unlock()
+	if !totalOK {
+		c.srv.shed()
+	}
+	c.srv.log.Warn("relay: closing a socket that stopped reading", "device", c.id, "relay_full", !totalOK)
 	go c.ws.CloseNow()
 	return false
 }
+
+var errRelayFull = errors.New("relay: buffer budget full")
+
+func (c *conn) unqueue(n int64) {
+	c.queued.Add(-n)
+	c.srv.buffered.Add(-n)
+}
+
+// release returns whatever c still had queued to the relay's budget, once its
+// writer has stopped and no frame can be added.
+func (c *conn) release(stop context.CancelFunc, writing <-chan struct{}) {
+	stop()
+	<-writing
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
+	c.gone = true
+	c.srv.buffered.Add(-c.queued.Swap(0))
+}
+
+// shed closes the socket holding the most, the one furthest behind, so the
+// budget it holds is freed for sockets that keep up.
+func (s *Server) shed() {
+	var worst *conn
+	var most int64
+	s.mu.RLock()
+	for _, socks := range s.conns {
+		for _, c := range socks {
+			if held := c.held(); held > most {
+				worst, most = c, held
+			}
+		}
+	}
+	s.mu.RUnlock()
+	if worst == nil {
+		return
+	}
+	s.log.Warn("relay: buffer budget full, closing the socket furthest behind",
+		"device", worst.id, "held", most, "total", s.buffered.Load())
+	go worst.ws.CloseNow()
+}
+
+func (c *conn) held() int64 { return c.queued.Load() + c.reading.Load() }
 
 // check proves the device holds the key for the id it claims; whether it may
 // call another device is the host's decision, not the relay's.

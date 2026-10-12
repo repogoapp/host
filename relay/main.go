@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -29,6 +30,12 @@ func main() {
 		verify = verifier.Verify
 	}
 
+	// Sized to the machine in fly.toml; unset takes the relay default.
+	bufferedMB, err := strconv.ParseInt(env("RELAY_MAX_BUFFERED_MB", "0"), 10, 64)
+	if err != nil {
+		log.Error("fatal", "err", err)
+		os.Exit(1)
+	}
 	srv, err := relay.New(relay.Config{
 		Addr: addr,
 		// Stable per deployment: a signature made for one relay must not be
@@ -37,8 +44,9 @@ func main() {
 		Push:       push,
 		VerifyPush: verify,
 		// Only a proxy that sets this header on every request may name it, or callers forge it.
-		ClientIPHeader: os.Getenv("RELAY_CLIENT_IP_HEADER"),
-		Log:            log,
+		ClientIPHeader:   os.Getenv("RELAY_CLIENT_IP_HEADER"),
+		MaxBufferedBytes: bufferedMB << 20,
+		Log:              log,
 	})
 	if err != nil {
 		log.Error("fatal", "err", err)

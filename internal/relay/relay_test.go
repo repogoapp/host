@@ -739,6 +739,90 @@ func TestAStalledReaderDoesNotStallOthers(t *testing.T) {
 	}
 }
 
+// Readers that stall together cannot queue past the relay's budget: the one
+// furthest behind is closed, and a reader that keeps up still gets its frames.
+func TestStalledReadersStayWithinTheRelayBudget(t *testing.T) {
+	h := newHarnessWith(t, Config{MaxBufferedBytes: 2 << 20}, func(s *Server) { s.outboxBytes = 2 << 20 })
+	host, _ := h.connect("group-a", handshake.RoleRuntime)
+	first, _ := h.connect("group-a", handshake.RoleClient)
+	second, _ := h.connect("group-a", handshake.RoleClient)
+	phone, _ := h.connect("group-a", handshake.RoleClient)
+
+	// Each alone stays under its own queue; together they pass the budget.
+	// Slack of one frame and its envelope: a refused frame is counted for an instant.
+	frame := strings.Repeat("x", 64<<10)
+	for range 512 {
+		host.send(first.id, frame)
+		host.send(second.id, frame)
+		if q := h.srv.buffered.Load(); q > h.srv.maxBuffered+2*int64(len(frame)) {
+			t.Fatalf("relay queued %d bytes, budget %d", q, h.srv.maxBuffered)
+		}
+	}
+	h.gone(first.id)
+	h.gone(second.id)
+	testwait.For(t, "the closed sockets to return their queue", func() bool {
+		return h.srv.buffered.Load() == 0
+	})
+	host.send(phone.id, "meanwhile")
+	if _, body, err := phone.recv(3 * time.Second); err != nil || body != "meanwhile" {
+		t.Fatalf("the reader that keeps up got %q %v", body, err)
+	}
+}
+
+// A frame still arriving counts against the budget: a sender that starts one
+// larger than the relay can hold is closed, and its bytes are returned.
+func TestAnArrivingFrameStaysWithinTheRelayBudget(t *testing.T) {
+	h := newHarnessWith(t, Config{MaxBufferedBytes: 1 << 20})
+	sender, _ := h.connect("group-a", handshake.RoleClient)
+	phone, _ := h.connect("group-a", handshake.RoleClient)
+
+	w := sender.partial(phone.id)
+	chunk := make([]byte, 64<<10)
+	for range 32 {
+		if _, err := w.Write(chunk); err != nil {
+			break
+		}
+	}
+	h.gone(sender.id)
+	testwait.For(t, "the closed sender to return its frame", func() bool {
+		return h.srv.buffered.Load() == 0
+	})
+}
+
+// A frame that starts and then stops arriving closes its socket, so a sender
+// cannot hold part of the budget for as long as it likes.
+func TestAFrameThatStopsArrivingClosesItsSocket(t *testing.T) {
+	h := newHarnessWith(t, Config{}, func(s *Server) { s.frameWithin = 200 * time.Millisecond })
+	sender, _ := h.connect("group-a", handshake.RoleClient)
+	phone, _ := h.connect("group-a", handshake.RoleClient)
+
+	w := sender.partial(phone.id)
+	if _, err := w.Write(make([]byte, 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	h.gone(sender.id)
+	testwait.For(t, "the closed sender to return its frame", func() bool {
+		return h.srv.buffered.Load() == 0
+	})
+}
+
+// partial starts a frame to target and leaves it open.
+func (p *peer) partial(target device.ID) io.Writer {
+	p.t.Helper()
+	header, err := Encode(target, nil)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	w, err := p.ws.Writer(p.t.Context(), websocket.MessageBinary)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	if _, err := w.Write(header); err != nil {
+		p.t.Fatal(err)
+	}
+	return w
+}
+
 // A frame to an id that is not here leaves nothing behind: the table must not
 // grow with whatever ids a stranger invents.
 func TestAFrameToAnAbsentIDLeavesNoRoute(t *testing.T) {

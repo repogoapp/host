@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -75,6 +76,37 @@ func (c *Conn) Read(ctx context.Context) (websocket.MessageType, []byte, error) 
 		c.lastRead.Store(time.Now().UnixNano())
 	}
 	return typ, b, err
+}
+
+// ReadHeld reads the next frame like Read, calling hold with each chunk's size
+// before keeping it, so a caller can bound what every connection holds. A frame
+// not complete within `within` of its first byte closes the connection.
+func (c *Conn) ReadHeld(ctx context.Context, within time.Duration, hold func(n int) error) (websocket.MessageType, []byte, error) {
+	typ, r, err := c.ws.Reader(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	slow := time.AfterFunc(within, func() { c.ws.CloseNow() })
+	defer slow.Stop()
+	var b []byte
+	chunk := make([]byte, 32<<10)
+	for {
+		n, err := r.Read(chunk)
+		if n > 0 {
+			if err := hold(n); err != nil {
+				return 0, nil, err
+			}
+			b = append(b, chunk[:n]...)
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return 0, nil, err
+		}
+	}
+	c.lastRead.Store(time.Now().UnixNano())
+	return typ, b, nil
 }
 
 // SinceRead is how long ago the last frame arrived; a long time before any has.

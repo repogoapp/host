@@ -7,6 +7,9 @@ primary_region = "ewr"
 [env]
   # Fly's proxy terminates every connection and sets this to the real caller.
   RELAY_CLIENT_IP_HEADER = "Fly-Client-IP"
+  # Frames held across every socket, queued or arriving. Keep it about a
+  # quarter of [[vm]] memory and raise the two together.
+  RELAY_MAX_BUFFERED_MB = "64"
 
 [deploy]
   # Start the new machine and pass its health check before stopping the old
