@@ -100,6 +100,11 @@ type Model struct {
 	// The company that makes the model, when it isn't the catalog's own: a
 	// router's models name their maker, which a phone asks consent for.
 	Company string `json:"company,omitempty"`
+
+	// The service that runs the model, when an agent reaches several: its name,
+	// the picker's section for it, and its company, which a phone asks consent for.
+	Provider        string `json:"provider,omitempty"`
+	ProviderCompany string `json:"provider_company,omitempty"`
 }
 
 // Choice is one pickable value with the CLI's label for it.

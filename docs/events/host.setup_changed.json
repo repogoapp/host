@@ -85,7 +85,9 @@
             "modalities": [
               "modalities"
             ],
-            "company": "company"
+            "company": "company",
+            "provider": "provider",
+            "provider_company": "provider_company"
           }
         ],
         "default_model": "default_model",
