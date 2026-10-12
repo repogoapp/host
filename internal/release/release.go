@@ -3,7 +3,9 @@ package release
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -22,6 +24,10 @@ var Version = "dev"
 var Repository = ""
 
 var client = &http.Client{Timeout: 2 * time.Minute}
+
+// publicKey checks manifest.json.sig. The release workflow signs with its
+// private half, the RELEASE_SIGNING_KEY secret; npm/repogo.js holds the same key.
+var publicKey, _ = base64.StdEncoding.DecodeString("XaWEBib5lq+jel0GkUaC8amZ/87MB7WYL32FEaQBm/Q=")
 
 type Asset struct {
 	URL    string `json:"url"`
@@ -46,21 +52,48 @@ func Latest(ctx context.Context) (Manifest, error) {
 	if latest.Tag == "" {
 		return Manifest{}, fmt.Errorf("release has no tag")
 	}
-	var manifest Manifest
-	err := getJSON(ctx, "https://github.com/"+Repository+"/releases/download/"+latest.Tag+"/manifest.json", &manifest)
+	base := "https://github.com/" + Repository + "/releases/download/" + latest.Tag + "/"
+	body, err := get(ctx, base+"manifest.json")
+	if err != nil {
+		return Manifest{}, err
+	}
+	signature, err := get(ctx, base+"manifest.json.sig")
+	if err != nil {
+		return Manifest{}, err
+	}
+	manifest, err := verify(body, signature)
 	if err == nil && "v"+manifest.Version != latest.Tag {
 		err = fmt.Errorf("release manifest version does not match its tag")
 	}
 	return manifest, err
 }
 
+// verify trusts the manifest's checksums only once its signature matches, so a
+// replaced release asset can't name a binary of its own.
+func verify(body, signature []byte) (Manifest, error) {
+	if !ed25519.Verify(publicKey, body, signature) {
+		return Manifest{}, fmt.Errorf("release manifest signature does not match")
+	}
+	var manifest Manifest
+	err := json.Unmarshal(body, &manifest)
+	return manifest, err
+}
+
 func getJSON(ctx context.Context, url string, into any) error {
-	r, err := fetch(ctx, url)
+	body, err := get(ctx, url)
 	if err != nil {
 		return err
 	}
+	return json.Unmarshal(body, into)
+}
+
+func get(ctx context.Context, url string) ([]byte, error) {
+	r, err := fetch(ctx, url)
+	if err != nil {
+		return nil, err
+	}
 	defer r.Body.Close()
-	return json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(into)
+	return io.ReadAll(io.LimitReader(r.Body, 1<<20))
 }
 
 func fetch(ctx context.Context, url string) (*http.Response, error) {

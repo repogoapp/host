@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -76,5 +77,37 @@ func TestStageVerifiesTheChecksum(t *testing.T) {
 func TestStageRefusesPlainHTTP(t *testing.T) {
 	if _, err := Stage(context.Background(), manifest("http://example.com/repogo", ""), filepath.Join(t.TempDir(), "repogo")); err == nil {
 		t.Fatal("staged over plain HTTP")
+	}
+}
+
+func TestPublicKeyIsEd25519(t *testing.T) {
+	if len(publicKey) != ed25519.PublicKeySize {
+		t.Fatalf("public key is %d bytes, want %d", len(publicKey), ed25519.PublicKeySize)
+	}
+}
+
+func TestVerifyChecksTheSignature(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := publicKey
+	publicKey = public
+	t.Cleanup(func() { publicKey = old })
+
+	body := []byte(`{"version":"0.2.0","assets":{}}`)
+	signature := ed25519.Sign(private, body)
+	if m, err := verify(body, signature); err != nil || m.Version != "0.2.0" {
+		t.Fatalf("verify = %+v, %v", m, err)
+	}
+	if _, err := verify([]byte(`{"version":"0.2.1","assets":{}}`), signature); err == nil {
+		t.Fatal("accepted a changed manifest")
+	}
+	_, other, _ := ed25519.GenerateKey(nil)
+	if _, err := verify(body, ed25519.Sign(other, body)); err == nil {
+		t.Fatal("accepted a manifest signed with another key")
+	}
+	if _, err := verify(body, nil); err == nil {
+		t.Fatal("accepted a manifest with no signature")
 	}
 }

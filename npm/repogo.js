@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+
+// publicKey checks manifest.json.sig. The release workflow signs with its
+// private half; internal/release/release.go holds the same key.
+const publicKey = createPublicKey({
+  key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from('XaWEBib5lq+jel0GkUaC8amZ/87MB7WYL32FEaQBm/Q=', 'base64').toString('base64url') },
+  format: 'jwk',
+});
 
 async function download(url) {
   if (!url.startsWith('https://')) throw new Error('Release URL must use HTTPS');
@@ -35,8 +42,12 @@ try {
   if (older(installedVersion(binary), pkg.version)) {
     if (!pkg.releaseRepository) throw new Error('This package has no release repository configured');
     const arch = { x64: 'amd64', arm64: 'arm64' }[process.arch];
-    const url = `https://github.com/${pkg.releaseRepository}/releases/download/v${pkg.version}/manifest.json`;
-    const manifest = await (await download(url)).json();
+    const base = `https://github.com/${pkg.releaseRepository}/releases/download/v${pkg.version}/`;
+    const body = Buffer.from(await (await download(base + 'manifest.json')).arrayBuffer());
+    const signature = Buffer.from(await (await download(base + 'manifest.json.sig')).arrayBuffer());
+    // The checksums below are only as good as the manifest, so its signature comes first.
+    if (!verify(null, body, publicKey, signature)) throw new Error('Release signature mismatch');
+    const manifest = JSON.parse(body);
     if (manifest.version !== pkg.version) throw new Error('Release version mismatch');
     const asset = manifest.assets[`${process.platform}-${arch}`];
     if (!asset) throw new Error(`Unsupported platform: ${process.platform}/${process.arch}`);
