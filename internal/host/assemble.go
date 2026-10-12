@@ -14,20 +14,15 @@ import (
 	"github.com/repogo/host/internal/agentcatalog"
 	"github.com/repogo/host/internal/agentusage"
 	"github.com/repogo/host/internal/api"
-	"github.com/repogo/host/internal/builds"
 	"github.com/repogo/host/internal/chat"
 	"github.com/repogo/host/internal/chatlive"
 	"github.com/repogo/host/internal/chatsync"
 	"github.com/repogo/host/internal/chatwire"
 	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/cloudenv"
-	"github.com/repogo/host/internal/cloudflare"
-	"github.com/repogo/host/internal/cloudprojects"
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/emit"
 	"github.com/repogo/host/internal/envsource"
 	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/fly"
 	"github.com/repogo/host/internal/forward"
 	gitcore "github.com/repogo/host/internal/git"
 	ghcore "github.com/repogo/host/internal/github"
@@ -52,7 +47,6 @@ import (
 	"github.com/repogo/host/internal/store"
 	"github.com/repogo/host/internal/terminal"
 	"github.com/repogo/host/internal/tunnel"
-	"github.com/repogo/host/internal/vercel"
 	"github.com/repogo/host/internal/wsserver"
 )
 
@@ -121,7 +115,7 @@ func (h *Host) openTools() error {
 	h.tools = repogomcp.New(repogomcp.Config{
 		URL:     func() string { u, _ := h.toolsURL.Load().(string); return u },
 		On:      func(cwd string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID, cwd) },
-		Browser: browser, Builds: func() *builds.Service { return h.Services.Builds }, Log: h.log,
+		Browser: browser, Log: h.log,
 	})
 	h.Services.Browser = browser
 	return nil
@@ -271,14 +265,6 @@ func (h *Host) openProjects() error {
 		return err
 	}
 	h.onClose(acts.Shutdown)
-	// Builds run on the host's context; Close waits for them to settle.
-	appBuilds, err := builds.Open(h.ctx, builds.Config{
-		Dir: h.state("builds"), Paths: projectFiles, URLs: h.tunnels.URLs, CloseTunnel: h.tunnels.ClosePort, Log: h.log,
-	})
-	if err != nil {
-		return err
-	}
-	h.onClose(appBuilds.Close)
 
 	envSources, err := envsource.Open(h.state("env-sources.json"), h.cfg.Home)
 	if err != nil {
@@ -305,7 +291,7 @@ func (h *Host) openProjects() error {
 	}
 
 	update := h.cfg.Update
-	update.Turns, update.Terminals, update.Actions, update.Builds = h.mgr, terminals.Open, acts.Running, appBuilds.Running
+	update.Turns, update.Terminals, update.Actions = h.mgr, terminals.Open, acts.Running
 
 	schedules, err := schedule.New(schedule.Deps{
 		Self: h.devices.Identity().ID, Store: h.db, Chats: chats, Files: projectFiles, Agents: h.agents.Kinds(),
@@ -320,14 +306,11 @@ func (h *Host) openProjects() error {
 	s.Schedules = schedules
 	s.Files = projectFiles
 	// Every CLI in one inventory, in the order the Environment screen shows
-	// them: source control, agents, cloud. Phones hear when a sign-in ends or
+	// them: source control, then agents. Phones hear when a sign-in ends or
 	// an install outlives its call.
 	s.Tools = clitool.NewInventory(h.setupChanged, h.log)
 	h.onClose(s.Tools.Close)
-	s.Tools.Tools = append(append([]clitool.Tool{gh.Tool()}, h.agents.Tools()...),
-		vercel.Tool(), cloudflare.Tool(), fly.Tool())
-	s.CloudProjects = cloudprojects.New(projectFiles, s.Tools.Ready)
-	s.CloudEnv = cloudenv.New()
+	s.Tools.Tools = append([]clitool.Tool{gh.Tool()}, h.agents.Tools()...)
 	s.Projects = project.New(projectFiles, h.db)
 	s.ProjectSync = projectsync.New(projectFiles, h.db, s.Projects, gh.Checkouts(), h.cfg.Home, h.projectsChanged, h.log)
 	// Every commit that moves a chat row reaches the devices, and may move its
@@ -340,7 +323,6 @@ func (h *Host) openProjects() error {
 	s.Git, s.Watch = gitService, h.watch
 	s.Terminals = terminals
 	s.Actions = acts
-	s.Builds = appBuilds
 	s.Updates = hostupdate.New(update)
 	s.EnvSources, s.EnvRequests = envSources, envRequests
 	return nil

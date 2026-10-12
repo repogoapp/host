@@ -18,7 +18,6 @@ import (
 	"sync"
 
 	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/builds"
 	"github.com/repogo/host/internal/jsonrpc"
 )
 
@@ -32,9 +31,7 @@ const codeParseError = -32700
 var protocols = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
 
 const instructions = "RepoGo's own tools. `browser` drives the browser in the RepoGo app " +
-	"on the phone that sent this turn. `apps` lists this project's iOS and Android apps and the installed Xcodes; " +
-	"`build` builds one and gives the user a link that installs it on their phone; `publish` uploads an iOS app " +
-	"to App Store Connect once the user approves; `status` and `cancel` follow either."
+	"on the phone that sent this turn."
 
 type Config struct {
 	// URL is the handler's address on the loopback server, known once it listens.
@@ -42,9 +39,7 @@ type Config struct {
 	// On reports whether the server is switched on for a folder's project.
 	On      func(cwd string) bool
 	Browser *Browser
-	// Builds is the host's build service, opened after this server.
-	Builds func() *builds.Service
-	Log    *slog.Logger
+	Log     *slog.Logger
 }
 
 type Server struct {
@@ -149,7 +144,7 @@ func (s *Server) handle(ctx context.Context, session agent.ToolSession, req rpcR
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		return map[string]any{"tools": []tool{browserTool, appsTool, buildTool, publishTool, statusTool, cancelTool}}, nil
+		return map[string]any{"tools": []tool{browserTool}}, nil
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -186,16 +181,6 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 	switch name {
 	case browserTool.Name:
 		return s.cfg.Browser.Tool(turn, args)
-	case appsTool.Name:
-		return listApps(callCtx, s.cfg.Builds(), turn)
-	case buildTool.Name:
-		return startBuild(s.cfg.Builds(), turn, args)
-	case publishTool.Name:
-		return startPublish(s.cfg.Builds(), turn, args)
-	case statusTool.Name:
-		return jobState(callCtx, s.cfg.Builds(), args)
-	case cancelTool.Name:
-		return cancelJob(s.cfg.Builds(), args)
 	}
 	return failed("unknown tool: " + name)
 }

@@ -207,10 +207,6 @@ func (h *Host) Listen() (*net.TCPAddr, error) {
 		return nil, err
 	}
 	tcp := addr.(*net.TCPAddr)
-	// Install links are served apart from the loopback API, which a tunnel never reaches.
-	if err := h.Services.Builds.Listen(); err != nil {
-		return nil, fmt.Errorf("build install server: %w", err)
-	}
 	h.info.SetPort(tcp.Port)
 	h.invite.Store(cmp.Or(h.cfg.Relay, fmt.Sprintf("ws://127.0.0.1:%d/ws", tcp.Port)))
 	h.toolsURL.Store(fmt.Sprintf("http://127.0.0.1:%d%s", tcp.Port, repogomcp.Path))

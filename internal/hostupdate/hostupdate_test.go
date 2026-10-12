@@ -43,7 +43,6 @@ type fixture struct {
 	marker    string
 	turns     *turns
 	terminals int
-	builds    int
 	staged    int
 	stageErr  error
 	restarted chan struct{}
@@ -70,7 +69,6 @@ func newFixture(t *testing.T, version, latest string) *fixture {
 		Turns:     f.turns,
 		Terminals: func() int { return f.terminals },
 		Actions:   func() int { return 0 },
-		Builds:    func() int { return f.builds },
 		Restart:   func() { f.restarted <- struct{}{} },
 	})
 	return f
@@ -114,13 +112,13 @@ func TestCurrentHostChangesNothing(t *testing.T) {
 // the phone can ask first.
 func TestBusyHostAsksBeforeStopping(t *testing.T) {
 	f := newFixture(t, "0.1.0", "0.2.0")
-	f.turns.active, f.terminals, f.builds = 1, 2, 3
+	f.turns.active, f.terminals = 1, 2
 	got, err := f.u.Update(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Busy == nil || *got.Busy != (Busy{Chats: 1, Terminals: 2, Builds: 3}) || got.To != "0.2.0" {
-		t.Fatalf("result %+v, want busy 1 chat 2 terminals 3 builds", got)
+	if got.Busy == nil || *got.Busy != (Busy{Chats: 1, Terminals: 2}) || got.To != "0.2.0" {
+		t.Fatalf("result %+v, want busy 1 chat 2 terminals", got)
 	}
 	if f.staged != 0 || len(f.turns.guarded) != 0 || read(t, f.binary) != "old" {
 		t.Fatal("a refused update touched the host")

@@ -28,10 +28,9 @@ type Busy struct {
 	Chats     int `json:"chats"`
 	Terminals int `json:"terminals"`
 	Actions   int `json:"actions"`
-	Builds    int `json:"builds"`
 }
 
-func (b Busy) any() bool { return b.Chats+b.Terminals+b.Actions+b.Builds > 0 }
+func (b Busy) any() bool { return b.Chats+b.Terminals+b.Actions > 0 }
 
 // Result is one update request. To is empty when the host is already current;
 // Busy is set, and nothing changed, when the update would stop work the caller
@@ -64,7 +63,6 @@ type Deps struct {
 	Turns     Turns
 	Terminals func() int
 	Actions   func() int
-	Builds    func() int
 
 	// Restart shuts the host down and starts Binary in its place.
 	Restart func()
@@ -105,7 +103,7 @@ func (u *Updater) Update(ctx context.Context, now bool) (Result, error) {
 		return out, nil
 	}
 	out.To = latest.Version
-	busy := Busy{Chats: u.d.Turns.ActiveChats(), Terminals: u.d.Terminals(), Actions: u.d.Actions(), Builds: u.d.Builds()}
+	busy := Busy{Chats: u.d.Turns.ActiveChats(), Terminals: u.d.Terminals(), Actions: u.d.Actions()}
 	if busy.any() && !now {
 		out.Busy = &busy
 		return out, nil

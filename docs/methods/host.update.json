@@ -4,7 +4,6 @@
   "busy": {
     "chats": 1,
     "terminals": 1,
-    "actions": 1,
-    "builds": 1
+    "actions": 1
   }
 }

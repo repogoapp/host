@@ -17,10 +17,7 @@ import (
 )
 
 var methodExports = map[string]bool{
-	"cloud.projects.list": true,
-	"vercel.logs":         true,
-	"vercel.deployments":  true,
-	"chats.messages":      true, "chats.subscribe": true, "chats.unsubscribe": true,
+	"chats.messages": true, "chats.subscribe": true, "chats.unsubscribe": true,
 	"chats.tools_subscribe": true, "chats.tools_unsubscribe": true,
 	"chats.subagent": true, "chats.neighbors": true, "chats.outline": true,
 	"limits.read": true, "limits.reset": true,
@@ -71,8 +68,6 @@ var methodExports = map[string]bool{
 	"tunnels.list": true, "tunnels.open": true, "tunnels.close": true, "host.claim": true,
 	// Schedules.
 	"schedules.list": true, "schedules.save": true, "schedules.delete": true,
-	// A cloud card's environment variables.
-	"cloud.env.list": true, "cloud.env.value": true, "cloud.env.set": true, "cloud.env.remove": true,
 }
 
 // methodsGen generates the client's method types: the bodies of types the event
@@ -345,13 +340,6 @@ func (g *swiftGen) collect(t reflect.Type, seen map[reflect.Type]bool) {
 
 // Ownership is explicit so exporting another family never renames existing types.
 var typeFamilies = map[string]string{
-	"github.com/repogo/host/internal/fly":           "cloud.projects",
-	"github.com/repogo/host/internal/cloudprojects": "cloud.projects",
-	"github.com/repogo/host/internal/cloudenv":      "cloud.env",
-	"github.com/repogo/host/internal/cloudscan":     "cloud.projects",
-	"github.com/repogo/host/internal/rpc/cloud":     "cloud.projects",
-	"github.com/repogo/host/internal/vercel":        "vercel",
-	"github.com/repogo/host/internal/rpc/vercel":    "vercel",
 	"github.com/repogo/host/internal/chatwire":      "chats",
 	"github.com/repogo/host/internal/toollabel":     "chats",
 	"github.com/repogo/host/internal/agentusage":    "limits",

@@ -13,13 +13,10 @@ import (
 	"github.com/repogo/host/internal/agent"
 	"github.com/repogo/host/internal/agentcatalog"
 	"github.com/repogo/host/internal/agentusage"
-	buildscore "github.com/repogo/host/internal/builds"
 	"github.com/repogo/host/internal/chat"
 	"github.com/repogo/host/internal/chatlive"
 	"github.com/repogo/host/internal/chatwire"
 	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/cloudenv"
-	"github.com/repogo/host/internal/cloudprojects"
 	"github.com/repogo/host/internal/device"
 	"github.com/repogo/host/internal/envsource"
 	"github.com/repogo/host/internal/files"
@@ -36,9 +33,7 @@ import (
 	"github.com/repogo/host/internal/rpc"
 	actionsrpc "github.com/repogo/host/internal/rpc/actions"
 	browserrpc "github.com/repogo/host/internal/rpc/browser"
-	buildsrpc "github.com/repogo/host/internal/rpc/builds"
 	"github.com/repogo/host/internal/rpc/chats"
-	"github.com/repogo/host/internal/rpc/cloud"
 	"github.com/repogo/host/internal/rpc/devices"
 	envrpc "github.com/repogo/host/internal/rpc/env"
 	forwardrpc "github.com/repogo/host/internal/rpc/forward"
@@ -56,13 +51,11 @@ import (
 	toolsrpc "github.com/repogo/host/internal/rpc/tools"
 	tunnelsrpc "github.com/repogo/host/internal/rpc/tunnels"
 	"github.com/repogo/host/internal/rpc/turns"
-	vercelrpc "github.com/repogo/host/internal/rpc/vercel"
 	"github.com/repogo/host/internal/schedule"
 	"github.com/repogo/host/internal/shipping"
 	"github.com/repogo/host/internal/store"
 	"github.com/repogo/host/internal/terminal"
 	"github.com/repogo/host/internal/tunnel"
-	"github.com/repogo/host/internal/vercel"
 )
 
 // Config is what the host has to offer. Every field is required: New refuses
@@ -83,8 +76,7 @@ type Config struct {
 	// Updates replaces and restarts this host.
 	Updates *hostupdate.Updater
 
-	// Tools is every CLI the host installs, updates and signs in: gh, the
-	// agents and the cloud CLIs.
+	// Tools is every CLI the host installs, updates and signs in: gh and the agents.
 	Tools *clitool.Inventory
 	// Agents is each agent's definition, for its resume command.
 	Agents agent.Providers
@@ -119,16 +111,9 @@ type Config struct {
 	Git       *gitcore.Service
 	Terminals *terminal.Manager
 	Actions   *actionscore.Service
-	// Builds makes a project's iOS and Android apps and serves their install links.
-	Builds *buildscore.Service
 
 	// GitHub is how a project gets onto this host in the first place.
 	GitHub *ghcore.Service
-	// CloudProjects is the Cloud sheet's cards: the Vercel, Fly and
-	// Cloudflare projects under a folder, each read from its provider.
-	CloudProjects *cloudprojects.Service
-	// CloudEnv is each card's environment variables, through its provider's CLI.
-	CloudEnv *cloudenv.Service
 
 	// MCP is the servers this host hands its agents; Browser brokers the
 	// browser actions RepoGo's own server sends the phones.
@@ -171,15 +156,12 @@ func New(cfg Config) (*rpc.Router, error) {
 	})
 	gitrpc.Register(r, gitrpc.Deps{Git: cfg.Git})
 	ghrpc.Register(r, ghrpc.Deps{GitHub: cfg.GitHub})
-	cloud.Register(r, cloud.Deps{Projects: cfg.CloudProjects, Env: cfg.CloudEnv})
-	vercelrpc.Register(r, vercelrpc.Deps{ReadLogs: vercel.ReadLogs, ReadDeployments: vercel.ReadDeployments})
 	toolsrpc.Register(r, toolsrpc.Deps{Tools: cfg.Tools})
 	shippingrpc.Register(r, shippingrpc.Deps{Usage: cfg.Usage, ModelLabel: cfg.AgentCatalog.ModelLabel})
 	portsrpc.Register(r)
 	forwardrpc.Register(r, forwardrpc.Deps{Fetcher: cfg.Fetcher, Pipes: cfg.Pipes})
 	terminalsrpc.Register(r, terminalsrpc.Deps{Terminals: cfg.Terminals})
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})
-	buildsrpc.Register(r, buildsrpc.Deps{Builds: cfg.Builds})
 	mcprpc.Register(r, mcprpc.Deps{MCP: cfg.MCP})
 	browserrpc.Register(r, browserrpc.Deps{Browser: cfg.Browser})
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources, Requests: cfg.EnvRequests})
