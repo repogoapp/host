@@ -44,8 +44,17 @@ type Client struct {
 	closeOnce sync.Once
 }
 
-func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error) {
-	args, err := opts.args()
+func Start(ctx context.Context, opts Options, handlers Handlers) (_ *Client, err error) {
+	mcpConfig, removeMCPConfig, err := opts.writeMCPConfig()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			removeMCPConfig()
+		}
+	}()
+	args, err := opts.args(mcpConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +102,7 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error
 	go func() { defer drains.Done(); defer stderr.Close(); c.readStderr(stderr) }()
 	go func() {
 		err := cmd.Wait()
+		removeMCPConfig()
 		close(c.exited)
 		// Descendants must not keep the pipes or tools alive after their owner exits.
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)

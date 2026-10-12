@@ -4,6 +4,8 @@ package claudecode
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 )
 
 type MCPServer struct {
@@ -22,7 +24,9 @@ type Options struct {
 	MCPServers            map[string]MCPServer
 }
 
-func (o Options) args() ([]string, error) {
+// args names the MCP config by path: written inline, its headers (API keys,
+// OAuth tokens) would sit in the process list for anyone running ps.
+func (o Options) args(mcpConfig string) ([]string, error) {
 	if o.Executable == "" || o.Cwd == "" {
 		return nil, errors.New("claudecode: executable and cwd are required")
 	}
@@ -49,14 +53,33 @@ func (o Options) args() ([]string, error) {
 	if o.AllowBypass {
 		a = append(a, "--allow-dangerously-skip-permissions")
 	}
-	if len(o.MCPServers) > 0 {
-		b, err := json.Marshal(struct {
-			Servers map[string]MCPServer `json:"mcpServers"`
-		}{o.MCPServers})
-		if err != nil {
-			return nil, err
-		}
-		a = append(a, "--mcp-config", string(b))
+	if mcpConfig != "" {
+		a = append(a, "--mcp-config", mcpConfig)
 	}
 	return a, nil
+}
+
+// writeMCPConfig writes the servers to a file only this user can read, in a
+// folder of its own; remove deletes both. No servers writes nothing.
+func (o Options) writeMCPConfig() (path string, remove func(), err error) {
+	if len(o.MCPServers) == 0 {
+		return "", func() {}, nil
+	}
+	b, err := json.Marshal(struct {
+		Servers map[string]MCPServer `json:"mcpServers"`
+	}{o.MCPServers})
+	if err != nil {
+		return "", nil, err
+	}
+	dir, err := os.MkdirTemp("", "repogo-claude-")
+	if err != nil {
+		return "", nil, err
+	}
+	remove = func() { _ = os.RemoveAll(dir) }
+	path = filepath.Join(dir, "mcp.json")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		remove()
+		return "", nil, err
+	}
+	return path, remove, nil
 }

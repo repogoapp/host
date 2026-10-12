@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +24,9 @@ func TestMain(m *testing.M) {
 
 func fakeClaude(mode string) {
 	encoder := json.NewEncoder(os.Stdout)
+	if mode == "mcp-config" {
+		reportMCPConfig(encoder)
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	type request struct {
 		Type      string          `json:"type"`
@@ -202,17 +206,79 @@ func TestMalformedFrameFailsProcess(t *testing.T) {
 }
 
 func TestLaunchOptions(t *testing.T) {
-	args, err := (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "session", SettingSources: []string{"user", "project", "local"}, MCPServers: map[string]MCPServer{"test": {Type: "http", URL: "http://localhost/mcp"}}}).args()
+	args, err := (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "session", SettingSources: []string{"user", "project", "local"}}).args("/private/mcp.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--include-partial-messages", "--permission-prompt-tool", "stdio", "--resume", "session", "--setting-sources=user,project,local", "--mcp-config"} {
+	for _, flag := range []string{"--include-partial-messages", "--permission-prompt-tool", "stdio", "--resume", "session", "--setting-sources=user,project,local", "--mcp-config", "/private/mcp.json"} {
 		if !slices.Contains(args, flag) {
 			t.Errorf("missing %s", flag)
 		}
 	}
-	if _, err = (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "a", SessionID: "b"}).args(); err == nil {
+	if _, err = (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "a", SessionID: "b"}).args(""); err == nil {
 		t.Fatal("accepted both session and resume")
+	}
+}
+
+// reportMCPConfig tells the test what Claude would see: its arguments, and
+// the config file's mode and contents.
+func reportMCPConfig(encoder *json.Encoder) {
+	at := slices.Index(os.Args, "--mcp-config")
+	if at < 0 || at+1 >= len(os.Args) {
+		os.Exit(11)
+	}
+	path := os.Args[at+1]
+	info, err := os.Stat(path)
+	if err != nil {
+		os.Exit(12)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		os.Exit(13)
+	}
+	report, _ := json.Marshal(map[string]any{"args": os.Args, "path": path, "mode": info.Mode().Perm().String(), "config": string(b)})
+	_ = encoder.Encode(map[string]any{"type": "system", "subtype": "mcp_config", "result": string(report)})
+}
+
+// MCP headers carry API keys and OAuth tokens: they reach Claude in a file only
+// this user can read, never on the command line, and the file goes with Claude.
+func TestMCPSecretsStayOffTheCommandLine(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const secret = "Bearer secret-token"
+	c, err := Start(t.Context(), Options{Executable: binary, Cwd: t.TempDir(), Env: append(os.Environ(), "REPOGO_FAKE_CLAUDE=mcp-config"),
+		MCPServers: map[string]MCPServer{"linear": {Type: "http", URL: "https://mcp.example/mcp", Headers: map[string]string{"Authorization": secret}}}}, Handlers{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := boundedContext(t)
+	var report struct {
+		Args       []string
+		Path, Mode string
+		Config     string
+	}
+	select {
+	case m := <-c.Messages():
+		if err := json.Unmarshal([]byte(m.Result), &report); err != nil {
+			t.Fatalf("%v: %s", err, m.Result)
+		}
+	case <-ctx.Done():
+		t.Fatal("fake Claude never reported its MCP config")
+	}
+	if strings.Contains(strings.Join(report.Args, " "), secret) {
+		t.Fatal("the MCP secret is on the command line")
+	}
+	if report.Mode != "-rw-------" || !strings.Contains(report.Config, secret) {
+		t.Fatalf("config file is %s and holds %q", report.Mode, report.Config)
+	}
+	if info, err := os.Stat(filepath.Dir(report.Path)); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("config folder: %v %v", info, err)
+	}
+	_ = c.Close()
+	if _, err := os.Stat(filepath.Dir(report.Path)); !os.IsNotExist(err) {
+		t.Fatalf("config folder outlived Claude: %v", err)
 	}
 }
 
