@@ -32,7 +32,7 @@ func rebuildCache(t *testing.T, db *Store, dir string) *Store {
 }
 
 // What the user made lives in state.db, so a cache rebuild (any schema
-// change) keeps resolves, voice names, picks and queued turns.
+// change) keeps resolves, pins, voice names, picks and queued turns.
 func TestStateSurvivesACacheRebuild(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(dir)
@@ -41,6 +41,9 @@ func TestStateSurvivesACacheRebuild(t *testing.T) {
 	}
 	write(t, db, "a", 1000, 1)
 	if err := db.SetResolved("claude:a", true, time.UnixMilli(2000)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetChatPinned("claude:a", true, time.UnixMilli(2500)); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Pick("/tmp/picked", time.UnixMilli(3000)); err != nil {
@@ -66,6 +69,9 @@ func TestStateSurvivesACacheRebuild(t *testing.T) {
 	}
 	if after.ResolvedAt == nil || *after.ResolvedAt != 2000 {
 		t.Errorf("resolve lost: %v", after.ResolvedAt)
+	}
+	if after.PinnedAt == nil || *after.PinnedAt != 2500 {
+		t.Errorf("pin lost: %v", after.PinnedAt)
 	}
 	if after.VoiceHandle == nil || after.VoiceHandle.Key != before.VoiceHandle.Key {
 		t.Errorf("voice name changed: %+v, was %+v", after.VoiceHandle, before.VoiceHandle)
@@ -149,6 +155,37 @@ func TestChatMarksWriteOnlyWhatChanged(t *testing.T) {
 	var rows int
 	if err := db.db.QueryRow(`SELECT COUNT(*) FROM state.chat_marks`).Scan(&rows); err != nil || rows != 0 {
 		t.Fatalf("chat_marks holds %d rows after clearing, want 0 (%v)", rows, err)
+	}
+}
+
+// A prompt in the file clears a resolve but not a pin, so the import's
+// cleanup must leave the row; unpinning then drops it.
+func TestAPromptClearsAResolveButKeepsThePin(t *testing.T) {
+	db := newStore(t)
+	write(t, db, "a", 1000, 1)
+	if err := db.SetResolved("claude:a", true, time.UnixMilli(2000)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetChatPinned("claude:a", true, time.UnixMilli(2000)); err != nil {
+		t.Fatal(err)
+	}
+	c := syncEvents(t, db, agent.KindClaude, "a", []agent.Event{
+		{Kind: agent.EventUserMessage, Text: "again", At: 3000},
+		{Kind: agent.EventTurnStarted, TurnID: "t1", At: 3000},
+	})
+	if c.ResolvedAt != nil {
+		t.Fatalf("a newer prompt left the resolve: %d", *c.ResolvedAt)
+	}
+	if c.PinnedAt == nil || *c.PinnedAt != 2000 {
+		t.Fatalf("the prompt took the pin: %v", c.PinnedAt)
+	}
+
+	if err := db.SetChatPinned("claude:a", false, time.UnixMilli(4000)); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := db.db.QueryRow(`SELECT COUNT(*) FROM state.chat_marks`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("chat_marks holds %d rows after unpinning, want 0 (%v)", rows, err)
 	}
 }
 

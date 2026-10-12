@@ -152,6 +152,15 @@ type ResolveResult struct {
 	Chat store.Chat `json:"chat"`
 }
 
+type PinParams struct {
+	ChatID store.ChatID `json:"chat_id"`
+	Pinned bool         `json:"pinned"`
+}
+
+type PinResult struct {
+	Chat store.Chat `json:"chat"`
+}
+
 // UpdateParams changes only the fields it sets; see chat.Update.
 type UpdateParams struct {
 	ChatID store.ChatID `json:"chat_id"`

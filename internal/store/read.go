@@ -91,6 +91,9 @@ type Chat struct {
 	// leaves the inbox but keeps its history; activity in it clears the mark.
 	ResolvedAt *int64 `json:"resolved_at,omitempty"`
 
+	// When the user pinned the chat to the top of the list. Nil is unpinned.
+	PinnedAt *int64 `json:"pinned_at,omitempty"`
+
 	// How full the context was on the newest request and the window it was
 	// measured against. Omitted when unknown; Claude never writes a size, so
 	// ContextUsed without ContextSize is normal there.
@@ -235,7 +238,7 @@ type ChatPage struct {
 // handles, the queue's count and version), for queryChats.
 const chatSelect = `
 SELECT s.agent, s.session_id, s.title, s.last_reply,
-  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.event_count, s.generation, s.context_used, s.context_size, s.model, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, s.rev, v.prefix, v.name,
+  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.event_count, s.generation, s.context_used, s.context_size, s.model, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, s.rev, v.prefix, v.name,
   (SELECT COUNT(*) FROM state.queued_turns t WHERE t.chat_id = s.agent || ':' || s.session_id), COALESCE(q.rev, 0)
 FROM sessions s LEFT JOIN state.chat_marks m ON m.agent = s.agent AND m.session_id = s.session_id
 LEFT JOIN state.voice_handles v ON v.agent = s.agent AND v.session_id = s.session_id
@@ -260,7 +263,7 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 		var voicePrefix, voiceName sql.NullString
 		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.LastReply, &c.LastUserMessagePreview, &c.CWD,
 			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.EventCount, &c.Generation, &c.ContextUsed, &c.ContextSize, &c.Model, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
-			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.Rev, &voicePrefix, &voiceName,
+			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.Rev, &voicePrefix, &voiceName,
 			&c.QueuedCount, &c.QueueRev); err != nil {
 			return nil, err
 		}

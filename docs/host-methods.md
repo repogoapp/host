@@ -131,6 +131,7 @@ Result:
 - `last_user_message_preview` string (omitted when empty)
 - `rev` int
 - `resolved_at` int (omitted when empty) (nullable)
+- `pinned_at` int (omitted when empty) (nullable)
 - `context_used` int (omitted when empty)
 - `context_size` int (omitted when empty)
 - `model` string (omitted when empty)
@@ -207,6 +208,17 @@ Result:
 - `previous` object{Chat} (nullable)
 - `next` object{Chat} (nullable)
 - `host_id` string
+
+## `chats.pin`
+
+Params:
+
+- `chat_id` string
+- `pinned` bool
+
+Result:
+
+- `chat` object{Chat}
 
 ## `chats.queue`
 

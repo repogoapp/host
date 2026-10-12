@@ -44,6 +44,7 @@ func Register(r *rpc.Router, d Deps) {
 	// Contain, not an arbitrary directory.
 	rpc.Add(r, "chats.start", d.start, rpc.Detached)
 	rpc.Add(r, "chats.resolve", d.resolve)
+	rpc.Add(r, "chats.pin", d.pin)
 	rpc.Add(r, "chats.update", d.update)
 	rpc.Add(r, "chats.delete", d.delete)
 	// stop is Stop on a chat rather than a turn, for a caller that knows the
@@ -133,6 +134,11 @@ func (d Deps) start(_ context.Context, c rpc.Caller, a StartParams) (StartResult
 func (d Deps) resolve(_ context.Context, _ rpc.Caller, a ResolveParams) (ResolveResult, error) {
 	c, err := d.Chats.Resolve(a.ChatID, a.Resolved)
 	return ResolveResult{Chat: c}, err
+}
+
+func (d Deps) pin(_ context.Context, _ rpc.Caller, a PinParams) (PinResult, error) {
+	c, err := d.Chats.Pin(a.ChatID, a.Pinned)
+	return PinResult{Chat: c}, err
 }
 
 func (d Deps) update(_ context.Context, _ rpc.Caller, a UpdateParams) (UpdateResult, error) {

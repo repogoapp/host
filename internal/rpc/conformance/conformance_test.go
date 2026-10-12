@@ -123,6 +123,7 @@ var unchecked = map[string]string{
 	"projects.pin":         "needs a listed project; covered in internal/store",
 	"turns.respond":        "needs a turn waiting on approval",
 	"chats.resolve":        "needs a chat cache; covered in the chats family suite",
+	"chats.pin":            "needs a chat cache; covered in the chats family suite",
 	"chats.update":         "writes provider files; covered in the chats family suite",
 	"chats.delete":         "removes provider files; covered in the chats family suite",
 	"chats.stop":           "needs a running turn; covered in internal/agent",

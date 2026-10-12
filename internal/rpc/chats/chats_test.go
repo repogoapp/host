@@ -93,6 +93,23 @@ func TestResolveAnswersTheResolvedRow(t *testing.T) {
 	}
 }
 
+// A pin comes back on the row, so every device's list moves it at once.
+func TestPinAnswersThePinnedRow(t *testing.T) {
+	r, _ := newRouter(t)
+	raw, err := call(t, r, "chats.pin", map[string]any{"chat_id": "claude:sess-1", "pinned": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		Chat struct {
+			PinnedAt *int64 `json:"pinned_at"`
+		} `json:"chat"`
+	}
+	if json.Unmarshal(raw, &res) != nil || res.Chat.PinnedAt == nil {
+		t.Fatalf("pin reply = %s", raw)
+	}
+}
+
 // A title with nothing in it is the client's mistake.
 func TestUpdateRefusesAnEmptyTitle(t *testing.T) {
 	r, _ := newRouter(t)

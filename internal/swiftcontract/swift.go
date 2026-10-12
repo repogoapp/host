@@ -31,7 +31,7 @@ var methodExports = map[string]bool{
 	"git.pull": true, "git.reset_hard": true, "git.switch_branch": true,
 	"git.create_branch": true, "git.patch": true, "git.commit_push": true,
 	"github.pr_create": true, "github.publish": true,
-	"chats.list": true, "chats.info": true, "chats.resolve": true, "chats.update": true,
+	"chats.list": true, "chats.info": true, "chats.resolve": true, "chats.pin": true, "chats.update": true,
 	"chats.delete": true, "chats.handoff": true, "chats.sync": true,
 	// A chat's turns, in the order the user acts on them.
 	"chats.send": true, "chats.start": true, "turns.list": true, "turns.get": true, "turns.stop": true, "chats.stop": true,

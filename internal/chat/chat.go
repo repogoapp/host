@@ -316,6 +316,17 @@ func (s *Service) Resolve(id store.ChatID, resolved bool) (store.Chat, error) {
 	return s.Info(id)
 }
 
+// Pin puts a chat at the top of every device's list, or takes it off.
+func (s *Service) Pin(id store.ChatID, pinned bool) (store.Chat, error) {
+	if _, err := s.d.Cache.Info(id); err != nil {
+		return store.Chat{}, err
+	}
+	if err := s.d.Cache.SetChatPinned(id, pinned, time.Now()); err != nil {
+		return store.Chat{}, err
+	}
+	return s.Info(id)
+}
+
 // Update is what a user changes on a chat; a nil field is left as it is.
 type Update struct {
 	Title *string `json:"title"`

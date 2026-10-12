@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS chat_marks (
   agent       TEXT NOT NULL,
   session_id  TEXT NOT NULL,
   resolved_at INTEGER,
+  pinned_at   INTEGER,  -- pinned to the top of the list
   PRIMARY KEY (agent, session_id)
 );
 

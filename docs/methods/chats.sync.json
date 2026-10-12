@@ -22,6 +22,7 @@
       "last_user_message_preview": "last_user_message_preview",
       "rev": 1,
       "resolved_at": 1,
+      "pinned_at": 1,
       "context_used": 1,
       "context_size": 1,
       "model": "model",

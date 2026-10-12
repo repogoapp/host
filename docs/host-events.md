@@ -83,6 +83,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `last_user_message_preview` string (omitted when empty)
 - `rev` int
 - `resolved_at` int (omitted when empty) (nullable)
+- `pinned_at` int (omitted when empty) (nullable)
 - `context_used` int (omitted when empty)
 - `context_size` int (omitted when empty)
 - `model` string (omitted when empty)

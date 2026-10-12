@@ -11,9 +11,10 @@ import (
 // state.chat_marks. Nil is not set.
 type ChatMarks struct {
 	ResolvedAt *int64
+	PinnedAt   *int64
 }
 
-func (m ChatMarks) empty() bool { return m.ResolvedAt == nil }
+func (m ChatMarks) empty() bool { return m.ResolvedAt == nil && m.PinnedAt == nil }
 
 // updateChatMarks is the one writer of state.chat_marks outside the import.
 // change edits the marks it is handed and reports whether it changed any; the
@@ -30,8 +31,8 @@ func (s *Store) updateChatMarks(id ChatID, change func(*ChatMarks) bool) (bool, 
 	defer tx.Rollback()
 
 	var marks ChatMarks
-	err = tx.QueryRow(`SELECT resolved_at FROM state.chat_marks WHERE agent = ? AND session_id = ?`,
-		agent, sessionID).Scan(&marks.ResolvedAt)
+	err = tx.QueryRow(`SELECT resolved_at, pinned_at FROM state.chat_marks WHERE agent = ? AND session_id = ?`,
+		agent, sessionID).Scan(&marks.ResolvedAt, &marks.PinnedAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("store: read chat marks: %w", err)
 	}
@@ -42,9 +43,9 @@ func (s *Store) updateChatMarks(id ChatID, change func(*ChatMarks) bool) (bool, 
 	if marks.empty() {
 		_, err = tx.Exec(`DELETE FROM state.chat_marks WHERE agent = ? AND session_id = ?`, agent, sessionID)
 	} else {
-		_, err = tx.Exec(`INSERT INTO state.chat_marks (agent, session_id, resolved_at) VALUES (?, ?, ?)
-			ON CONFLICT (agent, session_id) DO UPDATE SET resolved_at = excluded.resolved_at`,
-			agent, sessionID, marks.ResolvedAt)
+		_, err = tx.Exec(`INSERT INTO state.chat_marks (agent, session_id, resolved_at, pinned_at) VALUES (?, ?, ?, ?)
+			ON CONFLICT (agent, session_id) DO UPDATE SET resolved_at = excluded.resolved_at, pinned_at = excluded.pinned_at`,
+			agent, sessionID, marks.ResolvedAt, marks.PinnedAt)
 	}
 	if err != nil {
 		return false, fmt.Errorf("store: write chat marks: %w", err)
@@ -65,6 +66,20 @@ func (s *Store) SetResolved(id ChatID, resolved bool, at time.Time) error {
 			m.ResolvedAt = ptr(at.UnixMilli())
 		} else {
 			m.ResolvedAt = nil
+		}
+		return true
+	})
+	return err
+}
+
+// SetChatPinned pins a chat to the top of every device's list, or unpins it.
+// Unlike a resolve, activity in the chat leaves a pin alone.
+func (s *Store) SetChatPinned(id ChatID, pinned bool, at time.Time) error {
+	_, err := s.updateChatMarks(id, func(m *ChatMarks) bool {
+		if pinned {
+			m.PinnedAt = ptr(at.UnixMilli())
+		} else {
+			m.PinnedAt = nil
 		}
 		return true
 	})

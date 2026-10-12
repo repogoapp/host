@@ -25,7 +25,7 @@ var (
 		"chats.list", "chats.sync",
 		"tools.login_start", "tools.login_complete", "tools.login_cancel", "tools.logins", "tools.logout",
 		"chats.start", "chats.send", "chats.messages", "chats.subscribe", "chats.unsubscribe", "chats.info",
-		"chats.queue", "chats.update", "chats.resolve", "chats.delete", "chats.tools_subscribe", "chats.tools_unsubscribe",
+		"chats.queue", "chats.update", "chats.resolve", "chats.pin", "chats.delete", "chats.tools_subscribe", "chats.tools_unsubscribe",
 		"turns.get", "turns.stop", "turns.list",
 		"ports.list", "forward.pipe_open", "forward.pipe_send", "forward.pipe_close",
 		"terminals.create", "terminals.input", "terminals.resize", "terminals.close", "terminals.list",
