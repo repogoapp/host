@@ -233,9 +233,22 @@ func (l *Link) session(ctx context.Context) error {
 			}
 			continue
 		}
-		// Anyone with a key pair can address this host through the relay. The
-		// relay has proved who the caller is, so a stranger is dropped here,
-		// before any key exchange, allocation, or reply.
+		// A removed device gets a signed refusal and no session. Anyone can ask
+		// for one, but it is bound to the caller the relay proved and to one
+		// attempt, and its tag keeps it from passing as any other signature.
+		if payload[0] == securechan.PairedHandshake {
+			if len(payload) != securechan.Message1Len {
+				continue
+			}
+			if _, err := l.cfg.Devices.Peer(caller); err != nil {
+				if refusal, err := securechan.PairingRejection(c.identity, caller, payload); err == nil {
+					_ = c.write(ctx, caller, refusal)
+				}
+				continue
+			}
+			payload[0] = securechan.Handshake
+		}
+		// Pairing attempts remain limited to a live code and bounded sessions.
 		if !l.admits(caller) || !l.allowStranger(c, caller) {
 			c.stranger(l.log, caller)
 			continue

@@ -101,6 +101,14 @@ then runs a Noise XX handshake with an ML-KEM-1024 step
 AES-GCM and the key exchange is post-quantum. The phone and the host each check
 the other's paired identity before anything is sent.
 
+A saved pairing starts with frame `0x04` instead of the pairing handshake's
+`0x01`. If the device is no longer paired, the host returns `0x05` followed by
+an Ed25519 signature over `repogo-not-paired-v1`, the 16-byte phone and host
+IDs, and SHA-256 of that request frame. The fresh handshake binds the refusal
+to one connection attempt, so a relay cannot forge or replay it. The phone
+keeps the environment listed as No Longer Paired and stops reconnecting until
+the user pairs again. A missing reply remains an ordinary connection failure.
+
 The relay bounds handshakes to 8 KiB and allows 240 connection attempts per
 address in each one-minute window, counting an IPv6 /64 as one address. It
 tracks at most 4,096 addresses per window; past that, new addresses keep only

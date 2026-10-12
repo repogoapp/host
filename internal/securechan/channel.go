@@ -17,6 +17,9 @@ const (
 	// Reset tells a phone the host has no session for it (the host restarted);
 	// the phone reconnects and handshakes again.
 	Reset byte = 0x03
+	// PairedHandshake asks to connect with an existing pairing, never to pair.
+	PairedHandshake byte = 0x04
+	NotPaired       byte = 0x05
 )
 
 // Message1Len distinguishes a phone starting over from one finishing.
