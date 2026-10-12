@@ -31,12 +31,7 @@
       "mode": "mode",
       "reasoning_level": "reasoning_level",
       "fast_mode": true,
-      "voice_handle": {
-        "prefix": "prefix",
-        "name": "name",
-        "display": "display",
-        "key": "key"
-      },
+      "voice_number": 1,
       "queued_count": 1,
       "queue_rev": 1,
       "match": "match",

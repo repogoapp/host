@@ -38,11 +38,11 @@ func TestPruneDropsSessionsMissingFromListing(t *testing.T) {
 	if events != 2 {
 		t.Errorf("events = %d, want 2 (only the kept session's)", events)
 	}
-	var marks, handles int
-	if err := db.db.QueryRow(`SELECT (SELECT COUNT(*) FROM chat_marks), (SELECT COUNT(*) FROM voice_handles)`).Scan(&marks, &handles); err != nil {
+	var marks, numbers int
+	if err := db.db.QueryRow(`SELECT (SELECT COUNT(*) FROM chat_marks), (SELECT COUNT(*) FROM voice_numbers)`).Scan(&marks, &numbers); err != nil {
 		t.Fatal(err)
 	}
-	if marks != 0 || handles != 2 {
-		t.Errorf("marks = %d, handles = %d; want the pruned chat's gone", marks, handles)
+	if marks != 0 || numbers != 2 {
+		t.Errorf("marks = %d, numbers = %d; want the pruned chat's gone", marks, numbers)
 	}
 }

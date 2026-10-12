@@ -89,18 +89,15 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 			return err
 		}
 	}
-	changed := []ChatID{id}
 	if fresh {
-		renamed, err := s.assignVoiceHandles(tx)
-		if err != nil {
+		if err := s.assignVoiceNumbers(tx); err != nil {
 			return err
 		}
-		changed = append(changed, renamed...)
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	s.notify(Change{Changed: changed})
+	s.notify(Change{Changed: []ChatID{id}})
 	return nil
 }
 

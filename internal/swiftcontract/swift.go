@@ -262,8 +262,7 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 		return "Codable"
 	}
 	if (t.PkgPath() == "github.com/repogo/host/internal/git" && (t.Name() == "Status" || t.Name() == "ChangeSet" || t.Name() == "FileChange")) ||
-		(t.PkgPath() == "github.com/repogo/host/internal/files" && t.Name() == "Entry") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "VoiceHandle") {
+		(t.PkgPath() == "github.com/repogo/host/internal/files" && t.Name() == "Entry") {
 		return "Codable"
 	}
 	if (t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "Project") ||
@@ -404,7 +403,7 @@ func (g *swiftGen) assignNames() {
 		}
 		if t.PkgPath() == "github.com/repogo/host/internal/store" {
 			switch t.Name() {
-			case "Chat", "VoiceHandle", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
+			case "Chat", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
 				family = "chats"
 			case "Schedule":
 				family = "schedules"

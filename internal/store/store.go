@@ -74,6 +74,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.numberChats(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return s, nil
 }
 

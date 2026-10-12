@@ -32,7 +32,7 @@ func rebuildCache(t *testing.T, db *Store, dir string) *Store {
 }
 
 // What the user made lives in state.db, so a cache rebuild (any schema
-// change) keeps resolves, pins, voice names, picks and queued turns.
+// change) keeps resolves, pins, voice numbers, picks and queued turns.
 func TestStateSurvivesACacheRebuild(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(dir)
@@ -54,8 +54,8 @@ func TestStateSurvivesACacheRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, err := db.Info("claude:a")
-	if err != nil || before.VoiceHandle == nil {
-		t.Fatalf("no voice handle before the rebuild: %+v, %v", before, err)
+	if err != nil || before.VoiceNumber == 0 {
+		t.Fatalf("no voice number before the rebuild: %+v, %v", before, err)
 	}
 
 	db = rebuildCache(t, db, dir)
@@ -73,8 +73,8 @@ func TestStateSurvivesACacheRebuild(t *testing.T) {
 	if after.PinnedAt == nil || *after.PinnedAt != 2500 {
 		t.Errorf("pin lost: %v", after.PinnedAt)
 	}
-	if after.VoiceHandle == nil || after.VoiceHandle.Key != before.VoiceHandle.Key {
-		t.Errorf("voice name changed: %+v, was %+v", after.VoiceHandle, before.VoiceHandle)
+	if after.VoiceNumber != before.VoiceNumber {
+		t.Errorf("voice number changed: %d, was %d", after.VoiceNumber, before.VoiceNumber)
 	}
 	if after.QueuedCount != 1 || after.QueueRev != 1 {
 		t.Errorf("queue on the row = %d at %d, want 1 at 1", after.QueuedCount, after.QueueRev)
@@ -90,7 +90,7 @@ func TestStateSurvivesACacheRebuild(t *testing.T) {
 
 // After a rebuild, chats come back a few at a time. One deleted meanwhile
 // takes only its own state; a chat not yet re-imported keeps its resolve and
-// its voice name, which a new chat cannot take.
+// its voice number, which a new chat cannot take.
 func TestAPartialRebuildKeepsStateOfChatsNotYetImported(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(dir)
@@ -111,11 +111,11 @@ func TestAPartialRebuildKeepsStateOfChatsNotYetImported(t *testing.T) {
 	if err := db.Delete("claude:deleted"); err != nil {
 		t.Fatal(err)
 	}
-	// A new chat is named while "later" is still missing from the cache.
+	// A new chat is numbered while "later" is still missing from the cache.
 	write(t, db, "new", 9000, 1)
 	fresh, _ := db.Info("claude:new")
-	if fresh.VoiceHandle == nil || fresh.VoiceHandle.Key == later.VoiceHandle.Key {
-		t.Fatalf("new chat's voice name = %+v, must not be the absent chat's %s", fresh.VoiceHandle, later.VoiceHandle.Key)
+	if fresh.VoiceNumber == 0 || fresh.VoiceNumber == later.VoiceNumber {
+		t.Fatalf("new chat's voice number = %d, must not be the absent chat's %d", fresh.VoiceNumber, later.VoiceNumber)
 	}
 
 	write(t, db, "later", 1002, 1)
@@ -123,7 +123,7 @@ func TestAPartialRebuildKeepsStateOfChatsNotYetImported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.ResolvedAt == nil || back.VoiceHandle == nil || back.VoiceHandle.Key != later.VoiceHandle.Key {
+	if back.ResolvedAt == nil || back.VoiceNumber != later.VoiceNumber {
 		t.Fatalf("a chat imported late lost its state: %+v", back)
 	}
 	write(t, db, "deleted", 1001, 1)
@@ -344,7 +344,7 @@ func TestStateTablesHaveOneWriter(t *testing.T) {
 	writers := map[string][]string{
 		"chat_marks":    {"marks.go", "import.go", "delete.go"},
 		"project_marks": {"projectmarks.go"},
-		"voice_handles": {"voice.go", "delete.go"},
+		"voice_numbers": {"voice.go", "delete.go"},
 		"queued_turns":  {"queue.go"},
 		"chat_queues":   {"queue.go"},
 		"schedules":     {"schedules.go"},

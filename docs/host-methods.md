@@ -140,7 +140,7 @@ Result:
 - `mode` string (omitted when empty)
 - `reasoning_level` string (omitted when empty)
 - `fast_mode` bool (omitted when empty) (nullable)
-- `voice_handle` object{VoiceHandle} (omitted when empty) (nullable)
+- `voice_number` int (omitted when empty)
 - `queued_count` int (omitted when empty)
 - `queue_rev` int (omitted when empty)
 - `match` string (omitted when empty)

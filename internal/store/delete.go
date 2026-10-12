@@ -129,13 +129,13 @@ func selectChats(db querier, query string, args ...any) ([]ChatID, error) {
 	return ids, rows.Err()
 }
 
-// dropChatState removes one deleted chat's resolve and voice handle. Only
+// dropChatState removes one deleted chat's resolve and voice number. Only
 // that chat's: a chat missing from the cache may be not yet re-imported, and
 // its state is still the user's.
 func dropChatState(tx *sql.Tx, kind, sessionID string) error {
 	if _, err := tx.Exec(`DELETE FROM state.chat_marks WHERE agent = ? AND session_id = ?`, kind, sessionID); err != nil {
 		return err
 	}
-	_, err := tx.Exec(`DELETE FROM state.voice_handles WHERE agent = ? AND session_id = ?`, kind, sessionID)
+	_, err := tx.Exec(`DELETE FROM state.voice_numbers WHERE agent = ? AND session_id = ?`, kind, sessionID)
 	return err
 }

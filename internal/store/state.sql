@@ -22,17 +22,18 @@ CREATE TABLE IF NOT EXISTS project_marks (
   name      TEXT      -- the user's name for it; never ''
 ) WITHOUT ROWID;
 
--- Each chat's spoken name for the voice agent: a name the user has heard
--- must survive a rebuild. key is unique so no two chats answer to one name.
--- Minted by the import (voice.go).
-CREATE TABLE IF NOT EXISTS voice_handles (
+-- Each chat's number for the voice agent: a number the user has heard must
+-- survive a rebuild, and AUTOINCREMENT never hands out a deleted chat's.
+-- Assigned by the import (voice.go).
+CREATE TABLE IF NOT EXISTS voice_numbers (
+  number     INTEGER PRIMARY KEY AUTOINCREMENT,
   agent      TEXT NOT NULL,
   session_id TEXT NOT NULL,
-  prefix     TEXT NOT NULL,
-  name       TEXT NOT NULL,
-  key        TEXT NOT NULL UNIQUE,
-  PRIMARY KEY (agent, session_id)
+  UNIQUE (agent, session_id)
 );
+-- Spoken names, dropped for voice_numbers: openState refuses a table it does
+-- not make.
+DROP TABLE IF EXISTS voice_handles;
 
 -- Turns waiting behind a chat's running turn, so a restart keeps them. Keyed
 -- by the Manager's chat id: a new chat's queue exists under a temporary id

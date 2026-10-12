@@ -72,13 +72,11 @@ func (s *Store) SyncBatch(entries []Entry) error {
 			changed = append(changed, ChatID(agent.ChatID(e.Meta.Agent, e.Meta.ID)))
 		}
 	}
-	// A new chat is named in the same write that lists it.
+	// A new chat is numbered in the same write that lists it.
 	if fresh {
-		renamed, err := s.assignVoiceHandles(b.tx)
-		if err != nil {
+		if err := s.assignVoiceNumbers(b.tx); err != nil {
 			return err
 		}
-		changed = append(changed, renamed...)
 	}
 	if err := b.tx.Commit(); err != nil {
 		return err
