@@ -327,19 +327,3 @@ func TestSearchPages(t *testing.T) {
 		t.Errorf("second page = %+v, %v; want only claude:a", second.Chats, err)
 	}
 }
-
-func TestOutlineListsEveryPrompt(t *testing.T) {
-	db := newStore(t)
-	syncChat(t, db, "a", "Release notes",
-		prompt("rename the drawer"), reply("Renamed it."),
-		prompt("the sparkle updater fails"), reply("Fixed."), reply("Anything else?"),
-		prompt("thanks"))
-
-	outline, err := db.Outline("claude:a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []int{0, 2, 5}; !slices.Equal(outline.Prompts, want) {
-		t.Errorf("prompts = %v, want %v", outline.Prompts, want)
-	}
-}

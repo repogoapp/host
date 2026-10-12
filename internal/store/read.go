@@ -561,35 +561,6 @@ func (s *Store) header(id ChatID) (Page, int64, error) {
 	return page, sid, nil
 }
 
-// Outline is the index of every prompt in one chat, oldest first: the stops
-// the phone's message scrubber jumps between, held or not.
-type Outline struct {
-	Prompts    []int
-	Generation int64
-}
-
-func (s *Store) Outline(id ChatID) (Outline, error) {
-	page, sid, err := s.header(id)
-	if err != nil {
-		return Outline{}, err
-	}
-	rows, err := s.db.Query(`SELECT idx FROM events WHERE sid = ? AND kind = ? ORDER BY idx`,
-		sid, string(agent.EventUserMessage))
-	if err != nil {
-		return Outline{}, fmt.Errorf("store: outline: %w", err)
-	}
-	defer rows.Close()
-	out := Outline{Prompts: []int{}, Generation: page.Generation}
-	for rows.Next() {
-		var idx int
-		if err := rows.Scan(&idx); err != nil {
-			return Outline{}, err
-		}
-		out.Prompts = append(out.Prompts, idx)
-	}
-	return out, rows.Err()
-}
-
 // backward selects the last `limit` events below beforeIdx, or of the whole
 // transcript when negative. Selected DESC so SQLite stops early, then reversed.
 func (s *Store) backward(id ChatID, beforeIdx, limit int) (Page, error) {

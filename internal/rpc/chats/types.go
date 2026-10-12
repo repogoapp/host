@@ -66,13 +66,6 @@ type NeighborsParams struct {
 	ChatID store.ChatID `json:"chat_id"`
 }
 
-// OutlineResult is every prompt's index in the chat, oldest first, and the
-// generation they were read from.
-type OutlineResult struct {
-	Prompts    []int `json:"prompts" wire:"array"`
-	Generation int64 `json:"generation"`
-}
-
 type NeighborsResult struct {
 	Previous *store.Chat `json:"previous"`
 	Next     *store.Chat `json:"next"`

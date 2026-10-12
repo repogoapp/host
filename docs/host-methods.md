@@ -208,17 +208,6 @@ Result:
 - `next` object{Chat} (nullable)
 - `host_id` string
 
-## `chats.outline`
-
-Params:
-
-- `chat_id` string
-
-Result:
-
-- `prompts` [int]
-- `generation` int
-
 ## `chats.queue`
 
 Params:

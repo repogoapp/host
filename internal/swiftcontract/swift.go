@@ -19,7 +19,7 @@ import (
 var methodExports = map[string]bool{
 	"chats.messages": true, "chats.subscribe": true, "chats.unsubscribe": true,
 	"chats.tools_subscribe": true, "chats.tools_unsubscribe": true,
-	"chats.subagent": true, "chats.neighbors": true, "chats.outline": true,
+	"chats.subagent": true, "chats.neighbors": true,
 	"limits.read": true, "limits.reset": true,
 	// Usage, devices and project picking.
 	"usage.history": true, "usage.daily": true, "devices.register_push": true, "devices.list": true, "devices.revoke": true,
