@@ -106,6 +106,16 @@ func (s *Store) SetPinned(path string, pinned bool, at time.Time) (Project, erro
 	return s.Project(path)
 }
 
+// ForgetMarks drops everything the user set on a project, for one deleted:
+// a pick would keep the gone folder a root.
+func (s *Store) ForgetMarks(path string) error {
+	_, err := s.updateProjectMarks(path, func(m *ProjectMarks) bool {
+		*m = ProjectMarks{}
+		return true
+	})
+	return err
+}
+
 // Project is one listed project's row, with the user's marks on it.
 func (s *Store) Project(path string) (Project, error) {
 	rows, err := s.projects(`WHERE p.path = ?`, path)

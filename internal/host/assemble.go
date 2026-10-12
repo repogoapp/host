@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/repogo/host/internal/account"
@@ -142,6 +143,7 @@ func (h *Host) openDevices() error {
 	h.onClose(h.keeper.Release)
 	h.info = hostinfo.New(hostinfo.Deps{
 		Power: h.keeper, Relay: h.relayConnected, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
+		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "",
 	})
 	if err := h.info.LoadCloud(h.state("cloud.json"), h.cfg.Getenv); err != nil {
 		return fmt.Errorf("cloud session: %w", err)
@@ -254,6 +256,7 @@ func (h *Host) openProjects() error {
 	// folder picker browses home and makes what it picks a root (h.db).
 	projectFiles := files.New(files.Config{
 		Roots: files.Union(h.db, layout), Home: h.cfg.Home, Picks: h.db, Folders: layout,
+		Projects: h.cfg.Projects, Trash: files.TrashDir(runtime.GOOS, h.cfg.Home),
 		ReadOnly: []files.ReadOnlyDir{{Path: h.cfg.Attachments, MaxBytes: agent.MaxUploadBytes}},
 	})
 	gitService := gitcore.New(projectFiles, h.log)

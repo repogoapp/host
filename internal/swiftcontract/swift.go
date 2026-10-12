@@ -42,7 +42,8 @@ var methodExports = map[string]bool{
 	"turns.send_queued": true, "chats.queue": true,
 	// Projects and actions.
 	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
-	"actions.list": true, "actions.run": true, "actions.start": true, "actions.stop": true,
+	"projects.delete": true,
+	"actions.list":    true, "actions.run": true, "actions.start": true, "actions.stop": true,
 	// Terminal and forwarding.
 	"terminals.create": true, "terminals.list": true, "terminals.subscribe": true,
 	"terminals.unsubscribe": true, "terminals.attach": true, "terminals.detach": true,

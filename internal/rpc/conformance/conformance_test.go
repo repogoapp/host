@@ -69,6 +69,7 @@ func vocabulary(root string) []check {
 		{method: "fs.delete", params: map[string]any{"path": filepath.Join(missing, "a")}, key: "ok"},
 		{method: "projects.create", params: map[string]any{"name": ".refused"}, key: "path"},
 		{method: "projects.add", params: map[string]any{"path": missing}, key: "path"},
+		{method: "projects.delete", params: map[string]any{"path": missing}, key: "ok"},
 		// A mirror pull with no rows and no cursor: the empty case is the one every
 		// client starts from, and it must answer the same however it was reached.
 		{method: "chats.sync", params: map[string]any{}, key: "upsert"},

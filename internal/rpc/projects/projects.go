@@ -29,6 +29,10 @@ type AddParams struct {
 	Path string `json:"path"`
 }
 
+type DeleteParams struct {
+	Path string `json:"path"`
+}
+
 type CreateParams struct {
 	Name string `json:"name"`
 
@@ -72,6 +76,9 @@ func Register(r *rpc.Router, d Deps) {
 	// add is the folder picker's Select, making a folder it could only see a root.
 	rpc.Add(r, "projects.add", d.add)
 	rpc.Add(r, "projects.create", d.create)
+	// delete moves the folder to the Trash, or deletes it on a host with none
+	// (host.status leaves out "trash"); the phone asks for its name first.
+	rpc.Add(r, "projects.delete", d.delete)
 }
 
 func (d Deps) list(_ context.Context, _ rpc.Caller, _ rpc.None) (ListResult, error) {
@@ -114,4 +121,19 @@ func (d Deps) add(_ context.Context, _ rpc.Caller, a AddParams) (PathResult, err
 func (d Deps) create(_ context.Context, _ rpc.Caller, a CreateParams) (PathResult, error) {
 	path, err := d.Files.NewProject(a.Parent, a.Name)
 	return PathResult{Path: path}, err
+}
+
+func (d Deps) delete(_ context.Context, _ rpc.Caller, a DeleteParams) (rpc.Ack, error) {
+	if _, err := d.Store.Project(a.Path); err != nil {
+		return rpc.Ack{}, err
+	}
+	if err := d.Files.DeleteProject(a.Path); err != nil {
+		return rpc.Ack{}, err
+	}
+	if err := d.Store.ForgetMarks(a.Path); err != nil {
+		return rpc.Ack{}, err
+	}
+	// The pass finds the folder gone and sends its removal to every device.
+	d.Sync.Nudge()
+	return rpc.OK, nil
 }

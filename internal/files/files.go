@@ -122,6 +122,11 @@ type Config struct {
 
 	Picks   Picker
 	Folders FolderMaker
+	// Projects is where new projects go. It and home hold every project, so
+	// neither is ever deleted as one.
+	Projects string
+	// Trash is where deleted files and projects go; empty deletes them for good.
+	Trash string
 
 	// ReadOnly is host state Read, and nothing else, reaches: the files sent
 	// with a prompt live outside every project, and the phone draws them back.

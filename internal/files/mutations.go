@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/repogo/host/internal/errkind"
 )
@@ -46,6 +47,7 @@ func mutationRoot(roots []string, path string) (*os.Root, string, error) {
 	return nil, "", ErrOutsideRoots
 }
 
+// Delete moves a file or folder to the Trash, or deletes it where there is none.
 func (s *Service) Delete(path string) error {
 	roots, err := s.resolvedRoots()
 	if err != nil {
@@ -63,7 +65,10 @@ func (s *Service) Delete(path string) error {
 	if _, err := root.Lstat(relative); err != nil {
 		return wrap(err)
 	}
-	return wrap(root.RemoveAll(relative))
+	if s.cfg.Trash == "" {
+		return wrap(root.RemoveAll(relative))
+	}
+	return trash(full, s.cfg.Trash, time.Now())
 }
 
 func (s *Service) Rename(path, newPath string) error {

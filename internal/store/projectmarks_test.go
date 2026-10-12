@@ -94,3 +94,18 @@ func TestAPinnedProjectIsAlwaysListed(t *testing.T) {
 		t.Fatalf("listed %d after unpinning, want %d", len(listed), maxProjects)
 	}
 }
+
+// A deleted project's pick goes with its marks, so the gone folder stops
+// being a root.
+func TestForgetMarksDropsThePick(t *testing.T) {
+	db := newStore(t)
+	if err := db.Pick("/tmp/picked", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ForgetMarks("/tmp/picked"); err != nil {
+		t.Fatal(err)
+	}
+	if roots, _ := db.Roots(); len(roots) != 0 {
+		t.Fatalf("roots after ForgetMarks = %v, want none", roots)
+	}
+}

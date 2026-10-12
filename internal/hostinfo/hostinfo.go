@@ -43,6 +43,9 @@ const (
 	CapabilityDevices   = "devices"
 	CapabilitySchedules = "schedules"
 	CapabilityUsage     = "usage"
+	// CapabilityTrash is a host that moves deleted files and projects to the
+	// Trash rather than deleting them for good.
+	CapabilityTrash = "trash"
 )
 
 // Battery is the machine's last power reading.
@@ -58,6 +61,8 @@ type Deps struct {
 	UpdateFailed string
 	// PublicIP looks up the address this machine reaches the internet from: LookupPublicIP.
 	PublicIP func(context.Context) (string, error)
+	// Trash is whether deleted files and projects go to the Trash: files.TrashDir.
+	Trash bool
 }
 
 type Service struct {
@@ -163,6 +168,9 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		out.Battery = &b
 	}
 	out.Capabilities = []string{CapabilityDevices, CapabilityUsage}
+	if s.d.Trash {
+		out.Capabilities = append(out.Capabilities, CapabilityTrash)
+	}
 	if s.cloud != nil {
 		c := *s.cloud
 		out.Cloud = &c

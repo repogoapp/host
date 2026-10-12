@@ -1443,6 +1443,16 @@ Result:
 
 - `path` string
 
+## `projects.delete`
+
+Params:
+
+- `path` string
+
+Result:
+
+- `ok` bool
+
 ## `projects.detect_icon`
 
 Params:
