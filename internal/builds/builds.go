@@ -99,6 +99,8 @@ type Request struct {
 	Method        string
 	Version       string
 	BuildNumber   string
+	// Xcode is the path of an installed Xcode, for iOS; empty uses the selected one.
+	Xcode string
 }
 
 // LogChunk is part of a build's log from Offset on.
@@ -201,9 +203,15 @@ func (s *Service) start(req Request, parent context.Context, publicationID strin
 		if !IOSSupported() {
 			return Build{}, nil, ErrUnsupported
 		}
+		if err := s.checkXcode(req.Xcode); err != nil {
+			return Build{}, nil, err
+		}
 		// A publication's build keeps its archive for the App Store Connect export.
-		pipeline, err = s.checkIOS(&b, publicationID != "")
+		pipeline, err = s.checkIOS(&b, publicationID != "", req.Xcode)
 	case PlatformAndroid:
+		if req.Xcode != "" {
+			return Build{}, nil, fmt.Errorf("%w: xcode is for iOS builds", ErrInvalid)
+		}
 		pipeline, err = s.checkAndroid(&b)
 	default:
 		return Build{}, nil, fmt.Errorf("%w: platform must be %q or %q", ErrInvalid, PlatformIOS, PlatformAndroid)

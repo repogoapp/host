@@ -144,7 +144,7 @@ func TestBearerNamesALiveSession(t *testing.T) {
 	}
 }
 
-func TestToolsListNamesBrowserAndBuilds(t *testing.T) {
+func TestToolsListNamesBrowserAndAppTools(t *testing.T) {
 	s := newServer(t, newFakePhone(true, nil))
 	token, _ := bearer(t, s, &fakeSession{turn: turnFrom("phone")})
 	w := post(t, s, token, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
@@ -166,7 +166,7 @@ func TestToolsListNamesBrowserAndBuilds(t *testing.T) {
 		}
 		names = append(names, tool.Name)
 	}
-	if strings.Join(names, ",") != "browser,build,build_status" {
+	if strings.Join(names, ",") != "browser,apps,build,publish,status,cancel" {
 		t.Fatalf("tools %v", names)
 	}
 }

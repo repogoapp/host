@@ -128,7 +128,7 @@ func projectBundleID(containers []string) string {
 }
 
 // checkIOS validates an iOS request, filling its defaults, and returns its pipeline.
-func (s *Service) checkIOS(b *Build, forUpload bool) (func(context.Context, *Build, string, io.Writer) error, error) {
+func (s *Service) checkIOS(b *Build, forUpload bool, xcode string) (func(context.Context, *Build, string, io.Writer) error, error) {
 	bundle, err := s.cfg.Paths.Contain(filepath.Join(b.Project, b.Path))
 	if err != nil {
 		return nil, err
@@ -153,14 +153,14 @@ func (s *Service) checkIOS(b *Build, forUpload bool) (func(context.Context, *Bui
 		b.Method = MethodDevelopment
 	}
 	return func(ctx context.Context, b *Build, dir string, log io.Writer) error {
-		return s.archive(ctx, b, bundle, dir, log, forUpload)
+		return s.archive(ctx, b, bundle, dir, log, forUpload, xcode)
 	}, nil
 }
 
 // archive reads the team, archives for any iOS device, exports a signed IPA,
 // and keeps it with the app's icons. Only the phones already on the team's
 // profile can install it; no device is registered.
-func (s *Service) archive(ctx context.Context, b *Build, bundle, dir string, log io.Writer, forUpload bool) error {
+func (s *Service) archive(ctx context.Context, b *Build, bundle, dir string, log io.Writer, forUpload bool, xcode string) error {
 	wantedVersion, wantedBuild := b.Version, b.BuildNumber
 	ctx, cancel := context.WithTimeout(ctx, iosTimeout)
 	defer cancel()
@@ -173,8 +173,8 @@ func (s *Service) archive(ctx context.Context, b *Build, bundle, dir string, log
 	s.phase(b, "settings", log)
 	settingsCtx, cancelSettings := context.WithTimeout(ctx, settingsTimeout)
 	defer cancelSettings()
-	settingsCmd := command(settingsCtx, cwd, nil, xcodebuild, "-showBuildSettings", "-json", container, bundle,
-		"-scheme", b.Target, "-configuration", b.Configuration, "-destination", "generic/platform=iOS")
+	settingsCmd := withXcode(command(settingsCtx, cwd, nil, xcodebuild, "-showBuildSettings", "-json", container, bundle,
+		"-scheme", b.Target, "-configuration", b.Configuration, "-destination", "generic/platform=iOS"), xcode)
 	settingsCmd.Stderr = log
 	out, err := settingsCmd.Output()
 	if err != nil {
@@ -205,7 +205,7 @@ func (s *Service) archive(ctx context.Context, b *Build, bundle, dir string, log
 	if wantedBuild != "" {
 		args = append(args, "CURRENT_PROJECT_VERSION="+wantedBuild)
 	}
-	if err := command(ctx, cwd, log, xcodebuild, args...).Run(); err != nil {
+	if err := withXcode(command(ctx, cwd, log, xcodebuild, args...), xcode).Run(); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -220,8 +220,8 @@ func (s *Service) archive(ctx context.Context, b *Build, bundle, dir string, log
 	if err := os.WriteFile(options, []byte(exportOptions(team, b.Method)), 0o600); err != nil {
 		return err
 	}
-	if err := exportArchive(ctx, cwd, log, "-archivePath", archivePath,
-		"-exportPath", exportDir, "-exportOptionsPlist", options, "-allowProvisioningUpdates").Run(); err != nil {
+	if err := withXcode(exportArchive(ctx, cwd, log, "-archivePath", archivePath,
+		"-exportPath", exportDir, "-exportOptionsPlist", options, "-allowProvisioningUpdates"), xcode).Run(); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

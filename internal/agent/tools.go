@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/repogo/host/internal/device"
 )
@@ -35,4 +36,7 @@ type RunningTurn struct {
 	Cwd    string
 	// Device sent the turn; empty for one started on the host itself.
 	Device device.ID
+	// Ask puts an approval on the turn's chat and blocks until the user answers,
+	// as TurnIO.Ask does; a tool asks before acting outside the machine.
+	Ask func(context.Context, Approval) (json.RawMessage, error)
 }

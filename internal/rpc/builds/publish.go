@@ -48,7 +48,10 @@ func (d Deps) appNumbers(ctx context.Context, _ rpc.Caller, a AppParams) (builds
 }
 
 func (d Deps) publish(_ context.Context, _ rpc.Caller, a PublishParams) (PublicationResult, error) {
-	p, err := d.Builds.Publish(buildscore.PublishRequest(a))
+	p, err := d.Builds.Publish(buildscore.PublishRequest{
+		RequestID: a.RequestID, Project: a.Project, Path: a.Path, Target: a.Target,
+		Version: a.Version, BuildNumber: a.BuildNumber,
+	})
 	return PublicationResult{Publication: p}, err
 }
 

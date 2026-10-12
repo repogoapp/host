@@ -86,7 +86,10 @@ func (d Deps) get(_ context.Context, _ rpc.Caller, a BuildParams) (BuildResult, 
 }
 
 func (d Deps) start(_ context.Context, _ rpc.Caller, a StartParams) (BuildResult, error) {
-	b, err := d.Builds.Start(buildscore.Request(a))
+	b, err := d.Builds.Start(buildscore.Request{
+		Project: a.Project, Platform: a.Platform, Path: a.Path, Target: a.Target,
+		Configuration: a.Configuration, Method: a.Method, Version: a.Version, BuildNumber: a.BuildNumber,
+	})
 	return BuildResult{Build: b}, err
 }
 

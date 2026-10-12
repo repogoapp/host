@@ -67,6 +67,14 @@ func (s *Service) PublishLog(id string, offset int64) (LogChunk, error) {
 	return readLog(filepath.Join(s.publicationDir(id), "publish.log"), offset, p.Status != StatusPublishing)
 }
 
+// PublishLogTail is the end of a publication's log, where Xcode's refusal is.
+func (s *Service) PublishLogTail(id string, size int64) string {
+	if !idPattern.MatchString(id) {
+		return ""
+	}
+	return fileTail(filepath.Join(s.publicationDir(id), "publish.log"), size)
+}
+
 func (s *Service) CancelPublish(id string) error {
 	s.mu.Lock()
 	run, ok := s.publishing[id]

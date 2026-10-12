@@ -52,6 +52,8 @@ type PublishRequest struct {
 	Target      string
 	Version     string
 	BuildNumber string
+	// Xcode is the path of an installed Xcode; empty uses the selected one.
+	Xcode string
 }
 
 type publishRun struct {
@@ -87,6 +89,9 @@ func (s *Service) Publish(req PublishRequest) (Publication, error) {
 	if !numericVersion.MatchString(req.Version) || req.BuildNumber != "" && !numericVersion.MatchString(req.BuildNumber) {
 		return Publication{}, fmt.Errorf("%w: version and build_number must be one to three dot-separated integers", ErrInvalid)
 	}
+	if err := s.checkXcode(req.Xcode); err != nil {
+		return Publication{}, err
+	}
 	prior, err := s.Publications(project, req.Path, req.Target)
 	if err != nil {
 		return Publication{}, err
@@ -109,11 +114,11 @@ func (s *Service) Publish(req PublishRequest) (Publication, error) {
 	}
 	ctx, cancel := context.WithCancelCause(s.ctx)
 	s.publishing[p.ID] = publishRun{cancel: cancel}
-	s.runs.Go(func() { s.runPublication(ctx, p) })
+	s.runs.Go(func() { s.runPublication(ctx, p, req.Xcode) })
 	return p, nil
 }
 
-func (s *Service) runPublication(ctx context.Context, p Publication) {
+func (s *Service) runPublication(ctx context.Context, p Publication, xcode string) {
 	defer func() {
 		s.mu.Lock()
 		run := s.publishing[p.ID]
@@ -128,7 +133,7 @@ func (s *Service) runPublication(ctx context.Context, p Publication) {
 		return
 	}
 	defer log.Close()
-	err = s.publish(ctx, &p, log)
+	err = s.publish(ctx, &p, xcode, log)
 	status, code, message := StatusUploaded, "", ""
 	switch {
 	case err == nil:
@@ -151,13 +156,13 @@ func (s *Service) runPublication(ctx context.Context, p Publication) {
 
 // publish builds Release with the publication's numbers, then exports that
 // archive straight to App Store Connect and drops it.
-func (s *Service) publish(ctx context.Context, p *Publication, log io.Writer) error {
+func (s *Service) publish(ctx context.Context, p *Publication, xcode string, log io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*iosTimeout)
 	defer cancel()
 	fmt.Fprintf(log, "==> build %s %s (%s)\n", p.Target, p.Version, cmp.Or(p.BuildNumber, "automatic"))
 	b, done, err := s.start(Request{
 		Project: p.Project, Platform: PlatformIOS, Path: p.Path, Target: p.Target, Configuration: "Release",
-		Version: p.Version, BuildNumber: p.BuildNumber,
+		Version: p.Version, BuildNumber: p.BuildNumber, Xcode: xcode,
 	}, ctx, p.ID, log)
 	if err != nil {
 		return err
@@ -194,8 +199,8 @@ func (s *Service) publish(ctx context.Context, p *Publication, log io.Writer) er
 	}
 	fmt.Fprintln(log, "\n==> export and upload to App Store Connect")
 	exportDir := filepath.Join(dir, "export")
-	if err := exportArchive(ctx, dir, log, "-archivePath", archive,
-		"-exportPath", exportDir, "-exportOptionsPlist", options, "-allowProvisioningUpdates").Run(); err != nil {
+	if err := withXcode(exportArchive(ctx, dir, log, "-archivePath", archive,
+		"-exportPath", exportDir, "-exportOptionsPlist", options, "-allowProvisioningUpdates"), xcode).Run(); err != nil {
 		return err
 	}
 	if automatic {

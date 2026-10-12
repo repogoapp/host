@@ -303,7 +303,7 @@ func (s *liveSession) Running() (agent.RunningTurn, bool) {
 	if s.io == nil || s.closed {
 		return agent.RunningTurn{}, false
 	}
-	return agent.RunningTurn{Ctx: s.turnCtx, TurnID: s.io.TurnID, ChatID: s.key, Cwd: s.cwd, Device: s.io.Device}, true
+	return agent.RunningTurn{Ctx: s.turnCtx, TurnID: s.io.TurnID, ChatID: s.key, Cwd: s.cwd, Device: s.io.Device, Ask: s.ask}, true
 }
 
 // ask blocks on a person for the bound turn. Codex resolving the request, or

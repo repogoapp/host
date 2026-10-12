@@ -32,8 +32,9 @@ const codeParseError = -32700
 var protocols = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
 
 const instructions = "RepoGo's own tools. `browser` drives the browser in the RepoGo app " +
-	"on the phone that sent this turn. `build` and `build_status` build this project's iOS or Android app " +
-	"and give the user a link that installs it on their phone."
+	"on the phone that sent this turn. `apps` lists this project's iOS and Android apps and the installed Xcodes; " +
+	"`build` builds one and gives the user a link that installs it on their phone; `publish` uploads an iOS app " +
+	"to App Store Connect once the user approves; `status` and `cancel` follow either."
 
 type Config struct {
 	// URL is the handler's address on the loopback server, known once it listens.
@@ -148,7 +149,7 @@ func (s *Server) handle(ctx context.Context, session agent.ToolSession, req rpcR
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		return map[string]any{"tools": []tool{browserTool, buildTool, buildStatusTool}}, nil
+		return map[string]any{"tools": []tool{browserTool, appsTool, buildTool, publishTool, statusTool, cancelTool}}, nil
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -169,6 +170,11 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 	if !ok {
 		return failed("RepoGo: no turn is running in this chat")
 	}
+	// A session keeps its entry until its next turn, so switching the server
+	// off must also stop calls from the turn already running.
+	if !s.cfg.On(turn.Cwd) {
+		return failed("RepoGo's tools are switched off for this project")
+	}
 	// Bounded by both the turn and the agent's request: a stopped turn or a
 	// dropped call stops waiting on the phone.
 	callCtx, cancel := context.WithCancel(turn.Ctx)
@@ -180,10 +186,16 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 	switch name {
 	case browserTool.Name:
 		return s.cfg.Browser.Tool(turn, args)
+	case appsTool.Name:
+		return listApps(callCtx, s.cfg.Builds(), turn)
 	case buildTool.Name:
 		return startBuild(s.cfg.Builds(), turn, args)
-	case buildStatusTool.Name:
-		return buildState(callCtx, s.cfg.Builds(), args)
+	case publishTool.Name:
+		return startPublish(s.cfg.Builds(), turn, args)
+	case statusTool.Name:
+		return jobState(callCtx, s.cfg.Builds(), args)
+	case cancelTool.Name:
+		return cancelJob(s.cfg.Builds(), args)
 	}
 	return failed("unknown tool: " + name)
 }
