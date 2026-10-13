@@ -10,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
 	"github.com/repogo/host/internal/agents/claude"
 	"github.com/repogo/host/internal/chatwire"
 	"github.com/repogo/host/internal/device"
@@ -68,7 +67,7 @@ func newManager(t *testing.T, sessions *session.Store, db *store.Store, pub emit
 	return New(t.Context(), Deps{
 		Sessions: sessions, Store: db, Emit: emit.New(pub, slog.Default()), Turns: turns, Log: slog.Default(),
 		HostID: "host-1", Attention: func(Attention) {},
-		Approval: func(string, string, *agent.Approval) {}, Wire: chatwire.New(nil),
+		Wire: chatwire.New(nil),
 	})
 }
 

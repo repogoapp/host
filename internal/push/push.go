@@ -35,16 +35,22 @@ type Sender interface {
 // Send asks the relay to deliver req. dead reports Apple saying the token is
 // gone, for the caller to forget; any other failure is only logged.
 func Send(ctx context.Context, s Sender, log *slog.Logger, req relay.PushRequest) (dead bool) {
-	_, err := s.Control(ctx, "push.send", req)
-	var rpcErr *jsonrpc.Error
-	switch {
-	case err == nil:
-	case errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeNotFound:
-		return true
-	default:
+	dead, err := Try(ctx, s, req)
+	if err != nil {
 		log.Debug("push: not delivered", "push_type", req.PushType, "err", err)
 	}
-	return false
+	return dead
+}
+
+// Try is Send for a caller that retries: err is a failure worth trying again,
+// dead a token Apple will never take.
+func Try(ctx context.Context, s Sender, req relay.PushRequest) (dead bool, err error) {
+	_, err = s.Control(ctx, "push.send", req)
+	var rpcErr *jsonrpc.Error
+	if errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeNotFound {
+		return true, nil
+	}
+	return false, err
 }
 
 type Notifier struct {
@@ -189,7 +195,7 @@ func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, collapseID st
 	dead := Send(ctx, n.send, n.log, req)
 	// The app registers a fresh token on its next launch.
 	if dead {
-		if err := n.store.ForgetPush(peer.ID, ""); err != nil {
+		if err := n.store.ForgetPush(peer.ID, "", peer.Push.Token); err != nil {
 			n.log.Warn("push: could not forget token", "device", peer.ID, "err", err)
 		}
 	}

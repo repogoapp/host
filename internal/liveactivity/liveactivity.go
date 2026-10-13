@@ -1,493 +1,411 @@
-// Package liveactivity keeps a Live Activity on each paired phone for every
-// running Claude turn, from its hooks, through the relay's `push.send`. The
-// payload carries the work itself (prompt, tools, questions); the relay stores none.
+// Package liveactivity keeps one Live Activity per paired phone for this
+// environment. It carries counts only (working, needs you, finished), since
+// Apple and the relay read every push in plaintext.
 package liveactivity
 
 import (
-	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/repogo/host/internal/agent"
 	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/notify"
 	"github.com/repogo/host/internal/push"
 	"github.com/repogo/host/internal/relay"
+	"github.com/repogo/host/internal/store"
 )
 
 const (
-	// Tool calls come several a second; the lock screen gets the latest at
-	// most this often. Starts, approvals, questions and endings go at once.
+	// Statuses move several times a second during a turn; the lock screen
+	// gets the latest at most this often. Needing the user goes at once.
 	updateInterval = 5 * time.Second
 
-	// iOS ends a Live Activity after eight hours; its token is dead after that.
+	// With nothing working or waiting this long, the activity ends.
+	idleTimeout = 15 * time.Minute
+
+	// Past this without an update, the card says it may be outdated.
+	staleAfter = 30 * time.Minute
+
+	// iOS ends a Live Activity after eight hours. The host replaces it this
+	// long before, while it can still end the old one.
 	maxActivityAge = 8 * time.Hour
+	renewBefore    = 10 * time.Minute
 
-	// The newest tool calls the activity lists, as many as the widget shows.
-	recentLimit = 8
-
-	// A settled chat's state is kept this long for a late event, then dropped.
-	settledRetention = time.Hour
+	// A phone that has not sent a started activity's update token gets
+	// another start only after this, so a slow phone sees one alert.
+	startRetry = 10 * time.Minute
 )
 
+// Counts is the activity's content-state (`LiveActivityAttributes.ContentState`).
+type Counts struct {
+	Working  int `json:"working"`
+	NeedsYou int `json:"needsYou"`
+	Finished int `json:"finished"`
+}
+
+// Chats reads chat rows; the store does.
+type Chats interface {
+	Info(store.ChatID) (store.Chat, error)
+	Active() ([]store.Chat, error)
+}
+
+// Driver is owned by Run: only the pending set is touched from outside it.
 type Driver struct {
-	// Labels a chat's agent in the subtitle: "Claude is working".
-	agentName func(agent.Kind) string
-	// Labels its project as every surface does: the user's name for it, else
-	// the repository, else the folder.
-	projectName func(cwd string) string
-	store     *device.Store
-	send      push.Sender
-	log       *slog.Logger
-	now       func() time.Time
-	// Runs a delivery off the notice loop, which must never wait on the relay.
-	spawn func(func())
+	chats   Chats
+	devices *device.Store
+	send    push.Sender
+	log     *slog.Logger
+	now     func() time.Time
 
-	// Held from snapshot to send, so a later push always carries later state.
-	sendMu sync.Mutex
+	// Chats a store commit moved, waiting for Run, so the store's writer
+	// never reads the store or waits on the relay.
+	pendingMu sync.Mutex
+	pending   map[store.ChatID]bool
+	wake      chan struct{}
 
-	mu    sync.Mutex
-	chats map[string]*chat // host chat id "<agent>:<session>"
+	// Chats working or waiting on the user, by status.
+	active map[store.ChatID]agent.ChatStatus
+	// Chats that finished while the card was showing.
+	finished map[store.ChatID]bool
+	// The card is on the phones, or being started there.
+	showing bool
+	// When the last active chat settled; zero while any is active.
+	idleSince time.Time
+	// The last round of pushes.
+	last delivery
+	// Starts sent to phones that have not sent the update token yet.
+	startSentAt map[device.ID]time.Time
+	// When Run pushes next with no change to prompt it; zero for never.
+	wakeAt time.Time
 }
 
-// New builds the driver that pushes Live Activity updates through send for the
-// tokens in store; name labels an agent kind, as in "Claude is working".
-func New(store *device.Store, send push.Sender, log *slog.Logger, name func(agent.Kind) string,
-	projectName func(cwd string) string) *Driver {
-	return &Driver{agentName: name, projectName: projectName, store: store, send: send, log: log, now: time.Now,
-		spawn: func(f func()) { go f() }, chats: map[string]*chat{}}
+type delivery struct {
+	counts Counts
+	at     time.Time
+	ok     bool
 }
 
-// chat is one chat's activity: its current turn, as the lock screen shows it.
-type chat struct {
-	id        string
-	agent     agent.Kind
-	cwd       string
-	title     string
-	status    string // running | completed | failed
-	startedAt time.Time
-	endedAt   time.Time
-
-	current   *event
-	recent    []event
-	files     map[string]bool
-	additions int
-	deletions int
-
-	approval *approval
-	question string
-
-	// Peers this turn's activity was started on, so a turn starts at most
-	// one activity per phone while the phone reports its token.
-	started map[device.ID]bool
-
-	lastPush time.Time
-	timer    *time.Timer
+// New builds the driver that pushes the activity through send for the tokens
+// in devices.
+func New(chats Chats, devices *device.Store, send push.Sender, log *slog.Logger) *Driver {
+	return &Driver{
+		chats: chats, devices: devices, send: send, log: log, now: time.Now,
+		pending: map[store.ChatID]bool{}, wake: make(chan struct{}, 1),
+		active: map[store.ChatID]agent.ChatStatus{}, finished: map[store.ChatID]bool{}, startSentAt: map[device.ID]time.Time{},
+	}
 }
 
-type approval struct {
-	title   string
-	turnID  string
-	callID  string
-	options map[string]string // approval option kind → option id
+// Changed queues the chats a store commit moved; Run reads them.
+func (d *Driver) Changed(c store.Change) {
+	d.pendingMu.Lock()
+	for _, id := range append(c.Changed, c.Removed...) {
+		d.pending[id] = true
+	}
+	d.pendingMu.Unlock()
+	select {
+	case d.wake <- struct{}{}:
+	default:
+	}
 }
 
-// Run feeds hook notices to the activities until ctx ends.
-func (d *Driver) Run(ctx context.Context, bridge *notify.Bridge) {
-	bridge.Follow(ctx, func(n notify.Notice) { d.Observe(ctx, n) })
-}
-
-// Observe folds one hook notice into its chat's activity and pushes the
-// result. Only Claude reports tool calls; Codex's one hook ends a turn.
-func (d *Driver) Observe(ctx context.Context, n notify.Notice) {
-	id := n.ChatID()
-	d.mu.Lock()
-	d.prune()
-	c := d.chats[id]
-	urgent := true
-	switch {
-	case n.Starts():
-		c = d.begin(id, n)
-		c.title = headline(n.Prompt, "Agent")
-
-	case n.Ends():
-		if c == nil || c.status != "running" {
-			d.mu.Unlock()
+// Run keeps the card in step with the chats until ctx ends.
+func (d *Driver) Run(ctx context.Context) {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	d.restore(ctx)
+	for {
+		timer.Stop()
+		if !d.wakeAt.IsZero() {
+			timer.Reset(max(d.wakeAt.Sub(d.now()), 0))
+		}
+		select {
+		case <-ctx.Done():
 			return
+		case <-d.wake:
+			d.observePending()
+			d.update(ctx)
+		case <-timer.C:
+			d.observePending()
+			d.push(ctx)
 		}
-		c.status = "completed"
-		if n.Failed() {
-			c.status = "failed"
-		}
-		c.endedAt = n.At
-		c.current, c.approval, c.question = nil, nil, ""
-
-	case n.AsksQuestion():
-		c = d.running(id, n)
-		c.question = n.Question()
-
-	case n.ToolStarting():
-		c = d.running(id, n)
-		lbl := labelFor(n.ToolName, n.ToolInput)
-		c.upsert(eventFor(n.ToolUseID, lbl, lbl.Title))
-		urgent = false
-
-	case n.ToolFinished():
-		c = d.running(id, n)
-		lbl := labelFor(n.ToolName, n.ToolInput)
-		title := completedTitle(lbl.Title)
-		if n.ToolFailed() {
-			title = lbl.Error
-		}
-		ev := eventFor(n.ToolUseID, lbl, title)
-		if !n.ToolFailed() {
-			ev.Additions, ev.Deletions = lineChanges(n.ToolName, n.ToolInput)
-			if ev.Additions+ev.Deletions > 0 {
-				c.files[cmp.Or(toolPath(n.ToolInput), n.ToolUseID)] = true
-				c.additions += ev.Additions
-				c.deletions += ev.Deletions
-			}
-		}
-		c.upsert(ev)
-		// The tool ran, so whatever was asked of the user has been answered.
-		urgent = c.approval != nil || c.question != ""
-		c.approval, c.question = nil, ""
-
-	case n.Status == agent.ChatAwaitingApproval:
-		c = d.running(id, n)
-		if c.approval == nil {
-			c.approval = &approval{title: cmp.Or(n.Message, "Permission required")}
-		}
-		// PermissionRequest names the tool; the Notification that follows it
-		// only has Claude's sentence, so it must not replace the label.
-		if n.ToolName != "" {
-			c.approval.title = labelFor(n.ToolName, n.ToolInput).Title
-		}
-
-	case n.Status == agent.ChatAwaitingUser:
-		c = d.running(id, n)
-		c.question = cmp.Or(n.Question(), n.Message, "Question")
-
-	default:
-		d.mu.Unlock()
-		return
 	}
-	d.mu.Unlock()
-	d.flush(ctx, c, urgent)
 }
 
-// Approval is told of each prompt this host puts to devices, and nil when it
-// is withdrawn; its ids are what the lock screen's buttons answer with.
-func (d *Driver) Approval(ctx context.Context, chatID, turnID string, a *agent.Approval) {
-	d.mu.Lock()
-	c := d.chats[chatID]
-	if c == nil || c.status != "running" {
-		d.mu.Unlock()
-		return
+// restore picks up after a restart: the chats still active, and the cards
+// phones still show, which end after the idle timeout if nothing is.
+func (d *Driver) restore(ctx context.Context) {
+	rows, err := d.chats.Active()
+	if err != nil {
+		d.log.Warn("liveactivity: could not read active chats", "err", err)
+	}
+	for _, row := range rows {
+		d.active[row.ID] = row.Status
+	}
+	for _, peer := range d.devices.Peers() {
+		d.showing = d.showing || peer.Activity != nil
+	}
+	if len(d.active) == 0 && d.showing {
+		d.idleSince = d.now()
+	}
+	d.update(ctx)
+}
+
+// observePending reads the queued chats. One that cannot be read stays
+// queued for the next push.
+func (d *Driver) observePending() {
+	d.pendingMu.Lock()
+	ids := d.pending
+	d.pending = map[store.ChatID]bool{}
+	d.pendingMu.Unlock()
+	for id := range ids {
+		if d.observe(id) {
+			continue
+		}
+		d.pendingMu.Lock()
+		d.pending[id] = true
+		d.pendingMu.Unlock()
+		d.wakeAt = earliest(d.wakeAt, d.now().Add(updateInterval))
+	}
+}
+
+// observe moves one chat between active, finished and gone; false when the
+// chat could not be read, which keeps what is known.
+func (d *Driver) observe(id store.ChatID) bool {
+	row, err := d.chats.Info(id)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		d.log.Warn("liveactivity: could not read chat", "chat", id, "err", err)
+		return false
+	}
+	_, wasActive := d.active[id]
+	switch {
+	case err != nil:
+		delete(d.active, id)
+		delete(d.finished, id)
+	case row.Status.Active():
+		d.active[id] = row.Status
+		delete(d.finished, id)
+	case wasActive:
+		delete(d.active, id)
+		if row.Status == agent.ChatCompleted || row.Status == agent.ChatFailed {
+			d.finished[id] = true
+		}
 	}
 	switch {
-	case a == nil:
-		c.approval = nil
-	case len(a.Questions) > 0:
-		c.question = cmp.Or(strings.TrimSpace(a.Questions[0].Text), "Question")
-	default:
-		options := map[string]string{}
-		for _, o := range a.Options {
-			if o.Kind != "" && options[o.Kind] == "" {
-				options[o.Kind] = o.OptionID
-			}
-		}
-		title := cmp.Or(a.Title, "Permission required")
-		if c.approval != nil && c.approval.title != "" {
-			// The hook's label names the tool the way the rest of the list does.
-			title = c.approval.title
-		}
-		c.approval = &approval{title: title, turnID: turnID, callID: a.CallID, options: options}
+	case len(d.active) > 0:
+		d.idleSince = time.Time{}
+	case d.idleSince.IsZero():
+		d.idleSince = d.now()
 	}
-	d.mu.Unlock()
-	d.flush(ctx, c, true)
+	return true
 }
 
-// begin resets a chat's activity for a new turn. Caller holds d.mu.
-func (d *Driver) begin(id string, n notify.Notice) *chat {
-	c := d.chats[id]
-	if c != nil && c.timer != nil {
-		c.timer.Stop()
+// counts is the card as it stands.
+func (d *Driver) counts() Counts {
+	var c Counts
+	for _, status := range d.active {
+		switch status {
+		case agent.ChatAwaitingApproval, agent.ChatAwaitingUser:
+			c.NeedsYou++
+		default:
+			c.Working++
+		}
 	}
-	c = &chat{
-		id: id, agent: n.Agent, cwd: n.Cwd, status: "running", startedAt: n.At,
-		files: map[string]bool{}, started: map[device.ID]bool{},
-	}
-	d.chats[id] = c
+	c.Finished = len(d.finished)
 	return c
 }
 
-// running is the chat's activity for an event inside a turn, begun here when
-// the turn's start was missed, as when the host restarted mid-turn. Caller
-// holds d.mu.
-func (d *Driver) running(id string, n notify.Notice) *chat {
-	if c := d.chats[id]; c != nil && c.status == "running" {
-		return c
-	}
-	c := d.begin(id, n)
-	c.title = "Agent"
-	return c
-}
-
-// prune drops chats settled long ago. Caller holds d.mu.
-func (d *Driver) prune() {
-	cutoff := d.now().Add(-settledRetention)
-	for id, c := range d.chats {
-		if c.status != "running" && c.endedAt.Before(cutoff) {
-			delete(d.chats, id)
-		}
-	}
-}
-
-func (c *chat) upsert(ev event) {
-	c.current = &ev
-	for i := range c.recent {
-		if c.recent[i].ID == ev.ID {
-			c.recent[i] = ev
-			return
-		}
-	}
-	c.recent = append(c.recent, ev)
-	if len(c.recent) > recentLimit {
-		c.recent = c.recent[len(c.recent)-recentLimit:]
-	}
-}
-
-// flush pushes the chat's activity now, or, for an update that can wait, no
-// sooner than updateInterval after the last one.
-func (d *Driver) flush(ctx context.Context, c *chat, urgent bool) {
-	if !urgent {
-		d.mu.Lock()
-		wait := c.lastPush.Add(updateInterval).Sub(d.now())
-		if wait > 0 {
-			if c.timer == nil {
-				c.timer = time.AfterFunc(wait, func() { d.push(context.WithoutCancel(ctx), c) })
-			}
-			d.mu.Unlock()
-			return
-		}
-		d.mu.Unlock()
-	}
-	d.spawn(func() { d.push(ctx, c) })
-}
-
-// push sends the chat's activity as it stands to every paired phone: an
-// update where the phone has the activity, a start where it does not yet.
-func (d *Driver) push(ctx context.Context, c *chat) {
-	d.sendMu.Lock()
-	defer d.sendMu.Unlock()
-	d.mu.Lock()
-	if c.timer != nil {
-		c.timer.Stop()
-		c.timer = nil
-	}
-	if d.chats[c.id] != c {
-		// A newer turn has the chat now.
-		d.mu.Unlock()
+// update pushes after a change: at once when the card is new, the user is
+// needed or the work stops, else no sooner than updateInterval.
+func (d *Driver) update(ctx context.Context) {
+	c := d.counts()
+	switch {
+	case !d.showing && len(d.active) == 0:
+		// Nothing to show and nothing showing; a finish alone starts nothing.
+		clear(d.finished)
+		return
+	case !d.showing:
+		d.showing = true
+	case c == d.last.counts && d.last.ok:
 		return
 	}
-	c.lastPush = d.now()
-	hostID := d.store.Identity().ID
-	key := c.id + "@" + string(hostID)
-	state := c.contentState(d.now(), d.agentName(c.agent), d.projectLabel(c.cwd))
-	attributes := map[string]any{
-		"name":        state.Title,
-		"chatId":      key,
-		"workspaceId": projectID(string(hostID), c.cwd),
+	urgent := d.last.at.IsZero() || c.NeedsYou > d.last.counts.NeedsYou || c.Working+c.NeedsYou == 0
+	if next := d.last.at.Add(updateInterval); !urgent && d.now().Before(next) {
+		d.wakeAt = earliest(d.wakeAt, next)
+		return
 	}
-	running := c.status == "running"
-	var starts []device.Peer
-	var updates []device.Peer
-	for _, peer := range d.store.Peers() {
-		if act, ok := peer.Activities[key]; ok && d.now().Sub(time.UnixMilli(act.At)) < maxActivityAge {
-			updates = append(updates, peer)
-			continue
-		}
-		if running && peer.PushToStart != nil && !c.started[peer.ID] {
-			c.started[peer.ID] = true
-			starts = append(starts, peer)
-		}
-	}
-	d.mu.Unlock()
+	d.push(ctx)
+}
 
-	now := d.now().Unix()
-	for _, peer := range updates {
-		act := peer.Activities[key]
-		payload, _ := json.Marshal(map[string]any{"aps": map[string]any{
-			"timestamp": now, "event": "update", "content-state": state,
-		}})
-		if d.deliver(ctx, peer, act, payload) {
-			continue
-		}
-		// Apple says the activity is gone: dismissed, or ended by iOS.
-		if err := d.store.ForgetPush(peer.ID, key); err != nil {
-			d.log.Warn("liveactivity: could not forget token", "device", peer.ID, "err", err)
-		}
+// push sends the counts to every phone, or ends the card once it has been
+// idle for idleTimeout.
+func (d *Driver) push(ctx context.Context) {
+	if !d.showing || ctx.Err() != nil {
+		return
 	}
-	// iOS drops a start without an alert, and only issues the activity an
-	// update token when the start asks for one (input-push-token).
-	alert := map[string]any{"title": state.Title, "body": d.agentName(c.agent) + " is working"}
-	for _, peer := range starts {
-		payload, _ := json.Marshal(map[string]any{"aps": map[string]any{
-			"timestamp": now, "event": "start", "content-state": state,
-			"attributes-type": "LiveActivityAttributes", "attributes": attributes,
-			"alert": alert, "input-push-token": 1,
-		}})
-		if d.deliver(ctx, peer, *peer.PushToStart, payload) {
-			continue
+	c := d.counts()
+	now := d.now()
+	ending := len(d.active) == 0 && now.Sub(d.idleSince) >= idleTimeout
+	var round peerResult
+	for _, peer := range d.devices.Peers() {
+		var r peerResult
+		if ending {
+			r = d.endPeer(ctx, peer, c)
+		} else {
+			r = d.pushPeer(ctx, peer, c, now)
 		}
-		if err := d.store.ForgetPushToStart(peer.ID); err != nil {
-			d.log.Warn("liveactivity: could not forget start token", "device", peer.ID, "err", err)
+		round.retry = round.retry || r.retry
+		round.nextAt = earliest(round.nextAt, r.nextAt)
+	}
+	d.settle(c, now, ending, round)
+}
+
+// settle records a round of pushes and sets when Run pushes next.
+func (d *Driver) settle(c Counts, now time.Time, ending bool, round peerResult) {
+	d.wakeAt = round.nextAt
+	if round.retry {
+		d.wakeAt = earliest(d.wakeAt, now.Add(updateInterval))
+	}
+	if ending {
+		if !round.retry {
+			d.showing, d.last, d.wakeAt = false, delivery{}, time.Time{}
+			clear(d.finished)
+			clear(d.startSentAt)
 		}
+		return
+	}
+	d.last = delivery{counts: c, at: now, ok: !round.retry}
+	if len(d.active) == 0 {
+		d.wakeAt = earliest(d.wakeAt, d.idleSince.Add(idleTimeout))
 	}
 }
 
-// deliver sends one Live Activity push; false means the token is dead. Always
-// high priority: Apple holds low-priority updates while the phone is locked.
-func (d *Driver) deliver(ctx context.Context, peer device.Peer, to device.PushTarget, payload []byte) bool {
+// peerResult is what one phone needs next: a retry, or a push at nextAt.
+type peerResult struct {
+	retry  bool
+	nextAt time.Time
+}
+
+// pushPeer updates the phone's card, or starts one where it has none, its
+// card was dismissed, or the card is due for renewal.
+func (d *Driver) pushPeer(ctx context.Context, peer device.Peer, c Counts, now time.Time) peerResult {
+	if act := peer.Activity; act != nil {
+		renewAt := renewalAt(*act)
+		if now.Before(renewAt) {
+			switch d.deliver(ctx, peer, device.PushActivity, *act, d.payload("update", c)) {
+			case delivered:
+				delete(d.startSentAt, peer.ID)
+				return peerResult{nextAt: renewAt}
+			case failed:
+				return peerResult{retry: true}
+			}
+			// Dead: the user dismissed it or iOS ended it.
+		} else if r := d.endPeer(ctx, peer, c); r.retry {
+			return r
+		}
+	}
+	return d.startPeer(ctx, peer, c, now)
+}
+
+// startPeer starts a card on the phone while there is work to show, at most
+// once per startRetry until its update token arrives. A start still waiting
+// on its token wakes the loop then, so the card gets the counts since.
+func (d *Driver) startPeer(ctx context.Context, peer device.Peer, c Counts, now time.Time) peerResult {
+	if at, ok := d.startSentAt[peer.ID]; ok && now.Before(at.Add(startRetry)) {
+		return peerResult{nextAt: at.Add(startRetry)}
+	}
+	if peer.PushToStart == nil || c.Working+c.NeedsYou == 0 {
+		return peerResult{}
+	}
+	switch d.deliver(ctx, peer, device.PushToStart, *peer.PushToStart, d.payload("start", c)) {
+	case delivered:
+		d.startSentAt[peer.ID] = now
+		// Then: the card's token, if it came, gets this round's renewal time.
+		return peerResult{nextAt: now.Add(startRetry)}
+	case failed:
+		return peerResult{retry: true}
+	}
+	return peerResult{}
+}
+
+// endPeer ends the phone's card and forgets its token.
+func (d *Driver) endPeer(ctx context.Context, peer device.Peer, c Counts) peerResult {
+	act := peer.Activity
+	if act == nil {
+		return peerResult{}
+	}
+	switch d.deliver(ctx, peer, device.PushActivity, *act, d.payload("end", c)) {
+	case failed:
+		return peerResult{retry: true}
+	case delivered:
+		d.forget(peer, device.PushActivity, act.Token)
+	}
+	return peerResult{}
+}
+
+// renewalAt is when a card is replaced before iOS ends it.
+func renewalAt(act device.PushTarget) time.Time {
+	return time.UnixMilli(act.At).Add(maxActivityAge - renewBefore)
+}
+
+// payload is the `aps` body for event. iOS drops a start without an alert,
+// and issues an update token only when the start asks for one.
+func (d *Driver) payload(event string, c Counts) []byte {
+	now := d.now()
+	aps := map[string]any{
+		"timestamp": now.Unix(), "event": event, "content-state": c,
+		"stale-date": now.Add(staleAfter).Unix(),
+	}
+	switch event {
+	case "start":
+		aps["attributes-type"] = "LiveActivityAttributes"
+		aps["attributes"] = map[string]any{"hostId": string(d.devices.Identity().ID)}
+		aps["alert"] = map[string]any{"title": "RepoGo", "body": "Working on your environment"}
+		aps["input-push-token"] = 1
+	case "end":
+		aps["dismissal-date"] = now.Unix()
+	}
+	body, _ := json.Marshal(map[string]any{"aps": aps})
+	return body
+}
+
+type outcome int
+
+const (
+	delivered outcome = iota
+	failed            // worth trying again
+	dead              // Apple will never take this token
+)
+
+// deliver sends one push and forgets a token Apple says is dead. Always high
+// priority: Apple holds low-priority updates while the phone is locked.
+func (d *Driver) deliver(ctx context.Context, peer device.Peer, kind string, to device.PushTarget, payload []byte) outcome {
 	req := push.Request(peer, to)
 	req.Payload, req.PushType, req.Priority = payload, relay.PushTypeLiveActivity, 10
-	return !push.Send(ctx, d.send, d.log, req)
+	isDead, err := push.Try(ctx, d.send, req)
+	switch {
+	case isDead:
+		d.forget(peer, kind, to.Token)
+		return dead
+	case err != nil:
+		d.log.Debug("liveactivity: not delivered", "device", peer.ID, "kind", kind, "err", err)
+		return failed
+	}
+	return delivered
 }
 
-// contentState is the activity as the widget decodes it
-// (`LiveActivityAttributes.ContentState`). Caller holds d.mu.
-func (c *chat) contentState(now time.Time, name, project string) contentState {
-	s := contentState{
-		CurrentEvent:            c.current,
-		StartTimeInMilliseconds: float64(c.startedAt.UnixMilli()),
-		Status:                  c.status,
-		Additions:               c.additions,
-		Deletions:               c.deletions,
-		FileCount:               len(c.files),
-		RecentEvents:            append([]event{}, c.recent...),
-		ProjectLabel:            project,
-		Subtitle:                name + " is working",
-		Title:                   c.title,
-		AgentID:                 string(c.agent),
+func (d *Driver) forget(peer device.Peer, kind, token string) {
+	if err := d.devices.ForgetPush(peer.ID, kind, token); err != nil {
+		d.log.Warn("liveactivity: could not forget token", "device", peer.ID, "kind", kind, "err", err)
 	}
-	if c.status != "running" {
-		// The timer stops at the turn's length instead of ticking on.
-		s.DurationMs = max(c.endedAt.Sub(c.startedAt).Milliseconds(), 0)
-	}
-	if a := c.approval; a != nil {
-		s.AwaitingApproval = true
-		s.ApprovalTitle = a.title
-		s.ApprovalID, s.TurnID, s.ApprovalOptions = a.callID, a.turnID, a.options
-		s.ApprovalAgent = string(c.agent)
-		s.PendingApprovalCount = 1
-	}
-	if c.question != "" {
-		s.AwaitingUserInput = true
-		s.UserInputQuestion = c.question
-		s.UserInputAgent = string(c.agent)
-		// While the agent waits on the user, the question is the headline.
-		s.Title = headline(c.question, c.title)
-	}
-	return s
 }
 
-type contentState struct {
-	CurrentEvent            *event  `json:"currentEvent"`
-	StartTimeInMilliseconds float64 `json:"startTimeInMilliseconds,omitempty"`
-	DurationMs              int64   `json:"durationMs,omitempty"`
-	Status                  string  `json:"status"`
-	Additions               int     `json:"additions,omitempty"`
-	Deletions               int     `json:"deletions,omitempty"`
-	FileCount               int     `json:"fileCount,omitempty"`
-	RecentEvents            []event `json:"recentEvents"`
-	ProjectLabel            string  `json:"workspaceLabel,omitempty"`
-	Subtitle                string  `json:"subtitle,omitempty"`
-	Title                   string  `json:"title,omitempty"`
-	AgentID                 string  `json:"agentId,omitempty"`
-
-	AwaitingApproval     bool              `json:"awaitingApproval,omitempty"`
-	ApprovalID           string            `json:"approvalId,omitempty"`
-	ApprovalTitle        string            `json:"approvalTitle,omitempty"`
-	ApprovalAgent        string            `json:"approvalAgent,omitempty"`
-	TurnID               string            `json:"turnId,omitempty"`
-	ApprovalOptions      map[string]string `json:"approvalOptions,omitempty"`
-	PendingApprovalCount int               `json:"pendingApprovalCount,omitempty"`
-
-	AwaitingUserInput bool   `json:"awaitingUserInput,omitempty"`
-	UserInputQuestion string `json:"userInputQuestion,omitempty"`
-	UserInputAgent    string `json:"userInputAgent,omitempty"`
-}
-
-// event is one row of the activity's tool list (`EventInfo`).
-type event struct {
-	ID       string    `json:"id"`
-	PartType string    `json:"partType"`
-	Icon     eventIcon `json:"icon"`
-	Label    struct {
-		Title    string `json:"title"`
-		Subtitle string `json:"subtitle"`
-	} `json:"label"`
-	Timeline struct {
-		Active    string `json:"active"`
-		Completed string `json:"completed"`
-	} `json:"timeline"`
-	Additions int `json:"additions,omitempty"`
-	Deletions int `json:"deletions,omitempty"`
-}
-
-type eventIcon struct {
-	LiveActivity icon `json:"liveActivity"`
-}
-
-func eventFor(id string, lbl label, title string) event {
-	var ev event
-	ev.ID, ev.PartType = id, "PART_TYPE_TOOL"
-	ev.Icon.LiveActivity = lbl.Icon
-	ev.Label.Title, ev.Label.Subtitle = title, lbl.Subtitle
-	ev.Timeline.Active, ev.Timeline.Completed = lbl.Active, lbl.Completed
-	return ev
-}
-
-func toolPath(raw json.RawMessage) string {
-	var in struct {
-		FilePath string `json:"file_path"`
+// earliest is the sooner of two times, a zero one being no time at all.
+func earliest(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
+		return b
 	}
-	_ = json.Unmarshal(raw, &in)
-	return in.FilePath
-}
-
-// headline is a one-line title, as v1 cut the prompt.
-func headline(s, fallback string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if s == "" {
-		return fallback
-	}
-	if r := []rune(s); len(r) > 220 {
-		return strings.TrimSpace(string(r[:220])) + "…"
-	}
-	return s
-}
-
-func (d *Driver) projectLabel(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	return d.projectName(cwd)
-}
-
-// projectID is the app's `ProjectRef.fileKey` for a folder on this
-// host, which keys the project icon the app mirrors for the widget.
-func projectID(hostID, cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(hostID + "\x00" + cwd))
-	return hex.EncodeToString(sum[:])
+	return a
 }

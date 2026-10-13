@@ -75,10 +75,10 @@ type Peer struct {
 	AddedAt  int64  `json:"added_at"`
 
 	Push *PushTarget `json:"push,omitempty"`
-	// PushToStart lets the host start a Live Activity on the phone; Activities
-	// are the ones running, by chat id, each with its own update token.
-	PushToStart *PushTarget           `json:"push_to_start,omitempty"`
-	Activities  map[string]PushTarget `json:"activities,omitempty"`
+	// PushToStart lets the host start the phone's Live Activity; Activity is
+	// the update token of the one running.
+	PushToStart *PushTarget `json:"push_to_start,omitempty"`
+	Activity    *PushTarget `json:"activity,omitempty"`
 }
 
 type PushTarget struct {
@@ -88,8 +88,8 @@ type PushTarget struct {
 	// its tokens. Re-pairing leaves the old records behind, and one install
 	// keeps its targets on only the newest of them.
 	InstallID string `json:"install_id,omitempty"`
-	// At is when the host saved the token, in Unix milliseconds. iOS ends a
-	// Live Activity after eight hours, so an older activity token is dead.
+	// At is when the host first saved the token, in Unix milliseconds. iOS
+	// ends a Live Activity after eight hours, so an older activity token is dead.
 	At int64 `json:"at,omitempty"`
 	// Grant carries PushProof for this host and token; GrantedAt is when the
 	// phone signed it. The relay requires the accompanying Apple evidence.

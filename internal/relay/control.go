@@ -75,7 +75,7 @@ const (
 var ErrUnregistered = errors.New("apns: unregistered")
 
 // pushBurst bounds how many pushes one connection may request per minute: a
-// host's Live Activities update every few seconds per running chat and phone.
+// host updates each phone's Live Activity every few seconds while agents work.
 // Tokens are unguessable, so the exposure is our APNs quota, not a user.
 const pushBurst = 240
 

@@ -27,10 +27,9 @@ type Deps struct {
 
 type RegisterPushParams struct {
 	device.PushTarget
-	// ChatID selects that chat's Live Activity; Kind "start" is the token that
-	// starts one. Neither is the device's alert token.
-	ChatID string `json:"chat_id"`
-	Kind   string `json:"kind"`
+	// Kind "start" is the token that starts the Live Activity and "activity"
+	// the running one's; empty is the device's alert token.
+	Kind string `json:"kind"`
 }
 
 // Device is one paired device as the Environment screen lists it. Its push
@@ -67,7 +66,7 @@ func Register(r *rpc.Router, d Deps) {
 }
 
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {
-	return rpc.OK, d.Store.RegisterPush(c.Device, a.Kind, a.ChatID, a.PushTarget)
+	return rpc.OK, d.Store.RegisterPush(c.Device, a.Kind, a.PushTarget)
 }
 
 func (d Deps) list(_ context.Context, c rpc.Caller, _ rpc.None) (ListResult, error) {

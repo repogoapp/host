@@ -67,7 +67,7 @@ func TestRevocationSurvivesRestart(t *testing.T) {
 	}
 	phone := addPhone(t, first, "Old phone")
 	id := phone.ID
-	if err := first.RegisterPush(id, "", "", phone.GrantPush(first.Identity().ID, PushTarget{Token: "ab", Environment: "sandbox"})); err != nil {
+	if err := first.RegisterPush(id, "", phone.GrantPush(first.Identity().ID, PushTarget{Token: "ab", Environment: "sandbox"})); err != nil {
 		t.Fatalf("register push: %v", err)
 	}
 	var told []ID
@@ -110,14 +110,14 @@ func TestPushTokenBelongsToOnePeer(t *testing.T) {
 
 	phone := PushTarget{Token: "a1b2", Environment: "production"}
 	for _, id := range []ID{old, fresh} {
-		if err := s.RegisterPush(id, "", "", grant(id, phone)); err != nil {
+		if err := s.RegisterPush(id, "", grant(id, phone)); err != nil {
 			t.Fatalf("register push: %v", err)
 		}
-		if err := s.RegisterPush(id, PushToStart, "", grant(id, phone)); err != nil {
+		if err := s.RegisterPush(id, PushToStart, grant(id, phone)); err != nil {
 			t.Fatalf("register push-to-start: %v", err)
 		}
 	}
-	if err := s.RegisterPush(other, "", "", grant(other, PushTarget{Token: "c3d4", Environment: "sandbox"})); err != nil {
+	if err := s.RegisterPush(other, "", grant(other, PushTarget{Token: "c3d4", Environment: "sandbox"})); err != nil {
 		t.Fatalf("register other: %v", err)
 	}
 
@@ -164,10 +164,10 @@ func TestPushTargetBelongsToOneInstall(t *testing.T) {
 		{after, PushTarget{Token: "0a0b", InstallID: "install-a", Environment: "sandbox"}},
 	}
 	for _, r := range regs {
-		if err := s.RegisterPush(r.id, "", "", grant(r.id, r.target)); err != nil {
+		if err := s.RegisterPush(r.id, "", grant(r.id, r.target)); err != nil {
 			t.Fatalf("register push: %v", err)
 		}
-		if err := s.RegisterPush(r.id, PushToStart, "", grant(r.id, r.target)); err != nil {
+		if err := s.RegisterPush(r.id, PushToStart, grant(r.id, r.target)); err != nil {
 			t.Fatalf("register push-to-start: %v", err)
 		}
 	}
@@ -263,27 +263,46 @@ func TestRegisterPushValidatesAndStamps(t *testing.T) {
 		{"", PushTarget{Token: "ab", Environment: "sandbox", InstallID: strings.Repeat("x", 65)}},
 	}
 	for _, b := range bad {
-		if err := s.RegisterPush(phone, b.kind, "", b.target); !errors.Is(err, errkind.ErrInvalid) {
+		if err := s.RegisterPush(phone, b.kind, b.target); !errors.Is(err, errkind.ErrInvalid) {
 			t.Errorf("%q %+v: %v", b.kind, b.target, err)
 		}
 	}
-	// A client's At is ignored; an activity token gets the host's clock.
+	// A client's At is ignored; a token gets the host's clock once, and
+	// saving the same token again keeps it.
 	target := key.GrantPush(s.Identity().ID, PushTarget{Token: "ab", Environment: "sandbox", At: 1})
-	if err := s.RegisterPush(phone, "", "", target); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RegisterPush(phone, "", "claude:s1", target); err != nil {
+	if err := s.RegisterPush(phone, PushActivity, target); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := s.Peer(phone)
-	if p.Push.At != 0 || p.Activities["claude:s1"].At < time.Now().Add(-time.Minute).UnixMilli() {
-		t.Errorf("push at %d, activity at %d", p.Push.At, p.Activities["claude:s1"].At)
+	if p.Activity == nil || p.Activity.At < time.Now().Add(-time.Minute).UnixMilli() {
+		t.Fatalf("activity %+v", p.Activity)
 	}
-	if err := s.ForgetPush(phone, "claude:s1"); err != nil {
+	first := p.Activity.At
+	if err := s.updatePush(phone, func(p *Peer) {
+		older := *p.Activity
+		older.At = first - 1000
+		p.Activity = &older
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := s.Peer(phone); len(p.Activities) != 0 {
-		t.Errorf("activity kept: %+v", p.Activities)
+	if err := s.RegisterPush(phone, PushActivity, target); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Peer(phone); p.Activity.At != first-1000 {
+		t.Errorf("same token restarted its clock: %d, want %d", p.Activity.At, first-1000)
+	}
+	// A rejection of an older token leaves the newer one in place.
+	if err := s.ForgetPush(phone, PushActivity, "cd"); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Peer(phone); p.Activity == nil {
+		t.Fatal("forgot a token it was not asked about")
+	}
+	if err := s.ForgetPush(phone, PushActivity, "ab"); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Peer(phone); p.Activity != nil {
+		t.Errorf("activity kept: %+v", p.Activity)
 	}
 }
 
@@ -308,7 +327,7 @@ func TestRegisterPushNeedsThePhonesGrant(t *testing.T) {
 	}
 	phone, other := addPhone(t, s, "Phone"), addPhone(t, s, "Other")
 	target := PushTarget{Token: "a1b2", Environment: "sandbox"}
-	if err := s.RegisterPush(phone.ID, "", "", target); !errors.Is(err, errkind.ErrInvalid) {
+	if err := s.RegisterPush(phone.ID, "", target); !errors.Is(err, errkind.ErrInvalid) {
 		t.Fatalf("no grant: %v, want invalid", err)
 	}
 	for name, bad := range map[string]PushTarget{
@@ -320,11 +339,11 @@ func TestRegisterPushNeedsThePhonesGrant(t *testing.T) {
 			return g
 		}(),
 	} {
-		if err := s.RegisterPush(phone.ID, "", "", bad); !errors.Is(err, ErrBadGrant) {
+		if err := s.RegisterPush(phone.ID, "", bad); !errors.Is(err, ErrBadGrant) {
 			t.Errorf("%s grant: %v, want ErrBadGrant", name, err)
 		}
 	}
-	if err := s.RegisterPush(phone.ID, "", "", phone.GrantPush(s.Identity().ID, target)); err != nil {
+	if err := s.RegisterPush(phone.ID, "", phone.GrantPush(s.Identity().ID, target)); err != nil {
 		t.Fatalf("a good grant: %v", err)
 	}
 }

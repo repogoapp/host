@@ -394,7 +394,6 @@ Params:
 - `at` int (omitted when empty)
 - `grant` base64 (omitted when empty) (nullable)
 - `granted_at` int (omitted when empty)
-- `chat_id` string
 - `kind` string
 
 Result:

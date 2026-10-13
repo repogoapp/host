@@ -471,6 +471,12 @@ func (s *Store) Roots() ([]string, error) {
 	return out, rows.Err()
 }
 
+// Active is every chat working or waiting on the user, as the Live Activity
+// counts them after a restart.
+func (s *Store) Active() ([]Chat, error) {
+	return s.queryChats(chatSelect+` WHERE s.status IN (`+marks(len(agent.ActiveStatuses))+`)`, anys(agent.ActiveStatuses)...)
+}
+
 // Info returns one chat's row without any events — the address a caller needs
 // to act on it: which agent, which folder, which provider session to resume.
 func (s *Store) Info(id ChatID) (Chat, error) {

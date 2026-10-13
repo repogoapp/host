@@ -218,7 +218,7 @@ func (h *Host) openChats() error {
 	wire := chatwire.New(h.agents.Labelers)
 	h.live = chatlive.New(h.ctx, chatlive.Deps{
 		Sessions: h.sessions, Store: h.db, Emit: h.emitter, Turns: h.mgr, Log: h.log,
-		HostID: h.devices.Identity().ID, Attention: h.announcer.Attention, Approval: h.approval,
+		HostID: h.devices.Identity().ID, Attention: h.announcer.Attention,
 		Wire: wire,
 	})
 	// Terminal turns stream through the MessageDisplay hook; Stop closes them.
@@ -319,6 +319,9 @@ func (h *Host) openProjects() error {
 	h.db.Notify(func(c store.Change) {
 		h.announcer.Announce(c)
 		s.ProjectSync.Nudge()
+		if h.activities != nil {
+			h.activities.Changed(c)
+		}
 	})
 	s.Git, s.Watch = gitService, h.watch
 	s.Terminals = terminals
@@ -357,7 +360,7 @@ func (h *Host) openTransports() error {
 	// A phone is on the relay unless it has a socket of its own here.
 	h.Pushes.SetFallback(h.link)
 	h.alerts = push.New(h.devices, h.link, h.log)
-	h.activities = liveactivity.New(h.devices, h.link, h.log, h.agents.Name, h.db.ProjectName)
+	h.activities = liveactivity.New(h.db, h.devices, h.link, h.log)
 	return nil
 }
 
@@ -394,12 +397,6 @@ func (h *Host) batteryChanged(b power.Battery) {
 func (h *Host) cloudStopping(hostinfo.Cloud) {
 	if h.alerts != nil {
 		h.alerts.CloudStopping(h.ctx, h.cfg.Label, stopWarning)
-	}
-}
-
-func (h *Host) approval(chatID, turnID string, a *agent.Approval) {
-	if h.activities != nil {
-		h.activities.Approval(h.ctx, chatID, turnID, a)
 	}
 }
 

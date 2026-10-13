@@ -236,7 +236,7 @@ func (h *Host) Start() {
 		h.spawn(func(ctx context.Context) { h.alerts.Run(ctx, h.bridge) })
 	}
 	if h.activities != nil {
-		h.spawn(func(ctx context.Context) { h.activities.Run(ctx, h.bridge) })
+		h.spawn(func(ctx context.Context) { h.activities.Run(ctx) })
 	}
 }
 

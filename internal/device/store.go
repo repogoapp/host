@@ -175,14 +175,17 @@ func (s *Store) revoke(caller, id ID) ([]func(ID), error) {
 	return slices.Clone(s.revoked), nil
 }
 
-// PushToStart is the RegisterPush kind of the token that starts a Live
-// Activity on the phone; the empty kind is its alert or activity token.
-const PushToStart = "start"
+// The RegisterPush kinds: the alert token is the empty kind.
+const (
+	// PushToStart is the token that starts the phone's Live Activity.
+	PushToStart = "start"
+	// PushActivity is the update token of the Live Activity running.
+	PushActivity = "activity"
+)
 
-// RegisterPush saves a device token or, with a chat ID, the token of that
-// chat's Live Activity; kind PushToStart saves the token starting one. An
-// empty token removes the target, so a finished activity needs no other call.
-func (s *Store) RegisterPush(id ID, kind, chatID string, target PushTarget) error {
+// RegisterPush saves one of the phone's tokens by kind. An empty token
+// removes it, so an ended activity needs no other call.
+func (s *Store) RegisterPush(id ID, kind string, target PushTarget) error {
 	if err := target.validate(kind); err != nil {
 		return err
 	}
@@ -196,48 +199,44 @@ func (s *Store) RegisterPush(id ID, kind, chatID string, target PushTarget) erro
 			return ErrBadGrant
 		}
 	}
-	// The host stamps when it saved an activity token; a client's value is ignored.
-	target.At = 0
-	if kind == PushToStart {
-		return s.updatePush(id, func(p *Peer) {
-			p.PushToStart = nil
-			if target.Token != "" {
-				p.PushToStart = &target
-				s.release(id, target, func(o *Peer) **PushTarget { return &o.PushToStart })
-			}
-		})
-	}
 	return s.updatePush(id, func(p *Peer) {
-		if chatID == "" {
-			p.Push = nil
-			if target.Token != "" {
-				p.Push = &target
-				s.release(id, target, func(o *Peer) **PushTarget { return &o.Push })
-			}
-			return
-		}
-		// Readers may still hold the old peer's map after releasing the lock.
-		p.Activities = maps.Clone(p.Activities)
+		field := pushField(p, kind)
 		if target.Token == "" {
-			delete(p.Activities, chatID)
+			*field = nil
 			return
 		}
-		if p.Activities == nil {
-			p.Activities = make(map[string]PushTarget)
-		}
+		// The host stamps when it first saw a token; the phone saves the same
+		// one again on every reconnect, which must not restart the clock.
 		target.At = time.Now().UnixMilli()
-		p.Activities[chatID] = target
+		if old := *field; old != nil && old.Token == target.Token {
+			target.At = old.At
+		}
+		*field = &target
+		if kind != PushActivity {
+			s.release(id, kind, target)
+		}
 	})
 }
 
-// ForgetPush drops a dead alert token, or a chat's dead activity token.
-func (s *Store) ForgetPush(id ID, chatID string) error {
-	return s.RegisterPush(id, "", chatID, PushTarget{})
+// ForgetPush drops a dead token of one kind, unless the phone has replaced
+// it meanwhile.
+func (s *Store) ForgetPush(id ID, kind, token string) error {
+	return s.updatePush(id, func(p *Peer) {
+		if field := pushField(p, kind); *field != nil && (*field).Token == token {
+			*field = nil
+		}
+	})
 }
 
-// ForgetPushToStart drops a dead push-to-start token.
-func (s *Store) ForgetPushToStart(id ID) error {
-	return s.RegisterPush(id, PushToStart, "", PushTarget{})
+// pushField is the peer's token of one kind.
+func pushField(p *Peer, kind string) **PushTarget {
+	switch kind {
+	case PushToStart:
+		return &p.PushToStart
+	case PushActivity:
+		return &p.Activity
+	}
+	return &p.Push
 }
 
 // maxInstallID bounds the one free-form string a phone stores here.
@@ -245,8 +244,8 @@ const maxInstallID = 64
 
 func (t PushTarget) validate(kind string) error {
 	switch {
-	case kind != "" && kind != PushToStart:
-		return fmt.Errorf("%w: kind must be start or empty", errkind.ErrInvalid)
+	case kind != "" && kind != PushToStart && kind != PushActivity:
+		return fmt.Errorf("%w: kind must be start, activity or empty", errkind.ErrInvalid)
 	case len(t.InstallID) > maxInstallID:
 		return fmt.Errorf("%w: install_id is too long", errkind.ErrInvalid)
 	case t.Token == "":
@@ -267,9 +266,9 @@ func (t PushTarget) validate(kind string) error {
 // release clears target from every other peer with its token or install, since
 // a re-paired phone's old records would each get a copy of every push. Caller
 // holds the write lock.
-func (s *Store) release(owner ID, target PushTarget, field func(*Peer) **PushTarget) {
+func (s *Store) release(owner ID, kind string, target PushTarget) {
 	for id, p := range s.peers {
-		t := field(&p)
+		t := pushField(&p, kind)
 		if id == owner || *t == nil {
 			continue
 		}

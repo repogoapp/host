@@ -230,7 +230,7 @@ func (m *Manager) pushApproval(chatID store.ChatID, turnID string, approval *age
 		TurnID:   turnID,
 		Approval: approval,
 	}
-	sent := m.emit.Publish(chatRoom(chatID), prompt, func(cur emit.Event, ok bool) emit.Verdict {
+	m.emit.Publish(chatRoom(chatID), prompt, func(cur emit.Event, ok bool) emit.Verdict {
 		// Nothing of this turn's to withdraw; a stale clear must not reach
 		// devices that were never shown a prompt.
 		if approval == nil && (!ok || cur.(Approval).TurnID != turnID) {
@@ -238,9 +238,6 @@ func (m *Manager) pushApproval(chatID store.ChatID, turnID string, approval *age
 		}
 		return emit.Keep
 	})
-	if sent {
-		m.onApproval(string(chatID), turnID, approval)
-	}
 }
 
 // streamTiming is the turn's clock in Unix milliseconds, host time throughout

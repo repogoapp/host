@@ -49,10 +49,6 @@ type Deps struct {
 	// approvals, questions, answers and turn ends; attention.go.
 	Attention func(Attention)
 
-	// Approval reports each prompt this host runs and its withdrawal (nil),
-	// for the Live Activity's approval buttons.
-	Approval func(chatID, turnID string, approval *agent.Approval)
-
 	// Wire builds pushed pages as the phone receives them, as chats.messages does.
 	Wire *chatwire.Builder
 }
@@ -105,7 +101,6 @@ type Manager struct {
 	// Stop must not open it again.
 	displayDone map[store.ChatID]string
 
-	onApproval  func(chatID, turnID string, approval *agent.Approval)
 	onAttention func(Attention)
 
 	// Terminal turns' open permission prompt per chat, by tool call id, so the
@@ -126,7 +121,7 @@ type tail struct {
 func New(ctx context.Context, d Deps) *Manager {
 	return &Manager{
 		ctx: ctx, sessions: d.Sessions, db: d.Store, emit: d.Emit, turns: d.Turns, log: d.Log, wire: d.Wire,
-		hostID: d.HostID, onApproval: d.Approval, onAttention: d.Attention,
+		hostID: d.HostID, onAttention: d.Attention,
 
 		tails:       map[device.ID]*tail{},
 		toolWatches: map[device.ID]map[store.ChatID]map[string]bool{},
