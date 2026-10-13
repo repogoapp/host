@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/repogoapp/host/internal/account"
 	actionscore "github.com/repogoapp/host/internal/actions"
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/agentcatalog"
@@ -127,8 +126,7 @@ type Config struct {
 	EnvSources  *envsource.Sources
 	EnvRequests *envsource.Requests
 
-	// Account links this host to a RepoGo account; Tunnels serves its public URLs.
-	Account *account.Service
+	// Tunnels serves this host's public URLs.
 	Tunnels *tunnel.Service
 
 	// Schedules is the prompts this host starts as new chats at set times.
@@ -143,7 +141,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	}
 
 	r := rpc.New(cfg.Log)
-	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates, Account: cfg.Account,
+	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates,
 		Setup: hostsetup.Sources{
 			Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Runner: cfg.Runner, Catalog: cfg.AgentCatalog,
 		}})

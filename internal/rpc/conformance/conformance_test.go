@@ -92,7 +92,7 @@ func vocabulary(root string) []check {
 
 // localOnly must be refused to every caller that did not prove it is on this
 // machine. Listed here so the refusal is asserted rather than assumed.
-var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reusable_revoke", "host.release"}
+var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reusable_revoke"}
 
 // unchecked is the vocabulary this suite deliberately does not drive, each with
 // a reason. Anything else new fails TestEveryMethodIsAccountedFor, which is the
@@ -187,8 +187,7 @@ var unchecked = map[string]string{
 	"mcp.oauth_start":  "same",
 	"mcp.oauth_finish": "same, and it calls the server's token endpoint",
 
-	"host.claim":    "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
-	"tunnels.open":  "same",
+	"tunnels.open":  "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
 	"tunnels.close": "same",
 }
 
@@ -372,21 +371,17 @@ func TestLocalOnlyMethodsAreRefusedRemotely(t *testing.T) {
 	}
 }
 
-// Claiming the host and opening a tunnel act for the phone that asks, so the
-// machine itself is refused and both remote transports are served.
+// Opening a tunnel acts for the phone that asks, so the machine itself is
+// refused and both remote transports are served.
 func TestPairedOnlyMethods(t *testing.T) {
 	h := newHost(t)
-	nonce := strings.Repeat("A", 43)
 	expires := time.Now().Add(time.Hour).UnixMilli()
 	for _, c := range callers(t, h) {
 		t.Run(c.name, func(t *testing.T) {
-			claim := map[string]any{"uid": "conformance_uid", "nonce": nonce}
 			open := map[string]any{"slug": "conformance" + strings.ReplaceAll(c.name, "-", ""), "port": 3000, "expires_at": expires}
 			if c.name == "in-process" {
-				for method, params := range map[string]any{"host.claim": claim, "tunnels.open": open} {
-					if _, err := c.call(t, method, params); !isCode(err, jsonrpc.CodeDenied) {
-						t.Errorf("%s from the machine answered %v, want denied", method, err)
-					}
+				if _, err := c.call(t, "tunnels.open", open); !isCode(err, jsonrpc.CodeDenied) {
+					t.Errorf("tunnels.open from the machine answered %v, want denied", err)
 				}
 				return
 			}
@@ -395,7 +390,6 @@ func TestPairedOnlyMethods(t *testing.T) {
 				params any
 				key    string
 			}{
-				{"host.claim", claim, "signature"},
 				{"tunnels.open", open, "tunnel"},
 				{"tunnels.close", map[string]any{"slug": open["slug"]}, "ok"},
 			} {

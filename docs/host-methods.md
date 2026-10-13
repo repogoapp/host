@@ -873,33 +873,6 @@ Result:
 
 - `repos` [object{Repo}]
 
-## `host.claim`
-
-Paired devices only: refused at the machine.
-
-Params:
-
-- `uid` string
-- `nonce` string
-
-Result:
-
-- `host_id` string
-- `public_key` base64 (nullable)
-- `signature` base64 (nullable)
-
-## `host.release`
-
-Local only: refused to a paired device.
-
-Params:
-
-- none
-
-Result:
-
-- `ok` bool
-
 ## `host.set_stops_at`
 
 Params:

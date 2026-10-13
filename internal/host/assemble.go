@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/repogoapp/host/internal/account"
 	"github.com/repogoapp/host/internal/actions"
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/agentcatalog"
@@ -164,10 +163,6 @@ func (h *Host) openDevices() error {
 	if err != nil {
 		return err
 	}
-	accounts, err := account.Open(h.state("account.json"), h.devices.Identity())
-	if err != nil {
-		return err
-	}
 
 	s := &h.Services
 	s.Host = h.info
@@ -179,7 +174,6 @@ func (h *Host) openDevices() error {
 	s.Addr = func() string { addr, _ := h.invite.Load().(string); return addr }
 	s.Fetcher = forward.NewFetcher(h.log)
 	s.Pipes = forward.NewPipes(h.emitter, h.log)
-	s.Account = accounts
 	s.Tunnels = h.tunnels
 	return nil
 }

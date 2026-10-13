@@ -36,15 +36,3 @@ func tunnelsCommand(ctx context.Context, args []string) error {
 		return fmt.Errorf("usage: repogo tunnels [close <slug>]")
 	}
 }
-
-// accountCommand releases this host from the RepoGo account that claimed it.
-func accountCommand(ctx context.Context, args []string) error {
-	if len(args) != 1 || args[0] != "release" {
-		return fmt.Errorf("usage: repogo account release")
-	}
-	if err := call(ctx, "host.release", nil, nil); err != nil {
-		return err
-	}
-	fmt.Println("Released. Another RepoGo account can claim this computer once the first releases it in the app.")
-	return nil
-}

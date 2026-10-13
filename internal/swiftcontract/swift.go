@@ -65,7 +65,7 @@ var methodExports = map[string]bool{
 	"mcp.oauth_start": true, "mcp.oauth_finish": true, "mcp.rename": true,
 	"mcp.set_enabled": true, "mcp.remove": true,
 	// Tunnels.
-	"tunnels.list": true, "tunnels.open": true, "tunnels.close": true, "host.claim": true,
+	"tunnels.list": true, "tunnels.open": true, "tunnels.close": true,
 	// Schedules.
 	"schedules.list": true, "schedules.save": true, "schedules.delete": true,
 }
@@ -388,7 +388,6 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/mcp":         "mcp",
 	"github.com/repogoapp/host/internal/rpc/tunnels": "tunnels",
 	"github.com/repogoapp/host/internal/tunnel":      "tunnels",
-	"github.com/repogoapp/host/internal/account":     "host",
 	"github.com/repogoapp/host/internal/rpc/fs":      "fs",
 
 	"github.com/repogoapp/host/internal/rpc/schedules": "schedules",

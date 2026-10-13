@@ -6,6 +6,7 @@ dist/
 release-assets/
 internal/session/native/rust/target/
 internal/session/native/lib/
+.build/
 
 # Local data, logs and credentials
 .env*
