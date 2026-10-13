@@ -31,9 +31,9 @@ Actions you interleave each turn:
 
 - "snapshot" — see what's on the page. Returns Playwright's accessibility tree by default: one line per node with role, name, value and a stable **` + "`[ref=eN]`" + `** on every interactable element; ` + "`[active]`" + ` marks the focused one and ` + "`[offscreen]`" + ` marks what the user can't currently see. Pass a ref straight back as the ` + "`locator`" + ` of any action (` + "`\"e12\"`" + `). Pass ` + "`changedOnly:true`" + ` on a re-read after an action to get only the lines added/removed since your last snapshot instead of the whole tree. Pass format:"html" for trimmed page markup instead. Call this to observe before deciding your next move.
 - "evaluate" — act on the page by running arbitrary async JavaScript in it. This is the engine: clicking, filling, and navigating are all just JS. Your script is the body of an async function — use ` + "`return`" + ` to return a JSON-serializable value, and ` + "`await`" + ` to wait on promises. The return value comes back JSON-encoded. Pass ` + "`includeConsole`/`includeNetwork: true`" + ` to also get back the **console + network your script triggered** (the side-effect delta) in one call, instead of a follow-up "logs".
-- "list" — enumerate the browsers for this project: on-screen, **backgrounded** (kept alive off-screen), and **recently-closed**. Returns each browser's ` + "`id`, `url`, `title`" + `, and whether it's the ` + "`active`" + ` (front-most) one. **If "evaluate"/"snapshot" says "no open browser", call this first**, then pass the ` + "`id`" + ` you want as ` + "`browserId`" + ` — a backgrounded browser is driven in place, and a closed one is **woken automatically off-screen** (the user sees nothing). Omit ` + "`browserId`" + ` to act on the current project browser (the on-screen one, else a retained or saved tab).
-- "open" — create a new browser tab in this project at ` + "`url`" + ` and warm it off-screen. Returns the new browser's ` + "`browserId`" + `; pass that to follow-up "evaluate"/"snapshot" calls. Use this when no suitable browser exists for what you need to do (rather than asking the user to open one).
-- "close" — tear down the browser with ` + "`browserId`" + `: frees its process and removes the tab. Use it to clean up browsers you opened.
+- "list" — enumerate the browsers for this project: on-screen, **backgrounded** (kept alive off-screen), and **recently-closed**. Returns each browser's ` + "`id`, `url`, `title`" + `, and whether it's the ` + "`active`" + ` (front-most) one. **If "evaluate"/"snapshot" says "no open browser", call this first**, then pass the ` + "`id`" + ` you want as ` + "`tabId`" + ` — a backgrounded browser is driven in place, and a closed one is **woken automatically off-screen** (the user sees nothing). Omit ` + "`tabId`" + ` to act on the current project browser (the on-screen one, else a retained or saved tab).
+- "open" — create a new browser tab in this project at ` + "`url`" + ` and warm it off-screen. Returns the new browser's ` + "`tabId`" + `; pass that to follow-up "evaluate"/"snapshot" calls. Use this when no suitable browser exists for what you need to do (rather than asking the user to open one).
+- "close" — tear down the browser with ` + "`tabId`" + `: frees its process and removes the tab. Use it to clean up browsers you opened.
 - "logs" — pull the page's captured **console** + **network** activity (most-recent last, compact text + counts). Filter with ` + "`includeConsole`/`includeNetwork`, `logLevel`" + ` (e.g. "error"), ` + "`urlContains`, `sinceMs`, and `limit`" + `. Use it to read errors/requests without re-running JS. Only what was captured while the browser was on-screen is available (a backgrounded/woken browser returns empty).
 
 Semantic actions (prefer these over hand-written ` + "`evaluate`" + ` for ordinary interactions — they resolve targets with Playwright's selector engine, gate on visible/enabled/unobscured, dispatch the real pointer or key sequence, then **wait for the page to settle** and return evidence: ` + "`target`" + ` is the acted-on element's state afterwards (role, name, value, checked, selected, expanded, disabled, focused, locator) and ` + "`navigated`" + ` says whether the URL changed. Read those before deciding to re-snapshot):
@@ -63,7 +63,7 @@ Examples:
 - Read state:     action:"evaluate", script:"return { url: location.href, title: document.title };"
 
 Notes:
-- Runs against the project's browser on the phone that sent this turn. With no ` + "`browserId`" + ` it uses the on-screen browser tab in this project, else a retained or saved tab. If you get "no open browser", call ` + "`action:\"list\"`" + ` and pass a ` + "`browserId`" + ` from it, or ` + "`action:\"open\"`" + ` one.
+- Runs against the project's browser on the phone that sent this turn. With no ` + "`tabId`" + ` it uses the on-screen browser tab in this project, else a retained or saved tab. If you get "no open browser", call ` + "`action:\"list\"`" + ` and pass a ` + "`tabId`" + ` from it, or ` + "`action:\"open\"`" + ` one.
 - The script runs in the page's own context, so it can read/write the page's localStorage, cookies, and DOM. The user sees every script you run. State you put on ` + "`window`" + ` persists between "evaluate" calls in the same browser.
 - "evaluate" does not auto-snapshot — call "snapshot" when you want to re-read the page.
 - The on-screen browser is the user's: don't navigate it away from what they're looking at unless they asked; "open" your own tab for side work and "close" it after.
@@ -82,7 +82,7 @@ var browserTool = tool{
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type": "string", "enum": browserActions,
-				"description": `"evaluate" to run JS, "snapshot" to read the page, "list" to enumerate browsers, "open" to create a tab at ` + "`url`" + `, "close" to tear down ` + "`browserId`" + `, "logs" to pull console+network, "navigate" to load ` + "`url`" + `, "click"/"type"/"select"/"scroll"/"wait" to act via ` + "`locator`" + `, "press" to send a key.`,
+				"description": `"evaluate" to run JS, "snapshot" to read the page, "list" to enumerate browsers, "open" to create a tab at ` + "`url`" + `, "close" to tear down ` + "`tabId`" + `, "logs" to pull console+network, "navigate" to load ` + "`url`" + `, "click"/"type"/"select"/"scroll"/"wait" to act via ` + "`locator`" + `, "press" to send a key.`,
 			},
 			"url":     prop("string", `For action:"open" (new tab) and "navigate" (load in the current/target browser). Absolute URL, e.g. "http://localhost:3000/checkout".`),
 			"locator": prop("string", `For action:"click"/"type"/"select"/"scroll"/"wait". A snapshot ref ("e12") or a Playwright selector — role=button[name="Send"], text=Save, css=.submit, or a bare CSS selector. On "type"/"scroll" you may omit it to target the focused element / viewport; on "click" you may omit it and pass x/y instead.`),
@@ -108,7 +108,7 @@ var browserTool = tool{
 				"type": "string", "enum": []string{"a11y", "html"},
 				"description": `For action:"snapshot". "a11y" (default) returns a compact accessibility tree with CSS selectors; "html" returns trimmed page markup.`,
 			},
-			"browserId":      prop("string", `The project browser to drive (from action:"list" or returned by action:"open"). Omit to select an active, retained, or saved tab in this project; required for close.`),
+			"tabId":          prop("string", `The project browser to drive (from action:"list" or returned by action:"open"). Omit to select an active, retained, or saved tab in this project; required for close.`),
 			"includeConsole": prop("boolean", `For action:"logs" (default: both console and network when neither flag is set), or for "evaluate" and the semantic actions (default: off — set true to get back the console your action triggered).`),
 			"includeNetwork": prop("boolean", `For action:"logs" (default: both console and network when neither flag is set), or for "evaluate" and the semantic actions (default: off — set true to get back the network requests your action triggered).`),
 			"settleMs":       prop("number", `For action:"evaluate" with includeConsole/includeNetwork. Milliseconds to wait after your script resolves before reading the delta. Default ~250.`),
@@ -149,7 +149,7 @@ type browserInput struct {
 	ChangedOnly     bool     `json:"changedOnly"`
 	Script          string   `json:"script"`
 	Format          string   `json:"format"`
-	BrowserID       string   `json:"browserId"`
+	TabID           string   `json:"tabId"`
 	IncludeConsole  bool     `json:"includeConsole"`
 	IncludeNetwork  bool     `json:"includeNetwork"`
 	SettleMS        *float64 `json:"settleMs"`
@@ -196,7 +196,7 @@ func browserAction(in browserInput) (Action, string) {
 	if in.TimeoutMS != nil && *in.TimeoutMS > 0 {
 		timeout = int64(*in.TimeoutMS)
 	}
-	a := Action{Action: action, BrowserID: in.BrowserID, TimeoutMS: timeout}
+	a := Action{Action: action, TabID: in.TabID, TimeoutMS: timeout}
 	if action == "list" {
 		return a, ""
 	}
@@ -256,8 +256,8 @@ func missingArgument(in browserInput) string {
 			return "url is required for action '" + in.Action + "'"
 		}
 	case "close":
-		if in.BrowserID == "" {
-			return "browserId is required for action 'close' (the id from action 'list'/'open')"
+		if in.TabID == "" {
+			return "tabId is required for action 'close' (the id from action 'list'/'open')"
 		}
 	case "click":
 		if in.Locator == "" && (in.X == nil || in.Y == nil) {
@@ -295,7 +295,7 @@ type browserOutput struct {
 	URL                 string          `json:"url,omitempty"`
 	Title               string          `json:"title,omitempty"`
 	Tabs                []Tab           `json:"tabs,omitempty"`
-	BrowserID           string          `json:"browserId,omitempty"`
+	TabID               string          `json:"tabId,omitempty"`
 	ConsoleDelta        string          `json:"consoleDelta,omitempty"`
 	NetworkDelta        string          `json:"networkDelta,omitempty"`
 	ConsoleCount        *int            `json:"consoleCount,omitempty"`
@@ -354,7 +354,7 @@ func browserResult(action string, r Result) toolResult {
 			ID string `json:"id"`
 		}
 		_ = json.Unmarshal([]byte(r.ResultJSON), &opened)
-		out = browserOutput{Action: action, BrowserID: opened.ID, URL: r.URL, RecordingID: r.RecordingID}
+		out = browserOutput{Action: action, TabID: opened.ID, URL: r.URL, RecordingID: r.RecordingID}
 	case action == "close":
 		out = browserOutput{Action: action}
 	case action == "logs":

@@ -8,7 +8,7 @@
       "expires_at": "expires_at",
       "action": {
         "action": "action",
-        "browser_id": "browser_id",
+        "tab_id": "tab_id",
         "url": "url",
         "script": "script",
         "format": "format",

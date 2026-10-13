@@ -48,7 +48,7 @@ func (Request) Method() string { return "browser.request" }
 // action uses.
 type Action struct {
 	Action          string   `json:"action"`
-	BrowserID       string   `json:"browser_id"`
+	TabID           string   `json:"tab_id"`
 	URL             string   `json:"url"`
 	Script          string   `json:"script"`
 	Format          string   `json:"format"`

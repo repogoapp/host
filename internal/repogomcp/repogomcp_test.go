@@ -260,7 +260,7 @@ func TestBrowserRefusalsStayOnTheHost(t *testing.T) {
 		{map[string]any{"action": "click"}, "action 'click' needs a locator, or viewport x and y"},
 		{map[string]any{"action": "evaluate"}, "script is required for action 'evaluate'"},
 		{map[string]any{"action": "scroll"}, "deltaX and/or deltaY is required for action 'scroll'"},
-		{map[string]any{"action": "close"}, "browserId is required for action 'close' (the id from action 'list'/'open')"},
+		{map[string]any{"action": "close"}, "tabId is required for action 'close' (the id from action 'list'/'open')"},
 	} {
 		if got := callTool(t, s, token, "browser", tc.args); !got.IsError || got.Content[0].Text != tc.want {
 			t.Errorf("%v: %+v", tc.args, got)
@@ -288,8 +288,8 @@ func TestBrowserActionKeepsOnlyWhatItUses(t *testing.T) {
 	if problem != "" || a.X != 0 || a.Script != "" || a.URL != "" || !a.IncludeConsole {
 		t.Fatalf("%+v %q", a, problem)
 	}
-	a, _ = browserAction(browserInput{Action: "list", BrowserID: "b", IncludeConsole: true, Locator: "e1"})
-	if a.IncludeConsole || a.Locator != "" || a.BrowserID != "b" {
+	a, _ = browserAction(browserInput{Action: "list", TabID: "b", IncludeConsole: true, Locator: "e1"})
+	if a.IncludeConsole || a.Locator != "" || a.TabID != "b" {
 		t.Fatalf("list %+v", a)
 	}
 }
