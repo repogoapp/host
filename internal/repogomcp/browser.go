@@ -31,7 +31,7 @@ const (
 )
 
 // Request is one browser action for the phone that sent the turn, and only
-// that phone: it is the one whose preview the user is looking at.
+// that phone: it is the one whose browser the user is looking at.
 type Request struct {
 	RequestID string `json:"request_id"`
 	TurnID    string `json:"turn_id"`
@@ -170,8 +170,8 @@ func NewBrowser(cfg BrowserConfig) *Browser {
 
 // errNoPhone and errNoAnswer are the agent's to read, in v1's words where v1 had some.
 const (
-	errNoPhone  = "RepoGo: this turn did not come from a phone, so there is no preview to control. Send it from the RepoGo app."
-	errNoAnswer = "RepoGo: the phone did not answer. Open RepoGo on it, keep the preview open, and try again."
+	errNoPhone  = "RepoGo: this turn did not come from a phone, so there is no browser to control. Send it from the RepoGo app."
+	errNoAnswer = "RepoGo: the phone did not answer. Open RepoGo on it, keep the browser open, and try again."
 	errNoWake   = "RepoGo: the phone that sent this turn is not connected, and did not wake. Open RepoGo on it and try again."
 )
 

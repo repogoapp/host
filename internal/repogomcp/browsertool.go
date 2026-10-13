@@ -25,7 +25,7 @@ const (
 	maxBrowserText = 48 * 1024
 )
 
-const browserDescription = `Drive the live preview browser the user is watching — the actual WKWebView preview pane in the RepoGo app on the phone that sent this turn, not a headless browser. Read the page, click, fill inputs, navigate, and observe the result, turn after turn, so you can verify your own UI changes, reproduce bugs, and complete flows end-to-end.
+const browserDescription = `Drive the browser the user is watching — the actual WKWebView browser tab in the RepoGo app on the phone that sent this turn, not a headless browser. Read the page, click, fill inputs, navigate, and observe the result, turn after turn, so you can verify your own UI changes, reproduce bugs, and complete flows end-to-end.
 
 Actions you interleave each turn:
 
@@ -63,7 +63,7 @@ Examples:
 - Read state:     action:"evaluate", script:"return { url: location.href, title: document.title };"
 
 Notes:
-- Runs against the project's browser on the phone that sent this turn. With no ` + "`browserId`" + ` it uses an on-screen preview in this project, else a retained or saved tab. If you get "no open browser", call ` + "`action:\"list\"`" + ` and pass a ` + "`browserId`" + ` from it, or ` + "`action:\"open\"`" + ` one.
+- Runs against the project's browser on the phone that sent this turn. With no ` + "`browserId`" + ` it uses the on-screen browser tab in this project, else a retained or saved tab. If you get "no open browser", call ` + "`action:\"list\"`" + ` and pass a ` + "`browserId`" + ` from it, or ` + "`action:\"open\"`" + ` one.
 - The script runs in the page's own context, so it can read/write the page's localStorage, cookies, and DOM. The user sees every script you run. State you put on ` + "`window`" + ` persists between "evaluate" calls in the same browser.
 - "evaluate" does not auto-snapshot — call "snapshot" when you want to re-read the page.
 - The on-screen browser is the user's: don't navigate it away from what they're looking at unless they asked; "open" your own tab for side work and "close" it after.
