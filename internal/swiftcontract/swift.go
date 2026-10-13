@@ -608,7 +608,12 @@ var swiftKeywords = map[string]bool{"default": true, "case": true, "class": true
 	"nil": true, "super": true, "Type": true, "defer": true, "guard": true, "inout": true, "fallthrough": true}
 
 func swiftIdent(jsonName string) string {
-	s := lowerFirst(pascal(jsonName))
+	s := upperIDs(pascal(jsonName))
+	if rest, ok := strings.CutPrefix(s, "ID"); ok {
+		s = "id" + rest
+	} else {
+		s = lowerFirst(s)
+	}
 	if s == "self" {
 		return "selfValue"
 	}
@@ -622,6 +627,30 @@ func swiftIdent(jsonName string) string {
 		return "`" + s + "`"
 	}
 	return s
+}
+
+// upperIDs spells the word Id as ID (hostID, chatIDs), as Apple's naming
+// guidelines do; Identity and Idle are words of their own and stay.
+func upperIDs(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if strings.HasPrefix(s[i:], "Id") && wordEnds(s, i+2) {
+			b.WriteString("ID")
+			i++
+			continue
+		}
+		if strings.HasPrefix(s[i:], "Ids") && wordEnds(s, i+3) {
+			b.WriteString("IDs")
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func wordEnds(s string, i int) bool {
+	return i == len(s) || unicode.IsUpper(rune(s[i])) || unicode.IsDigit(rune(s[i]))
 }
 
 func pascal(s string) string {
