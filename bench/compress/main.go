@@ -73,7 +73,7 @@ func rpcResult(v any) []byte {
 
 func page(meta session.Meta, msgs []store.Message, lo, hi int) store.Page {
 	return store.Page{ChatID: store.ChatID(meta.ID), Events: msgs[lo:hi], HostID: "h", Cwd: meta.Cwd,
-		Agent: string(meta.Agent), EventCount: len(msgs), NextIdx: hi, FirstIdx: lo, HasBefore: lo > 0}
+		Agent: string(meta.Agent), EventCount: len(msgs), NextIndex: hi, FirstIndex: lo, HasBefore: lo > 0}
 }
 
 func main() {

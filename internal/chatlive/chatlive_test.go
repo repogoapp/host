@@ -145,7 +145,7 @@ func TestAppendProducesAPush(t *testing.T) {
 	m := newManager(t, sessions, db, pub, &fakeTurns{})
 
 	caller := device.ID("00112233445566778899aabbccddeeff")
-	if _, err := m.Subscribe(caller, "claude:live-1", seeded.NextIdx); err != nil {
+	if _, err := m.Subscribe(caller, "claude:live-1", seeded.NextIndex); err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 	defer m.Unsubscribe(caller)
@@ -161,12 +161,12 @@ func TestAppendProducesAPush(t *testing.T) {
 	}
 	// Only the tail: the client already had everything up to the cursor, and
 	// resending it would duplicate rows on screen.
-	if page.Events[0].Idx < seeded.NextIdx {
+	if page.Events[0].Index < seeded.NextIndex {
 		t.Errorf("push resent event %d, client was already at %d",
-			page.Events[0].Idx, seeded.NextIdx)
+			page.Events[0].Index, seeded.NextIndex)
 	}
-	if page.NextIdx <= seeded.NextIdx {
-		t.Errorf("cursor did not advance: %d → %d", seeded.NextIdx, page.NextIdx)
+	if page.NextIndex <= seeded.NextIndex {
+		t.Errorf("cursor did not advance: %d → %d", seeded.NextIndex, page.NextIndex)
 	}
 }
 
@@ -274,7 +274,7 @@ func TestNudgeFlushesWatchers(t *testing.T) {
 	pub := &capture{}
 	m := newManager(t, sessions, db, pub, &fakeTurns{})
 	caller := device.ID("00112233445566778899aabbccddeeff")
-	if _, err := m.Subscribe(caller, "claude:live-1", seeded.NextIdx); err != nil {
+	if _, err := m.Subscribe(caller, "claude:live-1", seeded.NextIndex); err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 	defer m.Unsubscribe(caller)
@@ -282,8 +282,8 @@ func TestNudgeFlushesWatchers(t *testing.T) {
 	writeClaudeSession(t, home, "live-1", []string{userLine("second")})
 	m.Nudge("claude:live-1")
 	testwait.For(t, "a nudged push", func() bool { return len(pub.received()) > 0 })
-	if page := pub.received()[0]; page.NextIdx <= seeded.NextIdx {
-		t.Errorf("cursor did not advance: %d → %d", seeded.NextIdx, page.NextIdx)
+	if page := pub.received()[0]; page.NextIndex <= seeded.NextIndex {
+		t.Errorf("cursor did not advance: %d → %d", seeded.NextIndex, page.NextIndex)
 	}
 }
 
@@ -316,12 +316,12 @@ func TestFlushSendsEveryPageOfABacklog(t *testing.T) {
 		t.Fatalf("pushed %d pages, want the backlog split across several", len(pages))
 	}
 	last := pages[len(pages)-1]
-	if next != last.EventCount || last.NextIdx != last.EventCount {
+	if next != last.EventCount || last.NextIndex != last.EventCount {
 		t.Fatalf("stopped at %d of %d", next, last.EventCount)
 	}
 	for i := 1; i < len(pages); i++ {
-		if pages[i].Events[0].Idx != pages[i-1].NextIdx {
-			t.Fatalf("page %d starts at %d, previous ended at %d", i, pages[i].Events[0].Idx, pages[i-1].NextIdx)
+		if pages[i].Events[0].Index != pages[i-1].NextIndex {
+			t.Fatalf("page %d starts at %d, previous ended at %d", i, pages[i].Events[0].Index, pages[i-1].NextIndex)
 		}
 	}
 }
@@ -371,7 +371,7 @@ func TestWatchedToolsArePushedWhole(t *testing.T) {
 	caller := device.ID("00112233445566778899aabbccddeeff")
 	// Watched before the chat is subscribed, as after a reconnect.
 	m.WatchTools(caller, "claude:live-1", []string{"toolu_1"})
-	if _, err := m.Subscribe(caller, "claude:live-1", seeded.NextIdx); err != nil {
+	if _, err := m.Subscribe(caller, "claude:live-1", seeded.NextIndex); err != nil {
 		t.Fatal(err)
 	}
 	defer m.Unsubscribe(caller)

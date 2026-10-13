@@ -5,7 +5,7 @@
   "agent": "",
   "generation": 0,
   "event_count": 0,
-  "next_idx": 0,
-  "first_idx": 0,
+  "next_index": 0,
+  "first_index": 0,
   "has_before": false
 }

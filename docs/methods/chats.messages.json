@@ -2,7 +2,7 @@
   "chat_id": "chat_id",
   "events": [
     {
-      "idx": 1,
+      "index": 1,
       "kind": "kind",
       "turn": "turn",
       "text": "text",
@@ -42,7 +42,7 @@
   "agent": "agent",
   "generation": 1,
   "event_count": 1,
-  "next_idx": 1,
-  "first_idx": 1,
+  "next_index": 1,
+  "first_index": 1,
   "has_before": true
 }

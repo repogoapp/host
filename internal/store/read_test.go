@@ -200,25 +200,25 @@ func TestMessagesResumeFromCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("messages: %v", err)
 	}
-	if len(page.Events) != 4 || page.Events[0].Idx != 0 {
+	if len(page.Events) != 4 || page.Events[0].Index != 0 {
 		t.Fatalf("first page wrong: %+v", page.Events)
 	}
-	if page.NextIdx != 4 {
-		t.Errorf("next_idx = %d, want 4", page.NextIdx)
+	if page.NextIndex != 4 {
+		t.Errorf("next_index = %d, want 4", page.NextIndex)
 	}
 	if page.EventCount != 10 {
 		t.Errorf("event_count = %d, want 10", page.EventCount)
 	}
 
-	rest, err := db.Messages("claude:a", page.NextIdx, 100)
+	rest, err := db.Messages("claude:a", page.NextIndex, 100)
 	if err != nil {
 		t.Fatalf("messages: %v", err)
 	}
-	if len(rest.Events) != 6 || rest.Events[0].Idx != 4 {
+	if len(rest.Events) != 6 || rest.Events[0].Index != 4 {
 		t.Fatalf("second page wrong: %+v", rest.Events)
 	}
-	if rest.NextIdx != rest.EventCount {
-		t.Errorf("caught up, but next_idx %d != event_count %d", rest.NextIdx, rest.EventCount)
+	if rest.NextIndex != rest.EventCount {
+		t.Errorf("caught up, but next_index %d != event_count %d", rest.NextIndex, rest.EventCount)
 	}
 }
 
@@ -292,14 +292,14 @@ func TestTailReturnsTheEnd(t *testing.T) {
 	}
 	// Ascending even though selected descending — a client renders oldest-first
 	// no matter which way it paged.
-	if page.Events[0].Idx != 15 || page.Events[4].Idx != 19 {
-		t.Fatalf("wrong slice: %d…%d", page.Events[0].Idx, page.Events[4].Idx)
+	if page.Events[0].Index != 15 || page.Events[4].Index != 19 {
+		t.Fatalf("wrong slice: %d…%d", page.Events[0].Index, page.Events[4].Index)
 	}
-	if page.NextIdx != 20 {
-		t.Errorf("next_idx = %d, want 20 (caught up)", page.NextIdx)
+	if page.NextIndex != 20 {
+		t.Errorf("next_index = %d, want 20 (caught up)", page.NextIndex)
 	}
-	if page.FirstIdx != 15 || !page.HasBefore {
-		t.Errorf("first_idx = %d has_before = %v", page.FirstIdx, page.HasBefore)
+	if page.FirstIndex != 15 || !page.HasBefore {
+		t.Errorf("first_index = %d has_before = %v", page.FirstIndex, page.HasBefore)
 	}
 }
 
@@ -308,22 +308,22 @@ func TestBeforeWalksUpwardAndStopsAtZero(t *testing.T) {
 	write(t, db, "a", 100, 12)
 
 	tail, _ := db.Tail("claude:a", 5) // 7..11
-	older, err := db.Before("claude:a", tail.FirstIdx, 5)
+	older, err := db.Before("claude:a", tail.FirstIndex, 5)
 	if err != nil {
 		t.Fatalf("before: %v", err)
 	}
-	if len(older.Events) != 5 || older.Events[0].Idx != 2 || older.Events[4].Idx != 6 {
+	if len(older.Events) != 5 || older.Events[0].Index != 2 || older.Events[4].Index != 6 {
 		t.Fatalf("wrong older page: %+v", older.Events)
 	}
 	if !older.HasBefore {
 		t.Error("index 0 is not on screen yet, has_before should be true")
 	}
 
-	top, err := db.Before("claude:a", older.FirstIdx, 5)
+	top, err := db.Before("claude:a", older.FirstIndex, 5)
 	if err != nil {
 		t.Fatalf("before: %v", err)
 	}
-	if len(top.Events) != 2 || top.Events[0].Idx != 0 {
+	if len(top.Events) != 2 || top.Events[0].Index != 0 {
 		t.Fatalf("want the first two events, got %+v", top.Events)
 	}
 	if top.HasBefore {
@@ -372,26 +372,26 @@ func TestBackwardPagesOpenOnATurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tail: %v", err)
 	}
-	if tail.FirstIdx != 5 || len(tail.Events) != 4 || tail.NextIdx != 9 {
-		t.Fatalf("tail opens at %d with %d rows, want 5 with 4", tail.FirstIdx, len(tail.Events))
+	if tail.FirstIndex != 5 || len(tail.Events) != 4 || tail.NextIndex != 9 {
+		t.Fatalf("tail opens at %d with %d rows, want 5 with 4", tail.FirstIndex, len(tail.Events))
 	}
 
 	// A page already on a boundary is left alone.
-	older, err := db.Before("codex:a", tail.FirstIdx, 1)
+	older, err := db.Before("codex:a", tail.FirstIndex, 1)
 	if err != nil {
 		t.Fatalf("before: %v", err)
 	}
-	if older.FirstIdx != 4 || len(older.Events) != 1 {
-		t.Fatalf("older opens at %d with %d rows, want 4 with 1", older.FirstIdx, len(older.Events))
+	if older.FirstIndex != 4 || len(older.Events) != 1 {
+		t.Fatalf("older opens at %d with %d rows, want 4 with 1", older.FirstIndex, len(older.Events))
 	}
 
 	// Mid-reply: 2..3 widen back to t1's turn_started.
-	top, err := db.Before("codex:a", older.FirstIdx, 2)
+	top, err := db.Before("codex:a", older.FirstIndex, 2)
 	if err != nil {
 		t.Fatalf("before: %v", err)
 	}
-	if top.FirstIdx != 1 || len(top.Events) != 3 || !top.HasBefore {
-		t.Fatalf("top opens at %d with %d rows, want 1 with 3", top.FirstIdx, len(top.Events))
+	if top.FirstIndex != 1 || len(top.Events) != 3 || !top.HasBefore {
+		t.Fatalf("top opens at %d with %d rows, want 1 with 3", top.FirstIndex, len(top.Events))
 	}
 }
 
@@ -410,7 +410,7 @@ func TestPagingUpwardReassemblesTheTranscriptInOrder(t *testing.T) {
 	assembled := append([]Message(nil), page.Events...)
 
 	for page.HasBefore {
-		page, err = db.Before("claude:a", page.FirstIdx, 10)
+		page, err = db.Before("claude:a", page.FirstIndex, 10)
 		if err != nil {
 			t.Fatalf("before: %v", err)
 		}
@@ -423,14 +423,14 @@ func TestPagingUpwardReassemblesTheTranscriptInOrder(t *testing.T) {
 		t.Fatalf("assembled %d events, want %d", len(assembled), total)
 	}
 	for i, m := range assembled {
-		if m.Idx != i {
-			t.Fatalf("event %d is out of order: idx %d", i, m.Idx)
+		if m.Index != i {
+			t.Fatalf("event %d is out of order: idx %d", i, m.Index)
 		}
 	}
-	if assembled[0].Idx != 0 {
+	if assembled[0].Index != 0 {
 		t.Error("the first message is not at the top")
 	}
-	if assembled[len(assembled)-1].Idx != total-1 {
+	if assembled[len(assembled)-1].Index != total-1 {
 		t.Error("the newest message is not at the bottom")
 	}
 }
@@ -590,7 +590,7 @@ func TestToolCallsByCallID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].Idx != 1 || rows[1].Idx != 4 {
+	if len(rows) != 2 || rows[0].Index != 1 || rows[1].Index != 4 {
 		t.Fatalf("rows %+v, want the call at 1 and the result at 4", rows)
 	}
 	if rows, _ := db.ToolCalls("claude:s", []string{"missing"}); len(rows) != 0 {

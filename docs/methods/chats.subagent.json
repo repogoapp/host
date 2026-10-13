@@ -5,7 +5,7 @@
   "name": "name",
   "events": [
     {
-      "idx": 1,
+      "index": 1,
       "kind": "kind",
       "turn": "turn",
       "text": "text",

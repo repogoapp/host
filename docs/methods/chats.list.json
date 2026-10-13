@@ -32,7 +32,7 @@
       "queued_count": 1,
       "queue_revision": 1,
       "match": "match",
-      "match_idx": 1
+      "match_index": 1
     }
   ],
   "next_cursor": "next_cursor",

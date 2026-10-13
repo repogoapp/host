@@ -30,21 +30,21 @@ type Page struct {
 	// Generation the rows came from; a client holding another refetches from 0.
 	Generation int64 `json:"generation"`
 
-	// EventCount is the transcript's total; NextIdx is the next `since_idx`,
-	// FirstIdx the next `before_idx`, and HasBefore false once index 0 is here.
+	// EventCount is the transcript's total; NextIndex is the next `since_index`,
+	// FirstIndex the next `before_index`, and HasBefore false once index 0 is here.
 	EventCount int  `json:"event_count"`
-	NextIdx    int  `json:"next_idx"`
-	FirstIdx   int  `json:"first_idx"`
+	NextIndex  int  `json:"next_index"`
+	FirstIndex int  `json:"first_index"`
 	HasBefore  bool `json:"has_before"`
 }
 
 // Message is one transcript row.
 type Message struct {
-	Idx  int    `json:"idx"`
-	Kind string `json:"kind"`
-	Turn string `json:"turn,omitempty"`
-	Text string `json:"text,omitempty"`
-	Tool *Tool  `json:"tool,omitempty"`
+	Index int    `json:"index"`
+	Kind  string `json:"kind"`
+	Turn  string `json:"turn,omitempty"`
+	Text  string `json:"text,omitempty"`
+	Tool  *Tool  `json:"tool,omitempty"`
 
 	// Unix milliseconds; zero when the transcript line carried none.
 	At int64 `json:"at,omitempty"`
@@ -158,7 +158,7 @@ func (b *Builder) Page(p store.Page) Page {
 	return Page{
 		ChatID: p.ChatID, Events: b.Messages(agent.Kind(p.Agent), p.Events),
 		HostID: p.HostID, Cwd: p.Cwd, Agent: p.Agent, Generation: p.Generation,
-		EventCount: p.EventCount, NextIdx: p.NextIdx, FirstIdx: p.FirstIdx, HasBefore: p.HasBefore,
+		EventCount: p.EventCount, NextIndex: p.NextIndex, FirstIndex: p.FirstIndex, HasBefore: p.HasBefore,
 	}
 }
 
@@ -167,7 +167,7 @@ func (b *Builder) Page(p store.Page) Page {
 func (b *Builder) Messages(kind agent.Kind, rows []store.Message) []Message {
 	out := make([]Message, len(rows))
 	for i, m := range rows {
-		out[i] = Message{Idx: m.Idx, Kind: m.Kind, Turn: m.Turn, Text: m.Text, At: m.At}
+		out[i] = Message{Index: m.Index, Kind: m.Kind, Turn: m.Turn, Text: m.Text, At: m.At}
 		if m.Tool == "" {
 			continue
 		}

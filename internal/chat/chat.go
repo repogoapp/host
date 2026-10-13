@@ -138,10 +138,10 @@ func (s *Service) Neighbors(id store.ChatID, q store.ChatQuery) (previous, next 
 // upward, so the two directions need separate cursors; absent both, this is
 // the live push cursor's read.
 type Page struct {
-	SinceIdx  int
-	Limit     int
-	Tail      bool
-	BeforeIdx *int
+	SinceIndex  int
+	Limit       int
+	Tail        bool
+	BeforeIndex *int
 }
 
 func (s *Service) Messages(id store.ChatID, p Page) (store.Page, error) {
@@ -150,10 +150,10 @@ func (s *Service) Messages(id store.ChatID, p Page) (store.Page, error) {
 	switch {
 	case p.Tail:
 		page, err = s.d.Cache.Tail(id, p.Limit)
-	case p.BeforeIdx != nil:
-		page, err = s.d.Cache.Before(id, *p.BeforeIdx, p.Limit)
+	case p.BeforeIndex != nil:
+		page, err = s.d.Cache.Before(id, *p.BeforeIndex, p.Limit)
 	default:
-		page, err = s.d.Cache.Messages(id, p.SinceIdx, p.Limit)
+		page, err = s.d.Cache.Messages(id, p.SinceIndex, p.Limit)
 	}
 	page.HostID = string(s.d.Self)
 	return page, err

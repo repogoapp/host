@@ -120,7 +120,7 @@ func writePages(t *testing.T, db *store.Store, wire *chatwire.Builder, id store.
 		if !page.HasBefore {
 			return pages, rows
 		}
-		page, err = db.Before(id, page.FirstIdx, dumpOlderLimit)
+		page, err = db.Before(id, page.FirstIndex, dumpOlderLimit)
 	}
 }
 

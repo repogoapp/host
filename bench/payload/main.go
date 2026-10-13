@@ -47,7 +47,7 @@ func deflated(b []byte) int {
 // objectMessage is a store.Message whose tool call is a JSON object rather
 // than a string holding one, so the phone decodes it once.
 type objectMessage struct {
-	Idx  int             `json:"idx"`
+	Index  int             `json:"idx"`
 	Kind string          `json:"kind"`
 	Turn string          `json:"turn,omitempty"`
 	Text string          `json:"text,omitempty"`
@@ -104,7 +104,7 @@ type objectPage struct {
 func objectEvents(msgs []store.Message, deferOutput bool) []objectMessage {
 	out := make([]objectMessage, len(msgs))
 	for i, m := range msgs {
-		out[i] = objectMessage{Idx: m.Idx, Kind: m.Kind, Turn: m.Turn, Text: m.Text, At: m.At}
+		out[i] = objectMessage{Index: m.Index, Kind: m.Kind, Turn: m.Turn, Text: m.Text, At: m.At}
 		if m.Tool == "" {
 			continue
 		}
@@ -287,7 +287,7 @@ func main() {
 		msgs := store.MessagesOf(events)
 		lo := max(0, len(msgs)-40)
 		page := store.Page{ChatID: store.ChatID(meta.ID), Events: msgs[lo:], HostID: "h", Cwd: meta.Cwd,
-			Agent: string(meta.Agent), Generation: 1, EventCount: len(msgs), NextIdx: len(msgs), FirstIdx: lo, HasBefore: lo > 0}
+			Agent: string(meta.Agent), Generation: 1, EventCount: len(msgs), NextIndex: len(msgs), FirstIndex: lo, HasBefore: lo > 0}
 
 		t := time.Now()
 		a := envelope(page)

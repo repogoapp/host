@@ -390,7 +390,7 @@ func (m *Manager) flush(ctx context.Context, caller device.ID, chatID store.Chat
 		if err := m.pushTools(caller, chatID, page.Events); err != nil {
 			return cursor, err
 		}
-		cursor = page.NextIdx
+		cursor = page.NextIndex
 		if cursor >= page.EventCount {
 			return cursor, nil
 		}

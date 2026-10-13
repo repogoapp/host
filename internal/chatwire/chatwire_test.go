@@ -47,9 +47,9 @@ func TestPageCarriesLabelsNotPayloads(t *testing.T) {
 	b := New([]Labeler{fake{"claude"}})
 	page := b.Page(store.Page{
 		ChatID: "claude:s1", HostID: "h", Cwd: "/repo", Agent: "claude", Generation: 3,
-		EventCount: 9, NextIdx: 9, FirstIdx: 6, HasBefore: true,
+		EventCount: 9, NextIndex: 9, FirstIndex: 6, HasBefore: true,
 		Events: []store.Message{
-			{Idx: 6, Kind: "text", Turn: "t1", Text: "Looking.", At: 100},
+			{Index: 6, Kind: "text", Turn: "t1", Text: "Looking.", At: 100},
 			toolRow(t, "tool_call", agent.ToolCall{CallID: "c1", Name: "Read",
 				Input: json.RawMessage(`{"file_path":"/repo/secret/main.go"}`)}),
 			toolRow(t, "tool_result", agent.ToolCall{CallID: "c1", Output: "package main // the file's contents"}),
@@ -58,9 +58,9 @@ func TestPageCarriesLabelsNotPayloads(t *testing.T) {
 
 	want := Page{
 		ChatID: "claude:s1", HostID: "h", Cwd: "/repo", Agent: "claude", Generation: 3,
-		EventCount: 9, NextIdx: 9, FirstIdx: 6, HasBefore: true,
+		EventCount: 9, NextIndex: 9, FirstIndex: 6, HasBefore: true,
 		Events: []Message{
-			{Idx: 6, Kind: "text", Turn: "t1", Text: "Looking.", At: 100},
+			{Index: 6, Kind: "text", Turn: "t1", Text: "Looking.", At: 100},
 			{Kind: "tool_call", Tool: &Tool{CallID: "c1", Name: "Read", State: StateRunning, Icon: "terminal",
 				Labels: &toollabel.Lines{Active: "Running Read", Completed: "Ran Read", Error: "Failed"}, File: "main.go"}},
 			{Kind: "tool_result", Tool: &Tool{CallID: "c1", State: StateCompleted}},
@@ -137,8 +137,8 @@ func TestRecordingID(t *testing.T) {
 
 // A row whose stored tool isn't JSON keeps its place without a tool.
 func TestMalformedToolIsDropped(t *testing.T) {
-	rows := New(nil).Messages("claude", []store.Message{{Idx: 4, Kind: "tool_call", Tool: "{not json"}})
-	if rows[0].Tool != nil || rows[0].Idx != 4 {
+	rows := New(nil).Messages("claude", []store.Message{{Index: 4, Kind: "tool_call", Tool: "{not json"}})
+	if rows[0].Tool != nil || rows[0].Index != 4 {
 		t.Errorf("got %+v", rows[0])
 	}
 }

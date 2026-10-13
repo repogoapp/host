@@ -144,7 +144,7 @@ Result:
 - `queued_count` int (omitted when empty)
 - `queue_revision` int (omitted when empty)
 - `match` string (omitted when empty)
-- `match_idx` int (omitted when empty) (nullable)
+- `match_index` int (omitted when empty) (nullable)
 
 ## `chats.list`
 
@@ -172,10 +172,10 @@ Result:
 Params:
 
 - `chat_id` string
-- `since_idx` int
+- `since_index` int
 - `limit` int
 - `tail` bool
-- `before_idx` int (nullable)
+- `before_index` int (nullable)
 
 Result:
 
@@ -186,8 +186,8 @@ Result:
 - `agent` string
 - `generation` int
 - `event_count` int
-- `next_idx` int
-- `first_idx` int
+- `next_index` int
+- `first_index` int
 - `has_before` bool
 
 ## `chats.neighbors`
@@ -304,7 +304,7 @@ Result:
 Params:
 
 - `chat_id` string
-- `since_idx` int
+- `since_index` int
 
 Result:
 

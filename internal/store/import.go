@@ -337,7 +337,7 @@ func MessagesOf(events []agent.Event) []Message {
 	out := make([]Message, 0, len(events))
 	for i, e := range events {
 		tool, text := eventCols(e)
-		m := Message{Idx: i, Kind: string(e.Kind), Turn: e.TurnID, At: e.At}
+		m := Message{Index: i, Kind: string(e.Kind), Turn: e.TurnID, At: e.At}
 		if s, ok := tool.(string); ok {
 			m.Tool = s
 		}

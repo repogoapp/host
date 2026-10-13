@@ -73,14 +73,14 @@ type NeighborsResult struct {
 }
 
 type MessagesParams struct {
-	ChatID   store.ChatID `json:"chat_id"`
-	SinceIdx int          `json:"since_idx"`
-	Limit    int          `json:"limit"`
+	ChatID     store.ChatID `json:"chat_id"`
+	SinceIndex int          `json:"since_index"`
+	Limit      int          `json:"limit"`
 
 	// A transcript opens at the bottom and pages upward, so the two directions
 	// need separate cursors. Absent both, this is the live push cursor's read.
-	Tail      bool `json:"tail"`
-	BeforeIdx *int `json:"before_idx"`
+	Tail        bool `json:"tail"`
+	BeforeIndex *int `json:"before_index"`
 }
 
 type ToolsSubscribeParams struct {
@@ -172,6 +172,6 @@ type UpdateResult struct {
 }
 
 type SubscribeParams struct {
-	ChatID   store.ChatID `json:"chat_id"`
-	SinceIdx int          `json:"since_idx"`
+	ChatID     store.ChatID `json:"chat_id"`
+	SinceIndex int          `json:"since_index"`
 }

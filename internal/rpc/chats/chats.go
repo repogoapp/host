@@ -80,7 +80,7 @@ func (d Deps) neighbors(_ context.Context, _ rpc.Caller, a NeighborsParams) (Nei
 }
 
 func (d Deps) messages(_ context.Context, _ rpc.Caller, a MessagesParams) (chatwire.Page, error) {
-	page, err := d.Chats.Messages(a.ChatID, chat.Page{SinceIdx: a.SinceIdx, Limit: a.Limit, Tail: a.Tail, BeforeIdx: a.BeforeIdx})
+	page, err := d.Chats.Messages(a.ChatID, chat.Page{SinceIndex: a.SinceIndex, Limit: a.Limit, Tail: a.Tail, BeforeIndex: a.BeforeIndex})
 	if err != nil {
 		return chatwire.Page{}, err
 	}
@@ -155,7 +155,7 @@ func (d Deps) stop(_ context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, erro
 }
 
 func (d Deps) subscribe(_ context.Context, c rpc.Caller, a SubscribeParams) (chatlive.Live, error) {
-	return d.Live.Subscribe(c.Device, a.ChatID, a.SinceIdx)
+	return d.Live.Subscribe(c.Device, a.ChatID, a.SinceIndex)
 }
 
 func (d Deps) unsubscribe(_ context.Context, c rpc.Caller, _ rpc.None) (rpc.Ack, error) {

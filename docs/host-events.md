@@ -34,8 +34,8 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `agent` string
 - `generation` int
 - `event_count` int
-- `next_idx` int
-- `first_idx` int
+- `next_index` int
+- `first_index` int
 - `has_before` bool
 
 ## `chats.approval`
@@ -96,7 +96,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `queued_count` int (omitted when empty)
 - `queue_revision` int (omitted when empty)
 - `match` string (omitted when empty)
-- `match_idx` int (omitted when empty) (nullable)
+- `match_index` int (omitted when empty) (nullable)
 
 ## `chats.removed`
 

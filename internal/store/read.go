@@ -127,7 +127,7 @@ type Chat struct {
 	Match string `json:"match,omitempty"`
 	// The index of the prompt or reply Match was cut from, where the phone
 	// opens the chat; nil when the title matched.
-	MatchIdx *int `json:"match_idx,omitempty"`
+	MatchIndex *int `json:"match_index,omitempty"`
 }
 
 // Stamp adds what the cache does not store, for a row leaving this host: the
@@ -139,11 +139,11 @@ func (c *Chat) Stamp(host string, modelLabel func(agent.Kind, string) string) {
 
 // Message is one normalized event.
 type Message struct {
-	Idx  int    `json:"idx"`
-	Kind string `json:"kind"`
-	Turn string `json:"turn,omitempty"`
-	Text string `json:"text,omitempty"`
-	Tool string `json:"tool,omitempty"`
+	Index int    `json:"index"`
+	Kind  string `json:"kind"`
+	Turn  string `json:"turn,omitempty"`
+	Text  string `json:"text,omitempty"`
+	Tool  string `json:"tool,omitempty"`
 
 	// Unix milliseconds; zero when the transcript line carried none.
 	At int64 `json:"at,omitempty"`
@@ -169,14 +169,14 @@ type Page struct {
 	// it has reached the end without a second round trip.
 	EventCount int `json:"event_count"`
 
-	// NextIdx is what to send as `since_idx` next time. Equal to EventCount
+	// NextIndex is what to send as `since_index` next time. Equal to EventCount
 	// once the client is caught up.
-	NextIdx int `json:"next_idx"`
+	NextIndex int `json:"next_index"`
 
-	// FirstIdx is the lowest index in this page, and what to send as
-	// `before_idx` to walk further back. A chat is read from the bottom, so
-	// paging upward needs its own cursor — NextIdx only goes forward.
-	FirstIdx int `json:"first_idx"`
+	// FirstIndex is the lowest index in this page, and what to send as
+	// `before_index` to walk further back. A chat is read from the bottom, so
+	// paging upward needs its own cursor — NextIndex only goes forward.
+	FirstIndex int `json:"first_index"`
 
 	// HasBefore is false once index 0 is on screen, so a client knows when to
 	// stop asking rather than discovering it from an empty page.
@@ -523,11 +523,11 @@ func (s *Store) Messages(id ChatID, sinceIdx, limit int) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	page.NextIdx, page.FirstIdx = sinceIdx, sinceIdx
+	page.NextIndex, page.FirstIndex = sinceIdx, sinceIdx
 	if n := len(page.Events); n > 0 {
-		page.FirstIdx, page.NextIdx = page.Events[0].Idx, page.Events[n-1].Idx+1
+		page.FirstIndex, page.NextIndex = page.Events[0].Index, page.Events[n-1].Index+1
 	}
-	page.HasBefore = page.FirstIdx > 0
+	page.HasBefore = page.FirstIndex > 0
 	return page, nil
 }
 
@@ -564,7 +564,7 @@ func (s *Store) header(id ChatID) (Page, int64, error) {
 	if err != nil {
 		return Page{}, 0, fmt.Errorf("store: load chat: %w", err)
 	}
-	page.NextIdx = page.EventCount
+	page.NextIndex = page.EventCount
 	return page, sid, nil
 }
 
@@ -592,12 +592,12 @@ func (s *Store) backward(id ChatID, beforeIdx, limit int) (Page, error) {
 	}
 
 	if len(page.Events) == 0 {
-		page.FirstIdx = max(beforeIdx, 0)
+		page.FirstIndex = max(beforeIdx, 0)
 		return page, nil
 	}
-	page.FirstIdx = page.Events[0].Idx
-	page.NextIdx = page.Events[len(page.Events)-1].Idx + 1
-	page.HasBefore = page.FirstIdx > 0
+	page.FirstIndex = page.Events[0].Index
+	page.NextIndex = page.Events[len(page.Events)-1].Index + 1
+	page.HasBefore = page.FirstIndex > 0
 	return page, nil
 }
 
@@ -612,7 +612,7 @@ func (s *Store) toTurnStart(sid int64, events []Message) ([]Message, error) {
 	if len(events) == 0 {
 		return events, nil
 	}
-	first := events[0].Idx
+	first := events[0].Index
 	if kind := agent.EventKind(events[0].Kind); kind == agent.EventUserMessage || kind == agent.EventTurnStarted {
 		return events, nil
 	}
@@ -664,7 +664,7 @@ func (s *Store) events(query string, args ...any) ([]Message, error) {
 	out := []Message{}
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.Idx, &m.Kind, &m.Turn, &m.Text, &m.Tool, &m.At); err != nil {
+		if err := rows.Scan(&m.Index, &m.Kind, &m.Turn, &m.Text, &m.Tool, &m.At); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

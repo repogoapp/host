@@ -102,13 +102,13 @@ func TestSearchPointsAtTheMatchedEvent(t *testing.T) {
 		if err != nil || len(page.Chats) != 1 {
 			t.Fatalf("search %q = %+v, %v", search, page.Chats, err)
 		}
-		if got := page.Chats[0].MatchIdx; got == nil || *got != want {
-			t.Errorf("search %q match_idx = %v, want %d", search, got, want)
+		if got := page.Chats[0].MatchIndex; got == nil || *got != want {
+			t.Errorf("search %q match_index = %v, want %d", search, got, want)
 		}
 	}
 	page, err := db.Chats(ChatQuery{Search: "release"})
-	if err != nil || len(page.Chats) != 1 || page.Chats[0].MatchIdx != nil {
-		t.Errorf("title-only search = %+v, %v; want no match_idx", page.Chats, err)
+	if err != nil || len(page.Chats) != 1 || page.Chats[0].MatchIndex != nil {
+		t.Errorf("title-only search = %+v, %v; want no match_index", page.Chats, err)
 	}
 }
 

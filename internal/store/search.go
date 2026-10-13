@@ -160,7 +160,7 @@ const (
 )
 
 // addMatches sets each chat's Match, the words around the hit in its prompts
-// and replies, and MatchIdx, the event they came from. A chat found by its
+// and replies, and MatchIndex, the event they came from. A chat found by its
 // title alone keeps both empty.
 func (s *Store) addMatches(chats []Chat, match string) error {
 	if len(chats) == 0 {
@@ -211,7 +211,7 @@ func (s *Store) addMatches(chats []Chat, match string) error {
 		if err != nil {
 			return err
 		}
-		chat.MatchIdx = idx
+		chat.MatchIndex = idx
 	}
 	return nil
 }

@@ -293,7 +293,7 @@ func main() {
 						Events     []json.RawMessage `json:"events"`
 						Generation float64           `json:"generation"`
 						EventCount int               `json:"event_count"`
-						NextIdx    int               `json:"next_idx"`
+						NextIndex    int               `json:"next_idx"`
 					}
 					err := c.Call(ctx, "chats.messages", map[string]any{
 						"chat_id": ch.ID, "since_idx": sinceIdx, "limit": limit,
@@ -328,10 +328,10 @@ func main() {
 					generation = page.Generation
 					got += len(page.Events)
 					pages++
-					if page.NextIdx == sinceIdx || page.NextIdx >= page.EventCount {
+					if page.NextIndex == sinceIdx || page.NextIndex >= page.EventCount {
 						break
 					}
-					sinceIdx = page.NextIdx
+					sinceIdx = page.NextIndex
 				}
 				mu.Lock()
 				msgPages += pages
