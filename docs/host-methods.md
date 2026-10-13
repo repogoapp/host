@@ -624,7 +624,7 @@ Result:
 - `results` [object{SearchFile}]
 - `truncated` bool
 
-## `fs.stop`
+## `fs.unwatch`
 
 Params:
 

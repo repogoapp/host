@@ -26,7 +26,7 @@ var methodExports = map[string]bool{
 	"github.repos": true, "github.clone": true, "projects.add": true, "projects.create": true,
 	// Editor, git and chat list rows.
 	"fs.write": true, "fs.replace": true, "fs.mkdir": true, "fs.rename": true,
-	"fs.delete": true, "fs.search": true, "fs.watch": true, "fs.stop": true,
+	"fs.delete": true, "fs.search": true, "fs.watch": true, "fs.unwatch": true,
 	"git.status": true, "git.diff": true, "git.changes": true, "git.branches": true,
 	"git.pull": true, "git.reset_hard": true, "git.switch_branch": true,
 	"git.create_branch": true, "git.patch": true, "git.commit_push": true,

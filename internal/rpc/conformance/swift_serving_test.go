@@ -17,7 +17,7 @@ var (
 		"git.status", "git.changes", "git.branches", "git.diff", "git.patch", "git.pull",
 		"git.reset_hard", "git.switch_branch", "git.create_branch", "git.commit_push",
 		"fs.list", "fs.read", "fs.write", "fs.replace", "fs.search", "fs.delete", "fs.rename",
-		"fs.mkdir", "fs.watch", "fs.stop",
+		"fs.mkdir", "fs.watch", "fs.unwatch",
 		"projects.list", "projects.detect_icon", "projects.rename", "projects.pin", "projects.add", "projects.create",
 		"projects.delete",
 		"host.status", "host.setup", "limits.read",

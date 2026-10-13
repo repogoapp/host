@@ -117,9 +117,9 @@ func Register(r *rpc.Router, d Deps) {
 	// Remote-reachable: the guard is root containment, not caller scope; past
 	// the roots fs.list shows names under home, never contents.
 	rpc.Add(r, "fs.list", d.list)
-	// watch replaces the caller's watch set and renews its lease; stop drops it.
+	// watch replaces the caller's watch set and renews its lease; unwatch drops it.
 	rpc.Add(r, "fs.watch", d.watch)
-	rpc.Add(r, "fs.stop", d.stop)
+	rpc.Add(r, "fs.unwatch", d.unwatch)
 	rpc.Add(r, "fs.read", d.read)
 	rpc.Add(r, "fs.write", d.write)
 	rpc.Add(r, "fs.replace", d.replace)
@@ -174,7 +174,7 @@ func (d Deps) watch(_ context.Context, c rpc.Caller, a WatchParams) (rpc.Ack, er
 	return rpc.OK, d.Watch.Watch(c.Device, a.Paths, a.Resync)
 }
 
-func (d Deps) stop(_ context.Context, c rpc.Caller, _ rpc.None) (rpc.Ack, error) {
+func (d Deps) unwatch(_ context.Context, c rpc.Caller, _ rpc.None) (rpc.Ack, error) {
 	d.Watch.Stop(c.Device)
 	return rpc.OK, nil
 }

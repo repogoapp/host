@@ -51,7 +51,7 @@ func TestWatchPassesTheSetThrough(t *testing.T) {
 
 func TestStopDropsTheCaller(t *testing.T) {
 	w := &recordWatch{}
-	if _, err := watchRouter(w).Call(context.Background(), rpc.Caller{Device: "a"}, "fs.stop", []byte(`{}`)); err != nil {
+	if _, err := watchRouter(w).Call(context.Background(), rpc.Caller{Device: "a"}, "fs.unwatch", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 	if w.stopped != "a" {

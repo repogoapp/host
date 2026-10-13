@@ -147,10 +147,10 @@ func TestFilesystemRPCGuards(t *testing.T) {
 		}
 		t.Run(method, func(t *testing.T) {
 			for _, p := range []string{`{`, `[]`, `{"path":1}`} {
-				if p == `{"path":1}` && (method == "fs.watch" || method == "fs.stop") {
+				if p == `{"path":1}` && (method == "fs.watch" || method == "fs.unwatch") {
 					p = `{"paths":1}` // no path field; a wrong-typed set is the same mistake
 				}
-				if p == `{"paths":1}` && method == "fs.stop" {
+				if p == `{"paths":1}` && method == "fs.unwatch" {
 					continue // takes no params, so any object is one
 				}
 				if _, err := router.Call(context.Background(), rpc.Caller{}, method, json.RawMessage(p)); !errors.Is(err, rpc.ErrInvalidParams) {
