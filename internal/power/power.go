@@ -1,7 +1,7 @@
 // Package power keeps the Mac awake while the host has a paired device to serve:
 // an idle-sleep assertion always, and through a closed lid once the user has run
-// `repogo keep-awake enable`. Plan 306 has the research and the safety rules. The
-// same tick reads the battery, which the host reports to its phones.
+// `repogo keep-awake enable`. The same tick reads the battery, which the host
+// reports to its phones.
 package power
 
 import (

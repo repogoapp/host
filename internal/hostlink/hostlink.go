@@ -48,6 +48,10 @@ const (
 	maxStrangers = 4
 	strangerTTL  = 2 * time.Minute
 
+	// maxStrangerHandshakes is how many handshakes one stranger may start in
+	// its slot: each costs a post-quantum key exchange, and a phone needs one.
+	maxStrangerHandshakes = 3
+
 	// strangerLogEvery bounds the log line for frames from devices this host
 	// does not know, which anyone with a key pair can send.
 	strangerLogEvery = time.Minute
@@ -84,10 +88,18 @@ type Link struct {
 	// attached is closed while current is set.
 	attached chan struct{}
 
-	// strangers is when each unpaired device now holding a handshake or
-	// session was first admitted. now is the clock, replaced by tests.
-	strangers map[device.ID]time.Time
+	// strangers is each unpaired device now holding a handshake or session.
+	// now is the clock, replaced by tests.
+	strangers map[device.ID]*stranger
 	now       func() time.Time
+}
+
+// stranger is an unpaired caller's slot: when it was admitted and how many
+// handshakes it has started. The slot stays until strangerTTL even after a
+// failed proof, so churning identities cannot buy more handshakes.
+type stranger struct {
+	since      time.Time
+	handshakes int
 }
 
 func New(cfg Config) (*Link, error) {
@@ -98,7 +110,7 @@ func New(cfg Config) (*Link, error) {
 		return nil, errors.New("hostlink: devices, router, pairing and on-disconnect are required")
 	}
 	l := &Link{cfg: cfg, log: cfg.Log, dialer: newDialer(), attached: make(chan struct{}),
-		strangers: map[device.ID]time.Time{}, now: time.Now}
+		strangers: map[device.ID]*stranger{}, now: time.Now}
 	cfg.Devices.OnRevoke(l.revoked)
 	return l, nil
 }
@@ -249,7 +261,8 @@ func (l *Link) session(ctx context.Context) error {
 			payload[0] = securechan.Handshake
 		}
 		// Pairing attempts remain limited to a live code and bounded sessions.
-		if !l.admits(caller) || !l.allowStranger(c, caller) {
+		starting := payload[0] == securechan.Handshake && len(payload) == securechan.Message1Len
+		if !l.admits(caller) || !l.allowStranger(c, caller, starting) {
 			c.stranger(l.log, caller)
 			continue
 		}
@@ -367,6 +380,13 @@ func (l *Link) serve(ctx context.Context, c *conn, caller device.ID, msg *jsonrp
 		reply = l.cfg.Router.Dispatch(ctx, rpc.Caller{Device: caller, Scope: rpc.ScopeRemote}, msg)
 	}
 	l.reply(ctx, c, caller, reply)
+	// A stranger whose proof failed holds a session it can do nothing with.
+	if reply.Error != nil && l.cfg.Router.Unpaired(msg.Method) {
+		if _, err := l.cfg.Devices.Peer(caller); err != nil {
+			c.drop(caller)
+			l.disconnected(caller)
+		}
+	}
 }
 
 func (l *Link) reply(ctx context.Context, c *conn, caller device.ID, reply *jsonrpc.Message) {
@@ -609,32 +629,40 @@ func (l *Link) presence(payload []byte) bool {
 func (l *Link) disconnected(id device.ID) { l.cfg.OnDisconnect(id) }
 
 // allowStranger admits an unpaired caller while a code is live, up to
-// maxStrangers at once; a paired caller always passes. Strangers that never
-// paired are dropped with their sessions once strangerTTL has passed.
-func (l *Link) allowStranger(c *conn, caller device.ID) bool {
+// maxStrangers at once and maxStrangerHandshakes each; a paired caller always
+// passes. Strangers that never paired are dropped once strangerTTL has passed.
+func (l *Link) allowStranger(c *conn, caller device.ID, starting bool) bool {
 	if _, err := l.cfg.Devices.Peer(caller); err == nil {
 		return true
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	for id, since := range l.strangers {
+	for id, st := range l.strangers {
 		if _, err := l.cfg.Devices.Peer(id); err == nil {
 			delete(l.strangers, id)
 			continue
 		}
-		if now.Sub(since) >= strangerTTL {
+		if now.Sub(st.since) >= strangerTTL {
 			delete(l.strangers, id)
 			c.drop(id)
 		}
 	}
-	if _, held := l.strangers[caller]; held {
-		return true
+	st, held := l.strangers[caller]
+	if !held {
+		if len(l.strangers) >= maxStrangers {
+			return false
+		}
+		st = &stranger{since: now}
+		l.strangers[caller] = st
 	}
-	if len(l.strangers) >= maxStrangers {
-		return false
+	if starting {
+		st.handshakes++
+		if st.handshakes > maxStrangerHandshakes {
+			c.drop(caller)
+			return false
+		}
 	}
-	l.strangers[caller] = now
 	return true
 }
 

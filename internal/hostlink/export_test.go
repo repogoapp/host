@@ -3,8 +3,9 @@ package hostlink
 import "time"
 
 const (
-	MaxStrangers = maxStrangers
-	StrangerTTL  = strangerTTL
+	MaxStrangers          = maxStrangers
+	MaxStrangerHandshakes = maxStrangerHandshakes
+	StrangerTTL           = strangerTTL
 )
 
 // PeerCount is how many phones the attached connection holds state for.

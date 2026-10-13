@@ -23,13 +23,17 @@ type Port struct {
 }
 
 // ListPorts enumerates listening sockets (see ports_*.go), filtered to servers
-// started inside dir when given. Failure yields an empty list: a machine
-// without lsof still forwards a typed port.
+// started inside dir when given, leaving out the host's own listener, which
+// isn't a dev server. Failure yields an empty list.
 func ListPorts(ctx context.Context, dir string) []Port {
 	ports := listPlatformPorts(ctx)
 	routes := portlessRoutes()
+	self := os.Getpid()
 	kept := make([]Port, 0, len(ports))
 	for _, p := range ports {
+		if p.PID == self {
+			continue
+		}
 		p.Portless = routes[p.Port]
 		if dir == "" || files.Within(dir, p.Cwd) {
 			kept = append(kept, p)

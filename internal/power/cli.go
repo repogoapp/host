@@ -8,7 +8,14 @@ import (
 	"os/exec"
 	"os/user"
 	"runtime"
+	"strings"
 )
+
+// sudoersInstall reads the rule from stdin into a root-owned file, checks it
+// with visudo and installs it, all in one sudo: a user-owned temp file between
+// the check and the install could be swapped for another rule. $1 is the path.
+const sudoersInstall = `set -e; f=$(mktemp /tmp/repogo-sudoers.XXXXXX); trap 'rm -f "$f"' EXIT
+cat > "$f"; /usr/sbin/visudo -cf "$f"; /usr/bin/install -m 0440 -o root -g wheel "$f" "$1"`
 
 var errMacOnly = errors.New("the lid hold is macOS only")
 
@@ -31,23 +38,14 @@ func Enable(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp("", "repogo-sudoers-*")
-	if err != nil {
-		return err
+	// A broken file in sudoers.d breaks sudo itself, so visudo checks it first.
+	cmd := exec.CommandContext(ctx, "/usr/bin/sudo", "/bin/sh", "-c", sudoersInstall, "sh", SudoersPath)
+	cmd.Stdin = strings.NewReader(rule)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("installing the sudoers rule: %w", err)
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(rule); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	// A broken file in sudoers.d breaks sudo itself, so it is checked before it lands.
-	if err := sudo(ctx, "/usr/sbin/visudo", "-cf", tmp.Name()); err != nil {
-		return fmt.Errorf("sudoers rule failed validation: %w", err)
-	}
-	return sudo(ctx, "/usr/bin/install", "-m", "0440", "-o", "root", "-g", "wheel", tmp.Name(), SudoersPath)
+	return nil
 }
 
 // Disable removes the rule, then clears a SleepDisabled the host set.

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -88,6 +89,11 @@ func (s *Service) Patch(ctx context.Context, path, base, head, file string) (Pat
 	// An untracked file has no diff against anything git knows, and most of a
 	// working tree is untracked while a chat is running.
 	if strings.TrimSpace(out.Text) == "" && head == "" {
+		// --no-index reads the disk, not the index, so a symlinked folder could
+		// lead it out of the project; the same containment every path gets.
+		if _, err := s.paths.Contain(filepath.Join(dir, file)); err != nil {
+			return out, err
+		}
 		added, err := runDiff(ctx, dir, "diff", "--no-color", "--no-index", "--", devNull, file)
 		if err == nil {
 			out.Text = added

@@ -1,8 +1,7 @@
-// Package repogomcp is RepoGo's own MCP server, served by the host to the
-// agents it runs: v1's built-in `repogo` server, which lived on repogo.app, now
-// on the user's machine. Its tools act for the turn that calls them, so each
-// agent session gets an entry with its own bearer, and a call finds its turn
-// through it.
+// Package repogomcp is RepoGo's own MCP server, served by the host on the
+// user's machine to the agents it runs. Its tools act for the turn that calls
+// them, so each agent session gets an entry with its own bearer, and a call
+// finds its turn through it.
 package repogomcp
 
 import (

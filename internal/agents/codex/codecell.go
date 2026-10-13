@@ -22,9 +22,14 @@ func codeCellCalls(script string) []cellCall {
 	return p.run()
 }
 
+// maxCellDepth bounds nested literals. A transcript line can be megabytes of
+// `[[[[`, and a Go stack overflow is fatal, not a panic the caller can recover.
+const maxCellDepth = 128
+
 type cellParser struct {
 	src      string
 	i        int
+	depth    int
 	bindings map[string]any
 	calls    []cellCall
 }
@@ -98,9 +103,15 @@ func (p *cellParser) value() (any, bool) {
 	p.skipSpace()
 	c := p.peek()
 	switch {
-	case c == '{':
-		return p.object()
-	case c == '[':
+	case c == '{' || c == '[':
+		if p.depth >= maxCellDepth {
+			return nil, false
+		}
+		p.depth++
+		defer func() { p.depth-- }()
+		if c == '{' {
+			return p.object()
+		}
 		return p.array()
 	case c == '"' || c == '\'' || c == '`':
 		return p.string()

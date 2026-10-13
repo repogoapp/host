@@ -3,6 +3,7 @@ package codex
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/repogoapp/host/internal/agent"
@@ -203,6 +204,15 @@ func TestCodeCellCalls(t *testing.T) {
 	// An unterminated script yields what it read without running past the end.
 	if calls = codeCellCalls(`tools.exec_command({cmd:"ls`); len(calls) != 1 || calls[0].Input != nil {
 		t.Errorf("unterminated: %#v", calls)
+	}
+
+	// Nesting past the depth limit is not a literal; the stack stays bounded.
+	deep := "tools.x(" + strings.Repeat("[", 1_000_000) + ")"
+	if calls = codeCellCalls(deep); len(calls) != 1 || calls[0].Input != nil {
+		t.Errorf("deep nesting: %d calls, input %T", len(calls), calls[0].Input)
+	}
+	if calls = codeCellCalls("tools.x(" + strings.Repeat("[", 20) + strings.Repeat("]", 20) + ")"); len(calls) != 1 || calls[0].Input == nil {
+		t.Errorf("nesting within the limit: %#v", calls)
 	}
 }
 

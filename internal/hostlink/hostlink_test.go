@@ -15,6 +15,7 @@ import (
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/testhost"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 type harness struct {
@@ -33,6 +34,10 @@ func newHarness(t *testing.T) *harness {
 	rpc.Add(router, "test.ping", func(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) {
 		return rpc.OK, nil
 	})
+	// Stands in for pair.complete: reachable unpaired, and always refuses.
+	rpc.Add(router, "test.prove", func(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) {
+		return rpc.Ack{}, errors.New("wrong proof")
+	}, rpc.Unpaired)
 	return &harness{Transports: testhost.Serve(t, devices, router), devices: devices}
 }
 
@@ -163,5 +168,49 @@ func TestStrangersAreCappedWhilePairing(t *testing.T) {
 	}
 	if n := h.Link.PeerCount(); n != 1 {
 		t.Fatalf("host holds %d sessions after the sweep, want 1", n)
+	}
+}
+
+// One stranger gets a few handshakes in its slot, not a stream of them: each
+// costs the host a post-quantum key exchange, and a phone needs exactly one.
+func TestStrangerHandshakesAreCapped(t *testing.T) {
+	h := newHarness(t)
+	h.Pairing.Store(true)
+	stranger := generate(t)
+	for i := range hostlink.MaxStrangerHandshakes {
+		if _, err := h.dial(t, stranger, 5*time.Second); err != nil {
+			t.Fatalf("handshake %d: %v", i+1, err)
+		}
+	}
+	if _, err := h.dial(t, stranger, 500*time.Millisecond); err == nil {
+		t.Fatal("a stranger handshook past the cap")
+	}
+	if n := h.Link.PeerCount(); n != 0 {
+		t.Fatalf("host holds %d sessions for a dropped stranger, want 0", n)
+	}
+	// Its slot is still spent: a fresh identity gets one of the others.
+	if _, err := h.dial(t, generate(t), 5*time.Second); err != nil {
+		t.Fatalf("another stranger could not open a channel: %v", err)
+	}
+}
+
+// A stranger whose proof fails loses its session at once, and its slot stays
+// taken until the code's lifetime passes.
+func TestStrangerWithAFailedProofIsDropped(t *testing.T) {
+	h := newHarness(t)
+	h.Pairing.Store(true)
+	c, err := h.dial(t, generate(t), 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.Call(ctx, "test.prove", nil, nil); err == nil {
+		t.Fatal("the refusing method answered OK")
+	}
+	// The drop follows the refusal on the host, so it may land just after it.
+	testwait.For(t, "the failed stranger's session to end", func() bool { return h.Link.PeerCount() == 0 })
+	if err := ping(t, c); err == nil || denied(err) {
+		t.Fatalf("a stranger with a failed proof still has a session: %v", err)
 	}
 }

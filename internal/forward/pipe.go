@@ -40,6 +40,7 @@ var (
 	ErrPipeLimit    = errkind.New(errkind.Unavailable, "forward: too many open pipes")
 	ErrPipeExists   = errkind.New(errkind.Invalid, "forward: pipe id is already open")
 	ErrPipeID       = errkind.New(errkind.Invalid, "forward: pipe id is required")
+	ErrPipeDialing  = errkind.New(errkind.Unavailable, "forward: pipe is still connecting")
 )
 
 // Pipes owns every open relay on this host.
@@ -58,7 +59,11 @@ type Pipes struct {
 type pipe struct {
 	id     string
 	caller device.ID
+
+	// conn and closed are set under Pipes.mu: the dial takes seconds, and a
+	// send or close that lands meanwhile must see a nil conn, not a torn one.
 	conn   net.Conn
+	closed bool
 
 	// Byte counters, reported on close. A pipe that carried nothing in either
 	// direction failed differently from one that carried a handshake and then
@@ -112,7 +117,17 @@ func (p *Pipes) open(caller device.ID, id string, port int, initial []byte) erro
 		p.forget(id)
 		return fmt.Errorf("forward: dial 127.0.0.1:%d: %w", port, err)
 	}
-	pi.conn = conn
+	p.mu.Lock()
+	closed := pi.closed
+	if !closed {
+		pi.conn = conn
+	}
+	p.mu.Unlock()
+	if closed {
+		// Closed while dialling: the client gave up, so nothing may own the socket.
+		conn.Close()
+		return fmt.Errorf("%w: %s", ErrPipeNotFound, id)
+	}
 
 	// The request line only: headers carry cookies.
 	p.log.Info("forward: pipe request", "pipe", id, "line", firstLine(initial))
@@ -141,9 +156,15 @@ func (p *Pipes) Send(caller device.ID, id string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	_ = pi.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	p.mu.Lock()
+	conn := pi.conn
+	p.mu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("%w: %s", ErrPipeDialing, id)
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	pi.toServer.Add(int64(len(data)))
-	if _, err := pi.conn.Write(data); err != nil {
+	if _, err := conn.Write(data); err != nil {
 		p.closePipe(pi, err.Error())
 		return fmt.Errorf("forward: write: %w", err)
 	}
@@ -219,12 +240,14 @@ func (p *Pipes) closePipe(pi *pipe, reason string) {
 	pi.closeOnce.Do(func() {
 		p.mu.Lock()
 		delete(p.pipes, pi.id)
+		pi.closed = true
+		conn := pi.conn
 		p.mu.Unlock()
 
 		p.log.Info("forward: pipe closed", "pipe", pi.id, "reason", reason,
 			"from_server", pi.fromServer.Load(), "from_client", pi.toServer.Load())
-		if pi.conn != nil {
-			pi.conn.Close()
+		if conn != nil {
+			conn.Close()
 		}
 		_ = p.emit.To(pi.caller, Closed{PipeID: pi.id, Reason: reason})
 	})
