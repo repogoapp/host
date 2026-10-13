@@ -128,12 +128,12 @@ type SendResult struct {
 	Steered bool `json:"steered"`
 }
 
-// StartParams starts a chat in the project folder at Path. Title is the
+// StartParams starts a chat in the folder at Cwd, as chats.list filters by it. Title is the
 // chat's name, written on the phone from the prompt; empty leaves the
 // prompt's opening words.
 type StartParams struct {
 	Turn  chat.Turn `json:"turn"`
-	Path  string    `json:"path"`
+	Cwd   string    `json:"cwd"`
 	Agent string    `json:"agent"`
 	Title string    `json:"title"`
 }

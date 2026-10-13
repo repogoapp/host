@@ -263,7 +263,7 @@ Detached: runs to completion if the caller disconnects.
 Params:
 
 - `turn` object{Turn}
-- `path` string
+- `cwd` string
 - `agent` string
 - `title` string
 

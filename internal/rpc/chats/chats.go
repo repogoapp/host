@@ -127,7 +127,7 @@ func (d Deps) send(_ context.Context, c rpc.Caller, a SendParams) (SendResult, e
 
 func (d Deps) start(_ context.Context, c rpc.Caller, a StartParams) (StartResult, error) {
 	a.Turn.Device = c.Device
-	status, err := d.Chats.Start(chat.Start{Path: a.Path, Agent: a.Agent, Title: a.Title}, a.Turn)
+	status, err := d.Chats.Start(chat.Start{Path: a.Cwd, Agent: a.Agent, Title: a.Title}, a.Turn)
 	return StartResult{TurnID: status.TurnID, State: status.State}, err
 }
 
