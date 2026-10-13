@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -312,7 +313,7 @@ func (m *Manager) Resize(id string, cols, rows int) error {
 	return nil
 }
 
-// Close kills the shell. The pump sees the PTY end and announces the exit, so
+// Close ends the shell. The pump sees the PTY end and announces the exit, so
 // closing and the process dying on its own take the same path; closing one
 // that already exited is success, since the two race.
 func (m *Manager) Close(id string) error {
@@ -320,10 +321,24 @@ func (m *Manager) Close(id string) error {
 	if err != nil {
 		return nil
 	}
-	if s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-	}
+	s.end()
 	return s.pty.Close()
+}
+
+// killGrace is how long a hung-up shell has to pass the signal on to its jobs.
+const killGrace = 2 * time.Second
+
+// end hangs up the shell's whole process group, so a shell passes the HUP to
+// the jobs it started, then kills whatever ignored it. A plain kill of the
+// shell leaves `npm run dev &` running on its port with no tab to find it.
+func (s *session) end() {
+	if s.cmd.Process == nil {
+		return
+	}
+	// The PTY started the shell as a session leader, so its pid is the group.
+	pgid := s.cmd.Process.Pid
+	_ = syscall.Kill(-pgid, syscall.SIGHUP)
+	time.AfterFunc(killGrace, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
 }
 
 // Open is how many of the user's shells are running.
@@ -344,9 +359,7 @@ func (m *Manager) Shutdown() {
 	m.mu.Unlock()
 
 	for _, s := range all {
-		if s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
-		}
+		s.end()
 		_ = s.pty.Close()
 	}
 }
