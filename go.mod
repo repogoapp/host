@@ -1,6 +1,8 @@
 module github.com/repogoapp/host
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.9
 
 require (
 	github.com/bytedance/sonic v1.15.4
@@ -12,8 +14,8 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/sideshow/apns2 v0.25.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	golang.org/x/crypto v0.55.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 )
@@ -27,7 +29,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 )

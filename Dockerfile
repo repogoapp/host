@@ -1,6 +1,6 @@
 # Build the relay only. It is the one binary in this module that is safe to run
 # on our infrastructure: no agents, no filesystem, no database.
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 
 WORKDIR /src
 
