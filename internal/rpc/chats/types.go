@@ -30,7 +30,7 @@ type Query struct {
 	// Agent narrows to one agent's chats ("claude", "codex"); empty is all.
 	Agent string `json:"agent"`
 
-	// Sort: "updated" (default), "created" or "title". Order: "desc" (default) or "asc".
+	// Sort: "activity" (default), "created" or "title". Order: "desc" (default) or "asc".
 	Sort  string `json:"sort"`
 	Order string `json:"order"`
 

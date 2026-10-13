@@ -215,7 +215,7 @@ type ChatSort string
 
 const (
 	// The chat's activity_at: the last prompt, or the reply ending after it.
-	SortUpdated ChatSort = "updated"
+	SortActivity ChatSort = "activity"
 	// The chat's created_at, which never moves, so a row keeps its place.
 	SortCreated ChatSort = "created"
 	SortTitle   ChatSort = "title"
@@ -286,8 +286,8 @@ func (q ChatQuery) withDefaults() (ChatQuery, error) {
 	q.Limit = clamp(q.Limit, defaultChats, maxChats)
 	switch q.Sort {
 	case "":
-		q.Sort = SortUpdated
-	case SortUpdated, SortCreated, SortTitle:
+		q.Sort = SortActivity
+	case SortActivity, SortCreated, SortTitle:
 	default:
 		return q, fmt.Errorf("%w: unknown sort %q", ErrInvalid, q.Sort)
 	}
