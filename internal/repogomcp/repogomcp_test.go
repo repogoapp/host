@@ -197,7 +197,7 @@ func callTool(t *testing.T, s *Server, token, name string, args any) callResult 
 	return got.Result
 }
 
-// A snapshot goes to the phone that sent the turn, in the turn's workspace,
+// A snapshot goes to the phone that sent the turn, in the turn's project,
 // and comes back as v1's JSON plus the screenshot as an image.
 func TestBrowserSnapshotRoundTrip(t *testing.T) {
 	phone := newFakePhone(true, func(req Request) Result {

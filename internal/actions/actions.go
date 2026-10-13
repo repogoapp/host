@@ -610,7 +610,7 @@ func (s *Service) resolve(project, name string) (string, Action, error) {
 	return "", Action{}, fmt.Errorf("%w: %s", ErrUnknownAction, name)
 }
 
-// resolveCwd resolves an action's workspace-relative cwd through the same
+// resolveCwd resolves an action's project-relative cwd through the same
 // containment as the project itself, so `"cwd": "../.."` buys nothing.
 func (s *Service) resolveCwd(dir, cwd string) (string, error) {
 	if cwd == "" {
