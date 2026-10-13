@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	claudeprovider "github.com/repogo/host/internal/agents/claude"
-	codexprovider "github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/shipping"
+	"github.com/repogoapp/host/internal/agent"
+	claudeprovider "github.com/repogoapp/host/internal/agents/claude"
+	codexprovider "github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/shipping"
 )
 
 func TestUsageSumsEachProviderDayAndPricesIt(t *testing.T) {

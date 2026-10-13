@@ -21,12 +21,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/procscan"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/terminal"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/procscan"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/terminal"
 )
 
 const (

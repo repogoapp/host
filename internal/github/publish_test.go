@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // fakeCreate records its arguments and prints the URL `gh repo create` prints.

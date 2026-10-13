@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // hashEvents folds the event stream into one value, and separately the value

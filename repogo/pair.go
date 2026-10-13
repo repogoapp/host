@@ -16,7 +16,7 @@ import (
 
 	"github.com/skip2/go-qrcode"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 func printPairingQR(ctx context.Context, payload, pairHost string, reusable bool) error {

@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/hostclient"
-	"github.com/repogo/host/internal/rpc/devices"
-	"github.com/repogo/host/internal/rpc/registry"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/hostclient"
+	"github.com/repogoapp/host/internal/rpc/devices"
+	"github.com/repogoapp/host/internal/rpc/registry"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 // These exercise the full client conversation — challenge, signature, RPC,

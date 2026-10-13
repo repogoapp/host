@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // Public rates change rarely; a day keeps the fetch off every report.

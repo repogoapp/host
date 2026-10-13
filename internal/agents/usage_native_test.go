@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/shipping"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/shipping"
 )
 
 // usageProvider is a provider both parsers can read usage with.

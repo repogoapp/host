@@ -3,9 +3,9 @@ package conformance_test
 import (
 	"testing"
 
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/swiftcontract"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/swiftcontract"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 const swiftServing = "../../../../swift/Packages/RepoGit/Sources/LocalRPC/Generated/HostServing.swift"

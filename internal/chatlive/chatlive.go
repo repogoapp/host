@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chatwire"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // coalesce is how long to wait for a burst of appends to settle; pushing per

@@ -3,7 +3,7 @@ package claude
 import (
 	"slices"
 
-	"github.com/repogo/host/internal/claudecode"
+	"github.com/repogoapp/host/internal/claudecode"
 )
 
 type liveTask struct {

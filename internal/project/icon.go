@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/files"
 )
 
 const iconMaxBytes = 1 << 20

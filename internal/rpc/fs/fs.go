@@ -6,9 +6,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 // Watcher runs one watcher per folder for the devices holding it, pushing

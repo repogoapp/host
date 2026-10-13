@@ -1,10 +1,10 @@
 package chats
 
 import (
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chat"
-	"github.com/repogo/host/internal/chatwire"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chat"
+	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/store"
 )
 
 type ChatParams struct {

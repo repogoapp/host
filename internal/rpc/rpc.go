@@ -12,10 +12,10 @@ import (
 	"runtime/debug"
 	"sort"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/wirejson"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/wirejson"
 )
 
 // Scope records which proof the transport accepted: a device signature

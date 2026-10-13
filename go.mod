@@ -1,4 +1,4 @@
-module github.com/repogo/host
+module github.com/repogoapp/host
 
 go 1.25.0
 

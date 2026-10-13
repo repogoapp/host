@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/forward"
-	"github.com/repogo/host/internal/handshake"
-	"github.com/repogo/host/internal/hostclient"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/rpc/registry"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/forward"
+	"github.com/repogoapp/host/internal/handshake"
+	"github.com/repogoapp/host/internal/hostclient"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/rpc/registry"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 // check is one method and a key its answer must carry: not byte equality,

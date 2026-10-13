@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agentcatalog"
-	"github.com/repogo/host/internal/agents"
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/agentusage"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agentcatalog"
+	"github.com/repogoapp/host/internal/agents"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/agentusage"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 func TestRegistryConstructsIsolatedProviders(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/repogo/host/internal/agentusage"
+	"github.com/repogoapp/host/internal/agentusage"
 )
 
 // ErrResetFailed is Codex refusing or not answering the consume call.

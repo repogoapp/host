@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 // A call that already has its reply when the connection drops must not wedge

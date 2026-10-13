@@ -3,10 +3,10 @@ package chatlive
 import (
 	"log/slog"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // Peers is the paired devices a chat list change goes to.

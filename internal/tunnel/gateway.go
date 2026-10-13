@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/repogo/host/internal/redial"
-	gw "github.com/repogo/host/internal/tunnel/wire/gateway"
+	"github.com/repogoapp/host/internal/redial"
+	gw "github.com/repogoapp/host/internal/tunnel/wire/gateway"
 )
 
 // nonceLen is the challenge nonce's size; the gateway makes 32 bytes.

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/codexappserver"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/codexappserver"
 )
 
 // respond answers what Codex asks of a person. A subagent's request comes

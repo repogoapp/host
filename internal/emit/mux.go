@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 // ErrNoRoute is returned when no transport can reach a device: none has

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // ErrNoSchedule is a schedule id this host does not hold.

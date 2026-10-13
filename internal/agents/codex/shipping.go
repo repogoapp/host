@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session/native"
-	"github.com/repogo/host/internal/shipping"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session/native"
+	"github.com/repogoapp/host/internal/shipping"
 )
 
 // forkCopyGap separates a fork's copied history from its own requests: Codex

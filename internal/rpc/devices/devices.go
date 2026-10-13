@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 func init() {

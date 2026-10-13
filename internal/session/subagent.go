@@ -1,7 +1,7 @@
 package session
 
 import (
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // Subagent is what a subagent did, read from its own transcript: the work a

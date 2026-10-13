@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 // block answers only once released, or once its caller is gone; entered and

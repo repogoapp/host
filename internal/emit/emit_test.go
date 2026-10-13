@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 type frame struct {

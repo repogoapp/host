@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 // The chat sync surface: a `rev` per row from one counter, bumped only when

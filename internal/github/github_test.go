@@ -9,9 +9,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // The name is the only untrusted input that becomes a path, so it gets the

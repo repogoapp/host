@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
 )
 
 // The inbox row names the model of the newest request: a switched model shows

@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/hostinfo"
-	"github.com/repogo/host/internal/release"
-	"github.com/repogo/host/internal/rpc/devices"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/hostinfo"
+	"github.com/repogoapp/host/internal/release"
+	"github.com/repogoapp/host/internal/rpc/devices"
 )
 
 func call(ctx context.Context, method string, params, out any) error {

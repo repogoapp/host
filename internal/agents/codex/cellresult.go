@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/toollabel"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
 // cellCommand is what a cell prints for each `tools.exec_command` it awaits.

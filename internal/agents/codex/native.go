@@ -1,8 +1,8 @@
 package codex
 
 import (
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session/native"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session/native"
 )
 
 // ParseFile reads a whole rollout with the Rust parser. The session store

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 // Body codecs, the first byte of every record's plaintext; SecureChannel.BodyCodec

@@ -1,6 +1,6 @@
 package forward
 
-import "github.com/repogo/host/internal/emit"
+import "github.com/repogoapp/host/internal/emit"
 
 // Every event this package emits, declared for the catalog. A pipe belongs to
 // the one device that opened it, so these are sent to that device and never

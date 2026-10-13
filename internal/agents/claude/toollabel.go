@@ -3,9 +3,9 @@ package claude
 import (
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chatwire"
-	"github.com/repogo/host/internal/toollabel"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
 // ToolRow is a Claude tool call on the chat lane (chatwire.Labeler): its

@@ -1,6 +1,6 @@
 package git
 
-import gitcore "github.com/repogo/host/internal/git"
+import gitcore "github.com/repogoapp/host/internal/git"
 
 type PathParams struct {
 	Path string `json:"path"`

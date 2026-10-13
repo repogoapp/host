@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // namingProvider names `model-…` ids, as an adapter names its own id shape,

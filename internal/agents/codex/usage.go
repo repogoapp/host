@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agentusage"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agentusage"
 )
 
 // Usage asks the CLI's account endpoint first: once a window is exhausted the

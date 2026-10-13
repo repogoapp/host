@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/procscan"
+	"github.com/repogoapp/host/internal/procscan"
 )
 
 // listPlatformPorts reads lsof field output: `p<pid>` and `c<command>` head

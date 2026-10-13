@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	hostemit "github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/wiredoc"
+	hostemit "github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/wiredoc"
 )
 
 // Serving generates the reverse direction of the named methods' and events'

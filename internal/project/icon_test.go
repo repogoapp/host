@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/files"
 )
 
 // repo is a Repos answering one owner/name for every path, or err.

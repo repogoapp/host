@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agentcatalog"
+	"github.com/repogoapp/host/internal/agentcatalog"
 )
 
 // Codex's policies are enums in its protocol schema, not a list the server

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/sqlitedb"
+	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
 // A cache written by another schema is thrown away and rebuilt: keeping the

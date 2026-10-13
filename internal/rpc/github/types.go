@@ -1,6 +1,6 @@
 package github
 
-import ghcore "github.com/repogo/host/internal/github"
+import ghcore "github.com/repogoapp/host/internal/github"
 
 type PathParams struct {
 	Path string `json:"path"`

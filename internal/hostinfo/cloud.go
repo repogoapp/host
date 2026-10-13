@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // The provisioner names a cloud host's provider and its session's end when it

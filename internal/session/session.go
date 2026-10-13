@@ -13,8 +13,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 var ErrNotFound = errkind.New(errkind.NotFound, "session not found")

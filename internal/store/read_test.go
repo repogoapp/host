@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 func newStore(t *testing.T) *Store {

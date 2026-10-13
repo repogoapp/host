@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/codexappserver"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/codexappserver"
 )
 
 // How long an interrupted turn may unwind before the process is closed; past

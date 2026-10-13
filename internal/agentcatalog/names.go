@@ -3,7 +3,7 @@ package agentcatalog
 import (
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // Namer is a Provider that can read a name off its own model ids

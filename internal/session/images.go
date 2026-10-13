@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // A user's images (a URL, or pasted base64 stored once in the attachment store)

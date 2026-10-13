@@ -5,9 +5,9 @@ package tools
 import (
 	"context"
 
-	"github.com/repogo/host/internal/clilogin"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

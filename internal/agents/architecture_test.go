@@ -27,7 +27,7 @@ func TestServicePackagesDoNotImportProviders(t *testing.T) {
 			}
 			for _, spec := range file.Imports {
 				imp, _ := strconv.Unquote(spec.Path.Value)
-				if imp == "github.com/repogo/host/internal/agents" || strings.HasPrefix(imp, "github.com/repogo/host/internal/agents/") {
+				if imp == "github.com/repogoapp/host/internal/agents" || strings.HasPrefix(imp, "github.com/repogoapp/host/internal/agents/") {
 					t.Errorf("%s imports provider package %s", path, imp)
 				}
 			}

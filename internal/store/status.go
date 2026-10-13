@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // ManagerTurnPrefix keys a turn this host ran, as opposed to a hook's or a transcript's.

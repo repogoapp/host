@@ -10,9 +10,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // Refresh this long before expiry, so a token does not lapse mid-turn.

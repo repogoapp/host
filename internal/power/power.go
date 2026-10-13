@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/syscmd"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/syscmd"
 )
 
 func (Battery) Method() string { return "host.power" }

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/terminal"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/terminal"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // containRoot contains to one root, the way files.Service does for real.

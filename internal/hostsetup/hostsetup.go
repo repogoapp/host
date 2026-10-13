@@ -7,13 +7,13 @@ import (
 	"context"
 	"sync"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agentcatalog"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/emit"
-	ghcore "github.com/repogo/host/internal/github"
-	"github.com/repogo/host/internal/hostinfo"
-	"github.com/repogo/host/internal/par"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agentcatalog"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/emit"
+	ghcore "github.com/repogoapp/host/internal/github"
+	"github.com/repogoapp/host/internal/hostinfo"
+	"github.com/repogoapp/host/internal/par"
 )
 
 func init() {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // ErrNoResets is a reset asked of a provider that has no reset credits.

@@ -15,7 +15,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // IDLen is how many bytes of the public key's digest form an id. The id is the

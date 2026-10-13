@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type echo struct {

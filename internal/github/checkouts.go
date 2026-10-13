@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/files"
 )
 
 // Layout is the projects directory: loose folders at the top, clones at

@@ -7,7 +7,7 @@
 package previewgatewayv1
 
 import (
-	preview "github.com/repogo/host/internal/tunnel/wire/preview"
+	preview "github.com/repogoapp/host/internal/tunnel/wire/preview"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

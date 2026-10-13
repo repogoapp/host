@@ -10,8 +10,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/handshake"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/handshake"
 )
 
 func TestHelloFieldsAreBounded(t *testing.T) {

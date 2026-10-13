@@ -3,7 +3,7 @@ package codexappserver
 import (
 	"encoding/json"
 
-	"github.com/repogo/host/internal/stdiorpc"
+	"github.com/repogoapp/host/internal/stdiorpc"
 )
 
 // Notification is one message Codex streams without expecting an answer.

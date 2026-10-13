@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/par"
-	"github.com/repogo/host/internal/sqlitedb"
+	"github.com/repogoapp/host/internal/par"
+	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
 const (

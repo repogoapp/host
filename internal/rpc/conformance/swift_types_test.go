@@ -3,8 +3,8 @@ package conformance_test
 import (
 	"testing"
 
-	"github.com/repogo/host/internal/swiftcontract"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/swiftcontract"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 const swiftTypes = "../../../../swift/Packages/RemoteTransport/Sources/HostContract/HostAPI.swift"

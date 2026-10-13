@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/codexappserver"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/codexappserver"
 )
 
 // handle folds one notification into the bound turn. Only the chat's own

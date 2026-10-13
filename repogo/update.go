@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/hostupdate"
-	"github.com/repogo/host/internal/release"
-	"github.com/repogo/host/internal/service"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/hostupdate"
+	"github.com/repogoapp/host/internal/release"
+	"github.com/repogoapp/host/internal/service"
 )
 
 // restarter is how run learns where it was started from and asks to be

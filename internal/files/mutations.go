@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 var ErrInvalidOperation = errkind.New(errkind.Invalid, "files: invalid operation")

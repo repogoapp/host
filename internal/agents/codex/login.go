@@ -3,7 +3,7 @@ package codex
 import (
 	"regexp"
 
-	"github.com/repogo/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clilogin"
 )
 
 var (

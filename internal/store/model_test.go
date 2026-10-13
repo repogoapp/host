@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // A reparse that finds no model keeps the one already known: a truncated tail

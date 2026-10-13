@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/mcp"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/mcp"
 )
 
 // claudeEntry is the part of a Claude server entry that is safe to show.

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/repogo/host/internal/apphome"
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // helperVersion is bumped whenever helperSource changes so an install refreshes

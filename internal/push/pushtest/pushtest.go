@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/repogo/host/internal/relay"
+	"github.com/repogoapp/host/internal/relay"
 )
 
 // Sender records every push.send and answers each with Reply.

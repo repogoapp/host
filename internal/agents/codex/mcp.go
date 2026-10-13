@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/mcp"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/mcp"
 )
 
 // codexSection matches a `[mcp_servers.<name>]` header, bare or quoted.

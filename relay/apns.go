@@ -9,7 +9,7 @@ import (
 	"github.com/sideshow/apns2"
 	"github.com/sideshow/apns2/token"
 
-	"github.com/repogo/host/internal/relay"
+	"github.com/repogoapp/host/internal/relay"
 )
 
 // apnsPush delivers push.send with the APNs key from the environment; nil with

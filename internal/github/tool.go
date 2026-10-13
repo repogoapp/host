@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/repogo/host/internal/binfetch"
-	"github.com/repogo/host/internal/clilogin"
-	"github.com/repogo/host/internal/clitool"
+	"github.com/repogoapp/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clitool"
 )
 
 const deviceURL = "https://github.com/login/device"

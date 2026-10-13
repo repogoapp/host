@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // A window the account says is exhausted is marked exceeded; the rollouts

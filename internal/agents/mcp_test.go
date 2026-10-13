@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	claudeprovider "github.com/repogo/host/internal/agents/claude"
-	codexprovider "github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/mcp"
+	"github.com/repogoapp/host/internal/agent"
+	claudeprovider "github.com/repogoapp/host/internal/agents/claude"
+	codexprovider "github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/mcp"
 )
 
 func TestInstalledListsAgentServersWithoutTheirSecrets(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/files"
 )
 
 // The containment rules are the whole point of this package, so most of what is

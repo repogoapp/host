@@ -17,10 +17,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents"
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/session"
 )
 
 func main() {

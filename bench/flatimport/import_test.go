@@ -13,12 +13,12 @@ import (
 
 	"github.com/bytedance/sonic"
 	flatbuffers "github.com/google/flatbuffers/go"
-	"github.com/repogo/host/bench/flatimport/fb"
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/bench/flatimport/fb"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 func encode(events []agent.Event) []byte {

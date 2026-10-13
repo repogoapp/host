@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/repogo/host/internal/wiredoc"
+	"github.com/repogoapp/host/internal/wiredoc"
 )
 
 // Describe renders the vocabulary as Markdown, one section per method with

@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chat"
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chat"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 // recorder is a Sender that remembers what the host would have run.

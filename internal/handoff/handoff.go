@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/syscmd"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/syscmd"
 )
 
 var (

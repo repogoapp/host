@@ -17,7 +17,7 @@ import (
 	"math"
 	"unsafe"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // kinds maps the kind byte in ffi.rs to the event kind, in the same order.

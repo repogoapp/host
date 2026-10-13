@@ -10,13 +10,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chatsync"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chatsync"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // Sender queues a turn: the agent Manager, narrowed to what a chat needs.

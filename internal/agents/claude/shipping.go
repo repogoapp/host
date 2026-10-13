@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session/native"
-	"github.com/repogo/host/internal/shipping"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session/native"
+	"github.com/repogoapp/host/internal/shipping"
 )
 
 // unpriced are model names that are not one billable model: the CLI's own

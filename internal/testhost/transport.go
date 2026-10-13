@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/hostlink"
-	"github.com/repogo/host/internal/relay"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/wsserver"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/hostlink"
+	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/wsserver"
 )
 
 // Token is the loopback token Serve's WebSocket server accepts.

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/binfetch"
 )
 
 // versionPattern is deliberately loose. Every CLI prints its version

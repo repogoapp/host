@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/power"
-	"github.com/repogo/host/internal/push/pushtest"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/push/pushtest"
 )
 
 func storeWithPhones(t *testing.T) (*device.Store, device.ID) {

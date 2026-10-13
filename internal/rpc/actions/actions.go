@@ -5,9 +5,9 @@ package actions
 import (
 	"context"
 
-	actionscore "github.com/repogo/host/internal/actions"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/store"
+	actionscore "github.com/repogoapp/host/internal/actions"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/store"
 )
 
 type Deps struct {

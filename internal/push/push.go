@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/power"
-	"github.com/repogo/host/internal/relay"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/relay"
 )
 
 // The low-battery alert goes out once as the Mac's battery alone drops below

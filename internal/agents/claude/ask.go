@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/claudecode"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/claudecode"
 )
 
 func (s *liveSession) askUserQuestion(ctx context.Context, p claudecode.PermissionRequest) (claudecode.PermissionResult, error) {

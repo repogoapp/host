@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/repogo/host/internal/clilogin"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // Device codes and authorize links last 15 minutes or less, and no CLI is

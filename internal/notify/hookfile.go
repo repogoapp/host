@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/repogo/host/internal/apphome"
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // HookFile is an agent's JSON hook config: `{"hooks": {Event: [group…]}}`,

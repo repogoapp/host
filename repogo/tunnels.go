@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/repogo/host/internal/tunnel"
+	"github.com/repogoapp/host/internal/tunnel"
 )
 
 // tunnelsCommand lists the public URLs this host serves, or closes one.

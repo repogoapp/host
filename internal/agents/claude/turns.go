@@ -1,6 +1,6 @@
 package claude
 
-import "github.com/repogo/host/internal/agent"
+import "github.com/repogoapp/host/internal/agent"
 
 // claudeTurns gives each unnamed row the turn of the prompt before it: the CLI
 // stamps a prompt and its tool results with the prompt's id, not the replies.

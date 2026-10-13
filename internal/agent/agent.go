@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 // Kind names a Provider; the constants live beside each provider's entry.

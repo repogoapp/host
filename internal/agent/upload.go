@@ -8,7 +8,7 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
-	"github.com/repogo/host/internal/apphome"
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // A phone has no way onto this disk but the message itself, so the bytes come

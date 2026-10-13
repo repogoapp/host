@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // The watcher drops what this reports, so a wrong answer either floods the

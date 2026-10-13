@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/git"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/git"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // The point of this package is that N subscribers cost one watcher, one git

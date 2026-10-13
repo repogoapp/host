@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/repogo/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit"
 )
 
 func init() {

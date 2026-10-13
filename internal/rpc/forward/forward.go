@@ -5,8 +5,8 @@ package forward
 import (
 	"context"
 
-	forwardcore "github.com/repogo/host/internal/forward"
-	"github.com/repogo/host/internal/rpc"
+	forwardcore "github.com/repogoapp/host/internal/forward"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

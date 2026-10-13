@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/push"
-	"github.com/repogo/host/internal/relay"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/push"
+	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/store"
 )
 
 const (

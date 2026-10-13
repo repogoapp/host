@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // Only this host's own turns die with it; a CLI in a terminal may still be

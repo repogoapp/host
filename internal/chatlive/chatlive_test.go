@@ -10,13 +10,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/chatwire"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // A recording publisher, so a test can assert what a device would have received.

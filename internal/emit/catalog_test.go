@@ -8,22 +8,22 @@ import (
 
 	// Producers register in init; each one the host emits from must be here
 	// or the client is checked against a partial catalog.
-	_ "github.com/repogo/host/internal/chatlive"
-	_ "github.com/repogo/host/internal/envsource"
-	_ "github.com/repogo/host/internal/forward"
-	_ "github.com/repogo/host/internal/hostinfo"
-	_ "github.com/repogo/host/internal/hostsetup"
-	_ "github.com/repogo/host/internal/mcp"
-	_ "github.com/repogo/host/internal/projectwatch"
-	_ "github.com/repogo/host/internal/repogomcp"
-	_ "github.com/repogo/host/internal/rpc/devices"
-	_ "github.com/repogo/host/internal/schedule"
-	_ "github.com/repogo/host/internal/terminal"
-	_ "github.com/repogo/host/internal/tunnel"
+	_ "github.com/repogoapp/host/internal/chatlive"
+	_ "github.com/repogoapp/host/internal/envsource"
+	_ "github.com/repogoapp/host/internal/forward"
+	_ "github.com/repogoapp/host/internal/hostinfo"
+	_ "github.com/repogoapp/host/internal/hostsetup"
+	_ "github.com/repogoapp/host/internal/mcp"
+	_ "github.com/repogoapp/host/internal/projectwatch"
+	_ "github.com/repogoapp/host/internal/repogomcp"
+	_ "github.com/repogoapp/host/internal/rpc/devices"
+	_ "github.com/repogoapp/host/internal/schedule"
+	_ "github.com/repogoapp/host/internal/terminal"
+	_ "github.com/repogoapp/host/internal/tunnel"
 
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/swiftcontract"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/swiftcontract"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 var update = flag.Bool("update", false, "rewrite docs/host-events.md and docs/events from the catalog")

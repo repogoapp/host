@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // A record reaches the log server split into category and message, with its

@@ -1,6 +1,6 @@
 package codex
 
-import "github.com/repogo/host/internal/agent"
+import "github.com/repogoapp/host/internal/agent"
 
 // codexTurns names each item by the turn open around it; where turns overlap,
 // a prompt joins the newest and a tool result its call's.

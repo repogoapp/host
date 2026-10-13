@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/codexappserver"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/codexappserver"
 )
 
 // A resumed thread replays its rollout before answering, so opening one may

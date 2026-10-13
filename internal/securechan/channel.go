@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 // Frame kinds, the first byte of every routed payload.

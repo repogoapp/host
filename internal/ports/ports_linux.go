@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/repogo/host/internal/procscan"
+	"github.com/repogoapp/host/internal/procscan"
 )
 
 // listPlatformPorts reads /proc/net/tcp{,6} for LISTEN sockets, which sees

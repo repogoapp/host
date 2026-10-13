@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/mcp"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/mcp"
 )
 
 // fakeSession is an agent process on a turn from phone, or between turns.

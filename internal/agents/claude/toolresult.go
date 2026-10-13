@@ -7,7 +7,7 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // claudeToolUseResult is the part of the CLI's `toolUseResult`, written beside

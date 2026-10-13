@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // Store holds this device's identity and everyone it has paired with. The

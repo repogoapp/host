@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/clilogin"
-	"github.com/repogo/host/internal/clitool"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clitool"
 )
 
 func TestInstallCommandOf(t *testing.T) {

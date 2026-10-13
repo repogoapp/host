@@ -4,8 +4,8 @@ package terminals
 import (
 	"context"
 
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/terminal"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/terminal"
 )
 
 type Deps struct {

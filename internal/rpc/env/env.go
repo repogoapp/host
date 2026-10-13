@@ -6,8 +6,8 @@ package env
 import (
 	"context"
 
-	"github.com/repogo/host/internal/envsource"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/envsource"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

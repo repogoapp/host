@@ -12,8 +12,8 @@ import (
 	// on it. encoding/json stays for RawMessage (claudeblock.go).
 	"github.com/bytedance/sonic"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // Sessions reads ~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl. The

@@ -22,10 +22,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/handshake"
-	"github.com/repogo/host/internal/hostclient"
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/handshake"
+	"github.com/repogoapp/host/internal/hostclient"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 func main() {
@@ -293,7 +293,7 @@ func main() {
 						Events     []json.RawMessage `json:"events"`
 						Generation float64           `json:"generation"`
 						EventCount int               `json:"event_count"`
-						NextIndex    int               `json:"next_idx"`
+						NextIndex  int               `json:"next_idx"`
 					}
 					err := c.Call(ctx, "chats.messages", map[string]any{
 						"chat_id": ch.ID, "since_idx": sinceIdx, "limit": limit,

@@ -5,8 +5,8 @@ package ports
 import (
 	"context"
 
-	portscore "github.com/repogo/host/internal/ports"
-	"github.com/repogo/host/internal/rpc"
+	portscore "github.com/repogoapp/host/internal/ports"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type ListParams struct {

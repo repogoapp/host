@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // resweep is how often the full session list is re-examined; unchanged

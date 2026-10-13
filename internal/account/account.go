@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 var (

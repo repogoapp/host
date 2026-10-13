@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/repogo/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/binfetch"
 )
 
 type paths struct {

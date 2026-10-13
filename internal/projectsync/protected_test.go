@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 func TestProtectedFolders(t *testing.T) {

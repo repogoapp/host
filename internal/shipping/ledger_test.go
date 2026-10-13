@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // fakeProvider bills one request per line, `key session output fast`.

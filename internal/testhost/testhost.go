@@ -11,15 +11,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/host"
-	"github.com/repogo/host/internal/hostupdate"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/power"
-	"github.com/repogo/host/internal/release"
-	"github.com/repogo/host/internal/rpc/registry"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/host"
+	"github.com/repogoapp/host/internal/hostupdate"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/release"
+	"github.com/repogoapp/host/internal/rpc/registry"
 )
 
 // Host is a host over temporary data. Root is a project the files service

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 func numbers(t *testing.T, db *Store) map[ChatID]int64 {

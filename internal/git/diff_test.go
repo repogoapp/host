@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // contained confines to one directory and resolves symlinks, as the real one

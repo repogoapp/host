@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/rpc/chats"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/rpc/chats"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 // Family-level tests: the testhost's services behind the chats family, with

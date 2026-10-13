@@ -1,6 +1,6 @@
 package shipping
 
-import "github.com/repogo/host/internal/session/native"
+import "github.com/repogoapp/host/internal/session/native"
 
 // ParseNative reads a transcript's usage with the Rust parser: ok false when
 // the host does not link it or it cannot read the file, and the provider's

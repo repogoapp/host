@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/release"
+	"github.com/repogoapp/host/internal/release"
 )
 
 type turns struct {

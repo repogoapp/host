@@ -5,11 +5,11 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/clilogin"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // keychainService is the macOS keychain service Claude Code keeps its login in.

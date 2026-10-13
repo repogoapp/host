@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/session"
 )
 
 func TestDeleteRemovesTheProviderFile(t *testing.T) {

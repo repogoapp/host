@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // Tokens is one request's token counts, split the way public rates price them.

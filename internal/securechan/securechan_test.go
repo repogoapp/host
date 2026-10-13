@@ -15,8 +15,8 @@ import (
 
 	"github.com/flynn/noise"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 // pipe runs the initiator and responder against each other in memory,

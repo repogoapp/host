@@ -1,6 +1,6 @@
 package tunnel
 
-import "github.com/repogo/host/internal/emit"
+import "github.com/repogoapp/host/internal/emit"
 
 func init() {
 	emit.Register(Changed{})

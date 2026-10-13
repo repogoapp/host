@@ -9,8 +9,8 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // Subagent finds the thread a spawn_agent call started, by the `agent_id`

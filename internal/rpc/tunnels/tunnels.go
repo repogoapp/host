@@ -5,8 +5,8 @@ package tunnels
 import (
 	"context"
 
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/tunnel"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/tunnel"
 )
 
 type Deps struct {

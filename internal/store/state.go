@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/repogo/host/internal/sqlitedb"
+	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
 // stateSchema is state.db's tables. Unlike the cache's schema, a change never

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/repogo/host/internal/repogomcp"
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/repogomcp"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 const swiftBrowserTool = "../../../../swift/Packages/RepoGit/Sources/LocalRPC/Generated/BrowserToolDefinition.swift"

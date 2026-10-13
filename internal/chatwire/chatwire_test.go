@@ -7,9 +7,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/toollabel"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
 // fake labels every named call "Ran <name>", so the tests see what the

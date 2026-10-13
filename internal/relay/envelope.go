@@ -5,7 +5,7 @@ package relay
 import (
 	"errors"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 // Envelope framing: [version:1][target device id:16][payload:...]. A fixed

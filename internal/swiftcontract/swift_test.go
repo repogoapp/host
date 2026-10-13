@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	fsrpc "github.com/repogo/host/internal/rpc/fs"
-	mcprpc "github.com/repogo/host/internal/rpc/mcp"
+	fsrpc "github.com/repogoapp/host/internal/rpc/fs"
+	mcprpc "github.com/repogoapp/host/internal/rpc/mcp"
 )
 
 type customWire string

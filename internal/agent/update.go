@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 var ErrUpdating = errkind.New(errkind.Unavailable, "host update unavailable")

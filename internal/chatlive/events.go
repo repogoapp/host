@@ -1,10 +1,10 @@
 package chatlive
 
 import (
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chatwire"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // Every event the chats family emits, in one place. The client declares the

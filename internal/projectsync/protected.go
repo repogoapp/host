@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/files"
 )
 
 // protected keeps a sweep from reading inside the folders macOS guards with a

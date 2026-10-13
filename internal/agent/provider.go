@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/repogo/host/internal/clitool"
+import "github.com/repogoapp/host/internal/clitool"
 
 // Provider is one coding agent this host knows: its CLI as a tool, whose
 // models it runs, and how to reopen a session. The registry fills in the

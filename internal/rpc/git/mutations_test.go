@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	gitcore "github.com/repogo/host/internal/git"
-	"github.com/repogo/host/internal/rpc"
+	gitcore "github.com/repogoapp/host/internal/git"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 // allowAny opens containment up for a temp repository.

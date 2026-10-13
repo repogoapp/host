@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 var (

@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/claudecode"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/claudecode"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 func TestMain(m *testing.M) {

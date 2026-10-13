@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/clitool"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/clitool"
 )
 
 func provider(command string, resume func(string) []string) agent.Provider {

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // Real repositories, real `git`. A fake would only prove this package agrees

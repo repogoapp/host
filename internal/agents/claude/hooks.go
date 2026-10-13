@@ -3,8 +3,8 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/notify"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/notify"
 )
 
 // claudeEvents is every lifecycle event the helper is registered for.

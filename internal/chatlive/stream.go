@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // Token-level streaming of a turn the host is running; the file tail only sees

@@ -16,8 +16,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/binfetch"
 )
 
 // release is a Node archive whose node is a script answering -v.

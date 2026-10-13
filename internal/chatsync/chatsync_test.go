@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/claude"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 func claudeLine(sessionID, text string) string {

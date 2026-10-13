@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/repogo/host/internal/stdiorpc"
+	"github.com/repogoapp/host/internal/stdiorpc"
 )
 
 type Client struct{ *stdiorpc.Client }

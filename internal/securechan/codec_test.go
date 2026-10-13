@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 // vectorJSON is the plaintext both cross-language vectors compress; the Swift

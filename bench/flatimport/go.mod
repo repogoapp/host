@@ -1,11 +1,11 @@
-module github.com/repogo/host/bench/flatimport
+module github.com/repogoapp/host/bench/flatimport
 
 go 1.25.0
 
 require (
 	github.com/bytedance/sonic v1.15.4
 	github.com/google/flatbuffers v25.12.19+incompatible
-	github.com/repogo/host v0.0.0
+	github.com/repogoapp/host v0.0.0
 )
 
 require (
@@ -21,4 +21,4 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 )
 
-replace github.com/repogo/host => ../..
+replace github.com/repogoapp/host => ../..

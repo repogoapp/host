@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/wirejson"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/wirejson"
 )
 
 // Transport carries one frame to one device. Delivery is best-effort, but

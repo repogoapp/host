@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/syscmd"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/syscmd"
 )
 
 const label = "app.repogo.host"

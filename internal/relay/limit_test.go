@@ -9,8 +9,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/repogo/host/internal/handshake"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/handshake"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // dialRaw opens a socket without the handshake, which is enough to hold a slot.

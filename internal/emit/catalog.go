@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/repogo/host/internal/wiredoc"
+	"github.com/repogoapp/host/internal/wiredoc"
 )
 
 // The catalog is every event producers declare in init; only the test that

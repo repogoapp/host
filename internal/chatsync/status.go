@@ -3,9 +3,9 @@ package chatsync
 import (
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // ObserveHook commits chat metadata before the bridge acknowledges its drop.

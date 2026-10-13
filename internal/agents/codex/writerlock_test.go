@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // holdWriterLock lays out Codex's lock files under home and, when held,

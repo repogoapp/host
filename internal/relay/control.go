@@ -7,8 +7,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 // ControlID is the envelope target that addresses the relay itself: all

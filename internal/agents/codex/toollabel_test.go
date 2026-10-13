@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chatwire"
-	"github.com/repogo/host/internal/toollabel"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
 func labelOf(t *testing.T, name, input string) toollabel.Label {

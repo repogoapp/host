@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // Lister is the filesystem service, narrowed to the one method this needs.

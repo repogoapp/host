@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/repogo/host/internal/files"
-	gitcore "github.com/repogo/host/internal/git"
-	"github.com/repogo/host/internal/github"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/files"
+	gitcore "github.com/repogoapp/host/internal/git"
+	"github.com/repogoapp/host/internal/github"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // kindOf classifies from git's own invariant (a clone's `.git` is a directory,

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 func TestReusableHours(t *testing.T) {

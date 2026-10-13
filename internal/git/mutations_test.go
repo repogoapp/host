@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/git"
 )
 
 func TestMutationsPreserveDirtyWorkAndValidateBranches(t *testing.T) {

@@ -19,7 +19,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/store"
 )
 
 func main() {

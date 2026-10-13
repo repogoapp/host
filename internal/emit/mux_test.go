@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
 )
 
 type recorder struct{ got []string }

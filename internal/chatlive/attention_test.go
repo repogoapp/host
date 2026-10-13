@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 type attentionSink struct {

@@ -13,8 +13,8 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // Sessions reads ~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<uuid>.jsonl.

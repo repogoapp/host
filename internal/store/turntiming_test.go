@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 func syncEvents(t *testing.T, db *Store, kind agent.Kind, id string, events []agent.Event) Chat {

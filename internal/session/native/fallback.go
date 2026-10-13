@@ -5,7 +5,7 @@ package native
 import (
 	"errors"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // Available reports whether this build carries the native parser.

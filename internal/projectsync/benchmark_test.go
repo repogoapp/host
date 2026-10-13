@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/chatsync"
-	"github.com/repogo/host/internal/files"
-	gitcore "github.com/repogo/host/internal/git"
-	ghcore "github.com/repogo/host/internal/github"
-	"github.com/repogo/host/internal/project"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/chatsync"
+	"github.com/repogoapp/host/internal/files"
+	gitcore "github.com/repogoapp/host/internal/git"
+	ghcore "github.com/repogoapp/host/internal/github"
+	"github.com/repogoapp/host/internal/project"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 var benchLocal = flag.Bool("bench-local", false, "benchmark a pull-to-refresh against local history using a temporary database")

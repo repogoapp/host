@@ -5,8 +5,8 @@ package mcp
 import (
 	"context"
 
-	mcpcore "github.com/repogo/host/internal/mcp"
-	"github.com/repogo/host/internal/rpc"
+	mcpcore "github.com/repogoapp/host/internal/mcp"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

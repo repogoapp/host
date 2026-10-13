@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/claudecode"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/claudecode"
 )
 
 func denied(p claudecode.PermissionRequest, message string, interrupt bool) claudecode.PermissionResult {

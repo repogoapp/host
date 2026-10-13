@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/device"
 )
 
 // A provisioned host pairs from the invite `repogo invite` prints, once.

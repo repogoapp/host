@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/toollabel"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
 // Page is store.Page with its rows built for the phone: the result of

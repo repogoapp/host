@@ -17,8 +17,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 // Path is where the host's loopback server mounts the handler.

@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/repogo/host/internal/agentcatalog"
+	"github.com/repogoapp/host/internal/agentcatalog"
 )
 
 // Claude's permission modes are a fixed vocabulary, not something the CLI

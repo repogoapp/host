@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/binfetch"
-	"github.com/repogo/host/internal/clilogin"
-	"github.com/repogo/host/internal/clitool"
+	"github.com/repogoapp/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clitool"
 )
 
 // gh 2.57's stderr with no terminal attached, captured 09-25.

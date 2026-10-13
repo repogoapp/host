@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/files"
 )
 
 // picker returns a service whose home holds a project folder, a file, and the

@@ -5,9 +5,9 @@ package turns
 import (
 	"context"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agentusage"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agentusage"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 // Deps are the turn manager, which only the host has (it owns the CLI

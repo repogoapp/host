@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // fixture answers with whatever reading it holds and counts the calls.

@@ -15,12 +15,12 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/handshake"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/wsconn"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/handshake"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/wsconn"
 )
 
 type Config struct {

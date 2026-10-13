@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chat"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chat"
+	"github.com/repogoapp/host/internal/store"
 )
 
 var agents = []agent.Kind{"claude", "codex"}

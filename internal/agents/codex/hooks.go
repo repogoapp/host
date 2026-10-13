@@ -3,8 +3,8 @@ package codex
 import (
 	"path/filepath"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/notify"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/notify"
 )
 
 // codexEvents is every event whose status the host reads. A prompt hook

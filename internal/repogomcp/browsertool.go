@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // The browser tool is v1's (packages/core/src/ai/tools/browser.schema.ts and

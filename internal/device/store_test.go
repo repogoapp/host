@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // Pairing has to outlive the process, or every update would mean re-pairing

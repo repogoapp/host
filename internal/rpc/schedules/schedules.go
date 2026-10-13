@@ -5,9 +5,9 @@ package schedules
 import (
 	"context"
 
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/schedule"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/schedule"
+	"github.com/repogoapp/host/internal/store"
 )
 
 type Deps struct {

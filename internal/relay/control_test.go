@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/appattest"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/handshake"
-	"github.com/repogo/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/appattest"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/handshake"
+	"github.com/repogoapp/host/internal/jsonrpc"
 )
 
 func pushHarness(t *testing.T, push func(context.Context, PushRequest) error) *harness {

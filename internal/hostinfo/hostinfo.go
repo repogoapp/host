@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/power"
-	"github.com/repogo/host/internal/release"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/release"
 )
 
 func init() {

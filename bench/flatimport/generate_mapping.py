@@ -5,7 +5,7 @@ root = Path(__file__).parent
 schema = (root / 'events.fbs').read_text()
 aliases = {'id':'ID', 'call_id':'CallID', 'turn_id':'TurnID', 'session_id':'SessionID', 'option_id':'OptionID', 'custom_id':'CustomID', 'cost_usd':'CostUSD', 'duration_ms':'DurationMS'}
 def camel(name): return ''.join(x.title() for x in name.split('_'))
-out = ['package flatimport', 'import ("github.com/repogo/host/internal/agent"; "github.com/repogo/host/bench/flatimport/fb")']
+out = ['package flatimport', 'import ("github.com/repogoapp/host/internal/agent"; "github.com/repogoapp/host/bench/flatimport/fb")']
 for name, body in re.findall(r'table (\w+) \{([^}]+)\}', schema):
  if name == 'Events': continue
  fields = re.findall(r'(\w+):([\[\]\w]+);',body)

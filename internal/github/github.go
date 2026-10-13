@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/git"
 )
 
 const (

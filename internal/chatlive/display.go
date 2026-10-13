@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // Streaming for turns run in the user's own terminal: tokens come from the

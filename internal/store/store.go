@@ -18,9 +18,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/sqlitedb"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
 type Store struct {

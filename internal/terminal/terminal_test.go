@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/terminal"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/terminal"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // roots stands in for the files service: whatever it contains is a project.

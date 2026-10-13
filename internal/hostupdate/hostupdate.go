@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/release"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/release"
 )
 
 var (

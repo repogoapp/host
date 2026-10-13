@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // savedQueues records every SaveQueue in the order the Manager made it.

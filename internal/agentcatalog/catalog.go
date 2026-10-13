@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/par"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/par"
 )
 
 // Catalog is everything one agent lets a caller choose, with its current

@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // wireBytes is what one message costs through the relay: securechan's codec
@@ -47,12 +47,12 @@ func deflated(b []byte) int {
 // objectMessage is a store.Message whose tool call is a JSON object rather
 // than a string holding one, so the phone decodes it once.
 type objectMessage struct {
-	Index  int             `json:"idx"`
-	Kind string          `json:"kind"`
-	Turn string          `json:"turn,omitempty"`
-	Text string          `json:"text,omitempty"`
-	Tool json.RawMessage `json:"tool,omitempty"`
-	At   int64           `json:"at,omitempty"`
+	Index int             `json:"idx"`
+	Kind  string          `json:"kind"`
+	Turn  string          `json:"turn,omitempty"`
+	Text  string          `json:"text,omitempty"`
+	Tool  json.RawMessage `json:"tool,omitempty"`
+	At    int64           `json:"at,omitempty"`
 }
 
 // deferredTool is a tool call with its output cut to a preview; the rest

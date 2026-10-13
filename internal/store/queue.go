@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // QueuedTurn is one turn waiting in a chat's queue as chats.queue shows it:

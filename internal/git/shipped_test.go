@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // withRemote gives repo a bare origin whose fetch URL names acme/widgets, so

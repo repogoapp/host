@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/sqlitedb"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
 // rebuildCache closes db, marks its cache as another schema's and reopens the

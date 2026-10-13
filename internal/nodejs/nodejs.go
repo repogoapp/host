@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/binfetch"
 )
 
 // minMajor is the oldest Node the host's npm and npx uses run on.

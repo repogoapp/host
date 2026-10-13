@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // A chat's settings come back from its transcript, newest winning, with plan

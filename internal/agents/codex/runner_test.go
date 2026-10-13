@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/codexappserver"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/codexappserver"
 )
 
 func TestMain(m *testing.M) {

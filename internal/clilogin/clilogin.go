@@ -23,7 +23,7 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 const (

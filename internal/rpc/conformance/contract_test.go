@@ -4,7 +4,7 @@ import (
 	"flag"
 	"testing"
 
-	"github.com/repogo/host/internal/testhost"
+	"github.com/repogoapp/host/internal/testhost"
 )
 
 var update = flag.Bool("update", false, "rewrite docs/host-methods.md, docs/methods and RemoteTransport's HostAPI.swift from the router")

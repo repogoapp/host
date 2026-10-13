@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/repogo/host/internal/power"
+	"github.com/repogoapp/host/internal/power"
 )
 
 func keepAwakeCommand(ctx context.Context, args []string) error {

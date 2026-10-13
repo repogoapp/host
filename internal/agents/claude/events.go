@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/claudecode"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/claudecode"
 )
 
 type streamBlock struct{ kind, text string }

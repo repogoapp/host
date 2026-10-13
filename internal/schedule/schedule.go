@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/chat"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chat"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // late is how far behind a due time may be and still run; anything later,

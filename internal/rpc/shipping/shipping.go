@@ -6,9 +6,9 @@ package shipping
 import (
 	"context"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/rpc"
-	shippingcore "github.com/repogo/host/internal/shipping"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/rpc"
+	shippingcore "github.com/repogoapp/host/internal/shipping"
 )
 
 type Deps struct {

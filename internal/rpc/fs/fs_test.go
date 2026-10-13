@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/files"
-	ghcore "github.com/repogo/host/internal/github"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/rpc"
-	fsrpc "github.com/repogo/host/internal/rpc/fs"
-	projectsrpc "github.com/repogo/host/internal/rpc/projects"
+	"github.com/repogoapp/host/internal/files"
+	ghcore "github.com/repogoapp/host/internal/github"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/rpc"
+	fsrpc "github.com/repogoapp/host/internal/rpc/fs"
+	projectsrpc "github.com/repogoapp/host/internal/rpc/projects"
 )
 
 type roots = files.StaticRoots

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"syscall"
 
-	"github.com/repogo/host/internal/errkind"
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/files"
 )
 
 // Port is one TCP socket listening on this machine, tagged with its owning

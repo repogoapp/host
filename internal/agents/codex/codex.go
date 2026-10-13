@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/binfetch"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // definition is Codex's descriptor and install configuration, without the

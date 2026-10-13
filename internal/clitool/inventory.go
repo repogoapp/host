@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/binfetch"
-	"github.com/repogo/host/internal/clilogin"
-	"github.com/repogo/host/internal/par"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/binfetch"
+	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/par"
 )
 
 // Inventory answers which CLIs are installed on this machine, how old they

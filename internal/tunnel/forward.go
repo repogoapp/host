@@ -14,9 +14,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/repogo/host/internal/forward"
-	gw "github.com/repogo/host/internal/tunnel/wire/gateway"
-	pv "github.com/repogo/host/internal/tunnel/wire/preview"
+	"github.com/repogoapp/host/internal/forward"
+	gw "github.com/repogoapp/host/internal/tunnel/wire/gateway"
+	pv "github.com/repogoapp/host/internal/tunnel/wire/preview"
 )
 
 // Every forwarded request is checked against the allowlist and dialled on

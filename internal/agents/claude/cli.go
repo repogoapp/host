@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/clitool"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/clitool"
 )
 
 // executable is the claude a one-shot runs, native install first: an old npm

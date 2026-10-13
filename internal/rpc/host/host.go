@@ -7,11 +7,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/repogo/host/internal/account"
-	"github.com/repogo/host/internal/hostinfo"
-	"github.com/repogo/host/internal/hostsetup"
-	"github.com/repogo/host/internal/hostupdate"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/account"
+	"github.com/repogoapp/host/internal/hostinfo"
+	"github.com/repogoapp/host/internal/hostsetup"
+	"github.com/repogoapp/host/internal/hostupdate"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

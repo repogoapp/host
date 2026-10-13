@@ -7,9 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/rpc"
-	fsrpc "github.com/repogo/host/internal/rpc/fs"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/rpc"
+	fsrpc "github.com/repogoapp/host/internal/rpc/fs"
 )
 
 type recordWatch struct {

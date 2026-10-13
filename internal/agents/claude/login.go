@@ -3,7 +3,7 @@ package claude
 import (
 	"regexp"
 
-	"github.com/repogo/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clilogin"
 )
 
 // Claude prints one authorize link and waits for the code its page shows.

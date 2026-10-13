@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/github"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/github"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // git's own invariant does the first cut, and the owned directory the second.

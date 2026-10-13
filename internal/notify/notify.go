@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // Notice is one hook firing.

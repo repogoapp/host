@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // The fixture's last five lines carry the CLI's toolUseResult in the shapes it

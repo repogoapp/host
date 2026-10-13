@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/apphome"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // A turn is timed from its Start drop to its Stop drop; whole seconds there

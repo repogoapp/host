@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/repogo/host/internal/files"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // skipDirs churn on every build and hold nothing a diff shows. Other ignored

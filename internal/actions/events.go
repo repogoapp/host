@@ -1,8 +1,8 @@
 package actions
 
 import (
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/store"
 )
 
 func init() {

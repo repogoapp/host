@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

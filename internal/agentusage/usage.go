@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/par"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/par"
 )
 
 // Usage is one provider's rate-limit picture.

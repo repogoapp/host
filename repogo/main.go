@@ -10,13 +10,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents"
-	"github.com/repogo/host/internal/devlog"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/power"
-	"github.com/repogo/host/internal/release"
-	"github.com/repogo/host/internal/service"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents"
+	"github.com/repogoapp/host/internal/devlog"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/release"
+	"github.com/repogoapp/host/internal/service"
 )
 
 const defaultRelay = "wss://relay.repogo.app/ws"

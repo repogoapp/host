@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/repogo/host/internal/appattest"
-	"github.com/repogo/host/internal/relay"
+	"github.com/repogoapp/host/internal/appattest"
+	"github.com/repogoapp/host/internal/relay"
 )
 
 func main() {

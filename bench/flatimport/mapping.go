@@ -1,8 +1,8 @@
 package flatimport
 
 import (
-	"github.com/repogo/host/bench/flatimport/fb"
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/bench/flatimport/fb"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 func packToolCall(v *agent.ToolCall) *fb.ToolCallT {

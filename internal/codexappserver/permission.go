@@ -3,7 +3,7 @@ package codexappserver
 import (
 	"encoding/json"
 
-	"github.com/repogo/host/internal/stdiorpc"
+	"github.com/repogoapp/host/internal/stdiorpc"
 )
 
 // Request is one request Codex sends, answered by Handlers.Request.

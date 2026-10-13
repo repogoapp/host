@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/session/native"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session/native"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 // The pickers reach past the roots, but only to names under home: picking a

@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/claude"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 func frame(msg string, idx int, final bool, delta string) notify.DisplayFrame {

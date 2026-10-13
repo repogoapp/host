@@ -13,8 +13,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/securechan"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/securechan"
 )
 
 func main() {

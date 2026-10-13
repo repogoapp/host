@@ -20,9 +20,9 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/repogo/host/internal/device"
-	gw "github.com/repogo/host/internal/tunnel/wire/gateway"
-	pv "github.com/repogo/host/internal/tunnel/wire/preview"
+	"github.com/repogoapp/host/internal/device"
+	gw "github.com/repogoapp/host/internal/tunnel/wire/gateway"
+	pv "github.com/repogoapp/host/internal/tunnel/wire/preview"
 )
 
 // fakeGateway is the preview gateway's host handshake and nothing else: it

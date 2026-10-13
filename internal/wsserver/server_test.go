@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 // The HTTP guard waives the token for exactly the router's Unpaired methods.

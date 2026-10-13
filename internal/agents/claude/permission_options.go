@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/repogo/host/internal/claudecode"
+	"github.com/repogoapp/host/internal/claudecode"
 )
 
 type permissionChange struct {

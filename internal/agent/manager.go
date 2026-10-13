@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 type TurnState string

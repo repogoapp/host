@@ -15,11 +15,11 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/handshake"
-	"github.com/repogo/host/internal/jsonrpc"
-	"github.com/repogo/host/internal/securechan"
-	"github.com/repogo/host/internal/wsconn"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/handshake"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/securechan"
+	"github.com/repogoapp/host/internal/wsconn"
 )
 
 const (

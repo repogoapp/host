@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

@@ -1,6 +1,6 @@
 package terminal
 
-import "github.com/repogo/host/internal/emit"
+import "github.com/repogoapp/host/internal/emit"
 
 // Every event this package emits, declared for the catalog. Sent per device
 // to whoever is attached or watching, never broadcast to a room: a shell's

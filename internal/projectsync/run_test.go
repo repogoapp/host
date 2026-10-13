@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // A nudge leads to one pass a settle later, and the rows it moved are told;

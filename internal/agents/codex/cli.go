@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/codexappserver"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/codexappserver"
 )
 
 // oneShotTimeout bounds a throwaway app server; its callers cache the answer

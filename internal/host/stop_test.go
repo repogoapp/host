@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/host"
+	"github.com/repogoapp/host/internal/host"
 )
 
 // A worker stuck past the grace lets Close go on, so an update still restarts.

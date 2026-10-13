@@ -1,8 +1,8 @@
 package projectwatch
 
 import (
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/git"
 )
 
 // The events a watcher sends. Declared for the catalog; the watcher marshals

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/store"
 )
 
 func TestNext(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/repogo/host/internal/apphome"
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // localConf is written 0600; reading it is the entire local authentication story.

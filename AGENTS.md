@@ -3,7 +3,7 @@
 Applies to everything in this repo. Checked out as `apps/host` inside the RepoGo
 app repo, that repo's root `AGENTS.md` and internal notes apply too.
 
-One Go module (`github.com/repogo/host`): the `repogo` host binary and the hosted
+One Go module (`github.com/repogoapp/host`): the `repogo` host binary and the hosted
 `relay`. `README.md` is the public, customer-facing page. No hosted database and
 one small relay is the point; keep it that way.
 

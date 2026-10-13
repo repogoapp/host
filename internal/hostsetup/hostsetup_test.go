@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agentcatalog"
-	"github.com/repogo/host/internal/clitool"
-	ghcore "github.com/repogo/host/internal/github"
-	"github.com/repogo/host/internal/hostinfo"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agentcatalog"
+	"github.com/repogoapp/host/internal/clitool"
+	ghcore "github.com/repogoapp/host/internal/github"
+	"github.com/repogoapp/host/internal/hostinfo"
 )
 
 type fakeHost struct{ release hostinfo.Release }

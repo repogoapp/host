@@ -5,17 +5,17 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agentcatalog"
-	"github.com/repogo/host/internal/agents/claude"
-	"github.com/repogo/host/internal/agents/codex"
-	"github.com/repogo/host/internal/agentusage"
-	"github.com/repogo/host/internal/chatwire"
-	"github.com/repogo/host/internal/clitool"
-	"github.com/repogo/host/internal/mcp"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/session"
-	"github.com/repogo/host/internal/shipping"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agentcatalog"
+	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/agentusage"
+	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/mcp"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/shipping"
 )
 
 // Factory builds one provider for one host. It returns fresh state every call:

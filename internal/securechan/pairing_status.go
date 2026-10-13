@@ -3,7 +3,7 @@ package securechan
 import (
 	"crypto/sha256"
 
-	"github.com/repogo/host/internal/device"
+	"github.com/repogoapp/host/internal/device"
 )
 
 // PairingRejection binds the refusal to this phone's fresh handshake so a

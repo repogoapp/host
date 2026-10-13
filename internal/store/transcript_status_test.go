@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // Claude writes an API error as the turn's failure but no lifecycle for the

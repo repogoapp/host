@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode"
 
-	hostemit "github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/wiredoc"
+	hostemit "github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/wiredoc"
 )
 
 var methodExports = map[string]bool{
@@ -254,48 +254,48 @@ func (g *swiftGen) markDir(t reflect.Type, d int) {
 // conformance gives a type only the direction it crosses the wire: Codable
 // everywhere costs the App Clip about a fifth more.
 func (g *swiftGen) conformance(t reflect.Type) string {
-	if t.PkgPath() == "github.com/repogo/host/internal/agentusage" || (t.PkgPath() == "github.com/repogo/host/internal/clitool" && t.Name() == "Account") {
+	if t.PkgPath() == "github.com/repogoapp/host/internal/agentusage" || (t.PkgPath() == "github.com/repogoapp/host/internal/clitool" && t.Name() == "Account") {
 		return "Codable"
 	}
 	// Daily reports are persisted until the leaderboard accepts them.
-	if t.PkgPath() == "github.com/repogo/host/internal/shipping" && (t.Name() == "Report" || t.Name() == "Bucket") {
+	if t.PkgPath() == "github.com/repogoapp/host/internal/shipping" && (t.Name() == "Report" || t.Name() == "Bucket") {
 		return "Codable"
 	}
-	if (t.PkgPath() == "github.com/repogo/host/internal/git" && (t.Name() == "Status" || t.Name() == "ChangeSet" || t.Name() == "FileChange")) ||
-		(t.PkgPath() == "github.com/repogo/host/internal/files" && t.Name() == "Entry") {
+	if (t.PkgPath() == "github.com/repogoapp/host/internal/git" && (t.Name() == "Status" || t.Name() == "ChangeSet" || t.Name() == "FileChange")) ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/files" && t.Name() == "Entry") {
 		return "Codable"
 	}
-	if (t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "Project") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/rpc/projects" && t.Name() == "ListResult") ||
-		t.PkgPath() == "github.com/repogo/host/internal/agentcatalog" ||
-		(t.PkgPath() == "github.com/repogo/host/internal/actions" && (t.Name() == "Action" || t.Name() == "Snapshot")) ||
-		(t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "ActionRun") {
+	if (t.PkgPath() == "github.com/repogoapp/host/internal/store" && t.Name() == "Project") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/rpc/projects" && t.Name() == "ListResult") ||
+		t.PkgPath() == "github.com/repogoapp/host/internal/agentcatalog" ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/actions" && (t.Name() == "Action" || t.Name() == "Snapshot")) ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/store" && t.Name() == "ActionRun") {
 		return "Codable"
 	}
 	// The agent picker paints the last host.setup it saved before asking again.
-	if (t.PkgPath() == "github.com/repogo/host/internal/hostsetup" && (t.Name() == "Setup" || t.Name() == "Agent")) ||
-		(t.PkgPath() == "github.com/repogo/host/internal/clitool" && t.Name() == "Install") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/clilogin" && t.Name() == "Code") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/hostinfo" && t.Name() == "Release") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/github" && t.Name() == "CloneFolder") {
+	if (t.PkgPath() == "github.com/repogoapp/host/internal/hostsetup" && (t.Name() == "Setup" || t.Name() == "Agent")) ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/clitool" && t.Name() == "Install") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/clilogin" && t.Name() == "Code") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && t.Name() == "Release") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/github" && t.Name() == "CloneFolder") {
 		return "Codable"
 	}
 	// The phone saves each host's schedules to show them while it is offline.
-	if t.PkgPath() == "github.com/repogo/host/internal/schedule" ||
-		(t.PkgPath() == "github.com/repogo/host/internal/store" && t.Name() == "Schedule") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/agent" && t.Name() == "TurnConfig") {
+	if t.PkgPath() == "github.com/repogoapp/host/internal/schedule" ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/store" && t.Name() == "Schedule") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/agent" && t.Name() == "TurnConfig") {
 		return "Codable"
 	}
 	// The phone caches each chat's newest transcript rows to paint on open.
-	if (t.PkgPath() == "github.com/repogo/host/internal/chatwire" && (t.Name() == "Message" || t.Name() == "Tool" || t.Name() == "Todo")) ||
-		(t.PkgPath() == "github.com/repogo/host/internal/chatlive" && t.Name() == "Appended") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/toollabel" && t.Name() == "Lines") {
+	if (t.PkgPath() == "github.com/repogoapp/host/internal/chatwire" && (t.Name() == "Message" || t.Name() == "Tool" || t.Name() == "Todo")) ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/chatlive" && t.Name() == "Appended") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/toollabel" && t.Name() == "Lines") {
 		return "Codable"
 	}
 	// Battery is persisted in widget snapshots; status is encoded for diagnostics.
-	if (t.PkgPath() == "github.com/repogo/host/internal/power" && t.Name() == "Battery") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/hostinfo" && t.Name() == "Status") ||
-		(t.PkgPath() == "github.com/repogo/host/internal/hostinfo" && (t.Name() == "Network" || t.Name() == "Cloud")) {
+	if (t.PkgPath() == "github.com/repogoapp/host/internal/power" && t.Name() == "Battery") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && t.Name() == "Status") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && (t.Name() == "Network" || t.Name() == "Cloud")) {
 		return "Codable"
 	}
 	switch g.dirs[t] {
@@ -339,60 +339,60 @@ func (g *swiftGen) collect(t reflect.Type, seen map[reflect.Type]bool) {
 
 // Ownership is explicit so exporting another family never renames existing types.
 var typeFamilies = map[string]string{
-	"github.com/repogo/host/internal/chatwire":      "chats",
-	"github.com/repogo/host/internal/toollabel":     "chats",
-	"github.com/repogo/host/internal/agentusage":    "limits",
-	"github.com/repogo/host/internal/rpc/shipping":  "usage",
-	"github.com/repogo/host/internal/shipping":      "usage",
-	"github.com/repogo/host/internal/rpc/devices":   "devices",
-	"github.com/repogo/host/internal/device":        "devices",
-	"github.com/repogo/host/internal/rpc/git":       "git",
-	"github.com/repogo/host/internal/git":           "git",
-	"github.com/repogo/host/internal/projectwatch":  "git",
-	"github.com/repogo/host/internal/rpc/chats":     "chats",
-	"github.com/repogo/host/internal/chat":          "chats",
-	"github.com/repogo/host/internal/chatlive":      "chats",
-	"github.com/repogo/host/internal/rpc/projects":  "projects",
-	"github.com/repogo/host/internal/project":       "projects",
-	"github.com/repogo/host/internal/projectsync":   "projects",
-	"github.com/repogo/host/internal/store":         "projects",
-	"github.com/repogo/host/internal/rpc/actions":   "actions",
-	"github.com/repogo/host/internal/actions":       "actions",
-	"github.com/repogo/host/internal/agentcatalog":  "agents",
-	"github.com/repogo/host/internal/rpc/terminals": "terminals",
-	"github.com/repogo/host/internal/terminal":      "terminals",
-	"github.com/repogo/host/internal/rpc/ports":     "ports",
-	"github.com/repogo/host/internal/ports":         "ports",
-	"github.com/repogo/host/internal/rpc/forward":   "forward",
-	"github.com/repogo/host/internal/forward":       "forward",
+	"github.com/repogoapp/host/internal/chatwire":      "chats",
+	"github.com/repogoapp/host/internal/toollabel":     "chats",
+	"github.com/repogoapp/host/internal/agentusage":    "limits",
+	"github.com/repogoapp/host/internal/rpc/shipping":  "usage",
+	"github.com/repogoapp/host/internal/shipping":      "usage",
+	"github.com/repogoapp/host/internal/rpc/devices":   "devices",
+	"github.com/repogoapp/host/internal/device":        "devices",
+	"github.com/repogoapp/host/internal/rpc/git":       "git",
+	"github.com/repogoapp/host/internal/git":           "git",
+	"github.com/repogoapp/host/internal/projectwatch":  "git",
+	"github.com/repogoapp/host/internal/rpc/chats":     "chats",
+	"github.com/repogoapp/host/internal/chat":          "chats",
+	"github.com/repogoapp/host/internal/chatlive":      "chats",
+	"github.com/repogoapp/host/internal/rpc/projects":  "projects",
+	"github.com/repogoapp/host/internal/project":       "projects",
+	"github.com/repogoapp/host/internal/projectsync":   "projects",
+	"github.com/repogoapp/host/internal/store":         "projects",
+	"github.com/repogoapp/host/internal/rpc/actions":   "actions",
+	"github.com/repogoapp/host/internal/actions":       "actions",
+	"github.com/repogoapp/host/internal/agentcatalog":  "agents",
+	"github.com/repogoapp/host/internal/rpc/terminals": "terminals",
+	"github.com/repogoapp/host/internal/terminal":      "terminals",
+	"github.com/repogoapp/host/internal/rpc/ports":     "ports",
+	"github.com/repogoapp/host/internal/ports":         "ports",
+	"github.com/repogoapp/host/internal/rpc/forward":   "forward",
+	"github.com/repogoapp/host/internal/forward":       "forward",
 
-	"github.com/repogo/host/internal/rpc/host":    "host",
-	"github.com/repogo/host/internal/hostinfo":    "host",
-	"github.com/repogo/host/internal/hostsetup":   "host",
-	"github.com/repogo/host/internal/hostupdate":  "host",
-	"github.com/repogo/host/internal/power":       "host",
-	"github.com/repogo/host/internal/rpc/github":  "github",
-	"github.com/repogo/host/internal/github":      "github",
-	"github.com/repogo/host/internal/rpc/turns":   "agents",
-	"github.com/repogo/host/internal/agent":       "agents",
-	"github.com/repogo/host/internal/clilogin":    "tools",
-	"github.com/repogo/host/internal/clitool":     "tools",
-	"github.com/repogo/host/internal/rpc/tools":   "tools",
-	"github.com/repogo/host/internal/rpc/browser": "browser",
-	"github.com/repogo/host/internal/repogomcp":   "browser",
-	"github.com/repogo/host/internal/rpc/env":     "env",
-	"github.com/repogo/host/internal/envsource":   "env",
-	"github.com/repogo/host/internal/files":       "fs",
-	"github.com/repogo/host/internal/rpc":         "shared",
-	"github.com/repogo/host/internal/rpc/mcp":     "mcp",
-	"github.com/repogo/host/internal/mcp":         "mcp",
-	"github.com/repogo/host/internal/rpc/tunnels": "tunnels",
-	"github.com/repogo/host/internal/tunnel":      "tunnels",
-	"github.com/repogo/host/internal/account":     "host",
-	"github.com/repogo/host/internal/rpc/fs":      "fs",
+	"github.com/repogoapp/host/internal/rpc/host":    "host",
+	"github.com/repogoapp/host/internal/hostinfo":    "host",
+	"github.com/repogoapp/host/internal/hostsetup":   "host",
+	"github.com/repogoapp/host/internal/hostupdate":  "host",
+	"github.com/repogoapp/host/internal/power":       "host",
+	"github.com/repogoapp/host/internal/rpc/github":  "github",
+	"github.com/repogoapp/host/internal/github":      "github",
+	"github.com/repogoapp/host/internal/rpc/turns":   "agents",
+	"github.com/repogoapp/host/internal/agent":       "agents",
+	"github.com/repogoapp/host/internal/clilogin":    "tools",
+	"github.com/repogoapp/host/internal/clitool":     "tools",
+	"github.com/repogoapp/host/internal/rpc/tools":   "tools",
+	"github.com/repogoapp/host/internal/rpc/browser": "browser",
+	"github.com/repogoapp/host/internal/repogomcp":   "browser",
+	"github.com/repogoapp/host/internal/rpc/env":     "env",
+	"github.com/repogoapp/host/internal/envsource":   "env",
+	"github.com/repogoapp/host/internal/files":       "fs",
+	"github.com/repogoapp/host/internal/rpc":         "shared",
+	"github.com/repogoapp/host/internal/rpc/mcp":     "mcp",
+	"github.com/repogoapp/host/internal/mcp":         "mcp",
+	"github.com/repogoapp/host/internal/rpc/tunnels": "tunnels",
+	"github.com/repogoapp/host/internal/tunnel":      "tunnels",
+	"github.com/repogoapp/host/internal/account":     "host",
+	"github.com/repogoapp/host/internal/rpc/fs":      "fs",
 
-	"github.com/repogo/host/internal/rpc/schedules": "schedules",
-	"github.com/repogo/host/internal/schedule":      "schedules",
+	"github.com/repogoapp/host/internal/rpc/schedules": "schedules",
+	"github.com/repogoapp/host/internal/schedule":      "schedules",
 }
 
 func (g *swiftGen) assignNames() {
@@ -401,7 +401,7 @@ func (g *swiftGen) assignNames() {
 		if !ok {
 			panic("declare Swift wire family for " + t.PkgPath())
 		}
-		if t.PkgPath() == "github.com/repogo/host/internal/store" {
+		if t.PkgPath() == "github.com/repogoapp/host/internal/store" {
 			switch t.Name() {
 			case "Chat", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
 				family = "chats"
@@ -411,12 +411,12 @@ func (g *swiftGen) assignNames() {
 				family = "actions"
 			}
 		}
-		if t.PkgPath() == "github.com/repogo/host/internal/projectwatch" && (t.Name() == "FilesChanged" || t.Name() == "FileChange") {
+		if t.PkgPath() == "github.com/repogoapp/host/internal/projectwatch" && (t.Name() == "FilesChanged" || t.Name() == "FileChange") {
 			family = "fs"
 		}
 		name := cleanName(t.Name())
 		// FilesChanged shares projectwatch with git's Changed; in Swift it is FS.Changed.
-		if t.PkgPath() == "github.com/repogo/host/internal/projectwatch" && t.Name() == "FilesChanged" {
+		if t.PkgPath() == "github.com/repogoapp/host/internal/projectwatch" && t.Name() == "FilesChanged" {
 			name = "Changed"
 		}
 		if swiftTypeNames[name] {

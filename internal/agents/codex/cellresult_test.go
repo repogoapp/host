@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // A cell's output as Codex stores it: the header, then the JSON each awaited

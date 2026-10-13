@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/files"
+	"github.com/repogoapp/host/internal/files"
 )
 
 func write(t *testing.T, path, content string) {

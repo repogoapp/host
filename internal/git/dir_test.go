@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogo/host/internal/git"
+	"github.com/repogoapp/host/internal/git"
 )
 
 func TestRootDirAndMainCheckoutReadALinkedWorktree(t *testing.T) {

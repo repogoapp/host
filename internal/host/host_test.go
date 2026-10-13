@@ -14,16 +14,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/agents"
-	"github.com/repogo/host/internal/chatlive"
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/host"
-	"github.com/repogo/host/internal/power"
-	"github.com/repogo/host/internal/rpc/registry"
-	"github.com/repogo/host/internal/store"
-	"github.com/repogo/host/internal/testhost"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/agents"
+	"github.com/repogoapp/host/internal/chatlive"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/host"
+	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/rpc/registry"
+	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/testhost"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // turnAdapter opens session s1, says "hi" once told to, and runs until stopped.

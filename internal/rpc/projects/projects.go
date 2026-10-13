@@ -6,12 +6,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/files"
-	projectcore "github.com/repogo/host/internal/project"
-	"github.com/repogo/host/internal/projectsync"
-	"github.com/repogo/host/internal/rpc"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/files"
+	projectcore "github.com/repogoapp/host/internal/project"
+	"github.com/repogoapp/host/internal/projectsync"
+	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/store"
 )
 
 type Deps struct {

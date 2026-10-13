@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // A thread's settings come from its newest turn_context and

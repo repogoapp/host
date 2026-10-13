@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/power"
-	"github.com/repogo/host/internal/release"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/release"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 type reading struct {

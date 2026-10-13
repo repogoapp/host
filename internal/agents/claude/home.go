@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // defaultHome is Claude Code's config directory: CLAUDE_CONFIG_DIR or ~/.claude.

@@ -5,8 +5,8 @@ package git
 import (
 	"context"
 
-	gitcore "github.com/repogo/host/internal/git"
-	"github.com/repogo/host/internal/rpc"
+	gitcore "github.com/repogoapp/host/internal/git"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

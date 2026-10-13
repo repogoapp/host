@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/repogo/host/internal/errkind"
+	"github.com/repogoapp/host/internal/errkind"
 )
 
 var ErrPort = errkind.New(errkind.Invalid, "forward: port must be between 1 and 65535")

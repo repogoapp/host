@@ -5,8 +5,8 @@ package browser
 import (
 	"context"
 
-	"github.com/repogo/host/internal/repogomcp"
-	"github.com/repogo/host/internal/rpc"
+	"github.com/repogoapp/host/internal/repogomcp"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 type Deps struct {

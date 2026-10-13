@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/repogo/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/clilogin"
 )
 
 // Categories group the Environment screen's sections.

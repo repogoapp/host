@@ -4,9 +4,9 @@ import (
 	"cmp"
 	"strings"
 
-	"github.com/repogo/host/internal/agent"
-	"github.com/repogo/host/internal/notify"
-	"github.com/repogo/host/internal/store"
+	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // maxAttentionReply is how much of a turn's final text rides chats.attention:

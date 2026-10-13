@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/repogo/host/internal/agent"
+	"github.com/repogoapp/host/internal/agent"
 )
 
 func TestPruneDropsSessionsMissingFromListing(t *testing.T) {

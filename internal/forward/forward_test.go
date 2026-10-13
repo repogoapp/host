@@ -15,10 +15,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/repogo/host/internal/device"
-	"github.com/repogo/host/internal/emit"
-	"github.com/repogo/host/internal/forward"
-	"github.com/repogo/host/internal/testwait"
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/forward"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // devServer stands in for whatever the user is running on localhost.
