@@ -250,9 +250,9 @@ func (c *Conn) Hello(ctx context.Context, hello handshake.Hello, sign func([]byt
 	if reply.Error != nil {
 		return "", fmt.Errorf("refused: %w", reply.Error)
 	}
-	// A goodbye here is a refusal; without this it decodes as an empty Accepted.
-	if reply.Method == handshake.MethodGoodbye {
-		var bye handshake.Goodbye
+	// A hello.rejected here is a refusal; without this it decodes as an empty Accepted.
+	if reply.Method == handshake.MethodRejected {
+		var bye handshake.Rejected
 		_ = jsonrpc.Into(reply.Params, &bye)
 		return "", fmt.Errorf("refused: %s (%s)", bye.Message, bye.Reason)
 	}
@@ -267,15 +267,15 @@ func (c *Conn) Hello(ctx context.Context, hello handshake.Hello, sign func([]byt
 }
 
 // refuse fails the hello if it arrived, since a client waiting on it reads a
-// notification as success; before the hello, a goodbye is all there is to send.
+// notification as success; before the hello, a rejection is all there is to send.
 func (c *Conn) refuse(ctx context.Context, helloID json.RawMessage, err error) {
 	if helloID != nil {
 		_ = c.SendJSON(ctx, jsonrpc.Fail(helloID, jsonrpc.CodeDenied, err.Error()))
 		_ = c.Close()
 		return
 	}
-	if bye, err := jsonrpc.Notify(handshake.MethodGoodbye,
-		handshake.Goodbye{Reason: handshake.ReasonAuthFailed, Message: err.Error()}); err == nil {
+	if bye, err := jsonrpc.Notify(handshake.MethodRejected,
+		handshake.Rejected{Reason: handshake.ReasonAuthFailed, Message: err.Error()}); err == nil {
 		_ = c.SendJSON(ctx, bye)
 	}
 	_ = c.Close()

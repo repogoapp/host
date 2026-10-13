@@ -6,9 +6,9 @@ const (
 	MethodChallenge = "hello.challenge"
 	MethodHello     = "hello"
 
-	// MethodGoodbye refuses a handshake that failed before its hello arrived,
+	// MethodRejected refuses a handshake that failed before its hello arrived,
 	// so the client can tell a refusal from a dropped connection.
-	MethodGoodbye = "goodbye"
+	MethodRejected = "hello.rejected"
 )
 
 type Challenge struct {
@@ -49,7 +49,7 @@ type Accepted struct {
 	ServerVersion string `json:"server_version"`
 }
 
-type Goodbye struct {
+type Rejected struct {
 	Reason  string `json:"reason"`
 	Message string `json:"message,omitempty"`
 }
