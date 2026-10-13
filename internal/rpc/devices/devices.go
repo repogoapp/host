@@ -23,6 +23,8 @@ type Deps struct {
 	Pairer *device.Pairer
 	// Online reports whether a device holds a live channel to this host.
 	Online func(device.ID) bool
+	// PushChanged hears each token a phone registers or clears, by kind.
+	PushChanged func(kind string)
 }
 
 type RegisterPushParams struct {
@@ -66,7 +68,13 @@ func Register(r *rpc.Router, d Deps) {
 }
 
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {
-	return rpc.OK, d.Store.RegisterPush(c.Device, a.Kind, a.PushTarget)
+	if err := d.Store.RegisterPush(c.Device, a.Kind, a.PushTarget); err != nil {
+		return rpc.Ack{}, err
+	}
+	if d.PushChanged != nil {
+		d.PushChanged(a.Kind)
+	}
+	return rpc.OK, nil
 }
 
 func (d Deps) list(_ context.Context, c rpc.Caller, _ rpc.None) (ListResult, error) {

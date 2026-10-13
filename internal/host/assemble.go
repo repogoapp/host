@@ -174,6 +174,7 @@ func (h *Host) openDevices() error {
 	s.Devices = h.devices
 	s.Pairer = h.pairer
 	s.Online = h.online
+	s.PushChanged = h.pushChanged
 	// Resolved late: the listener has not picked a port yet.
 	s.Addr = func() string { addr, _ := h.invite.Load().(string); return addr }
 	s.Fetcher = forward.NewFetcher(h.log)
@@ -362,6 +363,14 @@ func (h *Host) openTransports() error {
 	h.alerts = push.New(h.devices, h.link, h.log)
 	h.activities = liveactivity.New(h.db, h.devices, h.link, h.log)
 	return nil
+}
+
+// pushChanged has the Live Activity look again when a phone's card token
+// comes or goes, as when a reinstall clears it.
+func (h *Host) pushChanged(kind string) {
+	if h.activities != nil && (kind == device.PushToStart || kind == device.PushActivity) {
+		h.activities.TokensChanged()
+	}
 }
 
 // disconnected stops streaming to a device until it subscribes again.

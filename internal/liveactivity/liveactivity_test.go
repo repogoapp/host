@@ -495,3 +495,21 @@ func TestFinishBeforeTheTokenStillUpdates(t *testing.T) {
 		t.Errorf("sent %q to %q with %+v", event, token, counts)
 	}
 }
+
+// A reinstall clears the phone's card token; the host starts a new card
+// though the counts never changed.
+func TestClearedTokenStartsANewCard(t *testing.T) {
+	f := setup(t)
+	f.register(device.PushActivity, "a1")
+	f.set(agent.ChatWorking, "claude:s1")
+	if err := f.devices.RegisterPush(f.phone.ID, device.PushActivity, device.PushTarget{}); err != nil {
+		t.Fatal(err)
+	}
+	f.d.TokensChanged()
+	f.now = f.now.Add(updateInterval)
+	f.d.observePending()
+	f.d.update(context.Background())
+	if event, token, counts, _ := f.last(); event != "start" || token != "57a4" || counts.Working != 1 {
+		t.Errorf("sent %q to %q with %+v", event, token, counts)
+	}
+}

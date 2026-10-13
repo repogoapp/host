@@ -64,7 +64,9 @@ type Driver struct {
 	// never reads the store or waits on the relay.
 	pendingMu sync.Mutex
 	pending   map[store.ChatID]bool
-	wake      chan struct{}
+	// A phone registered or cleared a card token since Run last looked.
+	tokensChanged bool
+	wake          chan struct{}
 
 	// Chats working or waiting on the user, by status.
 	active map[store.ChatID]agent.ChatStatus
@@ -104,6 +106,18 @@ func (d *Driver) Changed(c store.Change) {
 	for _, id := range append(c.Changed, c.Removed...) {
 		d.pending[id] = true
 	}
+	d.pendingMu.Unlock()
+	select {
+	case d.wake <- struct{}{}:
+	default:
+	}
+}
+
+// TokensChanged has Run push again even with the counts unchanged: a phone
+// that lost its card, as on a reinstall, gets a new one.
+func (d *Driver) TokensChanged() {
+	d.pendingMu.Lock()
+	d.tokensChanged = true
 	d.pendingMu.Unlock()
 	select {
 	case d.wake <- struct{}{}:
@@ -159,6 +173,11 @@ func (d *Driver) observePending() {
 	d.pendingMu.Lock()
 	ids := d.pending
 	d.pending = map[store.ChatID]bool{}
+	if d.tokensChanged {
+		d.tokensChanged = false
+		// The last round no longer covers every phone.
+		d.last.ok = false
+	}
 	d.pendingMu.Unlock()
 	for id := range ids {
 		if d.observe(id) {
