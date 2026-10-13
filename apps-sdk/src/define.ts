@@ -1,0 +1,42 @@
+import type { z } from "zod";
+import type { Context } from "./context";
+
+export type Collections = Record<string, z.ZodObject>;
+
+/**
+ * A query only reads, so cards may run it on their own and again when its data
+ * changes. A mutation writes, and runs only when the user acts. Unmarked
+ * methods are mutations: repeating one is never assumed safe.
+ */
+export type MethodKind = "query" | "mutation";
+
+export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> = {
+  input: I;
+  /** What it returns; the agent and cards read field names from it. */
+  output?: O;
+  kind: MethodKind;
+  description?: string;
+  run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>;
+};
+
+export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>;
+
+export type AppDefinition = {
+  /** One line, shown to the agent in the index of apps. */
+  description?: string;
+  collections?: Collections;
+  methods?: Record<string, Method<any, any>>;
+  on?: Record<string, Handler>;
+};
+
+export function defineApp<T extends AppDefinition>(app: T): T {
+  return app;
+}
+
+export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
+  input: I,
+  run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>,
+  options: { kind?: MethodKind; output?: O; description?: string } = {},
+): Method<I, O> {
+  return { input, run, kind: options.kind ?? "mutation", output: options.output, description: options.description };
+}

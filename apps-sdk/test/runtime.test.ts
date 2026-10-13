@@ -1,0 +1,236 @@
+import { afterEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { defineApp, method, MethodError, Runtime, toCallError, z } from "../src";
+
+const notes = defineApp({
+  description: "Notes",
+  collections: { notes: z.object({ text: z.string(), done: z.boolean().default(false) }) },
+  methods: {
+    count: method(z.object({}), async (_, ctx) => (await ctx.db.notes.list()).length, { kind: "query", output: z.number() }),
+    archiveAll: method(z.object({}), async (_, ctx) => {
+      for (const note of await ctx.db.notes.list()) await ctx.db.notes.update(note.id, { done: true });
+      return null;
+    }),
+  },
+});
+
+const digest = defineApp({
+  methods: {
+    // Reads another app through its method: the read is still tracked.
+    summary: method(z.object({}), async (_, ctx) => `notes: ${await ctx.call("notes.count")}`, { kind: "query", output: z.string() }),
+  },
+});
+
+let runtime: Runtime;
+let dataDir: string;
+
+async function open() {
+  dataDir = await mkdtemp(join(tmpdir(), "repogo-apps-"));
+  runtime = await Runtime.open({ dataDir });
+  await runtime.add("notes", notes);
+  await runtime.add("digest", digest);
+  return runtime;
+}
+
+afterEach(() => runtime?.close());
+
+test("every write emits its event", async () => {
+  const runtime = await open();
+  const seen: string[] = [];
+  runtime.events.onAny((event) => void seen.push(event.name));
+
+  const { result } = await runtime.call("notes.notes.create", { text: "hi" });
+  const note = result as { id: string };
+  await runtime.call("notes.notes.update", { id: note.id, done: true });
+  await runtime.call("notes.notes.delete", { id: note.id });
+
+  expect(seen).toEqual([
+    "notes.notes.created",
+    "notes.notes.create",
+    "notes.notes.updated",
+    "notes.notes.update",
+    "notes.notes.deleted",
+    "notes.notes.delete",
+  ]);
+});
+
+test("each app has its own database file", async () => {
+  await open();
+  expect(existsSync(join(dataDir, "notes.db"))).toBe(true);
+  expect(existsSync(join(dataDir, "digest.db"))).toBe(true);
+});
+
+test("update changes only the fields it is given, defaults included", async () => {
+  const runtime = await open();
+  const { result } = await runtime.call("notes.notes.create", { text: "a", done: true });
+  const { id } = result as { id: string };
+  const updated = (await runtime.call("notes.notes.update", { id, text: "b" })).result as { text: string; done: boolean };
+  expect(updated).toMatchObject({ text: "b", done: true });
+});
+
+test("calls report what they read and wrote, across apps", async () => {
+  const runtime = await open();
+  const changed: string[][] = [];
+  runtime.onInvalidate((tags) => void changed.push(tags));
+
+  const write = await runtime.call("notes.notes.create", { text: "a" });
+  expect(write.invalidates).toEqual(["notes.notes"]);
+
+  const read = await runtime.call("digest.summary");
+  expect(read.result).toBe("notes: 1");
+  expect(read.reads).toEqual(["notes.notes"]);
+  expect(read.invalidates).toEqual([]);
+
+  await runtime.call("notes.archiveAll");
+  expect(changed).toEqual([["notes.notes"], ["notes.notes"]]);
+});
+
+test("a card's automatic call refuses anything that writes", async () => {
+  const runtime = await open();
+  expect((await runtime.call("notes.count", {}, { expect: "query" })).result).toBe(0);
+  const error = await runtime.call("notes.notes.create", { text: "a" }, { expect: "query" }).catch((e) => e);
+  expect(toCallError(error).code).toBe("FORBIDDEN");
+  // Unmarked custom methods are mutations.
+  expect(runtime.methods.get("notes.archiveAll")?.kind).toBe("mutation");
+});
+
+test("errors are structured, with messages per field", async () => {
+  const runtime = await open();
+  const invalid = await runtime.call("notes.notes.create", { text: 5 }).catch((e) => e);
+  expect(toCallError(invalid)).toMatchObject({ code: "VALIDATION", fieldErrors: { "/text": expect.any(String) } });
+  const missing = await runtime.call("notes.nope").catch((e) => e);
+  expect(missing).toBeInstanceOf(MethodError);
+  expect(toCallError(missing).code).toBe("NOT_FOUND");
+});
+
+test("the manifest has each method's kind, input and output", async () => {
+  const runtime = await open();
+  const app = runtime.manifest().apps.find((a) => a.name === "notes")!;
+  expect(app.description).toBe("Notes");
+  const list = app.methods.find((m) => m.name === "notes.notes.list")!;
+  expect(list.kind).toBe("query");
+  expect(list.output).toMatchObject({ type: "array", items: { type: "object", properties: { id: { type: "string" }, text: { type: "string" } } } });
+  expect(app.methods.find((m) => m.name === "notes.notes.create")!.kind).toBe("mutation");
+});
+
+test("a query can't write, even through what it calls", async () => {
+  const runtime = await open();
+  const sneaky = defineApp({
+    methods: {
+      write: method(z.object({}), async (_, ctx) => ctx.call("notes.notes.create", { text: "x" }), { kind: "query" }),
+      direct: method(z.object({}), async () => (runtime as any).methods.get("notes.notes.create").run({ text: "x", done: false }, {}), { kind: "query" }),
+    },
+  });
+  await runtime.add("sneaky", sneaky);
+  expect(toCallError(await runtime.call("sneaky.write", {}, { expect: "query" }).catch((e) => e)).code).toBe("FORBIDDEN");
+  expect(toCallError(await runtime.call("sneaky.direct", {}, { expect: "query" }).catch((e) => e)).code).toBe("FORBIDDEN");
+  expect((await runtime.call("notes.count")).result).toBe(0);
+});
+
+test("writes are announced even when the method throws after them, and after it returns", async () => {
+  const runtime = await open();
+  const changed: string[][] = [];
+  runtime.onInvalidate((tags) => void changed.push(tags));
+  const app = defineApp({
+    methods: {
+      fails: method(z.object({}), async (_, ctx) => {
+        await ctx.call("notes.notes.create", { text: "a" });
+        throw new Error("after the write");
+      }),
+      later: method(z.object({}), async (_, ctx) => {
+        setTimeout(() => void ctx.call("notes.notes.create", { text: "b" }), 0);
+        return null;
+      }),
+    },
+  });
+  await runtime.add("app", app);
+  await runtime.call("app.fails").catch(() => {});
+  expect(changed).toEqual([["notes.notes"]]);
+  await runtime.call("app.later");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(changed.length).toBe(2);
+});
+
+test("update leaves a wrapped default alone when the field is left out", async () => {
+  const runtime = await open();
+  await runtime.add(
+    "tagged",
+    defineApp({ collections: { items: z.object({ name: z.string(), tag: z.string().default("x").optional() }) } }),
+  );
+  const { id } = (await runtime.call("tagged.items.create", { name: "a", tag: "kept" })).result as { id: string };
+  const updated = (await runtime.call("tagged.items.update", { id, name: "b" })).result as { tag: string };
+  expect(updated.tag).toBe("kept");
+});
+
+test("a query is read-only however it's called, even inside a writable call", async () => {
+  const runtime = await open();
+  const app = defineApp({
+    methods: {
+      sneaky: method(z.object({}), async (_, ctx) => ctx.db.items.create({ name: "x" }), { kind: "query" }),
+      outer: method(z.object({}), async (_, ctx) => ctx.call("app.sneaky")),
+    },
+    collections: { items: z.object({ name: z.string() }) },
+  });
+  await runtime.add("app", app);
+  expect(toCallError(await runtime.call("app.sneaky").catch((e) => e)).code).toBe("FORBIDDEN");
+  expect(toCallError(await runtime.call("app.outer").catch((e) => e)).code).toBe("FORBIDDEN");
+  expect(((await runtime.call("app.items.list")).result as unknown[]).length).toBe(0);
+});
+
+test("a method that throws undefined still fails", async () => {
+  const runtime = await open();
+  await runtime.add("odd", defineApp({ methods: { boom: method(z.object({}), async () => { throw undefined; }) } }));
+  let failed = false;
+  await runtime.call("odd.boom").catch(() => (failed = true));
+  expect(failed).toBe(true);
+});
+
+test("late writes are announced by the runtime they belong to", async () => {
+  const runtime = await open();
+  const other = await Runtime.open({ dataDir: await mkdtemp(join(tmpdir(), "repogo-apps-other-")) });
+  const mine: string[][] = [];
+  const theirs: string[][] = [];
+  runtime.onInvalidate((tags) => void mine.push(tags));
+  other.onInvalidate((tags) => void theirs.push(tags));
+  await runtime.add("later", defineApp({
+    methods: { go: method(z.object({}), async (_, ctx) => { setTimeout(() => void ctx.call("notes.notes.create", { text: "b" }), 0); return null; }) },
+  }));
+  await runtime.call("later.go");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(mine).toEqual([["notes.notes"]]);
+  expect(theirs).toEqual([]);
+  other.close();
+});
+
+test("concurrent updates to one record both land", async () => {
+  const runtime = await open();
+  await runtime.add("pair", defineApp({ collections: { items: z.object({ a: z.number(), b: z.number() }) } }));
+  const { id } = (await runtime.call("pair.items.create", { a: 0, b: 0 })).result as { id: string };
+  await Promise.all([runtime.call("pair.items.update", { id, a: 1 }), runtime.call("pair.items.update", { id, b: 1 })]);
+  expect((await runtime.call("pair.items.get", { id })).result).toMatchObject({ a: 1, b: 1 });
+});
+
+test("a handler that writes to the collection it reacts to doesn't deadlock", async () => {
+  const runtime = await open();
+  await runtime.add("echo", defineApp({
+    collections: { items: z.object({ n: z.number() }) },
+    on: { "items.created": async (item, ctx) => { if (item.n < 2) await ctx.db.items.create({ n: item.n + 1 }); } },
+  }));
+  await runtime.call("echo.items.create", { n: 0 });
+  expect(((await runtime.call("echo.items.list")).result as unknown[]).length).toBe(3);
+});
+
+test("a null filter matches stored nulls", async () => {
+  const runtime = await open();
+  const app = defineApp({
+    collections: { items: z.object({ n: z.number().nullable() }) },
+    methods: { empty: method(z.object({}), async (_, ctx) => (await ctx.db.items.list({ where: { n: null } })).length, { kind: "query" }) },
+  });
+  await runtime.add("nulls", app);
+  await runtime.call("nulls.items.create", { n: null });
+  await runtime.call("nulls.items.create", { n: 1 });
+  expect((await runtime.call("nulls.empty")).result).toBe(1);
+});

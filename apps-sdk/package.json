@@ -1,0 +1,21 @@
+{
+  "name": "@repogo/apps",
+  "version": "0.0.0",
+  "description": "Apps an agent writes and calls: collections and methods over SQLite",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "repogo-apps": "src/run.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  }
+}
