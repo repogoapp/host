@@ -41,11 +41,11 @@ func command(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo power [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo tunnels [close <slug>]\nrepogo account release\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
+		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo tunnels [close <slug>]\nrepogo account release\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
 		return nil
 	}
-	if verb == "power" {
-		return powerCommand(ctx, args)
+	if verb == "keep-awake" {
+		return keepAwakeCommand(ctx, args)
 	}
 	if verb == "devices" {
 		return devicesCommand(ctx, args)
@@ -174,7 +174,7 @@ func command(ctx context.Context, args []string) error {
 		}
 		fmt.Println("Background service and agent hooks removed. Pairings and chat data are kept.")
 		if power.Enabled() {
-			fmt.Println("The lid-hold sudoers rule stays; remove it with repogo power disable.")
+			fmt.Println("The lid-hold sudoers rule stays; remove it with repogo keep-awake disable.")
 		}
 		return nil
 	case "update":

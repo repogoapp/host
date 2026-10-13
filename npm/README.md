@@ -47,7 +47,7 @@ npx @repogo/host pair
 | `npx @repogo/host start` / `stop` | Start or stop the background host |
 | `npx @repogo/host logs` | Show the host's logs |
 | `npx @repogo/host update` | Update to the latest version; refuses while agents, terminals or builds are running (`--now` stops them) |
-| `npx @repogo/host power enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
+| `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
 | `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
 
 ## Uninstall

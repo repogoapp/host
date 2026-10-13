@@ -7,7 +7,7 @@ import (
 	"github.com/repogo/host/internal/power"
 )
 
-func powerCommand(ctx context.Context, args []string) error {
+func keepAwakeCommand(ctx context.Context, args []string) error {
 	sub := "status"
 	if len(args) > 0 {
 		sub = args[0]
@@ -37,6 +37,6 @@ func powerCommand(ctx context.Context, args []string) error {
 		fmt.Println("Lid hold removed. The Mac sleeps when its lid closes.")
 		return nil
 	default:
-		return fmt.Errorf("unknown power command %q; use status, enable or disable", sub)
+		return fmt.Errorf("unknown keep-awake command %q; use status, enable or disable", sub)
 	}
 }

@@ -75,12 +75,12 @@ func Disable(ctx context.Context) error {
 	return nil
 }
 
-// Status describes the lid hold for `repogo power status`.
+// Status describes the lid hold for `repogo keep-awake status`.
 func Status(ctx context.Context) (string, error) {
 	if runtime.GOOS != "darwin" {
 		return "", errMacOnly
 	}
-	rule := "off (run repogo power enable)"
+	rule := "off (run repogo keep-awake enable)"
 	if Enabled() {
 		rule = "enabled (" + SudoersPath + ")"
 	}

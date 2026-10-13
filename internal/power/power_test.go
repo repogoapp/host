@@ -146,7 +146,7 @@ func TestRemovedRuleForgetsTheHold(t *testing.T) {
 	paired := true
 	k, marker := newTestKeeper(t, sys, &paired)
 	k.reconcile(t.Context())
-	// `repogo power disable` removed the rule and cleared the flag itself.
+	// `repogo keep-awake disable` removed the rule and cleared the flag itself.
 	sys.allowed, sys.failSet, sys.flag = false, true, false
 	k.reconcile(t.Context())
 	if k.lid || exists(marker) {

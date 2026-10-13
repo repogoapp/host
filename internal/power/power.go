@@ -1,6 +1,6 @@
 // Package power keeps the Mac awake while the host has a paired device to serve:
 // an idle-sleep assertion always, and through a closed lid once the user has run
-// `repogo power enable`. Plan 306 has the research and the safety rules. The
+// `repogo keep-awake enable`. Plan 306 has the research and the safety rules. The
 // same tick reads the battery, which the host reports to its phones.
 package power
 
@@ -20,7 +20,7 @@ import (
 
 func (Battery) Method() string { return "host.power" }
 
-// SudoersPath is the rule `repogo power enable` installs; the lid hold needs it.
+// SudoersPath is the rule `repogo keep-awake enable` installs; the lid hold needs it.
 const SudoersPath = "/etc/sudoers.d/repogo"
 
 const (
@@ -205,7 +205,7 @@ func (k *Keeper) setLid(ctx context.Context, on bool) bool {
 			return false
 		}
 	} else {
-		// Without the rule `repogo power disable` has already cleared the flag.
+		// Without the rule `repogo keep-awake disable` has already cleared the flag.
 		if err := k.sys.setLid(ctx, false); err != nil && k.sys.lidAllowed() {
 			k.fail("lid sleep release failed", err)
 			return false
@@ -245,7 +245,7 @@ func SudoersRule(user string) (string, error) {
 		return "", fmt.Errorf("user name %q cannot go in a sudoers rule", user)
 	}
 	command := func(on bool) string { return pmset + " " + strings.Join(pmsetArgs(on), " ") }
-	return fmt.Sprintf("# repogo power enable: lets the RepoGo host keep this Mac awake with the lid closed.\n"+
+	return fmt.Sprintf("# repogo keep-awake enable: lets the RepoGo host keep this Mac awake with the lid closed.\n"+
 		"%s ALL=(root) NOPASSWD: %s, %s\n", user, command(false), command(true)), nil
 }
 

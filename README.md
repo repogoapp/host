@@ -35,7 +35,7 @@ can pair and start chatting right away.
 | `npx @repogo/host start` / `stop` | Start or stop the background host |
 | `npx @repogo/host logs` | Show the host's logs |
 | `npx @repogo/host update` | Update to the latest version; refuses while agents, terminals or builds are running (`--now` stops them) |
-| `npx @repogo/host power enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
+| `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
 | `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
 
 ### Run it in an Apple container
@@ -172,7 +172,7 @@ in a terminal or your editor, so their history shows up on your phone.
   when you run an agent outside RepoGo. Your own hooks are left untouched, and
   `uninstall` removes only RepoGo's. Codex asks you to trust them once
   (`codex`, then `/hooks`).
-- `power enable` adds `/etc/sudoers.d/repogo`, which lets the host run
+- `keep-awake enable` adds `/etc/sudoers.d/repogo`, which lets the host run
   `pmset -a disablesleep` and nothing else.
 
 ## Uninstall
