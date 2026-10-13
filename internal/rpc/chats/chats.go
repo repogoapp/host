@@ -52,7 +52,7 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "chats.stop", d.stop)
 	rpc.Add(r, "chats.subscribe", d.subscribe)
 	rpc.Add(r, "chats.unsubscribe", d.unsubscribe)
-	// One chat's queued turns, fetched when its row's queue_rev moves: the row
+	// One chat's queued turns, fetched when its row's queue_revision moves: the row
 	// carries the count, so nothing is watched.
 	rpc.Add(r, "chats.queue", d.queue)
 	// Opens the chat in the agent's own CLI in a terminal window here.

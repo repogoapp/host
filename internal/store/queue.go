@@ -19,14 +19,14 @@ type QueuedTurn struct {
 }
 
 // Queue is a chat's queued turns, oldest first, and the version a device
-// compares with the row's queue_rev to know whether it holds these.
+// compares with the row's queue_revision to know whether it holds these.
 type Queue struct {
-	QueueRev int64        `json:"queue_rev"`
-	Queued   []QueuedTurn `json:"queued" wire:"array"`
+	QueueRevision int64        `json:"queue_revision"`
+	Queued        []QueuedTurn `json:"queued" wire:"array"`
 }
 
 // SaveQueue is the one writer of state.queued_turns and state.chat_queues: it
-// replaces a chat's queued turns with queued, moves its queue_rev, then fans
+// replaces a chat's queued turns with queued, moves its queue_revision, then fans
 // the chat out so its row carries the new count and version.
 func (s *Store) SaveQueue(chatID string, queued []agent.StoredTurn) error {
 	tx, err := s.db.Begin()
@@ -89,7 +89,7 @@ func (s *Store) LoadQueues() (map[string][]agent.StoredTurn, error) {
 	return out, rows.Err()
 }
 
-// Queue is one chat's queued turns as chats.queue answers, with its queue_rev.
+// Queue is one chat's queued turns as chats.queue answers, with its queue_revision.
 func (s *Store) Queue(id ChatID) (Queue, error) {
 	if _, _, err := id.parts(); err != nil {
 		return Queue{}, err
@@ -102,7 +102,7 @@ func (s *Store) Queue(id ChatID) (Queue, error) {
 
 	out := Queue{Queued: []QueuedTurn{}}
 	err = tx.QueryRow(`SELECT COALESCE((SELECT rev FROM state.chat_queues WHERE chat_id = ?), 0)`, string(id)).
-		Scan(&out.QueueRev)
+		Scan(&out.QueueRevision)
 	if err != nil {
 		return Queue{}, fmt.Errorf("store: read queue: %w", err)
 	}

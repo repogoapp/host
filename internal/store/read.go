@@ -85,7 +85,7 @@ type Chat struct {
 	LastUserMessagePreview string `json:"last_user_message_preview,omitempty"`
 
 	// Where this row stands on the store's one revision counter; see sync.go.
-	Rev int64 `json:"rev"`
+	Revision int64 `json:"revision"`
 
 	// When the user marked the chat's work done. Nil is live. A resolved chat
 	// leaves the inbox but keeps its history; activity in it clears the mark.
@@ -119,8 +119,8 @@ type Chat struct {
 	// How many turns wait in the chat's queue, and the version of that queue
 	// (queue.go): a device refetches chats.queue only when the version moves,
 	// since the row is resent on every flush of a running turn.
-	QueuedCount int   `json:"queued_count,omitempty"`
-	QueueRev    int64 `json:"queue_rev,omitempty"`
+	QueuedCount   int   `json:"queued_count,omitempty"`
+	QueueRevision int64 `json:"queue_revision,omitempty"`
 
 	// Under a search, the words around the hit in the chat's prompts and
 	// replies, each matched word marked ⟪…⟫; empty when the title matched.
@@ -262,8 +262,8 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 		var agent, sessionID string
 		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.LastReply, &c.LastUserMessagePreview, &c.CWD,
 			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.EventCount, &c.Generation, &c.ContextUsed, &c.ContextSize, &c.Model, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
-			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.Rev, &c.VoiceNumber,
-			&c.QueuedCount, &c.QueueRev); err != nil {
+			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.Revision, &c.VoiceNumber,
+			&c.QueuedCount, &c.QueueRevision); err != nil {
 			return nil, err
 		}
 		c.LastUserMessagePreview = previewOf(c.LastUserMessagePreview)

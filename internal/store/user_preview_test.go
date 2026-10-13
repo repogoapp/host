@@ -55,7 +55,7 @@ func TestLastUserMessagePreviewFollowsSavedTranscript(t *testing.T) {
 			if mirrored.LastUserMessagePreview != step.want {
 				t.Fatalf("mirror preview = %q, want %q", mirrored.LastUserMessagePreview, step.want)
 			}
-			epoch, rev = pull.Epoch, pull.Rev
+			epoch, rev = pull.Epoch, pull.Revision
 		})
 	}
 }

@@ -34,10 +34,10 @@ func TestRestartKeepsTheCursorAfterDeletingTheNewestRow(t *testing.T) {
 	}
 	write(t, db, "c", 300, 1)
 	chat, err := db.Info("claude:c")
-	if err != nil || chat.Rev <= held.Rev {
-		t.Fatalf("new chat at rev %d, want past the held %d (%v)", chat.Rev, held.Rev, err)
+	if err != nil || chat.Revision <= held.Revision {
+		t.Fatalf("new chat at rev %d, want past the held %d (%v)", chat.Revision, held.Revision, err)
 	}
-	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Revision}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,19 +137,19 @@ func TestASyncReportsADeletionOnce(t *testing.T) {
 	if err := db.Delete("claude:a"); err != nil {
 		t.Fatal(err)
 	}
-	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Revision}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next.Upsert) != 0 || len(next.Delete) != 1 || next.Delete[0] != "claude:a" || next.Rev <= held.Rev {
-		t.Fatalf("pull after delete = upsert %d delete %v rev %d, want a's removal past %d", len(next.Upsert), next.Delete, next.Rev, held.Rev)
+	if len(next.Upsert) != 0 || len(next.Delete) != 1 || next.Delete[0] != "claude:a" || next.Revision <= held.Revision {
+		t.Fatalf("pull after delete = upsert %d delete %v rev %d, want a's removal past %d", len(next.Upsert), next.Delete, next.Revision, held.Revision)
 	}
-	again, err := db.SyncChats(SyncParams{Epoch: next.Epoch, Since: next.Rev}, "host")
+	again, err := db.SyncChats(SyncParams{Epoch: next.Epoch, Since: next.Revision}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(again.Upsert) != 0 || len(again.Delete) != 0 || again.Rev != next.Rev {
-		t.Fatalf("pull past the delete = upsert %d delete %v rev %d, want nothing at %d", len(again.Upsert), again.Delete, again.Rev, next.Rev)
+	if len(again.Upsert) != 0 || len(again.Delete) != 0 || again.Revision != next.Revision {
+		t.Fatalf("pull past the delete = upsert %d delete %v rev %d, want nothing at %d", len(again.Upsert), again.Delete, again.Revision, next.Revision)
 	}
 }
 
@@ -165,7 +165,7 @@ func TestAPrunedChatIsReportedAsDeleted(t *testing.T) {
 	if n, err := db.Prune(map[string]bool{key("claude", "b"): true}); err != nil || n != 1 {
 		t.Fatalf("prune = %d, %v", n, err)
 	}
-	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Revision}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestAChatMadeAgainIsARowNotADeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, db, "a", 300, 2)
-	for _, since := range []int64{0, held.Rev} {
+	for _, since := range []int64{0, held.Revision} {
 		next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: since}, "host")
 		if err != nil {
 			t.Fatal(err)
@@ -219,7 +219,7 @@ func TestRowsAndDeletionsInterleaveByRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := db.SyncChats(SyncParams{Epoch: all.Epoch, Since: b.Rev}, "host")
+	next, err := db.SyncChats(SyncParams{Epoch: all.Epoch, Since: b.Revision}, "host")
 	if err != nil {
 		t.Fatal(err)
 	}

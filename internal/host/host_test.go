@@ -99,14 +99,14 @@ func TestManagedTurnsReachStatusStreamAndQueue(t *testing.T) {
 	if err != nil || len(q.Queued) != 1 || q.Queued[0].TurnID != second.TurnID || q.Queued[0].Prompt != "two" {
 		t.Fatalf("queue = %+v (%v), want %s", q, err, second.TurnID)
 	}
-	if row, _ := th.Services.Store.Info("claude:s1"); row.QueuedCount != 1 || row.QueueRev != q.QueueRev {
-		t.Fatalf("row queue = %d at %d, want 1 at %d", row.QueuedCount, row.QueueRev, q.QueueRev)
+	if row, _ := th.Services.Store.Info("claude:s1"); row.QueuedCount != 1 || row.QueueRevision != q.QueueRevision {
+		t.Fatalf("row queue = %d at %d, want 1 at %d", row.QueuedCount, row.QueueRevision, q.QueueRevision)
 	}
 	if err := th.Services.Runner.RemoveQueued(second.TurnID); err != nil {
 		t.Fatal(err)
 	}
-	if row, _ := th.Services.Store.Info("claude:s1"); row.QueuedCount != 0 || row.QueueRev <= q.QueueRev {
-		t.Fatalf("row queue after removing = %d at %d, want 0 past %d", row.QueuedCount, row.QueueRev, q.QueueRev)
+	if row, _ := th.Services.Store.Info("claude:s1"); row.QueuedCount != 0 || row.QueueRevision <= q.QueueRevision {
+		t.Fatalf("row queue after removing = %d at %d, want 0 past %d", row.QueuedCount, row.QueueRevision, q.QueueRevision)
 	}
 
 	<-a.opened

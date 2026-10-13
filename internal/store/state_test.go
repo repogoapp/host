@@ -76,8 +76,8 @@ func TestStateSurvivesACacheRebuild(t *testing.T) {
 	if after.VoiceNumber != before.VoiceNumber {
 		t.Errorf("voice number changed: %d, was %d", after.VoiceNumber, before.VoiceNumber)
 	}
-	if after.QueuedCount != 1 || after.QueueRev != 1 {
-		t.Errorf("queue on the row = %d at %d, want 1 at 1", after.QueuedCount, after.QueueRev)
+	if after.QueuedCount != 1 || after.QueueRevision != 1 {
+		t.Errorf("queue on the row = %d at %d, want 1 at 1", after.QueuedCount, after.QueueRevision)
 	}
 	if roots, _ := db.Roots(); !slices.Contains(roots, "/tmp/picked") {
 		t.Errorf("pick lost: roots = %v", roots)
@@ -243,7 +243,7 @@ func TestSaveQueueFeedsTheRowAndChatsQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.QueueRev != 1 || len(q.Queued) != 2 || q.Queued[0].Prompt != "first" || len(q.Queued[0].Attachments) != 1 ||
+	if q.QueueRevision != 1 || len(q.Queued) != 2 || q.Queued[0].Prompt != "first" || len(q.Queued[0].Attachments) != 1 ||
 		q.Queued[0].Attachments[0] != shot || !q.Queued[1].QueuedAt.Equal(time.UnixMilli(3000)) {
 		t.Fatalf("chats.queue = %+v", q)
 	}
@@ -256,10 +256,10 @@ func TestSaveQueueFeedsTheRowAndChatsQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	row, _ := db.Info("claude:a")
-	if row.QueuedCount != 0 || row.QueueRev != 2 {
-		t.Fatalf("row after emptying = %d at %d, want 0 at 2", row.QueuedCount, row.QueueRev)
+	if row.QueuedCount != 0 || row.QueueRevision != 2 {
+		t.Fatalf("row after emptying = %d at %d, want 0 at 2", row.QueuedCount, row.QueueRevision)
 	}
-	if q, _ := db.Queue("claude:a"); q.Queued == nil || q.QueueRev != 2 {
+	if q, _ := db.Queue("claude:a"); q.Queued == nil || q.QueueRevision != 2 {
 		t.Fatalf("empty queue = %+v, want [] at 2", q)
 	}
 

@@ -331,15 +331,15 @@ const maxSyncBytes = jsonrpc.MaxMessageBytes / 2
 // SyncParams asks for the chat rows and deletions past a revision.
 type SyncParams struct {
 	Epoch string `json:"epoch"`
-	Since int64  `json:"since"`
+	Since int64  `json:"since_revision"`
 }
 
 type SyncResult struct {
-	Epoch  string   `json:"epoch"`
-	Rev    int64    `json:"rev"`
-	More   bool     `json:"more"`
-	Upsert []Chat   `json:"upsert" wire:"array"`
-	Delete []string `json:"delete" wire:"array"`
+	Epoch    string   `json:"epoch"`
+	Revision int64    `json:"revision"`
+	More     bool     `json:"more"`
+	Upsert   []Chat   `json:"upsert" wire:"array"`
+	Delete   []string `json:"delete" wire:"array"`
 }
 
 // ListProjects is the newest maxProjects projects and every pinned one, each
@@ -385,10 +385,10 @@ func (s *Store) SyncChats(req SyncParams, host string) (SyncResult, error) {
 	}
 
 	// The cut falls on a byte budget; the first item always goes, however large.
-	out := SyncResult{Epoch: s.epoch, Rev: since, Upsert: []Chat{}, Delete: []string{}}
+	out := SyncResult{Epoch: s.epoch, Revision: since, Upsert: []Chat{}, Delete: []string{}}
 	size, c, d := 0, 0, 0
 	for c < len(chats) || d < len(deleted) {
-		takeChat := d == len(deleted) || (c < len(chats) && chats[c].Rev < deleted[d].rev)
+		takeChat := d == len(deleted) || (c < len(chats) && chats[c].Revision < deleted[d].rev)
 		var bytes int
 		var rev int64
 		if takeChat {
@@ -397,7 +397,7 @@ func (s *Store) SyncChats(req SyncParams, host string) (SyncResult, error) {
 			if err != nil {
 				return SyncResult{}, err
 			}
-			bytes, rev = len(b), chats[c].Rev
+			bytes, rev = len(b), chats[c].Revision
 		} else {
 			bytes, rev = len(deleted[d].id)+3, deleted[d].rev
 		}
@@ -406,7 +406,7 @@ func (s *Store) SyncChats(req SyncParams, host string) (SyncResult, error) {
 			break
 		}
 		size += bytes
-		out.Rev = rev
+		out.Revision = rev
 		if takeChat {
 			out.Upsert = append(out.Upsert, chats[c])
 			c++

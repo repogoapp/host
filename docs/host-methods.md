@@ -129,7 +129,7 @@ Result:
 - `last_turn_finished_at` int (nullable)
 - `last_reply` string (omitted when empty)
 - `last_user_message_preview` string (omitted when empty)
-- `rev` int
+- `revision` int
 - `resolved_at` int (omitted when empty) (nullable)
 - `pinned_at` int (omitted when empty) (nullable)
 - `context_used` int (omitted when empty)
@@ -142,7 +142,7 @@ Result:
 - `fast_mode` bool (omitted when empty) (nullable)
 - `voice_number` int (omitted when empty)
 - `queued_count` int (omitted when empty)
-- `queue_rev` int (omitted when empty)
+- `queue_revision` int (omitted when empty)
 - `match` string (omitted when empty)
 - `match_idx` int (omitted when empty) (nullable)
 
@@ -228,7 +228,7 @@ Params:
 
 Result:
 
-- `queue_rev` int
+- `queue_revision` int
 - `queued` [object{QueuedTurn}]
 
 ## `chats.resolve`
@@ -318,12 +318,12 @@ Result:
 Params:
 
 - `epoch` string
-- `since` int
+- `since_revision` int
 
 Result:
 
 - `epoch` string
-- `rev` int
+- `revision` int
 - `more` bool
 - `upsert` [object{Chat}]
 - `delete` [string]

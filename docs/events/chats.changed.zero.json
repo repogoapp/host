@@ -12,5 +12,5 @@
   "status_at": 0,
   "last_turn_started_at": null,
   "last_turn_finished_at": null,
-  "rev": 0
+  "revision": 0
 }

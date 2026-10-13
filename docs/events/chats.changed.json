@@ -15,7 +15,7 @@
   "last_turn_finished_at": 1,
   "last_reply": "last_reply",
   "last_user_message_preview": "last_user_message_preview",
-  "rev": 1,
+  "revision": 1,
   "resolved_at": 1,
   "pinned_at": 1,
   "context_used": 1,
@@ -28,7 +28,7 @@
   "fast_mode": true,
   "voice_number": 1,
   "queued_count": 1,
-  "queue_rev": 1,
+  "queue_revision": 1,
   "match": "match",
   "match_idx": 1
 }
