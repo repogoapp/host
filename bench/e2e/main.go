@@ -151,17 +151,17 @@ func main() {
 		HostID     string `json:"host_id"`
 	}
 	type delta struct {
-		Epoch  string            `json:"epoch"`
-		Rev    int64             `json:"rev"`
-		More   bool              `json:"more"`
-		Upsert []json.RawMessage `json:"upsert"`
+		Epoch    string            `json:"epoch"`
+		Revision int64             `json:"revision"`
+		More     bool              `json:"more"`
+		Upsert   []json.RawMessage `json:"upsert"`
 	}
 	pull := func() (last delta, rows []json.RawMessage, pages int) {
 		for {
 			var page delta
 			pageDone := step("chats.page1")
 			must(c.Call(ctx, "chats.sync", map[string]any{
-				"epoch": last.Epoch, "since": last.Rev, "ids": []string{},
+				"epoch": last.Epoch, "since_revision": last.Revision,
 			}, &page), "chats.sync")
 			if pages == 0 {
 				pageDone()
@@ -217,7 +217,7 @@ func main() {
 		}
 		all = append(all, ch)
 	}
-	fmt.Printf("chats      %d row(s) in %d page(s), rev %d\n", len(all), chatPages, chatCursor.Rev)
+	fmt.Printf("chats      %d row(s) in %d page(s), rev %d\n", len(all), chatPages, chatCursor.Revision)
 	if len(all) == 0 {
 		ok(timings, "paired, authorized, and projects synced, but the host has no chats cached yet.")
 		return
@@ -255,10 +255,10 @@ func main() {
 	done = step("chats.again")
 	var again delta
 	must(c.Call(ctx, "chats.sync", map[string]any{
-		"epoch": chatCursor.Epoch, "since": chatCursor.Rev, "ids": []string{},
+		"epoch": chatCursor.Epoch, "since_revision": chatCursor.Revision,
 	}, &again), "chats.sync again")
 	done()
-	fmt.Printf("chats.again %d row(s) changed since rev %d\n", len(again.Upsert), chatCursor.Rev)
+	fmt.Printf("chats.again %d row(s) changed since revision %d\n", len(again.Upsert), chatCursor.Revision)
 
 	// 7. Every transcript, 200 events a page, a few chats in flight at once:
 	//    what a full mirror would cost, staggered so one slow chat does not
@@ -285,7 +285,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for ch := range work {
-				sinceIdx, pages, got, bytes := 0, 0, 0, 0
+				sinceIndex, pages, got, bytes := 0, 0, 0, 0
 				limit := *pageSize
 				var generation float64
 				for {
@@ -293,10 +293,10 @@ func main() {
 						Events     []json.RawMessage `json:"events"`
 						Generation float64           `json:"generation"`
 						EventCount int               `json:"event_count"`
-						NextIndex  int               `json:"next_idx"`
+						NextIndex  int               `json:"next_index"`
 					}
 					err := c.Call(ctx, "chats.messages", map[string]any{
-						"chat_id": ch.ID, "since_idx": sinceIdx, "limit": limit,
+						"chat_id": ch.ID, "since_index": sinceIndex, "limit": limit,
 					}, &page)
 					// A page of huge tool outputs can exceed one message; halve
 					// and ask again, which is what a client would have to do
@@ -328,10 +328,10 @@ func main() {
 					generation = page.Generation
 					got += len(page.Events)
 					pages++
-					if page.NextIndex == sinceIdx || page.NextIndex >= page.EventCount {
+					if page.NextIndex == sinceIndex || page.NextIndex >= page.EventCount {
 						break
 					}
-					sinceIdx = page.NextIndex
+					sinceIndex = page.NextIndex
 				}
 				mu.Lock()
 				msgPages += pages
