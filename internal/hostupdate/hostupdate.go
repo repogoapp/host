@@ -49,22 +49,23 @@ type Turns interface {
 }
 
 type Deps struct {
-	// Version is the running release; Binary is its path, read at start
-	// because Linux names a replaced executable "(deleted)".
+	// Version is the running release. Root is what an update replaces: the
+	// binary, or on macOS the app bundle it runs from (release.Root), found
+	// at start because Linux names a replaced executable "(deleted)".
 	Version string
-	Binary  string
+	Root    string
 	// Marker is the update.json that lets the next start settle or roll back.
 	Marker string
 
 	Latest func(context.Context) (release.Manifest, error)
-	// Stage downloads and verifies the release beside binary.
-	Stage func(ctx context.Context, m release.Manifest, binary string) (string, error)
+	// Stage downloads and verifies the release beside root.
+	Stage func(ctx context.Context, m release.Manifest, root string) (string, error)
 
 	Turns     Turns
 	Terminals func() int
 	Actions   func() int
 
-	// Restart shuts the host down and starts Binary in its place.
+	// Restart shuts the host down and starts the new release in its place.
 	Restart func()
 }
 
@@ -108,11 +109,11 @@ func (u *Updater) Update(ctx context.Context, now bool) (Result, error) {
 		out.Busy = &busy
 		return out, nil
 	}
-	staged, err := u.d.Stage(ctx, latest, u.d.Binary)
+	staged, err := u.d.Stage(ctx, latest, u.d.Root)
 	if err != nil {
 		return out, err
 	}
-	defer os.Remove(staged)
+	defer os.RemoveAll(staged)
 	if err := u.d.Turns.GuardUpdate(true, now); err != nil {
 		return out, err
 	}
@@ -137,21 +138,25 @@ func (u *Updater) Update(ctx context.Context, now bool) (Result, error) {
 	return out, nil
 }
 
-// swap keeps the running binary as .previous for a rollback, records the
-// update, and moves the release into place.
+// swap keeps the running release as .previous for a rollback, records the
+// update, and moves the new one into place. The running process keeps the
+// files it started from, whatever their name.
 func (u *Updater) swap(staged string, m marker) error {
-	previous := u.d.Binary + ".previous"
-	if err := os.Remove(previous); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	root := u.d.Root
+	previous := root + ".previous"
+	if err := os.RemoveAll(previous); err != nil {
 		return err
 	}
-	if err := os.Link(u.d.Binary, previous); err != nil {
+	if err := os.Rename(root, previous); err != nil {
 		return fmt.Errorf("keep the current host for a rollback: %w", err)
 	}
 	if err := writeMarker(u.d.Marker, m); err != nil {
+		os.Rename(previous, root)
 		return err
 	}
-	if err := os.Rename(staged, u.d.Binary); err != nil {
+	if err := os.Rename(staged, root); err != nil {
 		os.Remove(u.d.Marker)
+		os.Rename(previous, root)
 		return err
 	}
 	return nil
@@ -171,7 +176,7 @@ const maxAttempts = 3
 
 // Outcome is what Resume found at start.
 type Outcome struct {
-	// RolledBack means Binary is the previous release again and must be
+	// RolledBack means root is the previous release again and must be
 	// started in this process's place.
 	RolledBack bool
 	// Failed says why the last update did not take, once the previous
@@ -181,7 +186,7 @@ type Outcome struct {
 
 // Resume runs at start, before anything else: it counts a start of a new
 // release and rolls back one that keeps failing before Settle.
-func Resume(path, binary, version string) (Outcome, error) {
+func Resume(path, root, version string) (Outcome, error) {
 	m, err := readMarker(path)
 	if err != nil || m == nil {
 		return Outcome{}, err
@@ -192,7 +197,7 @@ func Resume(path, binary, version string) (Outcome, error) {
 		if m.Attempts < maxAttempts {
 			return Outcome{}, writeMarker(path, *m)
 		}
-		if err := os.Rename(binary+".previous", binary); err != nil {
+		if err := rollBack(root); err != nil {
 			return Outcome{}, fmt.Errorf("roll back %s: %w", m.To, err)
 		}
 		m.Failed = fmt.Sprintf("%s didn't start, so the host went back to %s.", m.To, m.From)
@@ -201,6 +206,18 @@ func Resume(path, binary, version string) (Outcome, error) {
 		return Outcome{Failed: m.Failed}, removeMarker(path)
 	}
 	return Outcome{}, removeMarker(path)
+}
+
+// rollBack puts the .previous release back at root. A bundle is a folder,
+// which a rename cannot replace, so the failed release goes first.
+func rollBack(root string) error {
+	if _, err := os.Stat(root + ".previous"); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return err
+	}
+	return os.Rename(root+".previous", root)
 }
 
 // Settle marks the running release as started, once it is serving.

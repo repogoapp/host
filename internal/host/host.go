@@ -176,7 +176,7 @@ func (c Config) validate() error {
 		{"State", c.State == ""}, {"Home", c.Home == ""}, {"Projects", c.Projects == ""},
 		{"Attachments", c.Attachments == ""}, {"Token", c.Token == ""}, {"ServerID", c.ServerID == ""},
 		{"Label", c.Label == ""}, {"Gateway", c.Gateway == ""}, {"Getenv", c.Getenv == nil},
-		{"Update.Version", c.Update.Version == ""}, {"Update.Binary", c.Update.Binary == ""},
+		{"Update.Version", c.Update.Version == ""}, {"Update.Root", c.Update.Root == ""},
 		{"Update.Marker", c.Update.Marker == ""}, {"Update.Latest", c.Update.Latest == nil},
 		{"Update.Stage", c.Update.Stage == nil}, {"Update.Restart", c.Update.Restart == nil},
 		{"Agents", c.Agents == nil}, {"InstallHooks", c.InstallHooks == nil}, {"Power", c.Power == nil},

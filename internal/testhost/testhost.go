@@ -79,7 +79,7 @@ func Config(t testing.TB) host.Config {
 		Label: "testhost", Gateway: "127.0.0.1:1", GatewayPlaintext: true,
 		Getenv: func(string) string { return "" },
 		Update: hostupdate.Deps{
-			Version: "dev", Binary: filepath.Join(state, "repogo"), Marker: filepath.Join(state, "update.json"),
+			Version: "dev", Root: filepath.Join(state, "repogo"), Marker: filepath.Join(state, "update.json"),
 			Latest: release.Latest, Stage: release.Stage, Restart: func() {},
 		},
 		Agents: func(deps agent.Dependencies) (*agents.Registry, error) {

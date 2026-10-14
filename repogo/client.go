@@ -107,12 +107,12 @@ func printStatus(ctx context.Context) error {
 	return nil
 }
 
-// noteOlderHost says when the background host still runs an older binary than this
-// one; update switches it and refuses while chats are running.
+// noteOlderHost says when the background host still runs an older release than
+// this one. This binary is what the service starts, so a restart switches it.
 func noteOlderHost(ctx context.Context) {
 	var status hostinfo.Status
 	if err := call(ctx, "host.status", nil, &status); release.Version != "dev" && err == nil && status.Version != release.Version {
-		fmt.Printf("The running host is %s and this is %s. Run repogo update to switch.\n", status.Version, release.Version)
+		fmt.Printf("The running host is %s and this is %s. Run npx @repogo/host restart to switch.\n", status.Version, release.Version)
 	}
 }
 

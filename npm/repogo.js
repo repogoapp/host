@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
 // publicKey checks manifest.json.sig. The release workflow signs with its
@@ -34,8 +34,43 @@ function older(a, b) {
   return false;
 }
 
+// installApp unzips RepoGo Host.app into home, swaps it in, and points binary at
+// the repogo inside it. A running host keeps the bundle it started from.
+async function installApp(bytes, home, binary) {
+  const app = join(home, 'RepoGo Host.app');
+  const staging = await mkdtemp(join(home, '.download-'));
+  try {
+    const zip = join(staging, 'app.zip');
+    await writeFile(zip, bytes);
+    const unzip = spawnSync('/usr/bin/ditto', ['-x', '-k', zip, staging], { encoding: 'utf8' });
+    if (unzip.status !== 0) throw new Error(`Could not unpack RepoGo Host.app: ${unzip.stderr.trim()}`);
+    await rename(app, join(staging, 'previous.app')).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    await rename(join(staging, 'RepoGo Host.app'), app);
+    const link = join(dirname(binary), `.link-${randomUUID()}`);
+    await symlink(join('..', 'RepoGo Host.app', 'Contents', 'MacOS', 'repogo'), link);
+    // rename replaces a bare binary from an older release, or the old link, in one step.
+    await rename(link, binary);
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
+// installBinary writes a bare binary to binary in one step.
+async function installBinary(bytes, binary) {
+  const temporary = join(dirname(binary), `.download-${randomUUID()}`);
+  try {
+    await writeFile(temporary, bytes, { mode: 0o755, flag: 'wx' });
+    await chmod(temporary, 0o755);
+    // rename swaps the file in one step; a running host keeps the binary it started with.
+    await rename(temporary, binary);
+  } finally {
+    await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+  }
+}
+
 try {
-  const dir = join(homedir(), '.repogo', 'bin');
+  const home = join(homedir(), '.repogo');
+  const dir = join(home, 'bin');
   const binary = join(dir, 'repogo');
   const pkg = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'));
   // A newer binary from `repogo update` stays; only a missing or older one is replaced.
@@ -49,20 +84,15 @@ try {
     if (!verify(null, body, publicKey, signature)) throw new Error('Release signature mismatch');
     const manifest = JSON.parse(body);
     if (manifest.version !== pkg.version) throw new Error('Release version mismatch');
-    const asset = manifest.assets[`${process.platform}-${arch}`];
+    // macOS gets RepoGo Host.app, so System Settings shows the host's name and icon.
+    const macOS = process.platform === 'darwin';
+    const asset = (macOS ? manifest.apps : manifest.assets)?.[`${process.platform}-${arch}`];
     if (!asset) throw new Error(`Unsupported platform: ${process.platform}/${process.arch}`);
     const bytes = Buffer.from(await (await download(asset.url)).arrayBuffer());
     if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error('Release checksum mismatch');
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    const temporary = join(dir, `.download-${randomUUID()}`);
-    try {
-      await writeFile(temporary, bytes, { mode: 0o755, flag: 'wx' });
-      await chmod(temporary, 0o755);
-      // rename swaps the file in one step; a running host keeps the binary it started with.
-      await rename(temporary, binary);
-    } finally {
-      await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
-    }
+    if (macOS) await installApp(bytes, home, binary);
+    else await installBinary(bytes, binary);
   }
   const child = spawn(binary, process.argv.slice(2), { stdio: 'inherit' });
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal));

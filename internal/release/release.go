@@ -2,6 +2,7 @@
 package release
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,8 +37,12 @@ type Asset struct {
 }
 
 type Manifest struct {
-	Version string           `json:"version"`
-	Assets  map[string]Asset `json:"assets"`
+	Version string `json:"version"`
+	// Assets are the bare binaries, for Linux.
+	Assets map[string]Asset `json:"assets"`
+	// Apps are RepoGo Host.app, zipped, for macOS: the bundle gives the host
+	// its name and icon in System Settings and privacy prompts.
+	Apps map[string]Asset `json:"apps"`
 }
 
 func Latest(ctx context.Context) (Manifest, error) {
@@ -115,19 +121,61 @@ func fetch(ctx context.Context, url string) (*http.Response, error) {
 	return resp, nil
 }
 
-// Stage downloads m's binary for this platform beside binary, on the same
-// filesystem for an atomic rename, and verifies its checksum.
-func Stage(ctx context.Context, m Manifest, binary string) (string, error) {
-	asset, ok := m.Assets[runtime.GOOS+"-"+runtime.GOARCH]
-	if !ok {
-		return "", fmt.Errorf("release has no binary for %s/%s", runtime.GOOS, runtime.GOARCH)
+// Root is what an update replaces: on macOS the app bundle binary runs from,
+// often through the bin/repogo symlink; elsewhere binary itself.
+func Root(binary string) string {
+	resolved, err := filepath.EvalSymlinks(binary)
+	if err != nil {
+		return binary
 	}
+	macOS := filepath.Dir(resolved)
+	app := filepath.Dir(filepath.Dir(macOS))
+	if filepath.Base(macOS) == "MacOS" && filepath.Ext(app) == ".app" {
+		return app
+	}
+	return binary
+}
+
+// Stage downloads m's release for this platform beside root, on the same
+// filesystem for an atomic rename, and verifies its checksum. An app bundle
+// root gets the unzipped bundle, any other root the bare binary.
+func Stage(ctx context.Context, m Manifest, root string) (string, error) {
+	platform := runtime.GOOS + "-" + runtime.GOARCH
+	if filepath.Ext(root) != ".app" {
+		asset, ok := m.Assets[platform]
+		if !ok {
+			return "", fmt.Errorf("release has no binary for %s/%s", runtime.GOOS, runtime.GOARCH)
+		}
+		return download(ctx, asset, filepath.Dir(root))
+	}
+	asset, ok := m.Apps[platform]
+	if !ok {
+		return "", fmt.Errorf("release has no app for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	zipped, err := download(ctx, asset, filepath.Dir(root))
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(zipped)
+	staged, err := os.MkdirTemp(filepath.Dir(root), ".repogo-update-*")
+	if err != nil {
+		return "", err
+	}
+	if err := unzipApp(zipped, staged); err != nil {
+		os.RemoveAll(staged)
+		return "", err
+	}
+	return staged, nil
+}
+
+// download saves asset into dir, executable, once its checksum matches.
+func download(ctx context.Context, asset Asset, dir string) (string, error) {
 	r, err := fetch(ctx, asset.URL)
 	if err != nil {
 		return "", err
 	}
 	defer r.Body.Close()
-	f, err := os.CreateTemp(filepath.Dir(binary), ".repogo-update-*")
+	f, err := os.CreateTemp(dir, ".repogo-update-*")
 	if err != nil {
 		return "", err
 	}
@@ -156,6 +204,63 @@ func Stage(ctx context.Context, m Manifest, binary string) (string, error) {
 	}
 	keep = true
 	return f.Name(), nil
+}
+
+// unzipApp writes the bundle zipped at path into dir, without the zip's
+// top-level RepoGo Host.app folder. Only folders and plain files are taken.
+func unzipApp(path, dir string) error {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		top, name, _ := strings.Cut(f.Name, "/")
+		if filepath.Ext(top) != ".app" {
+			return fmt.Errorf("release app has %q outside its bundle", f.Name)
+		}
+		if name == "" {
+			continue
+		}
+		if !filepath.IsLocal(name) {
+			return fmt.Errorf("release app has an unsafe path %q", f.Name)
+		}
+		target := filepath.Join(dir, name)
+		mode := f.Mode()
+		switch {
+		case mode.IsDir():
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case mode.IsRegular():
+			if err := unzipFile(f, target, mode.Perm()); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("release app has %q, which is not a file", f.Name)
+		}
+	}
+	return nil
+}
+
+func unzipFile(f *zip.File, target string, perm fs.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	in, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // Newer reports whether candidate is a later published version than current.

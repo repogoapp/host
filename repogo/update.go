@@ -17,9 +17,10 @@ import (
 )
 
 // restarter is how run learns where it was started from and asks to be
-// started again, into the binary an update put in its place.
+// started again, into the release an update put in its place.
 type restarter struct {
-	binary string
+	// root is what an update replaces: binary, or the app bundle holding it.
+	root   string
 	marker string
 	// failed is why the last update was rolled back, for host.status.
 	failed  string
@@ -37,7 +38,8 @@ func serve(ctx context.Context, log *slog.Logger, port int, relay string) error 
 	if err != nil {
 		return err
 	}
-	outcome, err := hostupdate.Resume(marker, binary, release.Version)
+	root := release.Root(binary)
+	outcome, err := hostupdate.Resume(marker, root, release.Version)
 	if err != nil {
 		log.Error("update: settling the last update failed", "err", err)
 	}
@@ -49,7 +51,7 @@ func serve(ctx context.Context, log *slog.Logger, port int, relay string) error 
 	defer cancel()
 	var restart atomic.Bool
 	err = run(runCtx, log, port, relay, restarter{
-		binary: binary, marker: marker, failed: outcome.Failed,
+		root: root, marker: marker, failed: outcome.Failed,
 		restart: func() { restart.Store(true); cancel() },
 	})
 	if err != nil || !restart.Load() {

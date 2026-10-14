@@ -56,14 +56,14 @@ func newFixture(t *testing.T, version, latest string) *fixture {
 	f.marker = filepath.Join(f.dir, "update.json")
 	write(t, f.binary, "old")
 	f.u = New(Deps{
-		Version: version, Binary: f.binary, Marker: f.marker,
+		Version: version, Root: f.binary, Marker: f.marker,
 		Latest: func(context.Context) (release.Manifest, error) { return release.Manifest{Version: latest}, nil },
-		Stage: func(_ context.Context, m release.Manifest, binary string) (string, error) {
+		Stage: func(_ context.Context, m release.Manifest, root string) (string, error) {
 			f.staged++
 			if f.stageErr != nil {
 				return "", f.stageErr
 			}
-			staged := filepath.Join(filepath.Dir(binary), ".repogo-update-test")
+			staged := filepath.Join(filepath.Dir(root), ".repogo-update-test")
 			return staged, os.WriteFile(staged, []byte("new "+m.Version), 0o755)
 		},
 		Turns:     f.turns,
@@ -242,5 +242,70 @@ func TestNoMarkerIsNoUpdate(t *testing.T) {
 	out, err := Resume(filepath.Join(dir, "update.json"), filepath.Join(dir, "repogo"), "0.1.0")
 	if err != nil || out != (Outcome{}) {
 		t.Fatalf("%+v %v", out, err)
+	}
+}
+
+// newAppFixture is newFixture for a macOS host, whose root is the app bundle:
+// a folder that the update swaps whole and a rollback restores whole.
+func newAppFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := newFixture(t, "0.1.0", "0.2.0")
+	app := filepath.Join(f.dir, "RepoGo Host.app")
+	writeApp(t, app, "old")
+	f.u.d.Root = app
+	f.u.d.Stage = func(_ context.Context, m release.Manifest, root string) (string, error) {
+		f.staged++
+		staged := filepath.Join(filepath.Dir(root), ".repogo-update-test")
+		writeApp(t, staged, "new "+m.Version)
+		return staged, nil
+	}
+	return f
+}
+
+func writeApp(t *testing.T, app, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(app, "Contents/MacOS"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(app, "Contents/MacOS/repogo"), body)
+}
+
+func TestUpdateSwapsTheAppBundle(t *testing.T) {
+	f := newAppFixture(t)
+	app := f.u.d.Root
+	if _, err := f.u.Update(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(app, "Contents/MacOS/repogo")) != "new 0.2.0" {
+		t.Fatal("bundle not swapped")
+	}
+	if read(t, filepath.Join(app+".previous", "Contents/MacOS/repogo")) != "old" {
+		t.Fatal("previous bundle not kept")
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, ".repogo-update-test")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("staged bundle left behind")
+	}
+}
+
+func TestAppBundleThatCannotStartRollsBack(t *testing.T) {
+	f := newAppFixture(t)
+	app := f.u.d.Root
+	if _, err := f.u.Update(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	for start := 1; start < maxAttempts; start++ {
+		if _, err := Resume(f.marker, app, "0.2.0"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := Resume(f.marker, app, "0.2.0")
+	if err != nil || !out.RolledBack {
+		t.Fatalf("%+v %v, want a rollback", out, err)
+	}
+	if read(t, filepath.Join(app, "Contents/MacOS/repogo")) != "old" {
+		t.Fatal("bundle not rolled back")
+	}
+	if _, err := os.Stat(app + ".previous"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("previous bundle left after the rollback")
 	}
 }

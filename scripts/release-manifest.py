@@ -11,10 +11,12 @@ package = Path('npm/package.json')
 pkg = json.loads(package.read_text())
 if tag != 'v' + pkg['version']:
     raise SystemExit('Tag must match npm/package.json version')
-assets = {}
-for platform in ('darwin', 'linux'):
+# Linux ships the bare binary; macOS ships RepoGo Host.app, zipped, under apps,
+# a key a host that predates the bundle never reads.
+files = {'assets': {}, 'apps': {}}
+for platform, kind, suffix in (('darwin', 'apps', '.app.zip'), ('linux', 'assets', '')):
     for arch in ('amd64', 'arm64'):
-        name = f'repogo_{platform}_{arch}'
+        name = f'repogo_{platform}_{arch}{suffix}'
         matches = list(root.rglob(name))
         if len(matches) != 1:
             raise SystemExit(f'Expected exactly one {name}')
@@ -23,13 +25,16 @@ for platform in ('darwin', 'linux'):
         destination = root / name
         if source != destination:
             source.rename(destination)
-        assets[f'{platform}-{arch}'] = {
+        files[kind][f'{platform}-{arch}'] = {
+            'name': name,
             'url': f'https://github.com/{repo}/releases/download/{tag}/{name}',
             'sha256': digest,
         }
 for directory in sorted((p for p in root.rglob('*') if p.is_dir()), reverse=True):
     directory.rmdir()
-(root / 'manifest.json').write_text(json.dumps({'version': pkg['version'], 'assets': assets}, indent=2) + '\n')
+manifest = {'version': pkg['version']}
+for kind, entries in files.items():
+    manifest[kind] = {key: {'url': f['url'], 'sha256': f['sha256']} for key, f in entries.items()}
+(root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 (root / 'checksums.txt').write_text(''.join(
-    f'{asset["sha256"]}  repogo_{key.replace("-", "_")}\n'
-    for key, asset in assets.items()))
+    f'{f["sha256"]}  {f["name"]}\n' for entries in files.values() for f in entries.values()))
