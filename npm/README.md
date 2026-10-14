@@ -41,7 +41,6 @@ npx @repogo/host pair
 | --- | --- |
 | `npx @repogo/host` | Install and start the host, then show a pairing code |
 | `npx @repogo/host pair` | Show a pairing code for another device |
-| `npx @repogo/host pair --reusable 14d` | Show a code any number of devices can pair with until it expires (days `d` or hours `h`, up to 30 days); `--reusable off` ends it |
 | `npx @repogo/host status` | Show whether the host is running |
 | `npx @repogo/host devices` / `devices revoke <id>` | List the paired devices, or remove one: its connections close and it can no longer reach the host |
 | `npx @repogo/host start` / `stop` | Start or stop the background host |
