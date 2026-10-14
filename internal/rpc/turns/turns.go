@@ -24,8 +24,6 @@ func Register(r *rpc.Router, d Deps) {
 	// reset spends one reset credit (listed in limits.read) and answers Codex's
 	// outcome; "nothing_to_reset" means the credit was kept.
 	rpc.Add(r, "limits.reset", d.reset, rpc.Detached)
-	// Local-only because a caller that picks the cwd picks what the agent may
-	// read and write; chats.send is the remote equivalent.
 	rpc.Add(r, "turns.list", d.list)
 	rpc.Add(r, "turns.get", d.get)
 	// The user's verbs on a turn, in the order they act: stop it, answer it,
