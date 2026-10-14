@@ -175,13 +175,12 @@ func (l *Link) session(ctx context.Context) error {
 	c := &conn{ws: wsconn.Wrap(ws), identity: identity,
 		peers: map[device.ID]*peer{}, control: map[string]chan *jsonrpc.Message{}}
 	serverVersion, err := c.ws.Hello(ctx, handshake.Hello{
-		DeviceID:      string(identity.ID),
-		PublicKey:     identity.Public,
-		GroupID:       l.cfg.Devices.GroupID(),
-		Role:          handshake.RoleRuntime,
-		Platform:      runtime.GOOS,
-		Label:         device.Label(),
-		ClientVersion: "host",
+		DeviceID:  string(identity.ID),
+		PublicKey: identity.Public,
+		GroupID:   l.cfg.Devices.GroupID(),
+		Role:      handshake.RoleRuntime,
+		Platform:  runtime.GOOS,
+		Label:     device.Label(),
 		// No LocalToken: it means nothing off-box and the relay rejects it.
 	}, identity.Sign)
 	if err != nil {

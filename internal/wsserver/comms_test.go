@@ -42,7 +42,7 @@ func (h *harness) pair(label string) *device.Identity {
 		h.t.Fatalf("generate identity: %v", err)
 	}
 	if err := h.devices.Add(device.Peer{
-		ID: id.ID, Public: id.Public, Label: label, Platform: "ios",
+		ID: id.ID, Public: id.Public, Label: label, Client: device.Client{Platform: "ios"},
 	}); err != nil {
 		h.t.Fatalf("pair %s: %v", label, err)
 	}

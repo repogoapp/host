@@ -218,6 +218,16 @@ func TestLaunchOptions(t *testing.T) {
 	if _, err = (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "a", SessionID: "b"}).args(""); err == nil {
 		t.Fatal("accepted both session and resume")
 	}
+	if slices.Contains(args, "--append-system-prompt") {
+		t.Error("appended a system prompt nobody asked for")
+	}
+	args, err = (Options{Executable: "claude", Cwd: "/tmp", AppendSystemPrompt: "Use Mermaid."}).args("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := slices.Index(args, "--append-system-prompt"); at < 0 || at+1 >= len(args) || args[at+1] != "Use Mermaid." {
+		t.Errorf("args %q do not append the prompt", args)
+	}
 }
 
 // reportMCPConfig tells the test what Claude would see: its arguments, and

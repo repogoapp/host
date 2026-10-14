@@ -27,6 +27,11 @@ type Deps struct {
 	PushChanged func(kind string)
 }
 
+// HelloParams is what the phone says it is, on every connect.
+type HelloParams struct {
+	device.Client
+}
+
 type RegisterPushParams struct {
 	device.PushTarget
 	// Kind "start" is the token that starts the Live Activity and "activity"
@@ -62,9 +67,16 @@ func (Changed) Method() string { return "devices.changed" }
 
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "devices.list", d.list)
+	// The phone's first call on each connect: an update changes its version
+	// and features, which pick the prompt its turns get.
+	rpc.Add(r, "devices.hello", d.hello, rpc.Paired)
 	rpc.Add(r, "devices.register_push", d.registerPush, rpc.Paired)
 	// Not Paired: the owner at the machine revokes a lost phone from the CLI.
 	rpc.Add(r, "devices.revoke", d.revoke, rpc.Detached)
+}
+
+func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (rpc.Ack, error) {
+	return rpc.OK, d.Store.SetClient(c.Device, a.Client)
 }
 
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {

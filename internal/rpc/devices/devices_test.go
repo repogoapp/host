@@ -115,7 +115,7 @@ func code(err error) int {
 func TestRevokeRemovesAPhoneEverywhere(t *testing.T) {
 	h := start(t)
 	keeper, lost := generate(t), generate(t)
-	if err := h.Devices.Add(device.Peer{ID: keeper.ID, Public: keeper.Public, Label: "Keeper", Platform: "ios"}); err != nil {
+	if err := h.Devices.Add(device.Peer{ID: keeper.ID, Public: keeper.Public, Label: "Keeper", Client: device.Client{Platform: "ios"}}); err != nil {
 		t.Fatalf("pair keeper: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestRevokeRemovesAPhoneEverywhere(t *testing.T) {
 func TestRevokeRefusesSelfAndHost(t *testing.T) {
 	h := start(t)
 	phone := generate(t)
-	if err := h.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Platform: "ios"}); err != nil {
+	if err := h.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Client: device.Client{Platform: "ios"}}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
 	c, err := h.overRelay(t, phone, 5*time.Second)
@@ -245,5 +245,36 @@ func TestRevokeRefusesSelfAndHost(t *testing.T) {
 	}
 	if _, err := h.Devices.Peer(phone.ID); err != nil {
 		t.Errorf("a refused revoke removed the phone: %v", err)
+	}
+}
+
+// A paired phone says what it is on connect: the host keeps it on the
+// phone's record, keeps the platform pairing gave it, and refuses junk.
+func TestHelloUpdatesTheDeviceRecord(t *testing.T) {
+	h := start(t)
+	phone := generate(t)
+	if err := h.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Client: device.Client{Platform: "ios"}}); err != nil {
+		t.Fatalf("pair phone: %v", err)
+	}
+	c, err := h.overRelay(t, phone, 5*time.Second)
+	if err != nil {
+		t.Fatalf("phone over the relay: %v", err)
+	}
+
+	sent := device.Client{Platform: "ios", Kind: "app", Version: "2.1.0", Build: "412", Features: map[string]int{"markdown": 1}}
+	if err := call(t, c, "devices.hello", devices.HelloParams{Client: sent}, nil); err != nil {
+		t.Fatalf("devices.hello: %v", err)
+	}
+	peer, err := h.Devices.Peer(phone.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if peer.Kind != "app" || peer.Version != "2.1.0" || peer.Build != "412" || peer.Features["markdown"] != 1 {
+		t.Fatalf("record after hello = %+v, want %+v", peer.Client, sent)
+	}
+
+	sent.Kind = strings.Repeat("k", 65)
+	if err := call(t, c, "devices.hello", devices.HelloParams{Client: sent}, nil); err == nil {
+		t.Error("an oversized kind was accepted")
 	}
 }

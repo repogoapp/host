@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/repogoapp/host/internal/device"
 )
 
 // Identity is required; every other interface describes an optional capability.
@@ -31,6 +33,10 @@ type Dependencies struct {
 
 	// Tools is RepoGo's own MCP server; nil on a host that serves none.
 	Tools Tools
+
+	// Instructions is what a session started for this device adds to the
+	// agent's system prompt, from what its client renders; "" adds nothing.
+	Instructions func(device.ID) string
 
 	Log *slog.Logger
 }

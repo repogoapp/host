@@ -107,10 +107,10 @@ func (d Deps) status(context.Context, rpc.Caller, rpc.None) (StatusResult, error
 // key, keyed by a pairing code. Nothing is written before that check.
 func (d Deps) complete(_ context.Context, _ rpc.Caller, a CompleteParams) (CompleteResult, error) {
 	joiner := device.Peer{
-		ID:       device.ID(a.DeviceID),
-		Public:   a.PublicKey,
-		Label:    a.Label,
-		Platform: a.Platform,
+		ID:     device.ID(a.DeviceID),
+		Public: a.PublicKey,
+		Label:  a.Label,
+		Client: device.Client{Platform: a.Platform},
 	}
 	hostProof, err := d.Pairer.Complete(joiner, a.Proof)
 	if err != nil {

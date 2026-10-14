@@ -68,17 +68,53 @@ func (i *Identity) Sign(msg []byte) []byte { return ed25519.Sign(i.private, msg)
 
 // Peer is another device this one has paired with.
 type Peer struct {
-	ID       ID     `json:"id"`
-	Public   []byte `json:"public_key"`
-	Label    string `json:"label,omitempty"`
-	Platform string `json:"platform,omitempty"`
-	AddedAt  int64  `json:"added_at"`
+	ID     ID     `json:"id"`
+	Public []byte `json:"public_key"`
+	Label  string `json:"label,omitempty"`
+	Client
+	AddedAt int64 `json:"added_at"`
 
 	Push *PushTarget `json:"push,omitempty"`
 	// PushToStart lets the host start the phone's Live Activity; Activity is
 	// the update token of the one running.
 	PushToStart *PushTarget `json:"push_to_start,omitempty"`
 	Activity    *PushTarget `json:"activity,omitempty"`
+}
+
+// Client is what a device says it is. Pairing gives the platform; each
+// connect's devices.hello refreshes all of it, since an app update changes it.
+type Client struct {
+	// ios, android, web or cli: a label for logs and the device list.
+	Platform string `json:"platform,omitempty"`
+	// app or clip.
+	Kind    string `json:"kind,omitempty"`
+	Version string `json:"version,omitempty"`
+	Build   string `json:"build,omitempty"`
+	// What the client renders, each versioned on its own; a missing name is
+	// one it lacks. The host decides behavior from these, never from Version.
+	Features map[string]int `json:"features,omitempty"`
+}
+
+const (
+	maxClientField    = 64
+	maxClientFeatures = 32
+)
+
+func (c Client) Validate() error {
+	for _, field := range []string{c.Platform, c.Kind, c.Version, c.Build} {
+		if len(field) > maxClientField {
+			return fmt.Errorf("%w: client fields are at most %d bytes", errkind.ErrInvalid, maxClientField)
+		}
+	}
+	if len(c.Features) > maxClientFeatures {
+		return fmt.Errorf("%w: at most %d features", errkind.ErrInvalid, maxClientFeatures)
+	}
+	for name := range c.Features {
+		if name == "" || len(name) > maxClientField {
+			return fmt.Errorf("%w: feature names are 1 to %d bytes", errkind.ErrInvalid, maxClientField)
+		}
+	}
+	return nil
 }
 
 type PushTarget struct {

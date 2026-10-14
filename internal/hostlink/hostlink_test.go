@@ -110,7 +110,7 @@ func TestStrangerMayHandshakeWhilePairing(t *testing.T) {
 func TestRevokedDeviceLosesItsChannel(t *testing.T) {
 	h := newHarness(t)
 	phone := generate(t)
-	if err := h.devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "phone", Platform: "ios"}); err != nil {
+	if err := h.devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "phone", Client: device.Client{Platform: "ios"}}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
 	c, err := h.dial(t, phone, 5*time.Second)

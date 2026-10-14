@@ -218,6 +218,28 @@ func (s *Store) RegisterPush(id ID, kind string, target PushTarget) error {
 	})
 }
 
+// SetClient saves what a device says it is. The phone says it on every
+// connect, so an unchanged client writes nothing.
+func (s *Store) SetClient(id ID, c Client) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.peers[id]
+	if !ok {
+		return ErrUnknownDevice
+	}
+	if p.Client.Platform == c.Platform && p.Client.Kind == c.Kind && p.Client.Version == c.Version &&
+		p.Client.Build == c.Build && maps.Equal(p.Client.Features, c.Features) {
+		return nil
+	}
+	return s.commit(func() {
+		p.Client = c
+		s.peers[id] = p
+	})
+}
+
 // ForgetPush drops a dead token of one kind, unless the phone has replaced
 // it meanwhile.
 func (s *Store) ForgetPush(id ID, kind, token string) error {

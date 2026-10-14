@@ -80,10 +80,15 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		servers = r.deps.MCP(ctx, req.Cwd)
 	}
 	own := r.deps.Tools != nil && r.deps.Tools.On(req.Cwd)
+	var instructions string
+	if r.deps.Instructions != nil {
+		instructions = r.deps.Instructions(req.Device)
+	}
 	raw, _ := json.Marshal(struct {
-		Servers []agent.MCPServer
-		Own     bool
-	}{servers, own})
+		Servers      []agent.MCPServer
+		Own          bool
+		Instructions string
+	}{servers, own, instructions})
 	sum := sha256.Sum256(raw)
 	fingerprint := hex.EncodeToString(sum[:])
 	if s, ok := r.pool.Get(req.ChatID); ok {
@@ -108,7 +113,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		}
 		r.pool.Retire(req.ChatID, s)
 	}
-	s, err := r.startSession(ctx, req, servers, own)
+	s, err := r.startSession(ctx, req, servers, own, instructions)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +134,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 // startSession starts an app server and opens the thread the chat names, or a
 // new one. A resume that fails is the turn's error: a fresh thread would
 // answer in a different conversation than the one on the user's screen.
-func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool) (*liveSession, error) {
+func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool, instructions string) (*liveSession, error) {
 	if req.SessionID != "" && threadOpenElsewhere(r.home, req.SessionID) {
 		return nil, errOpenElsewhere
 	}
@@ -156,7 +161,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 		s.close()
 		return nil, fmt.Errorf("initialize Codex: %w", withStderr(err, client))
 	}
-	params := codexappserver.ThreadParams{Cwd: req.Cwd, Config: mcpConfig(servers)}
+	params := codexappserver.ThreadParams{Cwd: req.Cwd, Config: mcpConfig(servers), DeveloperInstructions: instructions}
 	var thread codexappserver.ThreadResponse
 	if req.SessionID == "" {
 		thread, err = client.ThreadStart(open, params)

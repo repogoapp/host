@@ -27,7 +27,7 @@ func TestPairingSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := IDFor(pub)
-	if err := first.Add(Peer{ID: id, Public: pub, Label: "Phone", Platform: "ios"}); err != nil {
+	if err := first.Add(Peer{ID: id, Public: pub, Label: "Phone", Client: Client{Platform: "ios"}}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	identity, group := first.Identity().ID, first.GroupID()

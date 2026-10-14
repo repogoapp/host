@@ -22,6 +22,8 @@ type Options struct {
 	SettingSources        []string
 	AllowBypass           bool
 	MCPServers            map[string]MCPServer
+	// AppendSystemPrompt is added after Claude Code's own system prompt.
+	AppendSystemPrompt string
 }
 
 // args names the MCP config by path: written inline, its headers (API keys,
@@ -49,6 +51,9 @@ func (o Options) args(mcpConfig string) ([]string, error) {
 			sources += source
 		}
 		a = append(a, "--setting-sources="+sources)
+	}
+	if o.AppendSystemPrompt != "" {
+		a = append(a, "--append-system-prompt", o.AppendSystemPrompt)
 	}
 	if o.AllowBypass {
 		a = append(a, "--allow-dangerously-skip-permissions")

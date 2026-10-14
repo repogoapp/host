@@ -103,6 +103,7 @@ var unchecked = map[string]string{
 	"host.set_stops_at": "needs a cloud session the test host does not have; covered in internal/hostinfo",
 
 	"devices.register_push": "paired-device token storage; loopback callers are denied",
+	"devices.hello":         "paired-device record update; loopback callers are denied",
 
 	"pair.complete":        "admits a device; driven end to end by bench/e2e instead",
 	"limits.read":          "reads the Keychain, an undocumented endpoint, and a codex subprocess",
@@ -234,7 +235,7 @@ func (h *host) pair(t *testing.T) *device.Identity {
 		t.Fatal(err)
 	}
 	if err := h.devices.Add(device.Peer{
-		ID: id.ID, Public: id.Public, Label: "Conformance phone", Platform: "ios",
+		ID: id.ID, Public: id.Public, Label: "Conformance phone", Client: device.Client{Platform: "ios"},
 	}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}

@@ -27,9 +27,8 @@ type Hello struct {
 	GroupID   string `json:"group_id"`
 	Role      string `json:"role"`
 
-	ClientVersion string `json:"client_version,omitempty"`
-	Platform      string `json:"platform,omitempty"`
-	Label         string `json:"label,omitempty"`
+	Platform string `json:"platform,omitempty"`
+	Label    string `json:"label,omitempty"`
 
 	// Ed25519 over device.ChallengeMessage(nonce, server_id, wall_ms): a tagged,
 	// length-framed concatenation, independent of how this struct is encoded.

@@ -23,6 +23,8 @@ type ThreadParams struct {
 	ThreadID string         `json:"threadId,omitempty"`
 	Cwd      string         `json:"cwd,omitempty"`
 	Config   map[string]any `json:"config,omitempty"`
+	// DeveloperInstructions is added to Codex's own, never replacing them.
+	DeveloperInstructions string `json:"developerInstructions,omitempty"`
 }
 
 // ThreadResponse is what thread/start and thread/resume answer with.

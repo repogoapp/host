@@ -19,7 +19,6 @@ func TestHelloFieldsAreBounded(t *testing.T) {
 		"group":    func(h *handshake.Hello) { h.GroupID = strings.Repeat("g", 129) },
 		"label":    func(h *handshake.Hello) { h.Label = strings.Repeat("l", 257) },
 		"platform": func(h *handshake.Hello) { h.Platform = strings.Repeat("p", 65) },
-		"version":  func(h *handshake.Hello) { h.ClientVersion = strings.Repeat("v", 65) },
 		"role":     func(h *handshake.Hello) { h.Role = "unknown" },
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -28,7 +28,7 @@ func newJoiner(t *testing.T, label string) Peer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Peer{ID: id.ID, Public: id.Public, Label: label, Platform: "ios"}
+	return Peer{ID: id.ID, Public: id.Public, Label: label, Client: Client{Platform: "ios"}}
 }
 
 // A reviewer pairs more than one device, days after the code was made.

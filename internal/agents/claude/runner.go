@@ -72,10 +72,15 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		servers = r.deps.MCP(ctx, req.Cwd)
 	}
 	own := r.deps.Tools != nil && r.deps.Tools.On(req.Cwd)
+	var instructions string
+	if r.deps.Instructions != nil {
+		instructions = r.deps.Instructions(req.Device)
+	}
 	raw, _ := json.Marshal(struct {
-		Servers []agent.MCPServer
-		Own     bool
-	}{servers, own})
+		Servers      []agent.MCPServer
+		Own          bool
+		Instructions string
+	}{servers, own, instructions})
 	sum := sha256.Sum256(raw)
 	fingerprint := hex.EncodeToString(sum[:])
 	if s, ok := r.pool.Get(req.ChatID); ok {
@@ -100,7 +105,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		}
 		r.pool.Retire(req.ChatID, s)
 	}
-	s, err := r.startSession(ctx, req, servers, own)
+	s, err := r.startSession(ctx, req, servers, own, instructions)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +123,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 	return s, nil
 }
 
-func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool) (*liveSession, error) {
+func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool, instructions string) (*liveSession, error) {
 	id := req.SessionID
 	if id == "" {
 		id = uuid.NewString()
@@ -145,7 +150,8 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	env := r.environment()
 	options := claudecode.Options{Executable: r.executable(), Cwd: req.Cwd, Env: env,
-		SettingSources: []string{"user", "project", "local"}, AllowBypass: os.Geteuid() != 0 || os.Getenv("IS_SANDBOX") != "", MCPServers: configured}
+		SettingSources: []string{"user", "project", "local"}, AllowBypass: os.Geteuid() != 0 || os.Getenv("IS_SANDBOX") != "", MCPServers: configured,
+		AppendSystemPrompt: instructions}
 	s.allowBypass = options.AllowBypass
 	if req.SessionID == "" {
 		options.SessionID = id

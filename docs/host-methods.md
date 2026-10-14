@@ -372,6 +372,22 @@ Result:
 
 - `chat` object{Chat}
 
+## `devices.hello`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `platform` string (omitted when empty)
+- `kind` string (omitted when empty)
+- `version` string (omitted when empty)
+- `build` string (omitted when empty)
+- `features` object (omitted when empty) (nullable)
+
+Result:
+
+- `ok` bool
+
 ## `devices.list`
 
 Params:

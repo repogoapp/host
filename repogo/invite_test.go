@@ -85,7 +85,7 @@ func TestInvitePrintsOneSingleUseInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	joiner := device.Peer{ID: phone.ID, Public: phone.Public, Label: "iPhone", Platform: "ios"}
+	joiner := device.Peer{ID: phone.ID, Public: phone.Public, Label: "iPhone", Client: device.Client{Platform: "ios"}}
 	if _, err := pairer.Complete(joiner, device.Proof(invite.Code, phone.Public)); err != nil {
 		t.Fatalf("first use: %v", err)
 	}

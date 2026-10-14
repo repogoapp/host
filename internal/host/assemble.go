@@ -17,6 +17,7 @@ import (
 	"github.com/repogoapp/host/internal/chatlive"
 	"github.com/repogoapp/host/internal/chatsync"
 	"github.com/repogoapp/host/internal/chatwire"
+	"github.com/repogoapp/host/internal/clientprompt"
 	"github.com/repogoapp/host/internal/clitool"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
@@ -70,7 +71,15 @@ func (h *Host) openAgents() error {
 		// turn cannot start before New returns.
 		MCP:   func(ctx context.Context, cwd string) []agent.MCPServer { return h.mcps.ForTurn(ctx, cwd) },
 		Tools: h.tools,
-		Log:   h.log,
+		// Read when a session starts, so a phone's latest devices.hello counts.
+		Instructions: func(id device.ID) string {
+			peer, err := h.devices.Peer(id)
+			if err != nil {
+				return ""
+			}
+			return clientprompt.For(peer.Client)
+		},
+		Log: h.log,
 	})
 	if err != nil {
 		return err

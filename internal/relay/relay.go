@@ -461,7 +461,7 @@ func check(h handshake.Hello, signed []byte) error {
 	if h.GroupID == "" || len(h.GroupID) > 128 {
 		return errors.New("group id must be 1 to 128 bytes")
 	}
-	if len(h.DeviceID) != 2*device.IDLen || len(h.Label) > 256 || len(h.Platform) > 64 || len(h.ClientVersion) > 64 {
+	if len(h.DeviceID) != 2*device.IDLen || len(h.Label) > 256 || len(h.Platform) > 64 {
 		return errors.New("invalid hello field length")
 	}
 	if h.Role != handshake.RoleRuntime && h.Role != handshake.RoleClient {
