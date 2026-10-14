@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -94,10 +93,10 @@ func TestDirectProviderApprovalStopAndAbsentCapabilities(t *testing.T) {
 	if len(r.Adapters) != 1 || len(r.Catalogs)+len(r.Usage)+len(r.Sessions)+len(r.Hooks)+len(r.MCP) != 0 {
 		t.Fatal("absent capabilities were synthesized")
 	}
-	if got := agentcatalog.New(r.Kinds(), r.Catalogs...).One(t.Context(), "direct", false); got.Available || got.Detail != "model discovery is not supported" {
+	if got := agentcatalog.New(r.Kinds(), r.Catalogs...).One(t.Context(), "direct", agentcatalog.Install{}, false); got.Available || got.Detail != "model discovery is not supported" {
 		t.Fatalf("unsupported catalog: %+v", got)
 	}
-	if got := agentcatalog.New(r.Kinds(), r.Catalogs...).One(t.Context(), "missing", false); got.Detail != "unknown agent" {
+	if got := agentcatalog.New(r.Kinds(), r.Catalogs...).One(t.Context(), "missing", agentcatalog.Install{}, false); got.Detail != "unknown agent" {
 		t.Fatalf("unknown catalog: %+v", got)
 	}
 	if got := agentusage.New(r.Kinds(), r.Usage...).One(t.Context(), "direct"); got.Detail != "usage reporting is not supported" {
@@ -190,22 +189,42 @@ func (p *catalogProvider) Catalog(context.Context) agentcatalog.Catalog {
 func TestCatalogRetriesFailureCachesSuccessAndForgets(t *testing.T) {
 	p := &catalogProvider{}
 	s := agentcatalog.New([]agent.Kind{"fixture"}, p)
-	s.One(t.Context(), "fixture", false)
-	s.One(t.Context(), "fixture", false)
+	s.One(t.Context(), "fixture", agentcatalog.Install{}, false)
+	s.One(t.Context(), "fixture", agentcatalog.Install{}, false)
 	if p.calls != 2 {
 		t.Fatal("failure cached")
 	}
 	p.available = true
-	s.One(t.Context(), "fixture", false)
-	s.One(t.Context(), "fixture", false)
+	s.One(t.Context(), "fixture", agentcatalog.Install{}, false)
+	s.One(t.Context(), "fixture", agentcatalog.Install{}, false)
 	if p.calls != 3 {
 		t.Fatal("success not cached")
 	}
-	s.One(t.Context(), "fixture", true)
+	s.One(t.Context(), "fixture", agentcatalog.Install{}, true)
 	if p.calls != 4 {
 		t.Fatal("refresh read the cache")
 	}
-	if got := s.All(t.Context(), false); !reflect.DeepEqual(got, []agentcatalog.Catalog{{Agent: "fixture", Available: true}}) {
-		t.Fatalf("all: %+v", got)
+}
+
+func TestCatalogReadsAgainForAnotherInstall(t *testing.T) {
+	p := &catalogProvider{available: true}
+	s := agentcatalog.New([]agent.Kind{"fixture"}, p)
+	s.Warm(t.Context(), []agent.Kind{"fixture"})
+	v1 := agentcatalog.Install{Version: "1.0.0", Account: "a"}
+	s.One(t.Context(), "fixture", v1, false)
+	if p.calls != 1 {
+		t.Fatal("the warmed catalog was not kept for the first install asked with")
+	}
+	s.One(t.Context(), "fixture", agentcatalog.Install{Version: "1.1.0", Account: "a"}, false)
+	if p.calls != 2 {
+		t.Fatal("an update kept the old catalog")
+	}
+	s.One(t.Context(), "fixture", agentcatalog.Install{Version: "1.1.0", Account: "b"}, false)
+	if p.calls != 3 {
+		t.Fatal("another account kept the old catalog")
+	}
+	s.One(t.Context(), "fixture", agentcatalog.Install{Version: "1.1.0", Account: "b"}, false)
+	if p.calls != 3 {
+		t.Fatal("the same install read again")
 	}
 }

@@ -58,7 +58,7 @@ func TestModelLabel(t *testing.T) {
 		t.Errorf("before the catalog: %q, want Model 5", got)
 	}
 
-	s.One(t.Context(), agent.KindClaude, false)
+	s.One(t.Context(), agent.KindClaude, Install{}, false)
 	for id, want := range map[string]string{
 		"model-5":     "Opus",
 		"model-5[1m]": "Opus (1M context)",

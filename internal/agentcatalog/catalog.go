@@ -122,9 +122,9 @@ type Provider interface {
 	Catalog(context.Context) Catalog
 }
 
-// Service caches what it reads. A catalog changes when a CLI is upgraded and
-// costs a process spawn to read, so it is kept for hours; a failed read is not
-// kept at all, so an agent installed mid-session is asked again next time.
+// Service caches what it reads, while the CLI is the install it was read from:
+// an update or another account changes the list. A provider can add a model
+// without a release, so a list is also read again after an hour.
 type Service struct {
 	// Every agent this host knows, so one without a catalog reads as
 	// unsupported rather than unknown.
@@ -134,13 +134,21 @@ type Service struct {
 	fresh     map[agent.Kind]cached
 }
 
+// Install is the CLI a catalog was read from: its version and who it is
+// signed in as.
+type Install struct {
+	Version string
+	Account string
+}
+
 type cached struct {
 	catalog Catalog
+	install Install
 	at      time.Time
 }
 
 const (
-	ttl = 6 * time.Hour
+	ttl = time.Hour
 
 	// Both CLIs answer in a few seconds; one that hangs reports unavailable
 	// rather than holding the sheet.
@@ -152,24 +160,18 @@ func New(kinds []agent.Kind, providers ...Provider) *Service {
 	return &Service{kinds: kinds, providers: providers, fresh: map[agent.Kind]cached{}}
 }
 
-// All reads every agent concurrently; the slow one does not hold up the sheet.
-// refresh drops what was cached first, for after an update.
-func (s *Service) All(ctx context.Context, refresh bool) []Catalog {
-	return par.Map(s.providers, 0, func(p Provider) Catalog { return s.One(ctx, p.Kind(), refresh) })
-}
-
 // Warm reads kinds' catalogs into the cache, for a host starting up: the
 // first picker a phone opens is then answered without a CLI spawn.
 func (s *Service) Warm(ctx context.Context, kinds []agent.Kind) {
-	par.Map(kinds, 0, func(k agent.Kind) Catalog { return s.One(ctx, k, false) })
+	par.Map(kinds, 0, func(k agent.Kind) Catalog { return s.One(ctx, k, Install{}, false) })
 }
 
-// One reads one agent's catalog, from cache when it has not aged out and
-// refresh is false.
-func (s *Service) One(ctx context.Context, kind agent.Kind, refresh bool) Catalog {
+// One reads one agent's catalog, from cache when it was read from this
+// install within the hour and refresh is false.
+func (s *Service) One(ctx context.Context, kind agent.Kind, install Install, refresh bool) Catalog {
 	if refresh {
 		s.forget(kind)
-	} else if c, ok := s.cachedValue(kind); ok {
+	} else if c, ok := s.cachedFor(kind, install); ok {
 		return c
 	}
 
@@ -189,7 +191,7 @@ func (s *Service) One(ctx context.Context, kind agent.Kind, refresh bool) Catalo
 
 	if catalog.Available {
 		s.mu.Lock()
-		s.fresh[kind] = cached{catalog: catalog, at: time.Now()}
+		s.fresh[kind] = cached{catalog: catalog, install: install, at: time.Now()}
 		s.mu.Unlock()
 	}
 	return catalog
@@ -216,14 +218,29 @@ func (s *Service) forget(kind agent.Kind) {
 	delete(s.fresh, kind)
 }
 
-func (s *Service) cachedValue(kind agent.Kind) (Catalog, bool) {
+// cachedFor is the cached catalog when it is still good for install. One
+// warmed at start, before any install was read, takes the first one asked with.
+func (s *Service) cachedFor(kind agent.Kind, install Install) (Catalog, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.fresh[kind]
 	if !ok || time.Since(c.at) > ttl {
 		return Catalog{}, false
 	}
-	return c.catalog, true
+	if c.install == (Install{}) {
+		c.install = install
+		s.fresh[kind] = c
+	}
+	return c.catalog, c.install == install
+}
+
+// cachedValue is the last catalog read, however old: for naming a model,
+// where an older list is still better than the bare id.
+func (s *Service) cachedValue(kind agent.Kind) (Catalog, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.fresh[kind]
+	return c.catalog, ok
 }
 
 // Unavailable is a catalog with nothing to pick and detail saying why; the

@@ -30,7 +30,7 @@ func (f fakeRunner) Agents() []agent.Agent { return f.agents }
 // fakeCatalog answers every kind and records what it was asked.
 type fakeCatalog struct{ asked chan agent.Kind }
 
-func (f fakeCatalog) One(_ context.Context, kind agent.Kind, refresh bool) agentcatalog.Catalog {
+func (f fakeCatalog) One(_ context.Context, kind agent.Kind, _ agentcatalog.Install, refresh bool) agentcatalog.Catalog {
 	f.asked <- kind
 	return agentcatalog.Catalog{Agent: string(kind), Available: true, Detail: map[bool]string{true: "refreshed"}[refresh]}
 }

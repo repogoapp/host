@@ -4,6 +4,7 @@
 package hostsetup
 
 import (
+	"cmp"
 	"context"
 	"sync"
 
@@ -63,7 +64,7 @@ type Sources struct {
 		Agents() []agent.Agent
 	}
 	Catalog interface {
-		One(ctx context.Context, kind agent.Kind, refresh bool) agentcatalog.Catalog
+		One(ctx context.Context, kind agent.Kind, install agentcatalog.Install, refresh bool) agentcatalog.Catalog
 	}
 }
 
@@ -113,11 +114,21 @@ func agents(ctx context.Context, src Sources, tools []clitool.Install, refresh b
 		}
 		// A missing CLI has nothing to list, and asking would spawn nothing.
 		if install.Installed {
-			out.Catalog = src.Catalog.One(ctx, kind, refresh)
+			out.Catalog = src.Catalog.One(ctx, kind, catalogInstall(install), refresh)
 		} else {
 			out.Catalog = agentcatalog.Unavailable("not installed")
 			out.Catalog.Agent, out.Catalog.Name, out.Catalog.Icon = install.Kind, install.Name, install.Icon
 		}
 		return out
 	})
+}
+
+// catalogInstall is what an agent's model list is read from: the CLI's version
+// and its account, either of which changes what it offers.
+func catalogInstall(install clitool.Install) agentcatalog.Install {
+	out := agentcatalog.Install{Version: install.Version}
+	if install.Account != nil {
+		out.Account = cmp.Or(install.Account.Key, install.Account.Email)
+	}
+	return out
 }
