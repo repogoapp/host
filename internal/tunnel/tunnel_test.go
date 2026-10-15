@@ -248,23 +248,23 @@ func TestServesOnlyWhatItOpened(t *testing.T) {
 		t.Fatalf("gateway saw host %s, want %s", c.hostID, id.ID)
 	}
 
-	status, header, body := c.get(t, "s1", strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev")
+	status, header, body := c.get(t, "s1", strconv.Itoa(shared), "abcdefghij12.repogo.dev")
 	if status != 200 || body != "shared" {
 		t.Fatalf("open tunnel: %d %q", status, body)
 	}
-	if got := header.Get("X-Seen-Forwarded-Host"); got != "abcdefghij12.tunnels.repogo.dev" {
+	if got := header.Get("X-Seen-Forwarded-Host"); got != "abcdefghij12.repogo.dev" {
 		t.Fatalf("dev server saw X-Forwarded-Host %q", got)
 	}
 
 	for name, req := range map[string][2]string{
-		"a port this host never shared":   {strconv.Itoa(unshared), "abcdefghij12.tunnels.repogo.dev"},
-		"a LAN target":                    {"192.168.1.2:" + strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev"},
-		"a loopback name":                 {"localhost:" + strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev"},
-		"a slug this host never opened":   {strconv.Itoa(shared), "zzzzzzzzzz99.tunnels.repogo.dev"},
+		"a port this host never shared":   {strconv.Itoa(unshared), "abcdefghij12.repogo.dev"},
+		"a LAN target":                    {"192.168.1.2:" + strconv.Itoa(shared), "abcdefghij12.repogo.dev"},
+		"a loopback name":                 {"localhost:" + strconv.Itoa(shared), "abcdefghij12.repogo.dev"},
+		"a slug this host never opened":   {strconv.Itoa(shared), "zzzzzzzzzz99.repogo.dev"},
 		"another domain":                  {strconv.Itoa(shared), "abcdefghij12.example.com"},
-		"the preview gateway's domain":    {strconv.Itoa(shared), "abcdefghij12.repogo.dev"},
+		"a deeper name under the domain":  {strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev"},
 		"no Host line from the gateway":   {strconv.Itoa(shared), ""},
-		"a Host line with an extra label": {strconv.Itoa(shared), "abcdefghij12.evil.tunnels.repogo.dev"},
+		"a Host line with an extra label": {strconv.Itoa(shared), "abcdefghij12.evil.repogo.dev"},
 	} {
 		status, _, body := c.get(t, name, req[0], req[1])
 		if status != http.StatusForbidden || strings.Contains(body, "private") || body == "shared" {
@@ -274,7 +274,7 @@ func TestServesOnlyWhatItOpened(t *testing.T) {
 
 	// The phone that opened it is unpaired: the tunnel stops at once.
 	delete(ps, phone)
-	if status, _, _ := c.get(t, "s2", strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev"); status != http.StatusForbidden {
+	if status, _, _ := c.get(t, "s2", strconv.Itoa(shared), "abcdefghij12.repogo.dev"); status != http.StatusForbidden {
 		t.Fatalf("revoked opener still served: %d", status)
 	}
 	if got := s.List(); len(got) != 0 {
@@ -417,7 +417,7 @@ func TestAllowlistPersistsPrivately(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := again.List()
-	if len(got) != 1 || got[0].Port != 3000 || got[0].URL != "https://abcdefghij12.tunnels.repogo.dev" || got[0].OpenedBy != phone {
+	if len(got) != 1 || got[0].Port != 3000 || got[0].URL != "https://abcdefghij12.repogo.dev" || got[0].OpenedBy != phone {
 		t.Fatalf("reloaded %v", got)
 	}
 }
@@ -488,7 +488,7 @@ func TestBridgesWebSockets(t *testing.T) {
 		}
 	}
 	open := &tunnelwire.WSOpen{SessionID: "w1", Target: portText, Path: "/hmr", Subprotocols: []string{"vite-hmr"},
-		HeaderLines: []string{"Host: abcdefghij12.tunnels.repogo.dev"}}
+		HeaderLines: []string{"Host: abcdefghij12.repogo.dev"}}
 	if err := c.send(open); err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func TestBridgesWebSockets(t *testing.T) {
 		t.Fatalf("frame %+v", frame)
 	}
 
-	refused := &tunnelwire.WSOpen{SessionID: "w2", Target: portText, Path: "/", HeaderLines: []string{"Host: zzzzzzzzzz99.tunnels.repogo.dev"}}
+	refused := &tunnelwire.WSOpen{SessionID: "w2", Target: portText, Path: "/", HeaderLines: []string{"Host: zzzzzzzzzz99.repogo.dev"}}
 	if err := c.send(refused); err != nil {
 		t.Fatal(err)
 	}

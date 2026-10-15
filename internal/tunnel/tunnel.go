@@ -1,5 +1,5 @@
-// Package tunnel serves public `<slug>.tunnels.repogo.dev` URLs for this host's
-// dev servers through RepoGo's tunnel gateway. repogo.app decides who
+// Package tunnel serves public `<slug>.repogo.dev` URLs for this host's dev
+// servers through RepoGo's tunnel gateway. repogo.app decides who
 // may open a tunnel and writes the gateway's row; this host decides what it
 // serves: only a slug a paired device opened here, only to that slug's port,
 // only on 127.0.0.1. It dials the gateway only while a tunnel is open, and
@@ -27,7 +27,7 @@ var (
 )
 
 // Domain is where the gateway serves tunnels.
-const Domain = "tunnels.repogo.dev"
+const Domain = "repogo.dev"
 
 // DefaultGateway is where the host opens its gateway socket; its host name is
 // signed into every proof, so a proof made for it is useless anywhere else.
