@@ -35,6 +35,7 @@ Params:
 
 - `path` string
 - `name` string
+- `secrets` object (omitted when empty) (nullable)
 
 Result:
 
@@ -49,6 +50,7 @@ Params:
 
 - `path` string
 - `name` string
+- `secrets` object (omitted when empty) (nullable)
 
 Result:
 
@@ -423,28 +425,6 @@ Detached: runs to completion if the caller disconnects.
 Params:
 
 - `id` string
-
-Result:
-
-- `ok` bool
-
-## `env.pending`
-
-Params:
-
-- none
-
-Result:
-
-- `requests` [object{Request}]
-
-## `env.provide`
-
-Params:
-
-- `request_id` string
-- `approved` bool
-- `results` object (nullable)
 
 Result:
 

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
@@ -113,23 +112,6 @@ func (n *Notifier) Battery(ctx context.Context, b power.Battery) {
 		})
 		n.push(ctx, "battery", payload)
 	}
-}
-
-// EnvRequest wakes the phones when a start here is waiting for secrets and no
-// device is connected to be asked. Opening the app fetches the request with
-// env.pending; the handle names are all the body says about it.
-func (n *Notifier) EnvRequest(ctx context.Context, requestID, hostLabel string, handles []string) {
-	payload, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert": map[string]string{"title": "Share secrets?",
-				"body": hostLabel + " wants " + strings.Join(handles, ", ")},
-			"sound": "default",
-		},
-		"host_id":    n.store.Identity().ID,
-		"kind":       "env_request",
-		"request_id": requestID,
-	})
-	n.push(ctx, "env:"+requestID, payload)
 }
 
 // BrowserRequest wakes the one phone an agent wants to drive the preview on,

@@ -17,6 +17,9 @@ type Deps struct {
 type ActionParams struct {
 	Path string `json:"path"`
 	Name string `json:"name"`
+	// Secrets is the variables of the action's envFrom handles that this
+	// host does not bind, read by the phone, keyed by handle.
+	Secrets map[string]map[string]string `json:"secrets,omitempty"`
 }
 
 type ListParams struct {
@@ -47,11 +50,11 @@ func (d Deps) list(_ context.Context, _ rpc.Caller, a ListParams) (actionscore.S
 }
 
 func (d Deps) run(ctx context.Context, c rpc.Caller, a ActionParams) (actionscore.Result, error) {
-	return d.Actions.Run(ctx, c.Device, a.Path, a.Name)
+	return d.Actions.Run(ctx, c.Device, a.Path, a.Name, a.Secrets)
 }
 
 func (d Deps) start(_ context.Context, c rpc.Caller, a ActionParams) (StartResult, error) {
-	run, err := d.Actions.Start(c.Device, a.Path, a.Name)
+	run, err := d.Actions.Start(c.Device, a.Path, a.Name, a.Secrets)
 	return StartResult{Run: run}, err
 }
 

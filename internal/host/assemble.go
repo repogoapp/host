@@ -260,8 +260,12 @@ func (h *Host) openProjects() error {
 	gitService := gitcore.New(projectFiles, h.log)
 	terminals := terminal.New(projectFiles, h.emitter, h.log)
 	h.onClose(terminals.Shutdown)
+	envSources, err := envsource.Open(h.state("env-sources.json"), h.cfg.Home)
+	if err != nil {
+		return err
+	}
 	acts, err := actions.New(actions.Deps{
-		Paths: projectFiles, Store: h.db, Terminals: terminals,
+		Paths: projectFiles, Store: h.db, Terminals: terminals, EnvSources: envSources,
 		Changed: func(snap actions.Snapshot) { h.toEveryPhone(snap) },
 		Logs:    h.state("action-runs"), Log: h.log,
 	})
@@ -269,18 +273,6 @@ func (h *Host) openProjects() error {
 		return err
 	}
 	h.onClose(acts.Shutdown)
-
-	envSources, err := envsource.Open(h.state("env-sources.json"), h.cfg.Home)
-	if err != nil {
-		return err
-	}
-	envRequests := envsource.NewRequests(envSources, h.cfg.Label,
-		func(req envsource.Request) int { return h.toEveryPhone(req) },
-		func(req envsource.Request) {
-			if h.alerts != nil {
-				h.alerts.EnvRequest(h.ctx, req.RequestID, req.HostLabel, req.Handles)
-			}
-		}, h.log)
 	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes, Log: h.log})
 	gh := ghcore.New(layout, gitService, h.log)
 	h.Services.GitHub = gh
@@ -331,7 +323,7 @@ func (h *Host) openProjects() error {
 	s.Terminals = terminals
 	s.Actions = acts
 	s.Updates = hostupdate.New(update)
-	s.EnvSources, s.EnvRequests = envSources, envRequests
+	s.EnvSources = envSources
 	return nil
 }
 

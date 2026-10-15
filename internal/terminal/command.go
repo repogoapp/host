@@ -17,6 +17,7 @@ const commandScript = `trap : INT; "$1" -l -c "$2" 3>&-; printf %d "$?" >&3; exe
 type Command struct {
 	Dir string // the project; its tab strip lists the tab
 	Cmd string
+	Env map[string]string // over the host's own environment
 }
 
 // StartCommand opens a tab running c and calls ended once with the command's
@@ -37,7 +38,7 @@ func (m *Manager) StartCommand(c Command, ended func(code int, finished bool)) (
 	shell := LoginShell()
 	cmd := exec.Command("/bin/sh", "-c", commandScript, "sh", shell, c.Cmd)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	cmd.Env = append(Environ(c.Env), "TERM=xterm-256color", "COLORTERM=truecolor")
 	cmd.ExtraFiles = []*os.File{w}
 
 	s := newSession(dir, shell, cmd, 80, 24)

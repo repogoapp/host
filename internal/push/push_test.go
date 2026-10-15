@@ -120,21 +120,3 @@ func TestLowBatteryAlertsOnceUntilRecovered(t *testing.T) {
 		t.Fatalf("sent %d pushes, want 3", len(sender.Calls))
 	}
 }
-
-func TestEnvRequestCarriesItsID(t *testing.T) {
-	store, _ := storeWithPhones(t)
-	sender := &pushtest.Sender{}
-	n := New(store, sender, slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	n.EnvRequest(context.Background(), "req-1", "Studio", []string{"api-keys", "db"})
-
-	if len(sender.Calls) != 1 {
-		t.Fatalf("sent %d pushes, want 1", len(sender.Calls))
-	}
-	payload := string(sender.Calls[0].Payload)
-	for _, want := range []string{`"title":"Share secrets?"`, `"body":"Studio wants api-keys, db"`, `"kind":"env_request"`, `"request_id":"req-1"`} {
-		if !strings.Contains(payload, want) {
-			t.Errorf("payload lacks %s: %s", want, payload)
-		}
-	}
-}

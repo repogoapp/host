@@ -56,7 +56,7 @@ var methodExports = map[string]bool{
 	"tools.logout": true, "tools.uninstall": true,
 	// Env sources and folder browsing.
 	"env.sources.list": true, "env.sources.set": true, "env.sources.remove": true,
-	"env.read": true, "env.pending": true, "env.provide": true,
+	"env.read": true,
 	"fs.list": true,
 	// Browser requests.
 	"browser.pending": true, "browser.respond": true,
@@ -707,7 +707,6 @@ var EventExports = map[string]string{
 	"host.power":          "Host.Power",
 	"host.setup_changed":  "Host.SetupChanged",
 	"browser.request":     "Browser.Request",
-	"env.request":         "Env.Request",
 	"mcp.changed":         "MCP.Changed",
 	"tunnels.changed":     "Tunnels.Changed",
 	"devices.changed":     "Devices.Changed",

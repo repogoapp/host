@@ -122,6 +122,16 @@ func LoginShell() string {
 	return "/bin/sh"
 }
 
+// Environ is the host's environment with vars over it. exec keeps the last
+// value of a repeated key, so appending is enough.
+func Environ(vars map[string]string) []string {
+	env := os.Environ()
+	for key, value := range vars {
+		env = append(env, key+"="+value)
+	}
+	return env
+}
+
 // Create starts a shell in a project directory and attaches the caller.
 func (m *Manager) Create(caller device.ID, cwd string, cols, rows int) (Info, error) {
 	if cwd == "" {

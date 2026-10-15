@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/files"
 	"github.com/repogoapp/host/internal/procscan"
@@ -91,6 +93,11 @@ type Action struct {
 	// Island pins the action to the chat composer island. The host only
 	// carries it through; runs are the same either way.
 	Island bool `json:"island,omitempty"`
+	// Env is set over the host's environment, after EnvFrom's variables.
+	Env map[string]string `json:"env,omitempty"`
+	// EnvFrom names env sources by handle: read here when bound here, else
+	// sent by the phone that starts the action.
+	EnvFrom []string `json:"envFrom,omitempty"`
 }
 
 // Result is what a blocking run answers with. A non-zero exit is a result,
@@ -118,6 +125,11 @@ type Store interface {
 	PruneActionRuns(path, action string, keep int) ([]string, error)
 }
 
+// EnvSources is the dotenv files bound on this host, by handle.
+type EnvSources interface {
+	Read(handles []string) map[string]envsource.ReadResult
+}
+
 // Terminals opens a terminal run's tab and closes it.
 type Terminals interface {
 	StartCommand(terminal.Command, func(code int, finished bool)) (terminal.Info, error)
@@ -129,6 +141,8 @@ type Deps struct {
 	Paths     files.Container
 	Store     Store
 	Terminals Terminals
+	// EnvSources reads the envFrom handles bound on this host.
+	EnvSources EnvSources
 	// Changed sends a project's snapshot to every device.
 	Changed func(Snapshot)
 	// Logs is the folder detached runs write their output to.
@@ -167,7 +181,7 @@ func New(d Deps) (*Service, error) {
 		unset bool
 	}{
 		{"Paths", d.Paths == nil}, {"Store", d.Store == nil}, {"Terminals", d.Terminals == nil},
-		{"Changed", d.Changed == nil}, {"Logs", d.Logs == ""}, {"Log", d.Log == nil},
+		{"EnvSources", d.EnvSources == nil}, {"Changed", d.Changed == nil}, {"Logs", d.Logs == ""}, {"Log", d.Log == nil},
 	} {
 		if f.unset {
 			missing = append(missing, f.name)
@@ -209,7 +223,8 @@ func (s *Service) List(project string) (Snapshot, error) {
 }
 
 // Run executes one blocking action and answers with its captured output.
-func (s *Service) Run(ctx context.Context, caller device.ID, project, name string) (Result, error) {
+// sent is the caller's variables for envFrom handles bound elsewhere.
+func (s *Service) Run(ctx context.Context, caller device.ID, project, name string, sent map[string]map[string]string) (Result, error) {
 	dir, action, err := s.resolve(project, name)
 	if err != nil {
 		return Result{}, err
@@ -218,11 +233,12 @@ func (s *Service) Run(ctx context.Context, caller device.ID, project, name strin
 	if err != nil {
 		return Result{}, err
 	}
+	env := s.environment(action, sent)
 	timeout := action.life(DefaultRunTimeout)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := command(ctx, action.Cmd, cwd)
+	cmd := command(ctx, action.Cmd, cwd, env)
 	stdout := &cappedBuffer{limit: MaxOutputBytes}
 	stderr := &cappedBuffer{limit: MaxOutputBytes}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
@@ -278,7 +294,7 @@ func (s *Service) Run(ctx context.Context, caller device.ID, project, name strin
 // Start launches an action that outlives the call: in a terminal tab when it
 // asks for one, else detached with its output in a log. An action already
 // running answers with that run rather than starting a second.
-func (s *Service) Start(caller device.ID, project, name string) (store.ActionRun, error) {
+func (s *Service) Start(caller device.ID, project, name string, sent map[string]map[string]string) (store.ActionRun, error) {
 	dir, action, err := s.resolve(project, name)
 	if err != nil {
 		return store.ActionRun{}, err
@@ -287,10 +303,11 @@ func (s *Service) Start(caller device.ID, project, name string) (store.ActionRun
 	if err != nil {
 		return store.ActionRun{}, err
 	}
+	env := s.environment(action, sent)
 	if action.Terminal {
 		return s.begin(caller, dir, action, ModeTerminal, func(run *store.ActionRun) (func(store.ActionRun), error) {
 			id := run.ID
-			info, err := s.d.Terminals.StartCommand(terminal.Command{Dir: cwd, Cmd: action.Cmd},
+			info, err := s.d.Terminals.StartCommand(terminal.Command{Dir: cwd, Cmd: action.Cmd, Env: env},
 				func(code int, finished bool) { s.ended(id, code, finished) })
 			if err != nil {
 				return nil, err
@@ -306,7 +323,7 @@ func (s *Service) Start(caller device.ID, project, name string) (store.ActionRun
 		}
 		defer out.Close()
 		cmd := exec.Command(terminal.LoginShell(), "-l", "-c", action.Cmd)
-		prepare(cmd, cwd)
+		prepare(cmd, cwd, env)
 		cmd.Stdout, cmd.Stderr = out, out
 		if err := cmd.Start(); err != nil {
 			return nil, err
@@ -622,6 +639,25 @@ func (s *Service) resolveCwd(dir, cwd string) (string, error) {
 	return s.d.Paths.Contain(filepath.Join(dir, cwd))
 }
 
+// environment is what an action sets over the host's environment: each
+// envFrom handle's variables in order, then its own env, each over the last.
+// Only handles the action names are taken from sent; one missing is skipped.
+func (s *Service) environment(a Action, sent map[string]map[string]string) map[string]string {
+	env := map[string]string{}
+	bound := s.d.EnvSources.Read(a.EnvFrom)
+	for _, handle := range a.EnvFrom {
+		if here := bound[handle]; here.OK {
+			maps.Copy(env, here.Vars)
+		} else if vars, ok := sent[handle]; ok {
+			maps.Copy(env, vars)
+		} else {
+			s.d.Log.Info("action starts without an env source", "action", a.Name, "handle", handle, "here", here.Error)
+		}
+	}
+	maps.Copy(env, a.Env)
+	return env
+}
+
 // life is how long a run of a may take: its declared timeout, else fallback,
 // never past MaxRunLife.
 func (a Action) life(fallback time.Duration) time.Duration {
@@ -668,9 +704,9 @@ func load(dir string) ([]Action, error) {
 
 // command builds the shell invocation a blocking run uses: the user's login
 // shell, so an action sees the PATH the user's own terminal would.
-func command(ctx context.Context, cmdline, cwd string) *exec.Cmd {
+func command(ctx context.Context, cmdline, cwd string, env map[string]string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, terminal.LoginShell(), "-l", "-c", cmdline)
-	prepare(cmd, cwd)
+	prepare(cmd, cwd, env)
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 	}
@@ -678,12 +714,12 @@ func command(ctx context.Context, cmdline, cwd string) *exec.Cmd {
 	return cmd
 }
 
-// prepare gives a run its folder, the host's environment and a process group
-// of its own, so stopping it stops its children too: a `bun run dev` is a
-// tree, not a process.
-func prepare(cmd *exec.Cmd, cwd string) {
+// prepare gives a run its folder, the host's environment with env over it, and
+// a process group of its own, so stopping it stops its children too: a
+// `bun run dev` is a tree, not a process.
+func prepare(cmd *exec.Cmd, cwd string, env map[string]string) {
 	cmd.Dir = cwd
-	cmd.Env = os.Environ()
+	cmd.Env = terminal.Environ(env)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 

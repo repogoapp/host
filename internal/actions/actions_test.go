@@ -14,6 +14,7 @@ import (
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
 	"github.com/repogoapp/host/internal/testwait"
@@ -35,15 +36,31 @@ func (c containRoot) Contain(path string) (string, error) {
 }
 
 // harness is a service on a temporary state.db and real terminals, keeping
-// every snapshot it announces.
+// every snapshot it announces. bound is the env sources bound on its host.
 type harness struct {
 	*Service
 	dir   string
 	db    *store.Store
 	terms *terminal.Manager
+	bound boundHere
 
 	mu    sync.Mutex
 	snaps []Snapshot
+}
+
+// boundHere is a host's env sources: each handle's variables.
+type boundHere map[string]map[string]string
+
+func (b boundHere) Read(handles []string) map[string]envsource.ReadResult {
+	out := map[string]envsource.ReadResult{}
+	for _, handle := range handles {
+		if vars, ok := b[handle]; ok {
+			out[handle] = envsource.ReadResult{OK: true, Vars: vars}
+		} else {
+			out[handle] = envsource.ReadResult{Error: envsource.NotBound}
+		}
+	}
+	return out
 }
 
 type nopTransport struct{}
@@ -62,7 +79,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { db.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := &harness{dir: dir, db: db, terms: terminal.New(containRoot(dir), emit.New(nopTransport{}, log), log)}
+	h := &harness{dir: dir, db: db, bound: boundHere{}, terms: terminal.New(containRoot(dir), emit.New(nopTransport{}, log), log)}
 	t.Cleanup(h.terms.Shutdown)
 	h.Service = h.open(t)
 	return h
@@ -73,6 +90,7 @@ func (h *harness) open(t *testing.T) *Service {
 	t.Helper()
 	s, err := New(Deps{
 		Paths: containRoot(h.dir), Store: h.db, Terminals: h.terms, Logs: filepath.Join(h.dir, ".logs"),
+		EnvSources: h.bound,
 		Changed: func(snap Snapshot) {
 			h.mu.Lock()
 			h.snaps = append(h.snaps, snap)
@@ -149,6 +167,28 @@ func TestListParsesTheRepogoSchema(t *testing.T) {
 	}
 }
 
+func TestEnvFromThenEnvSetTheRunsVariables(t *testing.T) {
+	h := newHarness(t)
+	h.bound["here"] = map[string]string{"A": "here"}
+	write(t, h.dir, `{"actions":[
+		{"name":"vars","cmd":"echo $A $B $C $D","envFrom":["here","sent","gone"],"env":{"C":"inline"}}
+	]}`)
+	sent := map[string]map[string]string{
+		"here":   {"A": "phone"},
+		"sent":   {"B": "3", "C": "handle"},
+		"unused": {"D": "not named by the action"},
+	}
+	result, err := h.Run(t.Context(), "phone", h.dir, "vars", sent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A handle bound here is read here, one bound elsewhere comes from the
+	// phone, env wins over both, and a handle the action doesn't name is dropped.
+	if got := strings.TrimSpace(result.Stdout); got != "here 3 inline" {
+		t.Fatalf("stdout = %q, want %q", got, "here 3 inline")
+	}
+}
+
 func TestListMalformedIsErrMalformed(t *testing.T) {
 	s, dir := newTestService(t)
 	write(t, dir, `{"actions": not json`)
@@ -164,7 +204,7 @@ func TestRunCapturesOutputAndExitCode(t *testing.T) {
 		{"name":"fails","cmd":"exit 3"}
 	]}`)
 
-	result, err := s.Run(context.Background(), "a", dir, "hello")
+	result, err := s.Run(context.Background(), "a", dir, "hello", nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -176,7 +216,7 @@ func TestRunCapturesOutputAndExitCode(t *testing.T) {
 	}
 
 	// A non-zero exit is a result, not an error.
-	result, err = s.Run(context.Background(), "a", dir, "fails")
+	result, err = s.Run(context.Background(), "a", dir, "fails", nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -188,7 +228,7 @@ func TestRunCapturesOutputAndExitCode(t *testing.T) {
 func TestRunUnknownActionIsErrUnknownAction(t *testing.T) {
 	s, dir := newTestService(t)
 	write(t, dir, `{"actions":[{"name":"a","cmd":"true"}]}`)
-	if _, err := s.Run(context.Background(), "a", dir, "nope"); !errors.Is(err, ErrUnknownAction) {
+	if _, err := s.Run(context.Background(), "a", dir, "nope", nil); !errors.Is(err, ErrUnknownAction) {
 		t.Fatalf("got %v, want ErrUnknownAction", err)
 	}
 }
@@ -197,7 +237,7 @@ func TestRunTimesOut(t *testing.T) {
 	s, dir := newTestService(t)
 	write(t, dir, `{"actions":[{"name":"slow","cmd":"sleep 30","timeoutMs":200}]}`)
 	start := time.Now()
-	if _, err := s.Run(context.Background(), "a", dir, "slow"); err == nil {
+	if _, err := s.Run(context.Background(), "a", dir, "slow", nil); err == nil {
 		t.Fatal("a timed-out run must be an error")
 	}
 	if time.Since(start) > 10*time.Second {
@@ -211,10 +251,10 @@ func TestCwdCannotEscapeTheProject(t *testing.T) {
 		{"name":"escape","cmd":"pwd","cwd":"../../.."},
 		{"name":"abs","cmd":"pwd","cwd":"/tmp"}
 	]}`)
-	if _, err := s.Run(context.Background(), "a", dir, "escape"); err == nil {
+	if _, err := s.Run(context.Background(), "a", dir, "escape", nil); err == nil {
 		t.Fatal("a cwd above the project must be refused")
 	}
-	if _, err := s.Run(context.Background(), "a", dir, "abs"); !errors.Is(err, ErrMalformed) {
+	if _, err := s.Run(context.Background(), "a", dir, "abs", nil); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("an absolute cwd answered %v, want ErrMalformed", err)
 	}
 }
@@ -225,7 +265,7 @@ func TestDetachedRunIsKeptAndStopped(t *testing.T) {
 	h := newHarness(t)
 	write(t, h.dir, `{"actions":[{"name":"bg","cmd":"echo hello; touch ran; sleep 60","detach":true}]}`)
 
-	run, err := h.Start("phone", h.dir, "bg")
+	run, err := h.Start("phone", h.dir, "bg", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -235,7 +275,7 @@ func TestDetachedRunIsKeptAndStopped(t *testing.T) {
 	if snap := h.last(); len(snap.Runs) != 1 || snap.Runs[0].ID != run.ID {
 		t.Fatalf("announced %+v, want the run", snap.Runs)
 	}
-	again, err := h.Start("other", h.dir, "bg")
+	again, err := h.Start("other", h.dir, "bg", nil)
 	if err != nil || again.ID != run.ID {
 		t.Fatalf("second Start = %+v, %v; want the running one", again, err)
 	}
@@ -262,7 +302,7 @@ func TestDetachedRunIsKeptAndStopped(t *testing.T) {
 func TestDetachedExitKeepsItsCode(t *testing.T) {
 	h := newHarness(t)
 	write(t, h.dir, `{"actions":[{"name":"bg","cmd":"exit 4","detach":true}]}`)
-	run, err := h.Start("phone", h.dir, "bg")
+	run, err := h.Start("phone", h.dir, "bg", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +321,7 @@ func TestTerminalRunSettlesFromItsTab(t *testing.T) {
 		{"name":"once","cmd":"exit 5","terminal":true},
 		{"name":"server","cmd":"sleep 60","terminal":true}
 	]}`)
-	once, err := h.Start("phone", h.dir, "once")
+	once, err := h.Start("phone", h.dir, "once", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +336,7 @@ func TestTerminalRunSettlesFromItsTab(t *testing.T) {
 		t.Error("the tab closed with its command")
 	}
 
-	server, err := h.Start("phone", h.dir, "server")
+	server, err := h.Start("phone", h.dir, "server", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +360,7 @@ func hasTab(m *terminal.Manager, dir, id string) bool {
 func TestRestartAdoptsTheSameProcessAndLosesTheRest(t *testing.T) {
 	h := newHarness(t)
 	write(t, h.dir, `{"actions":[{"name":"bg","cmd":"sleep 60","detach":true}]}`)
-	run, err := h.Start("phone", h.dir, "bg")
+	run, err := h.Start("phone", h.dir, "bg", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +393,7 @@ func TestEndedRunsArePruned(t *testing.T) {
 	write(t, h.dir, `{"actions":[{"name":"a","cmd":"true"}]}`)
 	var first string
 	for i := range KeepRuns + 2 {
-		if _, err := h.Run(context.Background(), "phone", h.dir, "a"); err != nil {
+		if _, err := h.Run(context.Background(), "phone", h.dir, "a", nil); err != nil {
 			t.Fatal(err)
 		}
 		if i == 0 {

@@ -121,10 +121,8 @@ type Config struct {
 	MCP     *mcpcore.Service
 	Browser *repogomcp.Browser
 
-	// EnvSources is the dotenv files bound here; EnvRequests brokers this
-	// host's own starts.
-	EnvSources  *envsource.Sources
-	EnvRequests *envsource.Requests
+	// EnvSources is the dotenv files bound here.
+	EnvSources *envsource.Sources
 
 	// Tunnels serves this host's public URLs.
 	Tunnels *tunnel.Service
@@ -164,7 +162,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})
 	mcprpc.Register(r, mcprpc.Deps{MCP: cfg.MCP})
 	browserrpc.Register(r, browserrpc.Deps{Browser: cfg.Browser})
-	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources, Requests: cfg.EnvRequests})
+	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
 	chats.Register(r, chats.Deps{Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire})

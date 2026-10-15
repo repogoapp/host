@@ -138,18 +138,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 Signal: not replayed; a missed one is recovered by refetching.
 
 
-## `env.request`
-
-Signal: not replayed; a missed one is recovered by refetching.
-
-- `request_id` string
-- `host_label` string
-- `path` string
-- `handles` [string]
-- `services` [string]
-- `expires_at` string
-- `state` string
-
 ## `forward.pipe_closed`
 
 Signal: not replayed; a missed one is recovered by refetching.

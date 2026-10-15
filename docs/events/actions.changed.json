@@ -12,7 +12,13 @@
       "timeoutMs": 1,
       "detach": true,
       "terminal": true,
-      "island": true
+      "island": true,
+      "env": {
+        "env": "env"
+      },
+      "envFrom": [
+        "envFrom"
+      ]
     }
   ],
   "runs": [
