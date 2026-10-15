@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/repogoapp/host/internal/agent"
@@ -31,12 +32,15 @@ func titleFor(meta session.Meta, events []agent.Event) string {
 		}
 		// Already prose: the parser strips command wrappers and reminder blocks before
 		// an event is produced.
-		if t := openingWords(e.Text); t != "" {
+		if t := promptTitle(e.Text); t != "" {
 			return t
 		}
 	}
 	return ""
 }
+
+// promptTitle is a prompt's title: its words, without attachment links.
+func promptTitle(text string) string { return openingWords(promptWords(text)) }
 
 // openingWords reduces a prompt to its first few words on one line.
 func openingWords(text string) string {
@@ -63,6 +67,64 @@ func openingWords(text string) string {
 		out = strings.TrimRight(out, ".,;:!?") + "…"
 	}
 	return out
+}
+
+// promptWords is what a title or preview shows of a prompt: the answers in a
+// question reply's envelope, else the prompt without its attachment links.
+func promptWords(text string) string {
+	if answers := questionAnswers(text); answers != "" {
+		return answers
+	}
+	return withoutAttachments(text)
+}
+
+// questionAnswers reads the envelope a client wraps answers to an agent's
+// questions in; empty for any other text.
+func questionAnswers(text string) string {
+	const open, close = "<send_user_message_question_reply>", "</send_user_message_question_reply>"
+	body, ok := strings.CutPrefix(strings.TrimSpace(text), open)
+	if body, ok = strings.CutSuffix(body, close); !ok {
+		return ""
+	}
+	var replies []struct {
+		Answer string `json:"answer"`
+	}
+	if json.Unmarshal([]byte(body), &replies) != nil {
+		return ""
+	}
+	var answers []string
+	for _, r := range replies {
+		if a := strings.TrimSpace(r.Answer); a != "" {
+			answers = append(answers, a)
+		}
+	}
+	return strings.Join(answers, " · ")
+}
+
+// withoutAttachments drops the `[@name](file:///…)` links the bridges write
+// for each attachment (`https://` for a v1 image).
+func withoutAttachments(text string) string {
+	var out strings.Builder
+	rest := text
+	for {
+		open := strings.Index(rest, "[@")
+		if open < 0 {
+			break
+		}
+		name, after, ok := strings.Cut(rest[open+2:], "](")
+		target, tail, closed := strings.Cut(after, ")")
+		if !ok || !closed {
+			break
+		}
+		out.WriteString(rest[:open])
+		isLink := strings.HasPrefix(target, "file:///") || strings.HasPrefix(target, "https://")
+		if name == "" || strings.Contains(name, "\n") || !isLink {
+			out.WriteString(rest[open : len(rest)-len(tail)])
+		}
+		rest = tail
+	}
+	out.WriteString(rest)
+	return out.String()
 }
 
 func collapseSpace(s string) string { return strings.Join(strings.Fields(s), " ") }

@@ -266,7 +266,7 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 			&c.QueuedCount, &c.QueueRevision); err != nil {
 			return nil, err
 		}
-		c.LastUserMessagePreview = previewOf(c.LastUserMessagePreview)
+		c.LastUserMessagePreview = previewOf(promptWords(c.LastUserMessagePreview))
 		c.ID, c.Agent = chatID(agent, sessionID), agent
 		out = append(out, c)
 	}

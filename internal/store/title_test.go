@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/session"
@@ -76,5 +77,47 @@ func TestOpeningWordsDropsTheStopBeforeTheEllipsis(t *testing.T) {
 func TestOpeningWordsKeepsAShortPromptWhole(t *testing.T) {
 	if got := openingWords("ship it"); got != "ship it" {
 		t.Errorf("openingWords = %q, want no ellipsis on a short prompt", got)
+	}
+}
+
+func TestTitleForDropsAttachmentLinks(t *testing.T) {
+	events := []agent.Event{user("Just call this in sync project tabs [@image-1.jpg](file:///Users/me/.repogo/attachments/a/image-1.jpg)")}
+	if got := titleFor(session.Meta{}, events); got != "Just call this in sync project tabs" {
+		t.Errorf("titleFor = %q, want the prompt without its attachment link", got)
+	}
+}
+
+// A chat sent from the phone is titled at turn start, before any transcript
+// line, so that path drops attachment links too.
+func TestTurnStartTitleDropsAttachmentLinks(t *testing.T) {
+	db := newStore(t)
+	started := time.UnixMilli(1_000)
+	sent := TurnObservation{Key: ManagerTurnPrefix + "t1", StartedAt: &started,
+		Prompt: "How can I have pinned chats not show twice [@image-1.jpg](file:///Users/me/.repogo/attachments/a/image-1.jpg)"}
+	if err := db.SetStatus("claude:new", "/w", agent.ChatWorking, started, sent); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := db.Info("claude:new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chat.Title != "How can I have pinned chats not show twice" {
+		t.Errorf("title = %q, want the prompt without its attachment link", chat.Title)
+	}
+}
+
+func TestWithoutAttachmentsKeepsOrdinaryLinks(t *testing.T) {
+	text := "see [@a.png](file:///tmp/a.png) and [docs](https://x.dev) [@b](https://x.dev/b.png)"
+	if got := collapseSpace(withoutAttachments(text)); got != "see and [docs](https://x.dev)" {
+		t.Errorf("withoutAttachments = %q", got)
+	}
+}
+
+func TestPromptWordsShowsTheAnswersToAQuestion(t *testing.T) {
+	text := "<send_user_message_question_reply>\n" +
+		`[{"answer":"Plugged in","question":"Connect the iPhone?","questionItemId":"x"},{"answer":"Yes","question":"Record?","questionItemId":"y"}]` +
+		"\n</send_user_message_question_reply>"
+	if got := promptWords(text); got != "Plugged in · Yes" {
+		t.Errorf("promptWords = %q, want the answers", got)
 	}
 }

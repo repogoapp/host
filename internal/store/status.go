@@ -68,7 +68,7 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 	}
 	requested := turn.Title
 	if requested == "" {
-		requested = openingWords(turn.Prompt)
+		requested = promptTitle(turn.Prompt)
 	}
 	_, err = tx.Exec(statusUpsert,
 		provider, sessionID, cwd, requested, model, string(turn.PermissionMode),
