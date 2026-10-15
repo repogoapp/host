@@ -1,5 +1,5 @@
-// Package tunnel serves public `<slug>.repogo.dev` URLs for this host's dev
-// servers through RepoGo's preview gateway. repogo.app decides who
+// Package tunnel serves public `<slug>.tunnels.repogo.dev` URLs for this host's
+// dev servers through RepoGo's tunnel gateway. repogo.app decides who
 // may open a tunnel and writes the gateway's row; this host decides what it
 // serves: only a slug a paired device opened here, only to that slug's port,
 // only on 127.0.0.1. It dials the gateway only while a tunnel is open, and
@@ -27,11 +27,11 @@ var (
 )
 
 // Domain is where the gateway serves tunnels.
-const Domain = "repogo.dev"
+const Domain = "tunnels.repogo.dev"
 
-// DefaultGateway is the gateway's gRPC address; its host name is signed into
-// every proof, so a proof made for it is useless anywhere else.
-const DefaultGateway = "gateway.repogo.dev:50051"
+// DefaultGateway is where the host opens its gateway socket; its host name is
+// signed into every proof, so a proof made for it is useless anywhere else.
+const DefaultGateway = "tunnels.repogo.dev"
 
 // MaxDuration matches repogo.app's longest tunnel, with room for clock skew.
 const MaxDuration = 7*24*time.Hour + 5*time.Minute
@@ -59,7 +59,8 @@ type Config struct {
 	Path     string
 	Identity *device.Identity
 	Peers    Peers
-	// Gateway is host:port; Plaintext skips TLS, for a local gateway or a test.
+	// Gateway is a host name with an optional port; Plaintext skips TLS, for a
+	// local gateway or a test.
 	Gateway   string
 	Plaintext bool
 	// Changed is told the whole list after every change, for tunnels.changed.

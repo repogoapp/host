@@ -18,80 +18,99 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc"
+	"github.com/coder/websocket"
 
 	"github.com/repogoapp/host/internal/device"
-	gw "github.com/repogoapp/host/internal/tunnel/wire/gateway"
-	pv "github.com/repogoapp/host/internal/tunnel/wire/preview"
+	"github.com/repogoapp/host/tunnelwire"
 )
 
-// fakeGateway is the preview gateway's host handshake and nothing else: it
-// challenges, checks the proof as hostproof.go does, and hands the stream to
+// fakeGateway is the tunnel gateway's host handshake and nothing else: it
+// challenges, checks the proof as the gateway does, and hands the socket to
 // the test, which then plays the gateway's side of requests.
 type fakeGateway struct {
-	gw.UnimplementedPreviewGatewayServer
 	id    string // the gateway_id it challenges with
 	conns chan *fakeConn
 	addr  string
 }
 
 type fakeConn struct {
-	stream gw.PreviewGateway_ConnectServer
+	ctx    context.Context
+	conn   *websocket.Conn
 	hostID device.ID
-	in     chan *gw.ClientMessage
+	in     chan tunnelwire.Message
 }
 
 func newFakeGateway(t *testing.T, id string) *fakeGateway {
 	t.Helper()
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := &fakeGateway{id: id, conns: make(chan *fakeConn, 4), addr: lis.Addr().String()}
-	srv := grpc.NewServer()
-	gw.RegisterPreviewGatewayServer(srv, g)
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
+	g := &fakeGateway{id: id, conns: make(chan *fakeConn, 4)}
+	srv := httptest.NewServer(http.HandlerFunc(g.connect))
+	t.Cleanup(srv.Close)
+	g.addr = srv.Listener.Addr().String()
 	return g
 }
 
-func (g *fakeGateway) Connect(stream gw.PreviewGateway_ConnectServer) error {
-	hello, err := stream.Recv()
-	if err != nil {
-		return err
+func (g *fakeGateway) connect(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != tunnelwire.ConnectPath {
+		http.NotFound(w, r)
+		return
 	}
-	pub := ed25519.PublicKey(hello.GetHello().GetPublicKey())
-	if len(pub) != ed25519.PublicKeySize {
-		return io.ErrUnexpectedEOF
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+	conn.SetReadLimit(tunnelwire.MaxMessage)
+	c := &fakeConn{ctx: r.Context(), conn: conn, in: make(chan tunnelwire.Message, 64)}
+	hello, ok := c.read().(*tunnelwire.Hello)
+	if !ok || len(hello.PublicKey) != ed25519.PublicKeySize {
+		return
 	}
 	nonce := make([]byte, 32)
 	_, _ = rand.Read(nonce)
 	now := uint64(time.Now().UnixMilli())
-	if err := stream.Send(&gw.ServerMessage{Body: &gw.ServerMessage_Challenge{Challenge: &gw.HostChallenge{Nonce: nonce, GatewayId: g.id, Time: now}}}); err != nil {
-		return err
+	if c.send(&tunnelwire.Challenge{Nonce: nonce, GatewayID: g.id, Time: now}) != nil {
+		return
 	}
-	proof, err := stream.Recv()
-	if err != nil {
-		return err
-	}
+	proof, ok := c.read().(*tunnelwire.Proof)
 	// Built here byte by byte, independently of ProofMessage.
 	msg := []byte("repogo-tunnel/1|" + string(nonce) + "|" + g.id + "|" + strconv.FormatUint(now, 10))
-	if !ed25519.Verify(pub, msg, proof.GetProof().GetSignature()) {
-		return io.ErrUnexpectedEOF
+	if !ok || !ed25519.Verify(hello.PublicKey, msg, proof.Signature) {
+		return
 	}
-	if err := stream.Send(&gw.ServerMessage{Body: &gw.ServerMessage_Ready{Ready: &gw.Ready{}}}); err != nil {
-		return err
+	if c.send(&tunnelwire.Ready{}) != nil {
+		return
 	}
-	c := &fakeConn{stream: stream, hostID: device.IDFor(pub), in: make(chan *gw.ClientMessage, 64)}
+	c.hostID = device.IDFor(hello.PublicKey)
 	g.conns <- c
+	defer close(c.in)
 	for {
-		m, err := stream.Recv()
-		if err != nil {
-			close(c.in)
-			return err
+		m := c.read()
+		if m == nil {
+			return
 		}
 		c.in <- m
 	}
+}
+
+// read is the next message, or nil once the socket ends.
+func (c *fakeConn) read() tunnelwire.Message {
+	_, b, err := c.conn.Read(c.ctx)
+	if err != nil {
+		return nil
+	}
+	m, err := tunnelwire.Decode(b)
+	if err != nil {
+		return nil
+	}
+	return m
+}
+
+func (c *fakeConn) send(m tunnelwire.Message) error {
+	b, err := tunnelwire.Encode(m)
+	if err != nil {
+		return err
+	}
+	return c.conn.Write(c.ctx, websocket.MessageBinary, b)
 }
 
 func (g *fakeGateway) accept(t *testing.T) *fakeConn {
@@ -112,8 +131,7 @@ func (c *fakeConn) get(t *testing.T, id, target, host string) (int, http.Header,
 	if host != "" {
 		lines = append(lines, "Host: "+host)
 	}
-	req := &pv.PreviewRequest{SessionId: id, Method: "GET", Path: "/hello", Target: target, HeaderLines: lines}
-	if err := c.stream.Send(&gw.ServerMessage{Body: &gw.ServerMessage_HttpRequest{HttpRequest: req}}); err != nil {
+	if err := c.send(&tunnelwire.Request{SessionID: id, Method: "GET", Path: "/hello", Target: target, HeaderLines: lines}); err != nil {
 		t.Fatal(err)
 	}
 	var status int
@@ -126,20 +144,26 @@ func (c *fakeConn) get(t *testing.T, id, target, host string) (int, http.Header,
 			if !ok {
 				t.Fatal("stream closed")
 			}
-			if r := m.GetHttpResponse(); r != nil && r.SessionId == id {
-				status = int(r.Response.Status)
-				for _, l := range r.Response.HeaderLines {
+			switch m := m.(type) {
+			case *tunnelwire.Response:
+				if m.SessionID != id {
+					continue
+				}
+				status = m.Status
+				for _, l := range m.HeaderLines {
 					k, v, _ := strings.Cut(l, ": ")
 					header.Add(k, v)
 				}
-				body.Write(r.Response.Body)
-				if !r.Response.Streaming {
+				body.Write(m.Body)
+				if !m.Streaming {
 					return status, header, body.String()
 				}
-			}
-			if ch := m.GetHttpBodyChunk(); ch != nil && ch.SessionId == id {
-				body.Write(ch.Data)
-				if ch.EndOfStream {
+			case *tunnelwire.BodyChunk:
+				if m.SessionID != id {
+					continue
+				}
+				body.Write(m.Data)
+				if m.EndOfStream {
 					return status, header, body.String()
 				}
 			}
@@ -224,22 +248,23 @@ func TestServesOnlyWhatItOpened(t *testing.T) {
 		t.Fatalf("gateway saw host %s, want %s", c.hostID, id.ID)
 	}
 
-	status, header, body := c.get(t, "s1", strconv.Itoa(shared), "abcdefghij12.repogo.dev")
+	status, header, body := c.get(t, "s1", strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev")
 	if status != 200 || body != "shared" {
 		t.Fatalf("open tunnel: %d %q", status, body)
 	}
-	if got := header.Get("X-Seen-Forwarded-Host"); got != "abcdefghij12.repogo.dev" {
+	if got := header.Get("X-Seen-Forwarded-Host"); got != "abcdefghij12.tunnels.repogo.dev" {
 		t.Fatalf("dev server saw X-Forwarded-Host %q", got)
 	}
 
 	for name, req := range map[string][2]string{
-		"a port this host never shared":   {strconv.Itoa(unshared), "abcdefghij12.repogo.dev"},
-		"a LAN target":                    {"192.168.1.2:" + strconv.Itoa(shared), "abcdefghij12.repogo.dev"},
-		"a loopback name":                 {"localhost:" + strconv.Itoa(shared), "abcdefghij12.repogo.dev"},
-		"a slug this host never opened":   {strconv.Itoa(shared), "zzzzzzzzzz99.repogo.dev"},
+		"a port this host never shared":   {strconv.Itoa(unshared), "abcdefghij12.tunnels.repogo.dev"},
+		"a LAN target":                    {"192.168.1.2:" + strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev"},
+		"a loopback name":                 {"localhost:" + strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev"},
+		"a slug this host never opened":   {strconv.Itoa(shared), "zzzzzzzzzz99.tunnels.repogo.dev"},
 		"another domain":                  {strconv.Itoa(shared), "abcdefghij12.example.com"},
+		"the preview gateway's domain":    {strconv.Itoa(shared), "abcdefghij12.repogo.dev"},
 		"no Host line from the gateway":   {strconv.Itoa(shared), ""},
-		"a Host line with an extra label": {strconv.Itoa(shared), "abcdefghij12.evil.repogo.dev"},
+		"a Host line with an extra label": {strconv.Itoa(shared), "abcdefghij12.evil.tunnels.repogo.dev"},
 	} {
 		status, _, body := c.get(t, name, req[0], req[1])
 		if status != http.StatusForbidden || strings.Contains(body, "private") || body == "shared" {
@@ -249,7 +274,7 @@ func TestServesOnlyWhatItOpened(t *testing.T) {
 
 	// The phone that opened it is unpaired: the tunnel stops at once.
 	delete(ps, phone)
-	if status, _, _ := c.get(t, "s2", strconv.Itoa(shared), "abcdefghij12.repogo.dev"); status != http.StatusForbidden {
+	if status, _, _ := c.get(t, "s2", strconv.Itoa(shared), "abcdefghij12.tunnels.repogo.dev"); status != http.StatusForbidden {
 		t.Fatalf("revoked opener still served: %d", status)
 	}
 	if got := s.List(); len(got) != 0 {
@@ -392,7 +417,7 @@ func TestAllowlistPersistsPrivately(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := again.List()
-	if len(got) != 1 || got[0].Port != 3000 || got[0].URL != "https://abcdefghij12.repogo.dev" || got[0].OpenedBy != phone {
+	if len(got) != 1 || got[0].Port != 3000 || got[0].URL != "https://abcdefghij12.tunnels.repogo.dev" || got[0].OpenedBy != phone {
 		t.Fatalf("reloaded %v", got)
 	}
 }
@@ -420,5 +445,70 @@ func TestOpenRefusesTheHostsOwnPort(t *testing.T) {
 	s, _ := newService(t, "127.0.0.1:1", peers{phone: {ID: phone}})
 	if _, err := s.Open(phone, "abcdefghij12", ownPort, inAnHour()); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Open(own port) = %v, want ErrInvalid", err)
+	}
+}
+
+// A visitor's WebSocket reaches the dev server and frames flow both ways.
+func TestBridgesWebSockets(t *testing.T) {
+	g := newFakeGateway(t, "127.0.0.1")
+	s, _ := newService(t, g.addr, peers{phone: {ID: phone}})
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"vite-hmr"}})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			typ, data, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			if conn.Write(r.Context(), typ, append([]byte("echo:"), data...)) != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(echo.Close)
+	_, portText, _ := net.SplitHostPort(echo.Listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	run(t, s)
+	if _, err := s.Open(phone, "abcdefghij12", port, inAnHour()); err != nil {
+		t.Fatal(err)
+	}
+	c := g.accept(t)
+
+	next := func() tunnelwire.Message {
+		t.Helper()
+		select {
+		case m := <-c.in:
+			return m
+		case <-time.After(5 * time.Second):
+			t.Fatal("no message from the host")
+			return nil
+		}
+	}
+	open := &tunnelwire.WSOpen{SessionID: "w1", Target: portText, Path: "/hmr", Subprotocols: []string{"vite-hmr"},
+		HeaderLines: []string{"Host: abcdefghij12.tunnels.repogo.dev"}}
+	if err := c.send(open); err != nil {
+		t.Fatal(err)
+	}
+	ack, ok := next().(*tunnelwire.WSOpenAck)
+	if !ok || ack.CloseCode != 0 || ack.Subprotocol != "vite-hmr" {
+		t.Fatalf("ack %+v", ack)
+	}
+	if err := c.send(&tunnelwire.WSFrame{SessionID: "w1", Binary: true, Data: []byte("hi")}); err != nil {
+		t.Fatal(err)
+	}
+	frame, ok := next().(*tunnelwire.WSFrame)
+	if !ok || !frame.Binary || string(frame.Data) != "echo:hi" {
+		t.Fatalf("frame %+v", frame)
+	}
+
+	refused := &tunnelwire.WSOpen{SessionID: "w2", Target: portText, Path: "/", HeaderLines: []string{"Host: zzzzzzzzzz99.tunnels.repogo.dev"}}
+	if err := c.send(refused); err != nil {
+		t.Fatal(err)
+	}
+	if ack, ok := next().(*tunnelwire.WSOpenAck); !ok || ack.CloseCode != int(websocket.StatusPolicyViolation) {
+		t.Fatalf("unopened slug: %+v", ack)
 	}
 }

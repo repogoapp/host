@@ -2,34 +2,23 @@ package tunnel
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
+	"github.com/coder/websocket"
 
 	"github.com/repogoapp/host/internal/redial"
-	gw "github.com/repogoapp/host/internal/tunnel/wire/gateway"
+	"github.com/repogoapp/host/tunnelwire"
 )
 
 // nonceLen is the challenge nonce's size; the gateway makes 32 bytes.
 const nonceLen = 32
 
-// ProofMessage is what the host signs to answer the gateway's challenge; the
-// gateway's hostproof.go builds the same bytes.
-func ProofMessage(nonce []byte, gatewayID string, timeMS uint64) []byte {
-	msg := []byte("repogo-tunnel/1|")
-	msg = append(msg, nonce...)
-	msg = append(msg, '|')
-	msg = append(msg, gatewayID...)
-	return fmt.Appendf(append(msg, '|'), "%d", timeMS)
-}
+// pingEvery keeps the socket alive through idle NATs and notices a dead gateway.
+const pingEvery = 30 * time.Second
 
 func (s *Service) dialLoop(ctx context.Context) {
 	redial.Run(ctx, func(ctx context.Context) error {
@@ -40,49 +29,64 @@ func (s *Service) dialLoop(ctx context.Context) {
 	})
 }
 
-// link is one gateway stream: its sender and the WebSockets it carries.
+// link is one gateway socket: its sender and the WebSockets it carries.
 type link struct {
-	s      *Service
-	stream grpc.BidiStreamingClient[gw.ClientMessage, gw.ServerMessage]
+	s    *Service
+	ctx  context.Context
+	conn *websocket.Conn
 
 	sendMu sync.Mutex
 	mu     sync.Mutex
 	ws     map[string]*wsSession
 }
 
-func (l *link) send(m *gw.ClientMessage) error {
+func (l *link) send(m tunnelwire.Message) error {
+	b, err := tunnelwire.Encode(m)
+	if err != nil {
+		return err
+	}
 	l.sendMu.Lock()
 	defer l.sendMu.Unlock()
-	return l.stream.Send(m)
+	return l.conn.Write(l.ctx, websocket.MessageBinary, b)
+}
+
+func (l *link) recv() (tunnelwire.Message, error) {
+	_, b, err := l.conn.Read(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+	return tunnelwire.Decode(b)
+}
+
+// gatewayURL is the connect address and the name the gateway must sign for.
+func (s *Service) gatewayURL() (url, gatewayID string) {
+	gatewayID = s.cfg.Gateway
+	if host, _, err := net.SplitHostPort(s.cfg.Gateway); err == nil {
+		gatewayID = host
+	}
+	scheme := "wss://"
+	if s.cfg.Plaintext {
+		scheme = "ws://"
+	}
+	return scheme + s.cfg.Gateway + tunnelwire.ConnectPath, gatewayID
 }
 
 func (s *Service) connect(ctx context.Context) error {
-	gatewayID, _, err := net.SplitHostPort(s.cfg.Gateway)
-	if err != nil {
-		return fmt.Errorf("gateway address %q: %w", s.cfg.Gateway, err)
-	}
-	creds := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
-	if s.cfg.Plaintext {
-		creds = insecure.NewCredentials()
-	}
-	conn, err := grpc.NewClient(s.cfg.Gateway,
-		grpc.WithTransportCredentials(creds),
-		// Matches the gateway's keepalive enforcement (MinTime 10s).
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
-	)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stream, err := gw.NewPreviewGatewayClient(conn).Connect(ctx)
+	url, gatewayID := s.gatewayURL()
+	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return err
 	}
-	l := &link{s: s, stream: stream, ws: map[string]*wsSession{}}
+	defer conn.CloseNow()
+	conn.SetReadLimit(tunnelwire.MaxMessage)
+	l := &link{s: s, ctx: ctx, conn: conn, ws: map[string]*wsSession{}}
 	defer l.closeAll()
+
+	if err := l.prove(gatewayID); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.link = l
 	s.mu.Unlock()
@@ -91,56 +95,81 @@ func (s *Service) connect(ctx context.Context) error {
 		s.link = nil
 		s.mu.Unlock()
 	}()
+	s.setConnected(true)
+	s.cfg.Log.Info("tunnel: gateway connected", "gateway", s.cfg.Gateway, "host", s.cfg.Identity.ID)
+	go l.keepAlive(cancel)
 
-	id := s.cfg.Identity
-	if err := l.send(&gw.ClientMessage{Body: &gw.ClientMessage_Hello{Hello: &gw.DeviceHello{PublicKey: id.Public}}}); err != nil {
+	for {
+		m, err := l.recv()
+		if err != nil {
+			return err
+		}
+		switch m := m.(type) {
+		case *tunnelwire.Request:
+			go l.serveHTTP(ctx, m)
+		case *tunnelwire.WSOpen:
+			go l.openWS(ctx, m)
+		case *tunnelwire.WSFrame:
+			l.frameWS(ctx, m)
+		case *tunnelwire.WSClose:
+			l.closeWS(m)
+		}
+	}
+}
+
+// prove answers the gateway's challenge with the device key, so only this
+// host can take the traffic of the tunnels it opened.
+func (l *link) prove(gatewayID string) error {
+	id := l.s.cfg.Identity
+	if err := l.send(&tunnelwire.Hello{PublicKey: id.Public}); err != nil {
 		return err
 	}
-	first, err := stream.Recv()
+	m, err := l.recv()
 	if err != nil {
 		return err
 	}
-	c := first.GetChallenge()
-	if c == nil {
-		return errors.New("gateway answered without a challenge; it predates key-signed hosts")
+	c, ok := m.(*tunnelwire.Challenge)
+	if !ok {
+		return fmt.Errorf("gateway answered hello with kind %d, not a challenge", m.Kind())
 	}
 	// A challenge naming another gateway would let that one replay our proof.
-	if c.GatewayId != gatewayID {
-		return fmt.Errorf("gateway challenge names %q, not %q", c.GatewayId, gatewayID)
+	if c.GatewayID != gatewayID {
+		return fmt.Errorf("gateway challenge names %q, not %q", c.GatewayID, gatewayID)
 	}
 	// A nonce of any other size would let the gateway choose how much of
 	// the signed message is its own.
 	if len(c.Nonce) != nonceLen {
 		return fmt.Errorf("gateway challenge nonce is %d bytes, not %d", len(c.Nonce), nonceLen)
 	}
-	proof := id.Sign(ProofMessage(c.Nonce, c.GatewayId, c.Time))
-	if err := l.send(&gw.ClientMessage{Body: &gw.ClientMessage_Proof{Proof: &gw.HostProof{Signature: proof}}}); err != nil {
+	if err := l.send(&tunnelwire.Proof{Signature: id.Sign(tunnelwire.ProofMessage(c.Nonce, c.GatewayID, c.Time))}); err != nil {
 		return err
 	}
-	ready, err := stream.Recv()
+	m, err = l.recv()
 	if err != nil {
 		return err
 	}
-	if ready.GetReady() == nil {
+	if _, ok := m.(*tunnelwire.Ready); !ok {
 		return errors.New("gateway did not accept the proof")
 	}
-	s.setConnected(true)
-	s.cfg.Log.Info("tunnel: gateway connected", "gateway", s.cfg.Gateway, "host", id.ID)
+	return nil
+}
 
+// keepAlive ends the link when the gateway stops answering pings.
+func (l *link) keepAlive(cancel context.CancelFunc) {
+	tick := time.NewTicker(pingEvery)
+	defer tick.Stop()
 	for {
-		m, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-		switch body := m.GetBody().(type) {
-		case *gw.ServerMessage_HttpRequest:
-			go l.serveHTTP(ctx, body.HttpRequest)
-		case *gw.ServerMessage_WsOpen:
-			go l.openWS(ctx, body.WsOpen)
-		case *gw.ServerMessage_WsFrame:
-			l.frameWS(ctx, body.WsFrame)
-		case *gw.ServerMessage_WsClose:
-			l.closeWS(body.WsClose)
+		select {
+		case <-l.ctx.Done():
+			return
+		case <-tick.C:
+			ctx, done := context.WithTimeout(l.ctx, 10*time.Second)
+			err := l.conn.Ping(ctx)
+			done()
+			if err != nil {
+				cancel()
+				return
+			}
 		}
 	}
 }

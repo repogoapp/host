@@ -131,7 +131,10 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 		return host.Config{}, err
 	}
 	gateway := cmp.Or(os.Getenv("REPOGO_GATEWAY"), tunnel.DefaultGateway)
-	gatewayHost, _, _ := net.SplitHostPort(gateway)
+	gatewayHost := gateway
+	if h, _, err := net.SplitHostPort(gateway); err == nil {
+		gatewayHost = h
+	}
 	return host.Config{
 		State: state, Home: home, Attachments: attachments,
 		// Visible in the user's home rather than under a dotfile: it holds their source.

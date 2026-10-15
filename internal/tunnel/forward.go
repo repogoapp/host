@@ -15,8 +15,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/repogoapp/host/internal/forward"
-	gw "github.com/repogoapp/host/internal/tunnel/wire/gateway"
-	pv "github.com/repogoapp/host/internal/tunnel/wire/preview"
+	"github.com/repogoapp/host/tunnelwire"
 )
 
 // Every forwarded request is checked against the allowlist and dialled on
@@ -111,42 +110,42 @@ func forwarded(h http.Header, public string) {
 	h.Set("X-Forwarded-Host", public)
 }
 
-func (l *link) serveHTTP(ctx context.Context, req *pv.PreviewRequest) {
-	id := req.GetSessionId()
+func (l *link) serveHTTP(ctx context.Context, req *tunnelwire.Request) {
+	id := req.SessionID
 	if id == "" {
 		return
 	}
-	base, public, ok := l.resolve(req.GetTarget(), req.GetHeaderLines())
+	base, public, ok := l.resolve(req.Target, req.HeaderLines)
 	if !ok {
-		l.s.cfg.Log.Warn("tunnel: refused a request for a tunnel this host did not open", "target", req.GetTarget())
+		l.s.cfg.Log.Warn("tunnel: refused a request for a tunnel this host did not open", "target", req.Target)
 		l.sendError(id, http.StatusForbidden, "This computer isn't serving this tunnel.", "Tunnel closed")
 		return
 	}
-	path, ok := requestPath(req.GetPath())
+	path, ok := requestPath(req.Path)
 	if !ok {
 		l.sendError(id, http.StatusBadRequest, "The request path is invalid.", "Bad request")
 		return
 	}
-	method := strings.ToUpper(req.GetMethod())
+	method := strings.ToUpper(req.Method)
 	if method == "" {
 		method = http.MethodGet
 	}
 	var body io.Reader
-	if len(req.GetBody()) > 0 {
-		body = bytes.NewReader(req.GetBody())
+	if len(req.Body) > 0 {
+		body = bytes.NewReader(req.Body)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, method, base+path, body)
 	if err != nil {
 		l.sendError(id, http.StatusBadGateway, "Invalid request: "+err.Error(), "Device error")
 		return
 	}
-	copyHeaders(httpReq.Header, req.GetHeaderLines(), nil)
+	copyHeaders(httpReq.Header, req.HeaderLines, nil)
 	forwarded(httpReq.Header, public)
 
 	resp, err := loopback.Do(httpReq)
 	if err != nil {
 		l.sendError(id, http.StatusBadGateway,
-			"Couldn't reach the local server on port "+req.GetTarget()+". Make sure it's running and listening.",
+			"Couldn't reach the local server on port "+req.Target+". Make sure it's running and listening.",
 			"Local server unreachable")
 		return
 	}
@@ -160,7 +159,7 @@ func (l *link) serveHTTP(ctx context.Context, req *pv.PreviewRequest) {
 			lines = append(lines, k+": "+v)
 		}
 	}
-	status := uint32(resp.StatusCode)
+	status := resp.StatusCode
 	empty := method == http.MethodHead || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotModified
 	if !empty && (shouldStream(resp) || isFiniteAsset(req, method)) {
 		l.streamBody(id, status, lines, resp)
@@ -171,13 +170,13 @@ func (l *link) serveHTTP(ctx context.Context, req *pv.PreviewRequest) {
 		l.sendError(id, http.StatusBadGateway, "The local server closed the connection before the response completed.", "Local server disconnected")
 		return
 	}
-	_ = l.sendResponse(id, &pv.PreviewResponse{Status: status, HeaderLines: lines, Body: buf})
+	_ = l.send(&tunnelwire.Response{SessionID: id, Status: status, HeaderLines: lines, Body: buf})
 }
 
 // streamBody reads on its own goroutine so a paused upstream cannot hold back a
 // partial flush.
-func (l *link) streamBody(id string, status uint32, lines []string, resp *http.Response) {
-	if err := l.sendResponse(id, &pv.PreviewResponse{Status: status, HeaderLines: lines, Streaming: true}); err != nil {
+func (l *link) streamBody(id string, status int, lines []string, resp *http.Response) {
+	if err := l.send(&tunnelwire.Response{SessionID: id, Status: status, HeaderLines: lines, Streaming: true}); err != nil {
 		return
 	}
 	type read struct {
@@ -210,9 +209,7 @@ func (l *link) streamBody(id string, status uint32, lines []string, resp *http.R
 	defer tick.Stop()
 	pending := make([]byte, 0, flushAt)
 	flush := func(final bool) error {
-		err := l.send(&gw.ClientMessage{Body: &gw.ClientMessage_HttpBodyChunk{
-			HttpBodyChunk: &pv.PreviewBodyChunk{SessionId: id, Data: pending, EndOfStream: final},
-		}})
+		err := l.send(&tunnelwire.BodyChunk{SessionID: id, Data: pending, EndOfStream: final})
 		pending = make([]byte, 0, flushAt)
 		return err
 	}
@@ -254,11 +251,11 @@ func isSSE(resp *http.Response) bool {
 	return strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream")
 }
 
-func isFiniteAsset(req *pv.PreviewRequest, method string) bool {
-	if (method != http.MethodGet && method != http.MethodHead) || len(req.GetBody()) > 0 {
+func isFiniteAsset(req *tunnelwire.Request, method string) bool {
+	if (method != http.MethodGet && method != http.MethodHead) || len(req.Body) > 0 {
 		return false
 	}
-	u, err := url.Parse(req.GetPath())
+	u, err := url.Parse(req.Path)
 	if err != nil {
 		return false
 	}
@@ -271,13 +268,10 @@ func isFiniteAsset(req *pv.PreviewRequest, method string) bool {
 	return dot >= 0 && dot < len(name)-1 && finiteAssets[name[dot+1:]]
 }
 
-func (l *link) sendResponse(id string, r *pv.PreviewResponse) error {
-	return l.send(&gw.ClientMessage{Body: &gw.ClientMessage_HttpResponse{HttpResponse: &gw.HttpResponse{SessionId: id, Response: r}}})
-}
-
 // sendError is rendered by the gateway with its own page (x-repogo-gateway-error).
-func (l *link) sendError(id string, status uint32, message, title string) {
-	_ = l.sendResponse(id, &pv.PreviewResponse{
+func (l *link) sendError(id string, status int, message, title string) {
+	_ = l.send(&tunnelwire.Response{
+		SessionID:   id,
 		Status:      status,
 		HeaderLines: []string{"content-type: text/plain", "x-repogo-gateway-error: " + title},
 		Body:        []byte(message),
@@ -296,31 +290,29 @@ func (w *wsSession) close(code websocket.StatusCode, reason string) {
 	w.once.Do(func() { _ = w.conn.Close(code, reason) })
 }
 
-func (l *link) openWS(ctx context.Context, open *pv.PreviewWsOpen) {
-	id := open.GetSessionId()
-	ack := func(code uint32, reason, proto string) {
-		_ = l.send(&gw.ClientMessage{Body: &gw.ClientMessage_WsOpenAck{WsOpenAck: &gw.WsOpenAck{
-			SessionId: id, Ack: &pv.PreviewWsOpenAck{AcceptedSubprotocol: proto, CloseCode: code, CloseReason: reason},
-		}}})
+func (l *link) openWS(ctx context.Context, open *tunnelwire.WSOpen) {
+	id := open.SessionID
+	ack := func(code websocket.StatusCode, reason, proto string) {
+		_ = l.send(&tunnelwire.WSOpenAck{SessionID: id, Subprotocol: proto, CloseCode: int(code), CloseReason: reason})
 	}
 	if id == "" {
 		return
 	}
-	base, public, ok := l.resolve(open.GetTarget(), open.GetHeaderLines())
+	base, public, ok := l.resolve(open.Target, open.HeaderLines)
 	if !ok {
-		ack(uint32(websocket.StatusPolicyViolation), "tunnel closed", "")
+		ack(websocket.StatusPolicyViolation, "tunnel closed", "")
 		return
 	}
-	path, ok := requestPath(open.GetPath())
+	path, ok := requestPath(open.Path)
 	if !ok {
-		ack(uint32(websocket.StatusPolicyViolation), "invalid path", "")
+		ack(websocket.StatusPolicyViolation, "invalid path", "")
 		return
 	}
 	header := http.Header{}
-	copyHeaders(header, open.GetHeaderLines(), wsHandshake)
+	copyHeaders(header, open.HeaderLines, wsHandshake)
 	forwarded(header, public)
 	var protos []string
-	for _, p := range open.GetSubprotocols() {
+	for _, p := range open.Subprotocols {
 		if p != "" {
 			protos = append(protos, p)
 		}
@@ -332,7 +324,7 @@ func (l *link) openWS(ctx context.Context, open *pv.PreviewWsOpen) {
 		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
-		ack(uint32(websocket.StatusInternalError), "local connect failed", "")
+		ack(websocket.StatusInternalError, "local connect failed", "")
 		return
 	}
 	conn.SetReadLimit(wsReadLimit)
@@ -356,16 +348,12 @@ func (l *link) openWS(ctx context.Context, open *pv.PreviewWsOpen) {
 				if code == -1 {
 					code = websocket.StatusNormalClosure
 				}
-				_ = l.send(&gw.ClientMessage{Body: &gw.ClientMessage_WsClose{WsClose: &pv.PreviewWsClose{SessionId: id, Code: uint32(code)}}})
+				_ = l.send(&tunnelwire.WSClose{SessionID: id, Code: int(code)})
 			}
 			w.close(websocket.StatusNormalClosure, "")
 			return
 		}
-		frame := pv.WsFrameType_WS_FRAME_TYPE_TEXT
-		if typ == websocket.MessageBinary {
-			frame = pv.WsFrameType_WS_FRAME_TYPE_BINARY
-		}
-		_ = l.send(&gw.ClientMessage{Body: &gw.ClientMessage_WsFrame{WsFrame: &pv.PreviewWsFrame{SessionId: id, Type: frame, Data: data}}})
+		_ = l.send(&tunnelwire.WSFrame{SessionID: id, Binary: typ == websocket.MessageBinary, Data: data})
 	}
 }
 
@@ -375,33 +363,33 @@ func (l *link) session(id string) *wsSession {
 	return l.ws[id]
 }
 
-func (l *link) frameWS(ctx context.Context, f *pv.PreviewWsFrame) {
-	w := l.session(f.GetSessionId())
+func (l *link) frameWS(ctx context.Context, f *tunnelwire.WSFrame) {
+	w := l.session(f.SessionID)
 	if w == nil {
 		return
 	}
 	typ := websocket.MessageText
-	if f.GetType() == pv.WsFrameType_WS_FRAME_TYPE_BINARY {
+	if f.Binary {
 		typ = websocket.MessageBinary
 	}
-	if err := w.conn.Write(ctx, typ, f.GetData()); err != nil && !errors.Is(err, context.Canceled) {
+	if err := w.conn.Write(ctx, typ, f.Data); err != nil && !errors.Is(err, context.Canceled) {
 		l.s.cfg.Log.Debug("tunnel: websocket write failed", "err", err)
 	}
 }
 
-func (l *link) closeWS(c *pv.PreviewWsClose) {
+func (l *link) closeWS(c *tunnelwire.WSClose) {
 	l.mu.Lock()
-	w := l.ws[c.GetSessionId()]
-	delete(l.ws, c.GetSessionId())
+	w := l.ws[c.SessionID]
+	delete(l.ws, c.SessionID)
 	l.mu.Unlock()
 	if w == nil {
 		return
 	}
-	code := websocket.StatusCode(c.GetCode())
+	code := websocket.StatusCode(c.Code)
 	if code < 1000 {
 		code = websocket.StatusNormalClosure
 	}
-	w.close(code, c.GetReason())
+	w.close(code, c.Reason)
 }
 
 // closeSlug ends the WebSockets a closed tunnel still carries.

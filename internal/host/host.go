@@ -70,7 +70,7 @@ type Config struct {
 
 	// Label names this host to its phones.
 	Label string
-	// Gateway is the tunnel gateway's host:port; Plaintext skips TLS for a local one.
+	// Gateway is the tunnel gateway's host name, with an optional port; Plaintext skips TLS for a local one.
 	Gateway          string
 	GatewayPlaintext bool
 	// Getenv reads a cloud session's stop time.

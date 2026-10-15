@@ -44,7 +44,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 
 | Package | Role | Smell |
 | --- | --- | --- |
-| `jsonrpc`, `handshake` | Wire structs and codes, no behaviour | any import |
+| `jsonrpc`, `handshake`, `tunnelwire` | Wire structs and codes, no behaviour; `tunnelwire` is public so the tunnel gateway shares it | any import |
 | `wsserver`, `relay/`, `internal/relay`, `hostlink`, `hostclient`, `securechan` | Move bytes: server, dumb router, host dial, Go test client, end-to-end seal/open | knows what a chat is |
 | `appattest` | Verify Apple app attestation and assertions for push authorization | app or host state |
 | `rpc`, `rpc/<family>` | One method → one core call; typed params and result, access and lifetime on the `rpc.Add` line. Thin | logic a second transport would copy |
