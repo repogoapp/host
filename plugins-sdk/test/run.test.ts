@@ -7,13 +7,13 @@ import { run } from "../src/run";
 const index = join(import.meta.dir, "../src/index.ts");
 
 async function dirs() {
-  const root = await mkdtemp(join(tmpdir(), "repogo-apps-run-"));
-  const appsDir = join(root, "apps");
-  await mkdir(join(appsDir, "notes"), { recursive: true });
+  const root = await mkdtemp(join(tmpdir(), "repogo-plugins-run-"));
+  const pluginsDir = join(root, "plugins");
+  await mkdir(join(pluginsDir, "notes"), { recursive: true });
   await writeFile(
-    join(appsDir, "notes", "app.ts"),
-    `import { defineApp, method, z } from ${JSON.stringify(index)};
-export default defineApp({
+    join(pluginsDir, "notes", "app.ts"),
+    `import { definePlugin, method, z } from ${JSON.stringify(index)};
+export default definePlugin({
   description: "Notes",
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
@@ -21,13 +21,13 @@ export default defineApp({
   },
 });`,
   );
-  return { appsDir, dataDir: join(root, "data") };
+  return { pluginsDir, dataDir: join(root, "data") };
 }
 
-test("list prints every app's methods", async () => {
+test("list prints every plugin's methods", async () => {
   const { output, ok } = await run(["list"], await dirs());
   expect(ok).toBe(true);
-  const names = (output as any).apps[0].methods.map((m: any) => m.name);
+  const names = (output as any).plugins[0].methods.map((m: any) => m.name);
   expect(names).toContain("notes.count");
   expect(names).toContain("notes.notes.create");
 });
@@ -53,8 +53,8 @@ test("a bad input comes back as field errors", async () => {
   expect((output as any).error.fieldErrors["/text"]).toBeDefined();
 });
 
-test("a missing apps folder lists nothing", async () => {
-  const root = await mkdtemp(join(tmpdir(), "repogo-apps-run-"));
-  const { output } = await run(["list"], { appsDir: join(root, "none"), dataDir: join(root, "data") });
-  expect(output).toEqual({ apps: [] });
+test("a missing plugins folder lists nothing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "repogo-plugins-run-"));
+  const { output } = await run(["list"], { pluginsDir: join(root, "none"), dataDir: join(root, "data") });
+  expect(output).toEqual({ plugins: [] });
 });

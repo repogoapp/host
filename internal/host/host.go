@@ -83,6 +83,10 @@ type Config struct {
 
 	// Agents builds the providers: agents.New.
 	Agents func(agent.Dependencies) (*agents.Registry, error)
+	// PluginsSDK is the plugins SDK's folder, set only on a development host
+	// (REPOGO_PLUGINS_SDK); empty leaves project plugins off.
+	PluginsSDK string
+
 	// InstallHooks wires the hook helper into each agent's config: notify.EnsureHooks.
 	InstallHooks func(*slog.Logger, []notify.Provider)
 	// Power keeps the machine awake while wanted reports true: power.New.

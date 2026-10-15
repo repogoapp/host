@@ -191,6 +191,15 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `servers` [object{Server}]
 - `builtins` [object{Builtin}]
 
+## `plugins.data`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `subscription` string
+- `revision` int
+- `result` json (omitted when empty) (nullable)
+- `error` object{Failure} (omitted when empty) (nullable)
+
 ## `projects.changed`
 
 Signal: not replayed; a missed one is recovered by refetching.

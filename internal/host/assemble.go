@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	pluginscore "github.com/repogoapp/host/internal/plugins"
 	"net/http"
 	"path/filepath"
 	"runtime"
@@ -120,10 +121,17 @@ func (h *Host) openTools() error {
 			}
 		},
 	})
+	// A project's plugins are a development feature: a released host has no SDK,
+	// so neither the MCP tools nor the plugins.* methods run.
+	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
+		SDK: h.cfg.PluginsSDK, Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
+		Emit: func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
+		Log:  h.log,
+	})
 	h.tools = repogomcp.New(repogomcp.Config{
 		URL:     func() string { u, _ := h.toolsURL.Load().(string); return u },
 		On:      func(cwd string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID, cwd) },
-		Browser: browser, Log: h.log,
+		Browser: browser, Plugins: h.Services.Plugins, Log: h.log,
 	})
 	h.Services.Browser = browser
 	return nil
@@ -273,7 +281,8 @@ func (h *Host) openProjects() error {
 		return err
 	}
 	h.onClose(acts.Shutdown)
-	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes, Log: h.log})
+	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes,
+		Files: h.Services.Plugins.FilesChanged, Log: h.log})
 	gh := ghcore.New(layout, gitService, h.log)
 	h.Services.GitHub = gh
 
@@ -381,6 +390,7 @@ func (h *Host) pushChanged(kind string) {
 func (h *Host) disconnected(d device.ID) {
 	h.live.Unsubscribe(d)
 	h.watch.Stop(d)
+	h.Services.Plugins.Leave(d)
 	h.emitter.LeaveAll(d)
 }
 

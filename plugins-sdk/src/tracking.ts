@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { MethodError } from "./errors";
 
-// Which data a call read and wrote, as tags: `<app>.<collection>`. A query's
+// Which data a call read and wrote, as tags: `<plugin>.<collection>`. A query's
 // reads are what it depends on; a write's tags invalidate every query that
-// read them. Tracked per call, including calls into other apps and the event
+// read them. Tracked per call, including calls into other plugins and the event
 // handlers a write sets off, so custom methods need no declarations.
 
 export type Access = {

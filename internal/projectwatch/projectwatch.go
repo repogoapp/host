@@ -62,6 +62,7 @@ type Git interface {
 var gitFiles = []string{"HEAD", "index", "refs", "packed-refs", "MERGE_HEAD"}
 
 type Manager struct {
+	files   func(path string, files []string)
 	git     Git
 	log     *slog.Logger
 	totals  Totals
@@ -97,7 +98,10 @@ type Deps struct {
 	Totals Totals
 	// Pushes carries fs.changed and git.changed to the devices watching.
 	Pushes emit.Transport
-	Log    *slog.Logger
+	// Files is also told each watched folder's changed files: the project's
+	// apps reload when their code moves.
+	Files func(path string, files []string)
+	Log   *slog.Logger
 }
 
 func New(d Deps) *Manager {
@@ -105,6 +109,7 @@ func New(d Deps) *Manager {
 		git:     d.Git,
 		totals:  d.Totals,
 		pub:     d.Pushes,
+		files:   d.Files,
 		workers: make(chan struct{}, 4),
 		linger:  linger,
 		log:     d.Log,

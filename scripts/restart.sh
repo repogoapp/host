@@ -60,6 +60,8 @@ say "Starting host"
 # Dev only: the host also sends its logs to apps/log-server (bun run
 # log-server), beside the phone's. A release host never sets this.
 export REPOGO_LOG_SERVER="${REPOGO_LOG_SERVER:-http://127.0.0.1:${REPOGO_LOG_SERVER_PORT:-3939}}"
+# Dev only: the plugins SDK in this checkout runs the project plugins in .repogo/plugins.
+export REPOGO_PLUGINS_SDK="${REPOGO_PLUGINS_SDK:-$PWD/plugins-sdk}"
 # Dev only: Go profiles on loopback, for bench/monitor and `go tool pprof`.
 export REPOGO_PPROF="${REPOGO_PPROF:-127.0.0.1:6061}"
 # A new session, so the host outlives this script and whatever launched it.

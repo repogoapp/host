@@ -66,7 +66,7 @@ func newServer(t *testing.T, phone *fakePhone) *Server {
 	t.Helper()
 	return New(Config{
 		URL: func() string { return "http://127.0.0.1:1/mcp/repogo" }, On: func(string) bool { return true },
-		Browser: phone.browser,
+		Browser: phone.browser, Plugins: pluginsService(t, ""),
 	})
 }
 
@@ -85,7 +85,7 @@ func post(t *testing.T, h http.Handler, bearer, body string) *httptest.ResponseR
 
 func bearer(t *testing.T, s *Server, session agent.ToolSession) (string, func()) {
 	t.Helper()
-	entry, release := s.Attach(session)
+	entry, release := s.Attach(session, "/work/app")
 	if entry.Name != agent.ToolsServer || entry.Type != "http" || len(entry.Headers) != 1 {
 		t.Fatalf("entry %+v", entry)
 	}

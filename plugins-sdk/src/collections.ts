@@ -13,8 +13,8 @@ export type ListOptions = {
 };
 
 // A collection is one table of JSON rows. Every write is checked against the
-// schema and emits `<app>.<collection>.<created|updated|deleted>`. Reads and
-// writes are tracked under the tag `<app>.<collection>`, so cards refresh.
+// schema and emits `<plugin>.<collection>.<created|updated|deleted>`. Reads and
+// writes are tracked under the tag `<plugin>.<collection>`, so cards refresh.
 export class Collection<S extends z.ZodObject> {
   private table: string;
   readonly tag: string;
@@ -24,12 +24,12 @@ export class Collection<S extends z.ZodObject> {
   constructor(
     private sql: SQL,
     private events: EventBus,
-    private app: string,
+    private plugin: string,
     private name: string,
     private schema: S,
   ) {
     this.table = name.replace(/[^a-zA-Z0-9_]/g, "_");
-    this.tag = `${app}.${name}`;
+    this.tag = `${plugin}.${name}`;
   }
 
   async setup() {
@@ -126,7 +126,7 @@ export class Collection<S extends z.ZodObject> {
   }
 
   private eventName(kind: "created" | "updated" | "deleted") {
-    return `${this.app}.${this.name}.${kind}`;
+    return `${this.plugin}.${this.name}.${kind}`;
   }
 
   private toRecord(row: any): Record_<z.infer<S>> {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/plugins"
 )
 
 // Path is where the host's loopback server mounts the handler.
@@ -38,6 +39,8 @@ type Config struct {
 	// On reports whether the server is switched on for a folder's project.
 	On      func(cwd string) bool
 	Browser *Browser
+	// Plugins runs project plugins; a host without the SDK offers no plugin tools.
+	Plugins *plugins.Service
 	Log     *slog.Logger
 }
 
@@ -45,23 +48,30 @@ type Server struct {
 	cfg Config
 
 	mu       sync.Mutex
-	sessions map[string]agent.ToolSession
+	sessions map[string]attached
+}
+
+// attached is one session and the folder it was opened in, which decides its
+// tool list before any turn runs.
+type attached struct {
+	session agent.ToolSession
+	cwd     string
 }
 
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, sessions: map[string]agent.ToolSession{}}
+	return &Server{cfg: cfg, sessions: map[string]attached{}}
 }
 
 func (s *Server) On(cwd string) bool { return s.cfg.On(cwd) }
 
 // Attach mints the bearer that names one session. It never leaves this
 // machine: the agent process gets it as a header, and it dies with the session.
-func (s *Server) Attach(session agent.ToolSession) (agent.MCPServer, func()) {
+func (s *Server) Attach(session agent.ToolSession, cwd string) (agent.MCPServer, func()) {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	token := hex.EncodeToString(b)
 	s.mu.Lock()
-	s.sessions[token] = session
+	s.sessions[token] = attached{session: session, cwd: cwd}
 	s.mu.Unlock()
 	entry := agent.MCPServer{
 		Type: "http", Name: agent.ToolsServer, URL: s.cfg.URL(),
@@ -74,10 +84,10 @@ func (s *Server) Attach(session agent.ToolSession) (agent.MCPServer, func()) {
 	}
 }
 
-func (s *Server) session(r *http.Request) (agent.ToolSession, bool) {
+func (s *Server) session(r *http.Request) (attached, bool) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
-		return nil, false
+		return attached{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -123,7 +133,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeRPC(w, req.ID, result, rpcErr)
 }
 
-func (s *Server) handle(ctx context.Context, session agent.ToolSession, req rpcRequest) (any, *jsonrpc.Error) {
+// withPlugins reports whether a session gets the plugin tools: a development host,
+// in a project that has plugins.
+func (s *Server) withPlugins(cwd string) bool {
+	return s.cfg.Plugins.Has(cwd)
+}
+
+func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (any, *jsonrpc.Error) {
 	switch req.Method {
 	case "initialize":
 		var p struct {
@@ -138,12 +154,16 @@ func (s *Server) handle(ctx context.Context, session agent.ToolSession, req rpcR
 			"protocolVersion": version,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": agent.ToolsServer, "version": "2"},
-			"instructions":    instructions,
+			"instructions":    s.instructions(session.cwd),
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		return map[string]any{"tools": []tool{browserTool}}, nil
+		tools := []tool{browserTool}
+		if s.withPlugins(session.cwd) {
+			tools = append(tools, pluginsTool, pluginCallTool)
+		}
+		return map[string]any{"tools": tools}, nil
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -152,9 +172,16 @@ func (s *Server) handle(ctx context.Context, session agent.ToolSession, req rpcR
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "invalid params"}
 		}
-		return s.call(ctx, session, p.Name, p.Arguments), nil
+		return s.call(ctx, session.session, p.Name, p.Arguments), nil
 	}
 	return nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "method not found: " + req.Method}
+}
+
+func (s *Server) instructions(cwd string) string {
+	if s.withPlugins(cwd) {
+		return instructions + pluginsInstructions
+	}
+	return instructions
 }
 
 // call runs a tool for the session's current turn. Failures are results, not
@@ -180,6 +207,10 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 	switch name {
 	case browserTool.Name:
 		return s.cfg.Browser.Tool(turn, args)
+	case pluginsTool.Name, pluginCallTool.Name:
+		if s.withPlugins(turn.Cwd) {
+			return pluginsTools(s.cfg.Plugins, turn, name, args)
+		}
 	}
 	return failed("unknown tool: " + name)
 }

@@ -17,8 +17,9 @@ const ToolsServer = "repogo"
 // call can be traced to the turn running there.
 type Tools interface {
 	On(cwd string) bool
-	// Attach is the entry for one session and what to call when it closes.
-	Attach(ToolSession) (MCPServer, func())
+	// Attach is the entry for a session opened in cwd and what to call when it
+	// closes; cwd picks the tools it is offered.
+	Attach(session ToolSession, cwd string) (MCPServer, func())
 }
 
 // ToolSession is one agent process as the tools see it.

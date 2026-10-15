@@ -94,6 +94,9 @@ deploy_ios() {
   echo "  launched on device"
 }
 
+# Dev only: the plugins SDK in this checkout runs the project plugins in .repogo/plugins.
+export REPOGO_PLUGINS_SDK="${REPOGO_PLUGINS_SDK:-$PWD/plugins-sdk}"
+
 # Compile BEFORE touching anything running. A broken build should cost three
 # seconds, not a killed host and a half-finished deploy.
 say "Building host"

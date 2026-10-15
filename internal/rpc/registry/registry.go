@@ -26,6 +26,7 @@ import (
 	"github.com/repogoapp/host/internal/hostsetup"
 	"github.com/repogoapp/host/internal/hostupdate"
 	mcpcore "github.com/repogoapp/host/internal/mcp"
+	pluginscore "github.com/repogoapp/host/internal/plugins"
 	projectcore "github.com/repogoapp/host/internal/project"
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/repogomcp"
@@ -42,6 +43,7 @@ import (
 	"github.com/repogoapp/host/internal/rpc/host"
 	mcprpc "github.com/repogoapp/host/internal/rpc/mcp"
 	"github.com/repogoapp/host/internal/rpc/pairing"
+	pluginsrpc "github.com/repogoapp/host/internal/rpc/plugins"
 	portsrpc "github.com/repogoapp/host/internal/rpc/ports"
 	projectsrpc "github.com/repogoapp/host/internal/rpc/projects"
 	schedulesrpc "github.com/repogoapp/host/internal/rpc/schedules"
@@ -120,6 +122,8 @@ type Config struct {
 	// browser actions RepoGo's own server sends the phones.
 	MCP     *mcpcore.Service
 	Browser *repogomcp.Browser
+	// Plugins runs project plugins; off on a release, where every plugins.* call says so.
+	Plugins *pluginscore.Service
 
 	// EnvSources is the dotenv files bound here.
 	EnvSources *envsource.Sources
@@ -162,6 +166,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})
 	mcprpc.Register(r, mcprpc.Deps{MCP: cfg.MCP})
 	browserrpc.Register(r, browserrpc.Deps{Browser: cfg.Browser})
+	pluginsrpc.Register(r, pluginsrpc.Deps{Plugins: cfg.Plugins})
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})

@@ -41,6 +41,7 @@ var methodExports = map[string]bool{
 	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
 	"projects.delete": true,
 	"actions.list":    true, "actions.run": true, "actions.start": true, "actions.stop": true,
+	"plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
 	// Terminal and forwarding.
 	"terminals.create": true, "terminals.list": true, "terminals.subscribe": true,
 	"terminals.unsubscribe": true, "terminals.attach": true, "terminals.detach": true,
@@ -358,6 +359,8 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/store":         "projects",
 	"github.com/repogoapp/host/internal/rpc/actions":   "actions",
 	"github.com/repogoapp/host/internal/actions":       "actions",
+	"github.com/repogoapp/host/internal/rpc/plugins":      "plugins",
+	"github.com/repogoapp/host/internal/plugins":          "plugins",
 	"github.com/repogoapp/host/internal/agentcatalog":  "agents",
 	"github.com/repogoapp/host/internal/rpc/terminals": "terminals",
 	"github.com/repogoapp/host/internal/terminal":      "terminals",
@@ -713,6 +716,7 @@ var EventExports = map[string]string{
 	"projects.changed":    "Projects.Changed",
 	"schedules.changed":   "Schedules.Changed",
 	"actions.changed":     "Actions.Changed",
+	"plugins.data":           "Plugins.Data",
 }
 
 func eventGenerator(catalog []hostemit.Event) *swiftGen {

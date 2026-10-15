@@ -21,16 +21,16 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
 
 export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>;
 
-export type AppDefinition = {
-  /** One line, shown to the agent in the index of apps. */
+export type PluginDefinition = {
+  /** One line, shown to the agent in the index of plugins. */
   description?: string;
   collections?: Collections;
   methods?: Record<string, Method<any, any>>;
   on?: Record<string, Handler>;
 };
 
-export function defineApp<T extends AppDefinition>(app: T): T {
-  return app;
+export function definePlugin<T extends PluginDefinition>(plugin: T): T {
+  return plugin;
 }
 
 export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(

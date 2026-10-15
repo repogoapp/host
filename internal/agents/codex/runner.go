@@ -140,7 +140,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	s := newLiveSession(req.Cwd, r.deps.Log)
 	if own {
-		entry, release := r.deps.Tools.Attach(s)
+		entry, release := r.deps.Tools.Attach(s, req.Cwd)
 		s.release = release
 		servers = append(slices.Clone(servers), entry)
 	}

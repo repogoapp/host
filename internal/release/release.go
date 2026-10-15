@@ -25,6 +25,9 @@ import (
 var Version = "dev"
 var Repository = ""
 
+// IsDev reports a host built from a working tree: releases set Version at link time.
+func IsDev() bool { return Version == "dev" }
+
 var client = &http.Client{Timeout: 2 * time.Minute}
 
 // publicKey checks manifest.json.sig. The release workflow signs with its

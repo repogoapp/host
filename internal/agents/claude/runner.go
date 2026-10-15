@@ -136,7 +136,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 		r.adopt(s.key, s.cwd)
 	}
 	if own {
-		entry, release := r.deps.Tools.Attach(s)
+		entry, release := r.deps.Tools.Attach(s, req.Cwd)
 		s.release = release
 		servers = append(slices.Clone(servers), entry)
 	}

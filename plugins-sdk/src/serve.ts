@@ -1,0 +1,279 @@
+import type { Socket } from "bun";
+import { chmod, mkdir, rm } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { z } from "zod";
+import { toCallError, type CallError } from "./errors";
+import type { DataPush, FromWorker, Reply, Request, ToWorker } from "./protocol";
+
+// The plugins server: one process for every project on this machine, listening on
+// a Unix socket the host connects to. Each project checkout's plugins run in their
+// own Worker; this thread routes requests to them and keeps the subscriptions,
+// sending a subscription's result only when it changed.
+
+export type ServeOptions = {
+  /** The socket's path; created with mode 0600. */
+  socket: string;
+  /** Each project's databases go in `<dataDir>/<project>/`. */
+  dataDir: string;
+};
+
+const projectKey = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "a project key is letters, digits, dots, dashes and underscores");
+const pluginsDir = z.string().refine(isAbsolute, "dir is an absolute path");
+const target = z.object({ project: projectKey, dir: pluginsDir });
+const named = target.extend({ name: z.string().min(1), input: z.unknown().optional() });
+
+const requestSchema = z.discriminatedUnion("method", [
+  z.object({ id: z.number(), method: z.literal("list"), params: target }),
+  z.object({ id: z.number(), method: z.literal("call"), params: named }),
+  z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
+  z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
+  z.object({ id: z.number(), method: z.literal("reload"), params: z.object({ project: projectKey }) }),
+]);
+
+type Connection = Socket<{ inbox: string; outbox: Uint8Array[] }>;
+
+type Subscription = {
+  connection: Connection;
+  checkout: string;
+  name: string;
+  input: unknown;
+  revision: number;
+  /** Of the last result or error sent, so an unchanged re-run sends nothing. */
+  hash: string;
+};
+
+type Answer = { result: unknown } | { error: CallError };
+
+/** One checkout's plugins in a Worker: requests out, replies and pushes back. */
+class Checkout {
+  private worker!: Worker;
+  private waiting = new Map<number, (answer: Answer) => void>();
+  private nextID = 0;
+  private stopping = false;
+
+  constructor(
+    readonly key: string,
+    readonly project: string,
+    readonly dir: string,
+    private dataDir: string,
+    private onMessage: (checkout: Checkout, message: FromWorker) => void,
+    private onCrash: (checkout: Checkout) => void,
+  ) {
+    this.start();
+  }
+
+  private start() {
+    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+    this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
+      const message = event.data;
+      if (message.type !== "reply") return this.onMessage(this, message);
+      const resolve = this.waiting.get(message.id);
+      this.waiting.delete(message.id);
+      resolve?.("error" in message ? { error: message.error } : { result: message.result });
+    };
+    this.worker.addEventListener("close", () => {
+      this.failWaiting("The project's plugins stopped.");
+      if (!this.stopping) this.onCrash(this);
+    });
+    // dir is `<checkout>/.repogo/plugins`, so the checkout is two folders up.
+    this.post({ type: "open", dir: this.dir, dataDir: join(this.dataDir, this.project), root: resolve(this.dir, "..", "..") });
+  }
+
+  request(message: { type: "list" } | { type: "call"; name: string; input: unknown } | { type: "subscribe"; subscription: string; name: string; input: unknown }): Promise<Answer> {
+    const id = ++this.nextID;
+    return new Promise((resolve) => {
+      this.waiting.set(id, resolve);
+      this.post({ ...message, id } as ToWorker);
+    });
+  }
+
+  post(message: ToWorker) {
+    this.worker.postMessage(message);
+  }
+
+  stop() {
+    this.stopping = true;
+    this.failWaiting("The project's plugins reloaded.");
+    this.worker.terminate();
+  }
+
+  private failWaiting(message: string) {
+    for (const resolve of this.waiting.values()) resolve({ error: { code: "INTERNAL", message } });
+    this.waiting.clear();
+  }
+}
+
+export async function serve(options: ServeOptions) {
+  const checkouts = new Map<string, Checkout>();
+  const subscriptions = new Map<string, Subscription>();
+
+  function checkoutFor(project: string, dir: string) {
+    const key = `${project}\n${dir}`;
+    let checkout = checkouts.get(key);
+    if (!checkout) {
+      checkout = new Checkout(key, project, dir, options.dataDir, fromWorker, restart);
+      checkouts.set(key, checkout);
+    }
+    return checkout;
+  }
+
+  function fromWorker(from: Checkout, message: FromWorker) {
+    if (message.type === "data") {
+      return deliver(message.subscription, "error" in message ? { error: message.error } : { result: message.result });
+    }
+    if (message.type === "invalidated") {
+      // Another checkout of the same project reads the same databases.
+      for (const checkout of checkouts.values()) {
+        if (checkout !== from && checkout.project === from.project) checkout.post({ type: "invalidate", tags: message.tags });
+      }
+    }
+  }
+
+  function deliver(id: string, answer: Answer) {
+    const subscription = subscriptions.get(id);
+    if (!subscription) return;
+    const hash = hashOf(answer);
+    if (hash === subscription.hash) return;
+    subscription.hash = hash;
+    subscription.revision += 1;
+    const push: DataPush = { method: "data", params: { subscription: id, revision: subscription.revision, ...answer } };
+    send(subscription.connection, push);
+  }
+
+  // A new Worker for the checkout, with its subscriptions taken up again: their
+  // results go out as pushes if the new code answers differently.
+  function restart(old: Checkout) {
+    if (checkouts.get(old.key) !== old) return;
+    old.stop();
+    const checkout = new Checkout(old.key, old.project, old.dir, options.dataDir, fromWorker, restart);
+    checkouts.set(old.key, checkout);
+    for (const [id, subscription] of subscriptions) {
+      if (subscription.checkout !== old.key) continue;
+      void checkout.request({ type: "subscribe", subscription: id, name: subscription.name, input: subscription.input }).then((answer) => deliver(id, answer));
+    }
+  }
+
+  async function handle(connection: Connection, request: Request): Promise<Reply> {
+    const { id } = request;
+    switch (request.method) {
+      case "list":
+      case "call": {
+        const checkout = checkoutFor(request.params.project, request.params.dir);
+        const answer =
+          request.method === "list"
+            ? await checkout.request({ type: "list" })
+            : await checkout.request({ type: "call", name: request.params.name, input: request.params.input ?? {} });
+        return { id, ...answer };
+      }
+      case "subscribe": {
+        const { project, dir, name, subscription } = request.params;
+        const input = request.params.input ?? {};
+        if (subscriptions.has(subscription)) {
+          return { id, error: { code: "VALIDATION", message: `${subscription} is already a subscription.` } };
+        }
+        const checkout = checkoutFor(project, dir);
+        const answer = await checkout.request({ type: "subscribe", subscription, name, input });
+        if ("error" in answer) return { id, ...answer };
+        subscriptions.set(subscription, { connection, checkout: checkout.key, name, input, revision: 1, hash: hashOf(answer) });
+        return { id, result: { subscription, revision: 1, result: answer.result } };
+      }
+      case "unsubscribe": {
+        unsubscribe(request.params.subscription);
+        return { id, result: {} };
+      }
+      case "reload": {
+        for (const checkout of [...checkouts.values()]) {
+          if (checkout.project === request.params.project) restart(checkout);
+        }
+        return { id, result: {} };
+      }
+    }
+  }
+
+  function unsubscribe(id: string) {
+    const subscription = subscriptions.get(id);
+    if (!subscription) return;
+    subscriptions.delete(id);
+    checkouts.get(subscription.checkout)?.post({ type: "unsubscribe", subscription: id });
+  }
+
+  async function receive(connection: Connection, line: string) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(line);
+    } catch {
+      return send(connection, { id: -1, error: { code: "VALIDATION", message: "Each line is one JSON request." } });
+    }
+    const parsed = requestSchema.safeParse(raw);
+    if (!parsed.success) {
+      const id = typeof (raw as { id?: unknown })?.id === "number" ? (raw as { id: number }).id : -1;
+      return send(connection, { id, error: toCallError(parsed.error) });
+    }
+    send(connection, await handle(connection, parsed.data as Request));
+  }
+
+  await mkdir(dirname(options.socket), { recursive: true });
+  await rm(options.socket, { force: true });
+  const listener = Bun.listen<{ inbox: string; outbox: Uint8Array[] }>({
+    unix: options.socket,
+    socket: {
+      open(connection) {
+        connection.data = { inbox: "", outbox: [] };
+      },
+      data(connection, chunk) {
+        connection.data.inbox += chunk.toString();
+        let newline: number;
+        while ((newline = connection.data.inbox.indexOf("\n")) >= 0) {
+          const line = connection.data.inbox.slice(0, newline).trim();
+          connection.data.inbox = connection.data.inbox.slice(newline + 1);
+          if (line) void receive(connection, line);
+        }
+      },
+      drain(connection) {
+        flush(connection);
+      },
+      close(connection) {
+        // A host that goes away takes its subscriptions with it.
+        for (const [id, subscription] of subscriptions) {
+          if (subscription.connection === connection) unsubscribe(id);
+        }
+      },
+    },
+  });
+  await chmod(options.socket, 0o600);
+
+  return {
+    stop() {
+      listener.stop(true);
+      for (const checkout of checkouts.values()) checkout.stop();
+      checkouts.clear();
+      subscriptions.clear();
+      void rm(options.socket, { force: true });
+    },
+  };
+}
+
+function hashOf(answer: Answer) {
+  return Bun.hash(JSON.stringify(answer)).toString(36);
+}
+
+const encoder = new TextEncoder();
+
+// A write the socket can't take at once waits in the outbox for `drain`.
+function send(connection: Connection, message: Reply | DataPush) {
+  connection.data.outbox.push(encoder.encode(JSON.stringify(message) + "\n"));
+  flush(connection);
+}
+
+function flush(connection: Connection) {
+  const outbox = connection.data.outbox;
+  while (outbox.length > 0) {
+    const chunk = outbox[0]!;
+    const written = connection.write(chunk);
+    if (written < chunk.length) {
+      outbox[0] = chunk.subarray(Math.max(written, 0));
+      return;
+    }
+    outbox.shift();
+  }
+}

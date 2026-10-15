@@ -1,11 +1,11 @@
 {
-  "name": "@repogo/apps",
+  "name": "@repogo/plugins",
   "version": "0.0.0",
-  "description": "Apps an agent writes and calls: collections and methods over SQLite",
+  "description": "Plugins an agent writes and calls: collections and methods over SQLite",
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "repogo-apps": "src/run.ts"
+    "repogo-plugins": "src/run.ts"
   },
   "scripts": {
     "test": "bun test",

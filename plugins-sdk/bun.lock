@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@repogo/apps",
+      "name": "@repogo/plugins",
       "dependencies": {
         "zod": "^4.1.0",
       },

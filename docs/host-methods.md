@@ -1120,6 +1120,44 @@ Result:
 - `expires_at` int (omitted when empty)
 - `reusable_expires_at` int (omitted when empty)
 
+## `plugins.call`
+
+Params:
+
+- `project` string
+- `method` string
+- `input` json (omitted when empty) (nullable)
+
+Result:
+
+- `result` json (omitted when empty) (nullable)
+- `error` object{Failure} (omitted when empty) (nullable)
+
+## `plugins.subscribe`
+
+Params:
+
+- `project` string
+- `method` string
+- `input` json (omitted when empty) (nullable)
+
+Result:
+
+- `subscription` string
+- `revision` int
+- `result` json (omitted when empty) (nullable)
+- `error` object{Failure} (omitted when empty) (nullable)
+
+## `plugins.unsubscribe`
+
+Params:
+
+- `subscription` string
+
+Result:
+
+- `ok` bool
+
 ## `ports.kill`
 
 Detached: runs to completion if the caller disconnects.

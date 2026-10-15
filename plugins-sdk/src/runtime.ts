@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { z } from "zod";
 import { Collection } from "./collections";
 import type { Context } from "./context";
-import type { AppDefinition, MethodKind } from "./define";
+import type { PluginDefinition, MethodKind } from "./define";
 import { MethodError } from "./errors";
 import { EventBus } from "./events";
 import { currentAccess, tracked } from "./tracking";
 
 export type RegisteredMethod = {
   name: string;
-  app: string;
+  plugin: string;
   kind: MethodKind;
   description?: string;
   input: z.ZodType;
@@ -29,7 +29,7 @@ export type ManifestMethod = {
 };
 
 export type Manifest = {
-  apps: { name: string; description: string | null; methods: ManifestMethod[] }[];
+  plugins: { name: string; description: string | null; methods: ManifestMethod[] }[];
 };
 
 /** A call's result with the data it read (what a query depends on) and wrote (what it invalidates). */
@@ -37,44 +37,52 @@ export type CallResult = { result: unknown; reads: string[]; invalidates: string
 
 type InvalidationListener = (tags: string[]) => void;
 
-const appName = /^[a-z][a-z0-9-]*$/;
+const pluginName = /^[a-z][a-z0-9-]*$/;
 
-// Loads every app in the apps dir, gives each its own database, collections
+// Loads every plugin in the plugins dir, gives each its own database, collections
 // and context, and registers its methods. The registry is what the agent's
 // tools, cards and schedules all call.
 export class Runtime {
   readonly events = new EventBus();
   readonly methods = new Map<string, RegisteredMethod>();
-  readonly apps = new Map<string, AppDefinition>();
+  readonly plugins = new Map<string, PluginDefinition>();
   private databases = new Map<string, SQL>();
   private invalidationListeners = new Set<InvalidationListener>();
-  appsDir: string | null = null;
+  pluginsDir: string | null = null;
 
-  private constructor(private dataDir: string) {}
+  private constructor(
+    private dataDir: string,
+    private root: string,
+  ) {}
 
-  static async open(options: { dataDir: string }) {
+  /** `root` is the project's checkout, `ctx.root` to its plugins; the working directory when left out. */
+  static async open(options: { dataDir: string; root?: string }) {
     await mkdir(options.dataDir, { recursive: true });
-    return new Runtime(options.dataDir);
+    return new Runtime(options.dataDir, options.root ?? process.cwd());
   }
 
-  async loadDir(appsDir: string) {
-    this.appsDir = appsDir;
-    const entries = await readdir(appsDir, { withFileTypes: true });
+  async loadDir(pluginsDir: string) {
+    this.pluginsDir = pluginsDir;
+    const entries = await readdir(pluginsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() || !appName.test(entry.name)) continue;
-      const module = await import(join(appsDir, entry.name, "app.ts"));
+      if (!entry.isDirectory() || !pluginName.test(entry.name)) continue;
+      const module = await import(join(pluginsDir, entry.name, "app.ts"));
       await this.add(entry.name, module.default);
     }
   }
 
-  async add(name: string, app: AppDefinition) {
-    if (!appName.test(name)) throw new Error(`app names are lowercase letters, digits and hyphens: ${name}`);
-    // One database file per app: an app can only reach another's data through its methods.
+  async add(name: string, plugin: PluginDefinition) {
+    if (!pluginName.test(name)) throw new Error(`plugin names are lowercase letters, digits and hyphens: ${name}`);
+    // One database file per plugin: a plugin can only reach another's data through its methods.
     const sql = new SQL(`sqlite://${join(this.dataDir, `${name}.db`)}`);
+    // Two checkouts of a project run in two Workers over the same file: WAL lets
+    // them read while one writes, and a writer waits for the other's lock.
+    await sql.unsafe("pragma journal_mode = wal");
+    await sql.unsafe("pragma busy_timeout = 5000");
     this.databases.set(name, sql);
 
     const db: Context["db"] = {};
-    for (const [collectionName, schema] of Object.entries(app.collections ?? {})) {
+    for (const [collectionName, schema] of Object.entries(plugin.collections ?? {})) {
       const collection = new Collection(sql, this.events, name, collectionName, schema);
       await collection.setup();
       db[collectionName] = collection;
@@ -82,17 +90,18 @@ export class Runtime {
     }
 
     const ctx: Context = {
-      app: name,
+      plugin: name,
+      root: this.root,
       db,
       call: async (method, input) => (await this.call(method.includes(".") ? method : `${name}.${method}`, input)).result,
       emit: (event, payload) => this.events.emit(`${name}.${event}`, payload),
       log: (...args) => console.error(`[${name}]`, ...args),
     };
 
-    for (const [methodName, method] of Object.entries(app.methods ?? {})) {
+    for (const [methodName, method] of Object.entries(plugin.methods ?? {})) {
       this.register({
         name: `${name}.${methodName}`,
-        app: name,
+        plugin: name,
         kind: method.kind,
         description: method.description,
         input: method.input,
@@ -101,11 +110,11 @@ export class Runtime {
       });
     }
 
-    for (const [event, handler] of Object.entries(app.on ?? {})) {
+    for (const [event, handler] of Object.entries(plugin.on ?? {})) {
       this.events.on(`${name}.${event}`, (e) => handler(e.payload, ctx));
     }
 
-    this.apps.set(name, app);
+    this.plugins.set(name, plugin);
   }
 
   /**
@@ -141,11 +150,11 @@ export class Runtime {
   }
 
   manifest(): Manifest {
-    const apps = [...this.apps.entries()].map(([name, app]) => ({
+    const plugins = [...this.plugins.entries()].map(([name, plugin]) => ({
       name,
-      description: app.description ?? null,
+      description: plugin.description ?? null,
       methods: [...this.methods.values()]
-        .filter((method) => method.app === name)
+        .filter((method) => method.plugin === name)
         .map((method) => ({
           name: method.name,
           kind: method.kind,
@@ -154,7 +163,7 @@ export class Runtime {
           output: method.output ? z.toJSONSchema(method.output, { io: "output", unrepresentable: "any" }) : null,
         })),
     }));
-    return { apps };
+    return { plugins };
   }
 
   close() {
@@ -169,10 +178,10 @@ export class Runtime {
     this.methods.set(method.name, method);
   }
 
-  // Every collection gets list/get/create/update/delete, so a data-only app
+  // Every collection gets list/get/create/update/delete, so a data-only plugin
   // needs no methods to be read and changed by the agent and by cards.
-  private registerCrud(app: string, name: string, collection: Collection<any>, schema: z.ZodObject) {
-    const prefix = `${app}.${name}`;
+  private registerCrud(plugin: string, name: string, collection: Collection<any>, schema: z.ZodObject) {
+    const prefix = `${plugin}.${name}`;
     const id = z.object({ id: z.string() });
     const record = schema.extend({ id: z.string(), createdAt: z.string(), updatedAt: z.string() });
     const crud = (
@@ -182,7 +191,7 @@ export class Runtime {
       output: z.ZodType,
       description: string,
       run: (input: any, raw: any) => unknown,
-    ) => this.register({ name: `${prefix}.${method}`, app, kind, description, input, output, run: async (value, raw) => run(value, raw) });
+    ) => this.register({ name: `${prefix}.${method}`, plugin, kind, description, input, output, run: async (value, raw) => run(value, raw) });
 
     crud("list", "query", z.object({ limit: z.number().int().positive().max(500).optional() }), z.array(record),
       `List ${name} records, newest first`, (input) => collection.list(input));

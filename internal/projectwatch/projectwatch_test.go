@@ -127,7 +127,7 @@ func (p *fakePub) total() int {
 }
 
 func newManager(g Git) *Manager {
-	return New(Deps{Git: g, Totals: fakeTotals{}, Pushes: newPub(), Log: slog.New(slog.DiscardHandler)})
+	return New(Deps{Git: g, Totals: fakeTotals{}, Pushes: newPub(), Files: func(string, []string) {}, Log: slog.New(slog.DiscardHandler)})
 }
 
 func TestThreeDevicesOnOneProjectShareOneRoom(t *testing.T) {

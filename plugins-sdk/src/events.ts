@@ -1,8 +1,8 @@
 export type Event = { name: string; payload: unknown; at: string };
 export type Listener = (event: Event) => unknown | Promise<unknown>;
 
-// One bus for every app. Names are `<app>.<collection>.<created|updated|deleted>`
-// for writes and `<app>.<method>` for calls.
+// One bus for every plugin. Names are `<plugin>.<collection>.<created|updated|deleted>`
+// for writes and `<plugin>.<method>` for calls.
 export class EventBus {
   private listeners = new Map<string, Listener[]>();
   private all: Listener[] = [];

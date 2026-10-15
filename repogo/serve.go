@@ -145,6 +145,7 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 			Latest: release.Latest, Stage: release.Stage, Restart: self.restart,
 		},
 		UpdateFailed: self.failed,
+		PluginsSDK:   pluginsSDK(),
 		Agents:       agents.New,
 		InstallHooks: notify.EnsureHooks,
 		Power: func(log *slog.Logger, wanted func() bool, onBattery func(power.Battery)) (host.Keeper, error) {
@@ -173,4 +174,13 @@ func ensureNode(ctx context.Context, log *slog.Logger) {
 		}
 		log.Info("node: using the host's own", "bin", bin)
 	}
+}
+
+// pluginsSDK is the plugins SDK's folder on a development host, from the dev
+// scripts; a release runs no project plugins.
+func pluginsSDK() string {
+	if !release.IsDev() {
+		return ""
+	}
+	return os.Getenv("REPOGO_PLUGINS_SDK")
 }

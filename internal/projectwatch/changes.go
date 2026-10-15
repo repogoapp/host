@@ -169,6 +169,11 @@ func (m *Manager) sendChanges(path string, changes []FileChange, truncated bool)
 	if len(changes) == 0 && !truncated {
 		return
 	}
+	names := make([]string, len(changes))
+	for i, c := range changes {
+		names[i] = c.File
+	}
+	m.files(path, names)
 	payload, err := json.Marshal(FilesChanged{Path: path, Changes: changes, Truncated: truncated})
 	if err != nil {
 		return

@@ -1,0 +1,12 @@
+{
+  "result": {
+    "result": "result"
+  },
+  "error": {
+    "code": "code",
+    "message": "message",
+    "field_errors": {
+      "field_errors": "field_errors"
+    }
+  }
+}
