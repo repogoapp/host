@@ -41,7 +41,7 @@ func command(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
+		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo relay [set <wss-url>|reset]\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
 		return nil
 	}
 	if verb == "keep-awake" {
@@ -49,6 +49,9 @@ func command(ctx context.Context, args []string) error {
 	}
 	if verb == "devices" {
 		return devicesCommand(ctx, args)
+	}
+	if verb == "relay" {
+		return relayCommand(ctx, args)
 	}
 	if verb == "tunnels" {
 		return tunnelsCommand(ctx, args)
@@ -62,7 +65,7 @@ func command(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("repogo "+verb, flag.ContinueOnError)
 	if verb == "serve" {
 		port := flags.Int("port", 0, "loopback port (0 uses the saved port)")
-		relay := flags.String("relay", defaultRelay, "relay URL (empty disables)")
+		relay := flags.String("relay", "", "relay URL (default: the saved one, else RepoGo's; empty disables)")
 		verbose := flags.Bool("v", false, "debug logging")
 		if err := flags.Parse(args); err != nil {
 			return err
@@ -86,7 +89,14 @@ func command(ctx context.Context, args []string) error {
 				return err
 			}
 		}
-		return serve(ctx, log, *port, *relay)
+		// Unset, the relay comes from runtime.json once run has read it.
+		var relayFlag *string
+		flags.Visit(func(f *flag.Flag) {
+			if f.Name == "relay" {
+				relayFlag = relay
+			}
+		})
+		return serve(ctx, log, *port, relayFlag)
 	}
 	now := flags.Bool("now", false, "stop running chats, terminals and actions before updating")
 	pairHost := flags.String("pair-host", defaultPairHost, "pairing link origin")

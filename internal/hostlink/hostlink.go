@@ -75,6 +75,11 @@ type Config struct {
 	// new handshake, or lost with the relay connection.
 	OnDisconnect func(device.ID)
 
+	// ControlOnly attaches for Control alone and drops every phone's frame:
+	// the link to RepoGo's relay for push.send when chat uses the user's own.
+	// Router, Pairing and OnDisconnect go unused.
+	ControlOnly bool
+
 	Log *slog.Logger
 }
 
@@ -106,11 +111,17 @@ func New(cfg Config) (*Link, error) {
 	if cfg.URL == "" {
 		return nil, errors.New("hostlink: relay url is required")
 	}
-	if cfg.Devices == nil || cfg.Router == nil || cfg.Pairing == nil || cfg.OnDisconnect == nil {
-		return nil, errors.New("hostlink: devices, router, pairing and on-disconnect are required")
+	if cfg.Devices == nil {
+		return nil, errors.New("hostlink: devices are required")
 	}
 	l := &Link{cfg: cfg, log: cfg.Log, dialer: newDialer(), attached: make(chan struct{}),
 		strangers: map[device.ID]*stranger{}, now: time.Now}
+	if cfg.ControlOnly {
+		return l, nil
+	}
+	if cfg.Router == nil || cfg.Pairing == nil || cfg.OnDisconnect == nil {
+		return nil, errors.New("hostlink: router, pairing and on-disconnect are required")
+	}
 	cfg.Devices.OnRevoke(l.revoked)
 	return l, nil
 }
@@ -242,6 +253,10 @@ func (l *Link) session(ctx context.Context) error {
 			if !l.presence(payload) {
 				c.controlReply(payload)
 			}
+			continue
+		}
+		if l.cfg.ControlOnly {
+			c.stranger(l.log, caller)
 			continue
 		}
 		// A removed device gets a signed refusal and no session. Anyone can ask
@@ -611,6 +626,9 @@ func (l *Link) presence(payload []byte) bool {
 	var p relay.Presence
 	switch msg.Method {
 	case relay.PresenceGone:
+		if l.cfg.ControlOnly {
+			break
+		}
 		if jsonrpc.Into(msg.Params, &p) == nil && p.Device != "" {
 			l.log.Info("hostlink: device offline (relay)", "device", p.Device)
 			l.disconnected(p.Device)

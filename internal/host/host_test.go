@@ -265,3 +265,17 @@ func TestMissingDependenciesAreNamed(t *testing.T) {
 		t.Fatalf("registry.New = %v, want Chats named", err)
 	}
 }
+
+// On the user's own relay, pushes take a second link to RepoGo's, which holds
+// the APNs key; on RepoGo's relay one link carries both.
+func TestOwnRelaySendsPushesOverASecondLink(t *testing.T) {
+	own, ours := testhost.Relay(t), testhost.Relay(t)
+	th := testhost.New(t, func(c *host.Config) { c.Relay, c.PushRelay = own, ours })
+	if link, push := th.PushLinks(); link == nil || push == nil || link == push {
+		t.Fatalf("own relay: chat link %p, push link %p, want two", link, push)
+	}
+	th = testhost.New(t, func(c *host.Config) { c.Relay, c.PushRelay = ours, ours })
+	if link, push := th.PushLinks(); link == nil || link != push {
+		t.Fatalf("RepoGo's relay: chat link %p, push link %p, want one", link, push)
+	}
+}

@@ -27,7 +27,7 @@ import (
 	"github.com/repogoapp/host/internal/tunnel"
 )
 
-func run(ctx context.Context, log *slog.Logger, port int, relayURL string, self restarter) error {
+func run(ctx context.Context, log *slog.Logger, port int, relayFlag *string, self restarter) error {
 	// Leaf packages with one or two lines to say log through slog's default.
 	slog.SetDefault(log)
 	// A CLI installed from a phone lands in ~/.local/bin, which the service's
@@ -47,7 +47,7 @@ func run(ctx context.Context, log *slog.Logger, port int, relayURL string, self 
 	if port != 0 {
 		conf.Port = port
 	}
-	cfg, err := hostConfig(log, conf, relayURL, self)
+	cfg, err := hostConfig(log, conf, relayFor(relayFlag, conf.Relay), self)
 	if err != nil {
 		return err
 	}
@@ -107,6 +107,15 @@ func projectsDir(home string) string {
 	return filepath.Join(home, name)
 }
 
+// relayFor is the relay to dial: the -relay flag when given (empty disables),
+// else the one `repogo relay set` saved, else RepoGo's.
+func relayFor(flagged *string, saved string) string {
+	if flagged != nil {
+		return *flagged
+	}
+	return cmp.Or(saved, defaultRelay)
+}
+
 // hostConfig is the production host: the user's own state, home and agents.
 func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restarter) (host.Config, error) {
 	home, err := os.UserHomeDir()
@@ -127,7 +136,7 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 		State: state, Home: home, Attachments: attachments,
 		// Visible in the user's home rather than under a dotfile: it holds their source.
 		Projects: projectsDir(home),
-		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relayURL,
+		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relayURL, PushRelay: defaultRelay,
 		Label:   device.Label(),
 		Gateway: gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
 		Getenv: os.Getenv,

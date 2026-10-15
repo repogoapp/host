@@ -13,6 +13,8 @@ type localConf struct {
 	Port     int    `json:"port"`
 	Token    string `json:"token"`
 	ServerID string `json:"server_id"`
+	// Relay is the one `repogo relay set` chose; empty is RepoGo's.
+	Relay string `json:"relay,omitempty"`
 }
 
 func confPath() (string, error) {

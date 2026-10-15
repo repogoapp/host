@@ -101,6 +101,9 @@ func printStatus(ctx context.Context) error {
 		return err
 	}
 	fmt.Printf("repogo %s · up %s · relay connected: %t\n", status.Version, (time.Duration(status.Uptime) * time.Second).String(), status.RelayConnected)
+	if relay, err := savedRelay(); err == nil && relay != "" {
+		fmt.Println("  relay: " + relay + " (your own)")
+	}
 	for _, p := range paired {
 		fmt.Printf("  %s (%s)\n", p.Label, p.ID)
 	}

@@ -355,8 +355,17 @@ func (h *Host) openTransports() error {
 	}
 	// A phone is on the relay unless it has a socket of its own here.
 	h.Pushes.SetFallback(h.link)
-	h.alerts = push.New(h.devices, h.link, h.log)
-	h.activities = liveactivity.New(h.db, h.devices, h.link, h.log)
+	h.pushLink = h.link
+	if h.cfg.PushRelay != "" && h.cfg.PushRelay != h.cfg.Relay {
+		h.pushLink, err = hostlink.New(hostlink.Config{
+			URL: h.cfg.PushRelay, Devices: h.devices, ControlOnly: true, Log: h.log,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	h.alerts = push.New(h.devices, h.pushLink, h.log)
+	h.activities = liveactivity.New(h.db, h.devices, h.pushLink, h.log)
 	return nil
 }
 

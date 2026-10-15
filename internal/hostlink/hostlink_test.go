@@ -214,3 +214,47 @@ func TestStrangerWithAFailedProofIsDropped(t *testing.T) {
 		t.Fatalf("a stranger with a failed proof still has a session: %v", err)
 	}
 }
+
+// A control-only link reaches the relay itself, for push.send, and serves no
+// phone: chat rides the user's own relay, so even a paired phone gets nothing.
+func TestControlOnlyLinkServesNoPhone(t *testing.T) {
+	h := newHarness(t)
+	phone := generate(t)
+	if err := h.devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "phone", Client: device.Client{Platform: "ios"}}); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	pushRelay := testhost.Relay(t)
+	link, err := hostlink.New(hostlink.Config{URL: pushRelay, Devices: h.devices, ControlOnly: true, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("control-only link: %v", err)
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	t.Cleanup(stop)
+	go link.Run(ctx)
+	select {
+	case <-link.Attached():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the control-only link never attached")
+	}
+
+	// The test relay has no APNs key, so its refusal proves the request got there.
+	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err = link.Control(callCtx, "push.send", map[string]string{"token": "t"})
+	var rpcErr *jsonrpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != jsonrpc.CodeUnavailable {
+		t.Fatalf("push.send over the control-only link: %v, want the relay's no-APNs refusal", err)
+	}
+
+	dialCtx, cancelDial := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancelDial()
+	c, err := hostclient.Dial(dialCtx, hostclient.Config{
+		URL: pushRelay, Identity: phone, GroupID: h.devices.GroupID(),
+		Role: handshake.RoleClient, Platform: "ios",
+		Host: h.devices.Identity().ID, HostPublic: h.devices.Identity().Public,
+	})
+	if err == nil {
+		_ = c.Close()
+		t.Fatal("a paired phone opened a channel through the control-only link")
+	}
+}

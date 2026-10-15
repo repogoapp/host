@@ -64,6 +64,9 @@ type Config struct {
 	Token, ServerID string
 	// Relay, when set, is dialled so phones off this network reach the host.
 	Relay string
+	// PushRelay holds the APNs key. When it differs from Relay, a second link
+	// to it carries push.send alone.
+	PushRelay string
 
 	// Label names this host to its phones.
 	Label string
@@ -136,8 +139,10 @@ type Host struct {
 	watch     *projectwatch.Manager
 
 	srv *wsserver.Server
-	// Set in New only when there is a relay; APNs goes through it.
+	// Set in New only when there is a relay; APNs goes through pushLink,
+	// which is link itself unless the relay is the user's own.
 	link       *hostlink.Link
+	pushLink   *hostlink.Link
 	alerts     *push.Notifier
 	activities *liveactivity.Driver
 	// What a phone should dial, the relay when there is one; set once listening.
@@ -231,6 +236,9 @@ func (h *Host) Start() {
 	h.spawn(h.Services.Actions.Watch)
 	if h.link != nil {
 		h.spawn(h.link.Run)
+	}
+	if h.pushLink != nil && h.pushLink != h.link {
+		h.spawn(h.pushLink.Run)
 	}
 	if h.alerts != nil {
 		h.spawn(func(ctx context.Context) { h.alerts.Run(ctx, h.bridge) })

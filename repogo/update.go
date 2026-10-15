@@ -29,7 +29,7 @@ type restarter struct {
 
 // serve runs the host and, when an update asks, execs the new binary once
 // run has shut everything down, so no agent, shell or action outlives it.
-func serve(ctx context.Context, log *slog.Logger, port int, relay string) error {
+func serve(ctx context.Context, log *slog.Logger, port int, relay *string) error {
 	binary, err := os.Executable()
 	if err != nil {
 		return err
