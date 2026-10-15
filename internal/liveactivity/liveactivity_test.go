@@ -121,7 +121,7 @@ func TestFirstWorkingChatStartsTheActivity(t *testing.T) {
 	}
 	var attributes map[string]string
 	_ = json.Unmarshal(aps["attributes"], &attributes)
-	if attributes["hostId"] != string(f.devices.Identity().ID) || len(attributes) != 1 {
+	if attributes["host_id"] != string(f.devices.Identity().ID) || len(attributes) != 1 {
 		t.Errorf("attributes %v", attributes)
 	}
 	if _, ok := aps["input-push-token"]; !ok {
@@ -139,7 +139,7 @@ func TestPayloadCarriesOnlyCounts(t *testing.T) {
 	var state map[string]any
 	_ = json.Unmarshal(aps["content-state"], &state)
 	keys := slices.Sorted(maps.Keys(state))
-	if !slices.Equal(keys, []string{"finished", "needsYou", "working"}) {
+	if !slices.Equal(keys, []string{"finished", "needs_you", "working"}) {
 		t.Errorf("content-state keys %v", keys)
 	}
 	raw := string(f.sender.Calls[0].Payload)

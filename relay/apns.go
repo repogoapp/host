@@ -56,7 +56,8 @@ func apnsPush(log *slog.Logger) func(context.Context, relay.PushRequest) error {
 		case res.Sent():
 			return nil
 		case res.Reason == apns2.ReasonUnregistered, res.Reason == apns2.ReasonBadDeviceToken:
-			return relay.ErrUnregistered
+			// The reason travels to the host, which logs why it forgot the token.
+			return fmt.Errorf("%w: %d %s", relay.ErrUnregistered, res.StatusCode, res.Reason)
 		default:
 			return fmt.Errorf("apns: %d %s", res.StatusCode, res.Reason)
 		}

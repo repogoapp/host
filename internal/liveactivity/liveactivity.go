@@ -42,7 +42,7 @@ const (
 // Counts is the activity's content-state (`LiveActivityAttributes.ContentState`).
 type Counts struct {
 	Working  int `json:"working"`
-	NeedsYou int `json:"needsYou"`
+	NeedsYou int `json:"needs_you"`
 	Finished int `json:"finished"`
 }
 
@@ -380,7 +380,7 @@ func (d *Driver) payload(event string, c Counts) []byte {
 	switch event {
 	case "start":
 		aps["attributes-type"] = "LiveActivityAttributes"
-		aps["attributes"] = map[string]any{"hostId": string(d.devices.Identity().ID)}
+		aps["attributes"] = map[string]any{"host_id": string(d.devices.Identity().ID)}
 		aps["alert"] = map[string]any{"title": "RepoGo", "body": "Working on your environment"}
 		aps["input-push-token"] = 1
 	case "end":
@@ -406,6 +406,7 @@ func (d *Driver) deliver(ctx context.Context, peer device.Peer, kind string, to 
 	isDead, err := push.Try(ctx, d.send, req)
 	switch {
 	case isDead:
+		d.log.Warn("liveactivity: token is dead", "device", peer.ID, "kind", kind, "environment", to.Environment, "err", err)
 		d.forget(peer, kind, to.Token)
 		return dead
 	case err != nil:

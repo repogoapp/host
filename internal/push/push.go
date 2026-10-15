@@ -36,19 +36,22 @@ type Sender interface {
 // gone, for the caller to forget; any other failure is only logged.
 func Send(ctx context.Context, s Sender, log *slog.Logger, req relay.PushRequest) (dead bool) {
 	dead, err := Try(ctx, s, req)
-	if err != nil {
+	switch {
+	case dead:
+		log.Warn("push: token is dead", "push_type", req.PushType, "environment", req.Environment, "err", err)
+	case err != nil:
 		log.Debug("push: not delivered", "push_type", req.PushType, "err", err)
 	}
 	return dead
 }
 
-// Try is Send for a caller that retries: err is a failure worth trying again,
-// dead a token Apple will never take.
+// Try is Send for a caller that retries: dead is a token Apple will never
+// take, with err saying why; otherwise err is a failure worth trying again.
 func Try(ctx context.Context, s Sender, req relay.PushRequest) (dead bool, err error) {
 	_, err = s.Control(ctx, "push.send", req)
 	var rpcErr *jsonrpc.Error
 	if errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeNotFound {
-		return true, nil
+		return true, err
 	}
 	return false, err
 }
