@@ -291,9 +291,11 @@ func TestDetachedRunIsKeptAndStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 	testwait.For(t, "the run to settle", func() bool { return h.status(t, run.ID).Status == store.RunStopped })
-	if snap := h.last(); len(snap.Runs) != 1 || snap.Runs[0].Status != store.RunStopped {
-		t.Fatalf("last snapshot %+v, want the stopped run", snap.Runs)
-	}
+	// The row settles before the snapshot announcing it goes out.
+	testwait.For(t, "the stopped run to be announced", func() bool {
+		snap := h.last()
+		return len(snap.Runs) == 1 && snap.Runs[0].Status == store.RunStopped
+	})
 	if err := h.Stop("not-a-run"); !errors.Is(err, ErrUnknownRun) {
 		t.Fatalf("unknown run: %v", err)
 	}
