@@ -62,7 +62,8 @@ keeps the environment listed as No Longer Paired and stops reconnecting until
 the user pairs again. A missing reply remains an ordinary connection failure.
 
 The relay bounds handshakes to 8 KiB and allows 240 connection attempts per
-address in each one-minute window, counting an IPv6 /64 as one address. It
+address in each one-minute window, counting an IPv6 /64 as one address. One
+address holds at most 16 sockets at once, and one IPv6 /48 at most 64. It
 tracks at most 4,096 addresses per window; past that, new addresses keep only
 the concurrent-connection cap until the next window. Offline presence is best
 effort: it remembers at most 4,096 departed devices with 128 peers each, and

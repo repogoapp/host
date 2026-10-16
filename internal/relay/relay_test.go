@@ -841,7 +841,8 @@ func TestAFrameToAnAbsentIDLeavesNoRoute(t *testing.T) {
 
 // One socket is remembered talking to at most routesPerSocket targets.
 func TestRoutesPerSocketAreCapped(t *testing.T) {
-	h := newHarness(t)
+	// Every socket here comes from one address.
+	h := newHarnessWith(t, Config{MaxConnsPerIP: routesPerSocket + 8})
 	sender, _ := h.connect("group-a", handshake.RoleClient)
 	for range routesPerSocket + 4 {
 		target, _ := h.connect("group-a", handshake.RoleClient)

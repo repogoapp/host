@@ -9,7 +9,7 @@ primary_region = "ewr"
   RELAY_CLIENT_IP_HEADER = "Fly-Client-IP"
   # Frames held across every socket, queued or arriving. Keep it about a
   # quarter of [[vm]] memory and raise the two together.
-  RELAY_MAX_BUFFERED_MB = "64"
+  RELAY_MAX_BUFFERED_MB = "256"
 
 [deploy]
   # Start the new machine and pass its health check before stopping the old
@@ -31,8 +31,8 @@ primary_region = "ewr"
     # Connections, not requests: every client holds one open socket, so request
     # counting would read a busy relay as idle.
     type = "connections"
-    soft_limit = 400
-    hard_limit = 500
+    soft_limit = 4000
+    hard_limit = 5000
 
 [[http_service.checks]]
   grace_period = "5s"
@@ -43,4 +43,4 @@ primary_region = "ewr"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = "1gb"

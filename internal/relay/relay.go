@@ -217,12 +217,12 @@ func (s *Server) connectionCount() int {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	ip := s.clientIP(r)
-	if !s.admitIP(ip, time.Now()) {
+	ip, site := s.clientIP(r)
+	if !s.admitIP(ip, site, time.Now()) {
 		http.Error(w, "too many connections from this address", http.StatusTooManyRequests)
 		return
 	}
-	defer s.releaseIP(ip)
+	defer s.releaseIP(ip, site)
 	// Any origin: this is a public relay reached from phones, desktops and
 	// browsers on networks we do not control. Origin cannot be a security
 	// boundary here — the signature is.
@@ -264,6 +264,10 @@ type conn struct {
 
 	// Control requests running now, each off the read loop.
 	controls chan struct{}
+
+	// Entries in srv.routes that go through c, under srv.mu, so the cap is
+	// checked without walking every route.
+	routes int
 
 	// Rate limit for push.send, per connection.
 	pushMu     sync.Mutex
@@ -747,6 +751,7 @@ func (s *Server) forget(c *conn) {
 			delete(s.routes, r)
 		}
 	}
+	c.routes = 0
 }
 
 // socketFor picks target's socket for a frame from sender: the one target last
@@ -769,9 +774,9 @@ func (s *Server) socketFor(target, sender device.ID) *conn {
 func (s *Server) noteRoute(c *conn, target device.ID) {
 	r := leg{from: c.id, to: target}
 	s.mu.RLock()
-	same := s.routes[r] == c
+	settled := s.routes[r] == c || c.routes >= routesPerSocket
 	s.mu.RUnlock()
-	if same {
+	if settled {
 		return
 	}
 	s.mu.Lock()
@@ -781,15 +786,15 @@ func (s *Server) noteRoute(c *conn, target device.ID) {
 		// leave a route to a closed socket.
 		return
 	}
-	held := 0
-	for _, via := range s.routes {
-		if via == c {
-			held++
-		}
+	prev := s.routes[r]
+	if prev == c || c.routes >= routesPerSocket {
+		return
 	}
-	if held < routesPerSocket {
-		s.routes[r] = c
+	if prev != nil {
+		prev.routes--
 	}
+	s.routes[r] = c
+	c.routes++
 }
 
 // route forwards one message. Undeliverable messages are dropped, not queued:

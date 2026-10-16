@@ -53,22 +53,22 @@ func TestReconnectChurnKeepsSpendingTheAddressBudget(t *testing.T) {
 	s := newHarness(t).srv
 	now := time.Now()
 	for range connectionAttemptsPerMinute {
-		if !s.admitIP("203.0.113.1", now) {
+		if !s.admitIP("203.0.113.1", "", now) {
 			t.Fatal("connection refused before its budget was spent")
 		}
-		s.releaseIP("203.0.113.1")
+		s.releaseIP("203.0.113.1", "")
 	}
-	if s.admitIP("203.0.113.1", now.Add(time.Second)) {
+	if s.admitIP("203.0.113.1", "", now.Add(time.Second)) {
 		t.Fatal("closing sockets reset the connection-attempt budget")
 	}
-	if !s.admitIP("203.0.113.2", now) {
+	if !s.admitIP("203.0.113.2", "", now) {
 		t.Fatal("another address shared the attacker's budget")
 	}
-	s.releaseIP("203.0.113.2")
-	if !s.admitIP("203.0.113.1", now.Add(time.Minute)) {
+	s.releaseIP("203.0.113.2", "")
+	if !s.admitIP("203.0.113.1", "", now.Add(time.Minute)) {
 		t.Fatal("the address's budget did not recover")
 	}
-	s.releaseIP("203.0.113.1")
+	s.releaseIP("203.0.113.1", "")
 }
 
 func TestRotatingAddressesCannotGrowTheLimiter(t *testing.T) {
@@ -76,20 +76,20 @@ func TestRotatingAddressesCannotGrowTheLimiter(t *testing.T) {
 	now := time.Now()
 	for i := range maxAttemptIPs {
 		ip := fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff)
-		if !s.admitIP(ip, now) {
+		if !s.admitIP(ip, "", now) {
 			t.Fatal("address refused before the limiter filled")
 		}
-		s.releaseIP(ip)
+		s.releaseIP(ip, "")
 	}
-	if !s.admitIP("203.0.113.1", now) {
+	if !s.admitIP("203.0.113.1", "", now) {
 		t.Fatal("a full limiter locked out a new address")
 	}
-	s.releaseIP("203.0.113.1")
+	s.releaseIP("203.0.113.1", "")
 	if len(s.attempts) != maxAttemptIPs {
 		t.Fatalf("limiter grew to %d addresses", len(s.attempts))
 	}
-	s.admitIP("203.0.113.1", now.Add(time.Minute))
-	s.releaseIP("203.0.113.1")
+	s.admitIP("203.0.113.1", "", now.Add(time.Minute))
+	s.releaseIP("203.0.113.1", "")
 	if len(s.attempts) != 1 {
 		t.Fatal("expired address budgets were not reclaimed")
 	}
@@ -105,6 +105,47 @@ func TestOneIPv6PrefixSharesABudget(t *testing.T) {
 	}
 	if got := subscriber(net.ParseIP("203.0.113.1")); got != "203.0.113.1" {
 		t.Fatalf("IPv4 address became %q", got)
+	}
+}
+
+// One /48 holds many /64s, so its subscribers share a wider cap.
+func TestOneIPv6SiteSharesACap(t *testing.T) {
+	s := newHarness(t).srv
+	now := time.Now()
+	site := siteOf(net.ParseIP("2001:db8:1:2::1"))
+	if site != siteOf(net.ParseIP("2001:db8:1:ffff::1")) {
+		t.Fatal("one /48 counted as two sites")
+	}
+	if siteOf(net.ParseIP("203.0.113.1")) != "" {
+		t.Fatal("an IPv4 address had a site")
+	}
+	for i := range sitesPerIP * s.connsPerIP {
+		ip := subscriber(net.ParseIP(fmt.Sprintf("2001:db8:1:%x::1", i)))
+		if !s.admitIP(ip, site, now) {
+			t.Fatalf("socket %d refused before the site's cap", i)
+		}
+	}
+	fresh := subscriber(net.ParseIP("2001:db8:1:ffff::1"))
+	if s.admitIP(fresh, site, now) {
+		t.Fatal("a fresh /64 exceeded its site's cap")
+	}
+	s.releaseIP(subscriber(net.ParseIP("2001:db8:1:0::1")), site)
+	if !s.admitIP(fresh, site, now) {
+		t.Fatal("a released socket did not free its site's slot")
+	}
+}
+
+// A route that moves to a device's other socket stops counting against the first.
+func TestAMovedRouteFreesItsOldSocketsSlot(t *testing.T) {
+	s := newHarness(t).srv
+	id, target := device.ID("00000000000000000000000000000001"), device.ID("00000000000000000000000000000002")
+	a, b := &conn{id: id}, &conn{id: id}
+	s.conns[id] = []*conn{a, b}
+	s.conns[target] = []*conn{{id: target}}
+	s.noteRoute(a, target)
+	s.noteRoute(b, target)
+	if a.routes != 0 || b.routes != 1 {
+		t.Fatalf("routes counted %d and %d, want 0 and 1", a.routes, b.routes)
 	}
 }
 
