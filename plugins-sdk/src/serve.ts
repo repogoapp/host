@@ -1,6 +1,6 @@
 import type { Socket } from "bun";
 import { chmod, mkdir, rm } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import { toCallError, type CallError } from "./errors";
 import type { DataPush, FromWorker, Reply, Request, ToWorker } from "./protocol";
@@ -13,13 +13,12 @@ import type { DataPush, FromWorker, Reply, Request, ToWorker } from "./protocol"
 export type ServeOptions = {
   /** The socket's path; created with mode 0600. */
   socket: string;
-  /** Each project's databases go in `<dataDir>/<project>/`. */
+  /** Where the databases go, `<dataDir>/<db>.db`. */
   dataDir: string;
 };
 
-const projectKey = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "a project key is letters, digits, dots, dashes and underscores");
 const pluginsDir = z.string().refine(isAbsolute, "dir is an absolute path");
-const target = z.object({ project: projectKey, dir: pluginsDir });
+const target = z.object({ dir: pluginsDir });
 const named = target.extend({ name: z.string().min(1), input: z.unknown().optional() });
 
 const requestSchema = z.discriminatedUnion("method", [
@@ -27,7 +26,7 @@ const requestSchema = z.discriminatedUnion("method", [
   z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ confirmed: z.boolean().optional() }) }),
   z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
   z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
-  z.object({ id: z.number(), method: z.literal("reload"), params: z.object({ project: projectKey }) }),
+  z.object({ id: z.number(), method: z.literal("reload"), params: target }),
 ]);
 
 type Connection = Socket<{ inbox: string; outbox: Uint8Array[] }>;
@@ -58,8 +57,6 @@ class Checkout {
   private stopping = false;
 
   constructor(
-    readonly key: string,
-    readonly project: string,
     readonly dir: string,
     private dataDir: string,
     private onMessage: (checkout: Checkout, message: FromWorker) => void,
@@ -83,7 +80,7 @@ class Checkout {
       if (!this.stopping) this.onCrash(this);
     });
     // dir is `<checkout>/.repogo/plugins`, so the checkout is two folders up.
-    this.post({ type: "open", dir: this.dir, dataDir: join(this.dataDir, this.project), root: resolve(this.dir, "..", "..") });
+    this.post({ type: "open", dir: this.dir, dataDir: this.dataDir, root: resolve(this.dir, "..", "..") });
   }
 
   request(message: { type: "list" } | { type: "call"; name: string; input: unknown; confirmed: boolean } | { type: "subscribe"; subscription: string; name: string; input: unknown }): Promise<Answer> {
@@ -119,12 +116,11 @@ export async function serve(options: ServeOptions) {
   let lastKey = 0;
   const newKey = () => `w${++lastKey}`;
 
-  function checkoutFor(project: string, dir: string) {
-    const key = `${project}\n${dir}`;
-    let checkout = checkouts.get(key);
+  function checkoutFor(dir: string) {
+    let checkout = checkouts.get(dir);
     if (!checkout) {
-      checkout = new Checkout(key, project, dir, options.dataDir, fromWorker, restart);
-      checkouts.set(key, checkout);
+      checkout = new Checkout(dir, options.dataDir, fromWorker, restart);
+      checkouts.set(dir, checkout);
     }
     return checkout;
   }
@@ -136,9 +132,9 @@ export async function serve(options: ServeOptions) {
       return;
     }
     if (message.type === "invalidated") {
-      // Another checkout of the same project reads the same databases.
+      // Any other Worker may read the same database: a shared db, or a worktree.
       for (const checkout of checkouts.values()) {
-        if (checkout !== from && checkout.project === from.project) checkout.post({ type: "invalidate", tags: message.tags });
+        if (checkout !== from) checkout.post({ type: "invalidate", tags: message.tags });
       }
     }
   }
@@ -157,12 +153,12 @@ export async function serve(options: ServeOptions) {
   // A new Worker for the checkout, with its subscriptions taken up again: their
   // results go out as pushes if the new code answers differently.
   function restart(old: Checkout) {
-    if (checkouts.get(old.key) !== old) return;
+    if (checkouts.get(old.dir) !== old) return;
     old.stop();
-    const checkout = new Checkout(old.key, old.project, old.dir, options.dataDir, fromWorker, restart);
-    checkouts.set(old.key, checkout);
+    const checkout = new Checkout(old.dir, options.dataDir, fromWorker, restart);
+    checkouts.set(old.dir, checkout);
     for (const [id, subscription] of subscriptions) {
-      if (subscription.checkout !== old.key) continue;
+      if (subscription.checkout !== old.dir) continue;
       byKey.delete(subscription.key);
       const key = newKey();
       subscription.key = key;
@@ -180,7 +176,7 @@ export async function serve(options: ServeOptions) {
     switch (request.method) {
       case "list":
       case "call": {
-        const checkout = checkoutFor(request.params.project, request.params.dir);
+        const checkout = checkoutFor(request.params.dir);
         const answer =
           request.method === "list"
             ? await checkout.request({ type: "list" })
@@ -191,13 +187,13 @@ export async function serve(options: ServeOptions) {
         return { id, ...answer };
       }
       case "subscribe": {
-        const { project, dir, name, subscription } = request.params;
+        const { dir, name, subscription } = request.params;
         const input = request.params.input ?? {};
         // Subscribing again under an id replaces it.
         unsubscribe(subscription);
-        const checkout = checkoutFor(project, dir);
+        const checkout = checkoutFor(dir);
         const key = newKey();
-        pending.set(subscription, { connection, checkout: checkout.key, key });
+        pending.set(subscription, { connection, checkout: checkout.dir, key });
         const answer = await checkout.request({ type: "subscribe", subscription: key, name, input });
         if (pending.get(subscription)?.key !== key) {
           // Ended or replaced while its first run was out: it never starts.
@@ -206,7 +202,7 @@ export async function serve(options: ServeOptions) {
         }
         pending.delete(subscription);
         if ("error" in answer) return { id, ...answer };
-        subscriptions.set(subscription, { connection, checkout: checkout.key, name, input, revision: 1, hash: hashOf(answer), key });
+        subscriptions.set(subscription, { connection, checkout: checkout.dir, name, input, revision: 1, hash: hashOf(answer), key });
         byKey.set(key, subscription);
         return { id, result: { subscription, revision: 1, result: answer.result } };
       }
@@ -215,9 +211,8 @@ export async function serve(options: ServeOptions) {
         return { id, result: {} };
       }
       case "reload": {
-        for (const checkout of [...checkouts.values()]) {
-          if (checkout.project === request.params.project) restart(checkout);
-        }
+        const checkout = checkouts.get(request.params.dir);
+        if (checkout) restart(checkout);
         return { id, result: {} };
       }
     }

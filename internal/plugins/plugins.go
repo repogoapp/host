@@ -24,7 +24,6 @@ import (
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/git"
-	"github.com/repogoapp/host/internal/mcp"
 )
 
 // Folder is where a project keeps its plugins, from its checkout's top.
@@ -47,8 +46,8 @@ type Config struct {
 	// Runtime is the plugins server's entry: the SDK's src/run.ts on a dev host,
 	// the unpacked bundle (Unpack) on a release; empty leaves plugins off.
 	Runtime string
-	// Socket is where the plugins server listens; DataDir holds every project's
-	// databases, one folder per project.
+	// Socket is where the plugins server listens; DataDir holds the databases,
+	// one file per db a plugin names.
 	Socket  string
 	DataDir string
 	// Emit sends a subscription's new answer to the device that made it.
@@ -105,11 +104,10 @@ func (s *Service) Has(path string) bool {
 	return err == nil
 }
 
-// Target is what the plugins server needs for a folder: its project's data key
-// and the plugins folder of the checkout it is in.
+// Target is what the plugins server needs for a folder: the plugins folder of
+// the checkout it is in.
 type Target struct {
-	Project string `json:"project"`
-	Dir     string `json:"dir"`
+	Dir string `json:"dir"`
 }
 
 func (s *Service) target(path string) (Target, error) {
@@ -123,7 +121,7 @@ func (s *Service) target(path string) (Target, error) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return Target{}, ErrNoPlugins
 	}
-	return Target{Project: projectKey(path), Dir: dir}, nil
+	return Target{Dir: dir}, nil
 }
 
 // List is the manifest of a folder's plugins: each plugin, its methods and their input schemas.
@@ -283,7 +281,7 @@ func (s *Service) ready(ctx context.Context, t Target) (*server, error) {
 	s.prints[t.Dir] = current
 	s.mu.Unlock()
 	if seen && last != current {
-		if _, _, err := srv.request(ctx, "reload", map[string]string{"project": t.Project}); err != nil {
+		if _, _, err := srv.request(ctx, "reload", t); err != nil {
 			return nil, err
 		}
 	}
@@ -298,8 +296,8 @@ func (s *Service) reload(ctx context.Context, t Target) {
 	if srv == nil {
 		return
 	}
-	if _, _, err := srv.request(ctx, "reload", map[string]string{"project": t.Project}); err != nil {
-		s.cfg.Log.Warn("plugins: reload failed", "project", t.Project, "err", err)
+	if _, _, err := srv.request(ctx, "reload", t); err != nil {
+		s.cfg.Log.Warn("plugins: reload failed", "dir", t.Dir, "err", err)
 	}
 }
 
@@ -438,14 +436,6 @@ func checkout(path string) string {
 		return root
 	}
 	return filepath.Clean(path)
-}
-
-// projectKey names a project's data folder: every worktree of one project
-// shares it, as MCP switches do.
-func projectKey(path string) string {
-	root := mcp.Root(path)
-	sum := sha256.Sum256([]byte(root))
-	return filepath.Base(root) + "-" + hex.EncodeToString(sum[:4])
 }
 
 // fingerprint is the plugins' source as of now: each file's path, size and time.

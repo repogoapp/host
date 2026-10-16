@@ -10,6 +10,7 @@ import { definePlugin, method, z } from "@repogo/plugins";
 
 export default definePlugin({
   description: "Notes for this project",
+  db: "myproject.notes",
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
     search: method(z.object({ text: z.string() }), async ({ text }, ctx) =>
@@ -20,6 +21,12 @@ export default definePlugin({
   },
 });
 ```
+
+`db` names the SQLite file the collections live in, `~/.repogo/plugin-data/<db>.db`
+on the environment; left out, it is the plugin's folder name. Name a project's own
+data `<project>.<name>`. A bare name (`todos`) is shared by every plugin that
+names it, in any project, so they must agree on their collections' schemas.
+Data stays in place when the project moves. A plugin without collections has no file.
 
 Add it to `.repogo/plugins/package.json` (`bun add @repogo/plugins`) for types
 and editor help. The RepoGo host runs plugins with its own copy of this

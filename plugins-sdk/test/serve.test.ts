@@ -128,10 +128,10 @@ test("the socket is the owner's alone", async () => {
   expect((await stat(socket)).mode & 0o777).toBe(0o600);
 });
 
-test("list and call reach the checkout's plugins; data goes under the project", async () => {
+test("list and call reach the checkout's plugins; data is one file per db", async () => {
   const { client, dataDir } = await start();
   const { root, dir } = await checkout({ notes: notesApp });
-  const target = { project: "demo-1", dir };
+  const target = { dir };
 
   const manifest = result(await client.request("list", target));
   expect(manifest.plugins.map((plugin: { name: string }) => plugin.name)).toEqual(["notes"]);
@@ -139,13 +139,13 @@ test("list and call reach the checkout's plugins; data goes under the project", 
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
   expect(result(await client.request("call", { ...target, name: "notes.texts" }))).toEqual(["a"]);
   expect(result(await client.request("call", { ...target, name: "notes.root" }))).toBe(root);
-  expect((await stat(join(dataDir, "demo-1", "notes.db"))).isFile()).toBe(true);
+  expect((await stat(join(dataDir, "notes.db"))).isFile()).toBe(true);
 });
 
 test("a subscription gets a push when a write changes its result, and nothing otherwise", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });
-  const target = { project: "demo-2", dir };
+  const target = { dir };
 
   const first = result(await client.request("subscribe", { ...target, subscription: "t1", name: "notes.texts" }));
   expect(first).toEqual({ subscription: first.subscription, revision: 1, result: [] });
@@ -165,16 +165,29 @@ test("a write in one checkout reaches the other checkout's subscriptions", async
   const main = await checkout({ notes: notesApp });
   const worktree = await checkout({ notes: notesApp });
 
-  const subscribed = result(await client.request("subscribe", { project: "demo-3", dir: main.dir, subscription: "t2", name: "notes.texts" }));
+  const subscribed = result(await client.request("subscribe", { dir: main.dir, subscription: "t2", name: "notes.texts" }));
   const pushed = client.nextPush((push) => push.params.subscription === subscribed.subscription);
-  result(await client.request("call", { project: "demo-3", dir: worktree.dir, name: "notes.notes.create", input: { text: "from the worktree" } }));
+  result(await client.request("call", { dir: worktree.dir, name: "notes.notes.create", input: { text: "from the worktree" } }));
   expect((await pushed).params).toMatchObject({ revision: 2, result: ["from the worktree"] });
+});
+
+test("plugins in two checkouts that name the same db share it, and a write in one refreshes the other", async () => {
+  const { client, dataDir } = await start();
+  const todos = notesApp.replace("export default definePlugin({", 'export default definePlugin({\n  db: "todos",');
+  const one = await checkout({ notes: todos });
+  const two = await checkout({ list: todos });
+
+  const subscribed = result(await client.request("subscribe", { dir: one.dir, subscription: "t2b", name: "notes.texts" }));
+  const pushed = client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  result(await client.request("call", { dir: two.dir, name: "list.notes.create", input: { text: "shared" } }));
+  expect((await pushed).params).toMatchObject({ revision: 2, result: ["shared"] });
+  expect((await stat(join(dataDir, "todos.db"))).isFile()).toBe(true);
 });
 
 test("a reload runs the new code and pushes what changed", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });
-  const target = { project: "demo-4", dir };
+  const target = { dir };
   const subscribed = result(await client.request("subscribe", { ...target, subscription: "t3", name: "notes.texts" }));
 
   await writeFile(join(dir, "notes", "app.ts"), notesApp.replace("(n) => n.text", "(n) => n.text.toUpperCase()").replace("ctx.root", '"new"'));
@@ -182,7 +195,7 @@ test("a reload runs the new code and pushes what changed", async () => {
   await client.nextPush((push) => push.params.subscription === subscribed.subscription);
 
   const reloaded = client.nextPush((push) => push.params.subscription === subscribed.subscription && push.params.revision === 3);
-  result(await client.request("reload", { project: "demo-4" }));
+  result(await client.request("reload", { dir }));
   expect((await reloaded).params).toMatchObject({ result: ["A"] });
   expect(result(await client.request("call", { ...target, name: "notes.root" }))).toBe("new");
 });
@@ -190,7 +203,7 @@ test("a reload runs the new code and pushes what changed", async () => {
 test("after unsubscribe a write pushes nothing", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });
-  const target = { project: "demo-5", dir };
+  const target = { dir };
   const subscribed = result(await client.request("subscribe", { ...target, subscription: "t4", name: "notes.texts" }));
   result(await client.request("unsubscribe", { subscription: subscribed.subscription }));
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
@@ -201,29 +214,29 @@ test("after unsubscribe a write pushes nothing", async () => {
 test("a subscription only runs queries", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });
-  const reply = await client.request("subscribe", { project: "demo-6", dir, subscription: "t5", name: "notes.notes.create", input: { text: "a" } });
+  const reply = await client.request("subscribe", { dir, subscription: "t5", name: "notes.notes.create", input: { text: "a" } });
   expect(reply).toMatchObject({ error: { code: "FORBIDDEN" } });
 });
 
 test("plugins that fail to load answer every request with why", async () => {
   const { client } = await start();
   const { dir } = await checkout({ broken: "export default {{{" });
-  const reply = await client.request("list", { project: "demo-7", dir });
+  const reply = await client.request("list", { dir });
   expect(reply).toMatchObject({ error: { code: "INTERNAL" } });
   expect("error" in reply && reply.error.message).toContain("failed to load");
 });
 
 test("a malformed request is refused with its fields", async () => {
   const { client } = await start();
-  const reply = await client.request("call", { project: "../escape", dir: "relative", name: "" });
+  const reply = await client.request("call", { dir: "relative", name: "" });
   expect(reply).toMatchObject({ error: { code: "VALIDATION" } });
-  expect("error" in reply && Object.keys(reply.error.fieldErrors ?? {})).toContain("/params/project");
+  expect("error" in reply && Object.keys(reply.error.fieldErrors ?? {})).toContain("/params/dir");
 });
 
 test("subscribing again under an id replaces it: one push per change", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });
-  const target = { project: "demo-8", dir };
+  const target = { dir };
   result(await client.request("subscribe", { ...target, subscription: "r1", name: "notes.texts" }));
   const again = result(await client.request("subscribe", { ...target, subscription: "r1", name: "notes.texts" }));
   expect(again.revision).toBe(1);
@@ -238,7 +251,7 @@ test("subscribing again under an id replaces it: one push per change", async () 
 test("an unsubscribe during the first run means it never starts", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });
-  const target = { project: "demo-9", dir };
+  const target = { dir };
   const subscribing = client.request("subscribe", { ...target, subscription: "slow", name: "notes.slowTexts" });
   result(await client.request("unsubscribe", { subscription: "slow" }));
   expect(await subscribing).toMatchObject({ error: { code: "INTERNAL" } });
@@ -251,7 +264,7 @@ test("an unsubscribe during the first run means it never starts", async () => {
 test("rapid input changes under one id push only for the latest input", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });
-  const target = { project: "demo-10", dir };
+  const target = { dir };
   const a = client.request("subscribe", { ...target, subscription: "f", name: "notes.byPrefix", input: { prefix: "a" } });
   const b = client.request("subscribe", { ...target, subscription: "f", name: "notes.byPrefix", input: { prefix: "b" } });
   const again = client.request("subscribe", { ...target, subscription: "f", name: "notes.byPrefix", input: { prefix: "a" } });

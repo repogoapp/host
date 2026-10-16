@@ -14,22 +14,24 @@ export type ListOptions = {
 
 // A collection is one table of JSON rows. Every write is checked against the
 // schema and emits `<plugin>.<collection>.<created|updated|deleted>`. Reads and
-// writes are tracked under the tag `<plugin>.<collection>`, so cards refresh.
+// writes are tracked under the tag `<db>.<collection>`, the table's identity
+// across every plugin and Worker that opens the file, so cards refresh.
 export class Collection<S extends z.ZodObject> {
   private table: string;
   readonly tag: string;
-  /** Writes run one at a time, so an update's read and write can't interleave with another's. */
+  /** This Worker's writes run one at a time; the transaction holds off other Workers. */
   private writes: Promise<unknown> = Promise.resolve();
 
   constructor(
     private sql: SQL,
     private events: EventBus,
     private plugin: string,
+    db: string,
     private name: string,
     private schema: S,
   ) {
     this.table = name.replace(/[^a-zA-Z0-9_]/g, "_");
-    this.tag = `${plugin}.${name}`;
+    this.tag = `${db}.${name}`;
   }
 
   async setup() {
@@ -43,14 +45,27 @@ export class Collection<S extends z.ZodObject> {
     );
   }
 
+  // Each write's read-merge-write runs alone, in a transaction that takes the
+  // file's write lock before the read, so two Workers can't overwrite each
+  // other's change. Its event fires after, so a handler that writes to the same
+  // collection doesn't wait on itself.
   private serial<T>(work: () => Promise<T>): Promise<T> {
-    const result = this.writes.then(work, work);
+    const result = this.writes.then(() => this.transaction(work), () => this.transaction(work));
     this.writes = result.catch(() => {});
     return result;
   }
 
-  // Each write's read-merge-write runs alone; its event fires after, so a
-  // handler that writes to the same collection doesn't wait on itself.
+  private async transaction<T>(work: () => Promise<T>): Promise<T> {
+    await this.sql.unsafe("begin immediate");
+    try {
+      const value = await work();
+      await this.sql.unsafe("commit");
+      return value;
+    } catch (error) {
+      await this.sql.unsafe("rollback").catch(() => {});
+      throw error;
+    }
+  }
 
   async create(input: z.input<S>): Promise<Record_<z.infer<S>>> {
     assertWritable(this.tag);

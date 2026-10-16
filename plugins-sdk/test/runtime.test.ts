@@ -58,10 +58,26 @@ test("every write emits its event", async () => {
   ]);
 });
 
-test("each plugin has its own database file", async () => {
+test("a plugin with collections gets a file named by its db, one without gets none", async () => {
   await open();
   expect(existsSync(join(dataDir, "notes.db"))).toBe(true);
-  expect(existsSync(join(dataDir, "digest.db"))).toBe(true);
+  expect(existsSync(join(dataDir, "digest.db"))).toBe(false);
+});
+
+test("db names the file and the tag; two plugins naming one db share its tables", async () => {
+  const runtime = await open();
+  const schema = z.object({ text: z.string() });
+  await runtime.add("mine", definePlugin({ db: "repogo.todos", collections: { items: schema } }));
+  await runtime.add("yours", definePlugin({ db: "repogo.todos", collections: { items: schema } }));
+  expect(existsSync(join(dataDir, "repogo.todos.db"))).toBe(true);
+
+  const written = await runtime.call("mine.items.create", { text: "a" });
+  expect(written.invalidates).toEqual(["repogo.todos.items"]);
+  const read = await runtime.call("yours.items.list", {}, { expect: "query" });
+  expect((read.result as { text: string }[]).map((item) => item.text)).toEqual(["a"]);
+  expect(read.reads).toEqual(["repogo.todos.items"]);
+
+  await expect(runtime.add("bad", definePlugin({ db: "Repo Go", collections: { items: schema } }))).rejects.toThrow("db");
 });
 
 test("update changes only the fields it is given, defaults included", async () => {

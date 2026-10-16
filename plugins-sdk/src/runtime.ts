@@ -41,10 +41,11 @@ export type CallResult = { result: unknown; reads: string[]; invalidates: string
 type InvalidationListener = (tags: string[]) => void;
 
 const pluginName = /^[a-z][a-z0-9-]*$/;
+const dbName = /^[a-z][a-z0-9.-]*$/;
 
-// Loads every plugin in the plugins dir, gives each its own database, collections
-// and context, and registers its methods. The registry is what the agent's
-// tools, cards and schedules all call.
+// Loads every plugin in the plugins dir, opens the database its collections
+// name, builds its context, and registers its methods. The registry is what the
+// agent's tools, cards and schedules all call.
 export class Runtime {
   readonly events = new EventBus();
   readonly methods = new Map<string, RegisteredMethod>();
@@ -76,17 +77,15 @@ export class Runtime {
 
   async add(name: string, plugin: PluginDefinition) {
     if (!pluginName.test(name)) throw new Error(`plugin names are lowercase letters, digits and hyphens: ${name}`);
-    // One database file per plugin: a plugin can only reach another's data through its methods.
-    const sql = new SQL(`sqlite://${join(this.dataDir, `${name}.db`)}`);
-    // Two checkouts of a project run in two Workers over the same file: WAL lets
-    // them read while one writes, and a writer waits for the other's lock.
-    await sql.unsafe("pragma journal_mode = wal");
-    await sql.unsafe("pragma busy_timeout = 5000");
-    this.databases.set(name, sql);
+    const database = plugin.db ?? name;
+    if (!dbName.test(database)) throw new Error(`a plugin's db is lowercase letters, digits, dots and hyphens: ${database}`);
 
     const db: Context["db"] = {};
-    for (const [collectionName, schema] of Object.entries(plugin.collections ?? {})) {
-      const collection = new Collection(sql, this.events, name, collectionName, schema);
+    const collections = Object.entries(plugin.collections ?? {});
+    // Only collections need a file; plugins naming the same db share it on purpose.
+    const sql = collections.length > 0 ? await this.database(database) : null;
+    for (const [collectionName, schema] of collections) {
+      const collection = new Collection(sql!, this.events, name, database, collectionName, schema);
       await collection.setup();
       db[collectionName] = collection;
       this.registerCrud(name, collectionName, collection, schema);
@@ -178,6 +177,18 @@ export class Runtime {
 
   close() {
     for (const sql of this.databases.values()) sql.close();
+  }
+
+  private async database(name: string): Promise<SQL> {
+    let sql = this.databases.get(name);
+    if (sql) return sql;
+    sql = new SQL(`sqlite://${join(this.dataDir, `${name}.db`)}`);
+    // Other Workers open the same file: WAL lets them read while one writes,
+    // and a writer waits for the other's lock.
+    await sql.unsafe("pragma journal_mode = wal");
+    await sql.unsafe("pragma busy_timeout = 5000");
+    this.databases.set(name, sql);
+    return sql;
   }
 
   private notifyInvalidated(tags: string[]) {

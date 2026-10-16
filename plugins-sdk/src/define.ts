@@ -29,6 +29,12 @@ export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>
 export type PluginDefinition = {
   /** One line, shown to the agent in the index of plugins. */
   description?: string;
+  /**
+   * The data file the collections live in, `<db>.db` in the data dir; the
+   * plugin's folder name when left out. A project's own data is `<project>.<name>`
+   * (`repogo.plans`); a bare name (`todos`) is shared by every plugin that names it.
+   */
+  db?: string;
   collections?: Collections;
   methods?: Record<string, Method<any, any>>;
   on?: Record<string, Handler>;

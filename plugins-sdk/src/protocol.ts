@@ -5,13 +5,8 @@ import type { Manifest } from "./runtime";
 // object per line. A request carries an `id` and gets one reply with that `id`;
 // a push (`data`) has none.
 
-/** Every request names the project's data (`project`) and the code it runs (`dir`). */
-export type Target = {
-  /** The project's data key, one folder under the data dir, shared by its worktrees. */
-  project: string;
-  /** The `.repogo/plugins` folder of the checkout a call comes from. */
-  dir: string;
-};
+/** Every request names the code it runs: the `.repogo/plugins` folder of the checkout a call comes from. */
+export type Target = { dir: string };
 
 export type Request =
   | { id: number; method: "list"; params: Target }
@@ -21,7 +16,7 @@ export type Request =
    *  knows it; subscribing again under an id replaces it. */
   | { id: number; method: "subscribe"; params: Target & { subscription: string; name: string; input?: unknown } }
   | { id: number; method: "unsubscribe"; params: { subscription: string } }
-  | { id: number; method: "reload"; params: { project: string } };
+  | { id: number; method: "reload"; params: Target };
 
 export type Subscribed = { subscription: string; revision: number; result: unknown };
 
@@ -41,7 +36,7 @@ export type ToWorker =
   | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean }
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown }
   | { type: "unsubscribe"; subscription: string }
-  /** Another checkout of the same project wrote these tags. */
+  /** Another Worker wrote these tags. */
   | { type: "invalidate"; tags: string[] };
 
 export type FromWorker =
@@ -49,7 +44,7 @@ export type FromWorker =
   | { type: "reply"; id: number; error: CallError }
   | { type: "data"; subscription: string; result: unknown }
   | { type: "data"; subscription: string; error: CallError }
-  /** This Worker wrote these tags; other checkouts of the project re-run what read them. */
+  /** This Worker wrote these tags; the other Workers re-run what read them. */
   | { type: "invalidated"; tags: string[] };
 
 export type { Manifest };
