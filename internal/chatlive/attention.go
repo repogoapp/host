@@ -28,14 +28,15 @@ func ended(chatID store.ChatID, turnID, stopReason, errMsg, text string, answera
 	return a
 }
 
-// clipReply keeps the end of the text, where a turn says what it did.
+// clipReply keeps the opening of the turn's last message, the same words the
+// chat list previews.
 func clipReply(text string) string {
 	text = strings.TrimSpace(text)
 	runes := []rune(text)
 	if len(runes) <= maxAttentionReply {
 		return text
 	}
-	return "…" + strings.TrimSpace(string(runes[len(runes)-maxAttentionReply:]))
+	return strings.TrimSpace(string(runes[:maxAttentionReply])) + "…"
 }
 
 // attendHook turns a terminal turn's hook into attention. Nothing it sends is

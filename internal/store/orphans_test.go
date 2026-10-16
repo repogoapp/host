@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/session"
 )
 
 // Only this host's own turns die with it; a CLI in a terminal may still be
@@ -50,10 +51,9 @@ func TestInterruptOrphansSettlesOnlyThisHostsTurns(t *testing.T) {
 	}
 }
 
-// A stop after a host restart finds the chat still working under the turn the
-// previous host ran, written after InterruptOrphans; stopping it settles the
-// row. A terminal's turn and a settled chat are left alone.
-func TestInterruptOrphanSettlesOneDeadHostTurn(t *testing.T) {
+// A stop with nothing running here settles any active chat, a dead host
+// turn or a terminal's; a settled chat is left alone.
+func TestInterruptSettlesAnyActiveChat(t *testing.T) {
 	db := newStore(t)
 	started := time.UnixMilli(1000)
 	for _, c := range []struct {
@@ -71,10 +71,10 @@ func TestInterruptOrphanSettlesOneDeadHostTurn(t *testing.T) {
 	}
 	for id, want := range map[ChatID]bool{
 		chatID("claude", "dead"):     true,
-		chatID("claude", "terminal"): false,
+		chatID("claude", "terminal"): true,
 		chatID("claude", "done"):     false,
 	} {
-		settled, err := db.InterruptOrphan(id, time.UnixMilli(2000))
+		settled, err := db.Interrupt(id, time.UnixMilli(2000))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,14 +82,72 @@ func TestInterruptOrphanSettlesOneDeadHostTurn(t *testing.T) {
 			t.Errorf("%s: settled = %v, want %v", id, settled, want)
 		}
 	}
-	chat, err := db.Info(chatID("claude", "dead"))
+	chat, err := db.Info(chatID("claude", "terminal"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if chat.Status != agent.ChatInterrupted || chat.LastTurnFinishedAt == nil || *chat.LastTurnFinishedAt != 2000 {
-		t.Errorf("dead chat = %s finished %v, want interrupted at 2000", chat.Status, chat.LastTurnFinishedAt)
+		t.Errorf("terminal chat = %s finished %v, want interrupted at 2000", chat.Status, chat.LastTurnFinishedAt)
 	}
-	if chat, _ := db.Info(chatID("claude", "terminal")); chat.Status != agent.ChatWorking {
-		t.Errorf("terminal chat = %s, want working", chat.Status)
+}
+
+// A Codex CLI killed mid-turn leaves its rollout open for good. Once neither a
+// hook nor the file has moved since the cutoff it settles; a quiet host turn
+// and a recent one are left, and a line after the settle makes it work again.
+func TestInterruptStaleSettlesAbandonedTurns(t *testing.T) {
+	db := newStore(t)
+	sync := func(id string, updated int64, events ...agent.Event) {
+		t.Helper()
+		meta := session.Meta{Agent: agent.KindCodex, ID: id, Cwd: "/tmp/a", UpdatedAt: time.UnixMilli(updated), SizeBytes: updated}
+		if err := db.SyncBatch([]Entry{{Meta: meta, Events: events}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open := []agent.Event{
+		{Kind: agent.EventTurnStarted, At: 1000},
+		{Kind: agent.EventUserMessage, Text: "go", At: 1000},
+		{Kind: agent.EventToolCall, At: 1500},
+	}
+	sync("abandoned", 1500, open...)
+	sync("recent", 9500, append(open, agent.Event{Kind: agent.EventToolCall, At: 9500})...)
+	started := time.UnixMilli(1000)
+	if err := db.SetStatus(chatID("codex", "host"), "/tmp/a", agent.ChatWorking, started,
+		TurnObservation{Key: ManagerTurnPrefix + "t1", StartedAt: &started}); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := db.InterruptStale(time.UnixMilli(5000), time.UnixMilli(10000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("settled %d chats, want 1", n)
+	}
+	status := func(id string) agent.ChatStatus {
+		t.Helper()
+		chat, err := db.Info(chatID("codex", id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return chat.Status
+	}
+	for id, want := range map[string]agent.ChatStatus{
+		"abandoned": agent.ChatInterrupted,
+		"recent":    agent.ChatWorking,
+		"host":      agent.ChatWorking,
+	} {
+		if got := status(id); got != want {
+			t.Errorf("%s: status = %s, want %s", id, got, want)
+		}
+	}
+
+	// A reread of the unchanged file keeps the settle; a new line undoes it.
+	sync("abandoned", 1500, open...)
+	if got := status("abandoned"); got != agent.ChatInterrupted {
+		t.Errorf("after a reread: %s, want interrupted", got)
+	}
+	sync("abandoned", 11000, append(open, agent.Event{Kind: agent.EventToolCall, At: 11000})...)
+	if got := status("abandoned"); got != agent.ChatWorking {
+		t.Errorf("after a new line: %s, want working", got)
 	}
 }

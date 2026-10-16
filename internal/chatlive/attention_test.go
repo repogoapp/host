@@ -97,11 +97,11 @@ func TestAttentionNamesHowATurnEnded(t *testing.T) {
 	}
 }
 
-// A long turn sends its closing words, not its opening ones.
-func TestAttentionClipsTheReplyToItsEnd(t *testing.T) {
-	long := strings.Repeat("é", maxAttentionReply) + " the end."
+// A long message sends its opening, as the chat list previews it.
+func TestAttentionClipsTheReplyToItsOpening(t *testing.T) {
+	long := "The start. " + strings.Repeat("é", maxAttentionReply)
 	got := clipReply(long)
-	if !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "the end.") {
+	if !strings.HasPrefix(got, "The start.") || !strings.HasSuffix(got, "…") {
 		t.Errorf("clipped = %q", got)
 	}
 	if n := len([]rune(got)); n > maxAttentionReply+1 {

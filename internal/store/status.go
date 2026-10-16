@@ -104,24 +104,33 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 // InterruptOrphans settles every chat left active by a turn this host ran. Those
 // turns end with the process, so at start nothing is behind such a status.
 func (s *Store) InterruptOrphans(at time.Time) (int, error) {
-	return s.interruptHostTurns(at, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(agent.ActiveStatuses))+`) AND last_turn_key LIKE ?`,
+	return s.interrupt(at, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(agent.ActiveStatuses))+`) AND last_turn_key LIKE ?`,
 		append(anys(agent.ActiveStatuses), ManagerTurnPrefix+"%")...)
 }
 
-// InterruptOrphan settles id if a turn a host ran left it active: a previous
-// host's last write can land after InterruptOrphans has run. False when the
-// row is not such a turn; a CLI in a terminal is the user's to stop.
-func (s *Store) InterruptOrphan(id ChatID, at time.Time) (bool, error) {
+// Interrupt settles id if it shows active, whoever started the turn. Called
+// when a stop finds no turn here to cancel: a CLI still running reports
+// working again on its next hook or transcript line.
+func (s *Store) Interrupt(id ChatID, at time.Time) (bool, error) {
 	kind, sessionID, ok := id.split()
 	if !ok {
 		return false, fmt.Errorf("%w: chat id %q", ErrInvalid, id)
 	}
-	n, err := s.interruptHostTurns(at, `SELECT agent, session_id FROM sessions WHERE agent = ? AND session_id = ? AND status IN (`+marks(len(agent.ActiveStatuses))+`) AND last_turn_key LIKE ?`,
-		append([]any{kind, sessionID}, append(anys(agent.ActiveStatuses), ManagerTurnPrefix+"%")...)...)
+	n, err := s.interrupt(at, `SELECT agent, session_id FROM sessions WHERE agent = ? AND session_id = ? AND status IN (`+marks(len(agent.ActiveStatuses))+`)`,
+		append([]any{kind, sessionID}, anys(agent.ActiveStatuses)...)...)
 	return n > 0, err
 }
 
-func (s *Store) interruptHostTurns(at time.Time, query string, args ...any) (int, error) {
+// InterruptStale settles chats active from outside this host with no status
+// or file write since cutoff: a CLI killed mid-turn never writes its end.
+// This host's own turns are settled by their process instead.
+func (s *Store) InterruptStale(cutoff, at time.Time) (int, error) {
+	return s.interrupt(at, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(agent.ActiveStatuses))+`)
+		AND last_turn_key NOT LIKE ? AND status_at < ? AND updated_at < ?`,
+		append(anys(agent.ActiveStatuses), ManagerTurnPrefix+"%", cutoff.UnixMilli(), cutoff.UnixMilli())...)
+}
+
+func (s *Store) interrupt(at time.Time, query string, args ...any) (int, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
@@ -130,6 +139,9 @@ func (s *Store) interruptHostTurns(at time.Time, query string, args ...any) (int
 	orphans, err := selectChats(tx, query, args...)
 	if err != nil {
 		return 0, err
+	}
+	if len(orphans) == 0 {
+		return 0, nil
 	}
 	for _, id := range orphans {
 		kind, sessionID, _ := id.split()

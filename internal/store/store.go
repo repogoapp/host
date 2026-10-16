@@ -62,15 +62,12 @@ func Open(dir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A cached active state is not proof that the agent survived the host restart.
-	settled := append(slices.Clone(agent.ActiveStatuses), agent.ChatIdle)
-	if _, err := db.Exec(`UPDATE sessions SET status = ? WHERE status IN (`+marks(len(settled))+`)`,
-		append([]any{agent.ChatUnknown}, anys(settled)...)...); err != nil {
+	s := &Store{db: db}
+	if err := s.openSync(); err != nil {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{db: db}
-	if err := s.openSync(); err != nil {
+	if err := s.forgetStatuses(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -189,4 +186,28 @@ func (s *Store) Counts() (sessions, events int64, err error) {
 	}
 	err = s.db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&events)
 	return
+}
+
+// forgetStatuses reads every cached active or idle chat as unknown: a cached
+// state is no proof the agent survived the restart. Each row gets a new
+// revision, or a phone holding it would keep showing it working.
+func (s *Store) forgetStatuses() error {
+	settled := append(slices.Clone(agent.ActiveStatuses), agent.ChatIdle)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	ids, err := selectChats(tx, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(settled))+`)`, anys(settled)...)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		kind, sessionID, _ := id.split()
+		if _, err := tx.Exec(`UPDATE sessions SET status = ?, rev = ? WHERE agent = ? AND session_id = ?`,
+			agent.ChatUnknown, s.rev.Add(1), kind, sessionID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

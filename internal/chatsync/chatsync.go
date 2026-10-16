@@ -16,6 +16,10 @@ import (
 // sessions cost a stat each. It catches sessions no watcher reports.
 const resweep = 30 * time.Second
 
+// staleTurn is how long a turn run outside this host can go without a hook or
+// a transcript line before it reads as interrupted.
+const staleTurn = 10 * time.Minute
+
 type Syncer struct {
 	sessions *session.Store
 	db       *store.Store
@@ -174,6 +178,13 @@ func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
 			s.log.Warn("chatsync: could not prune stale sessions", "err", err)
 		}
 		stats.pruned = pruned
+	}
+	now := time.Now()
+	if settled, err := s.db.InterruptStale(now.Add(-staleTurn), now); err != nil {
+		stats.errors++
+		s.log.Warn("chatsync: could not settle stale turns", "err", err)
+	} else if settled > 0 {
+		s.log.Info("chatsync: settled stale turns", "chats", settled)
 	}
 	return stats
 }

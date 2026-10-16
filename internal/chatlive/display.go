@@ -34,6 +34,8 @@ type displayTurn struct {
 
 	text   strings.Builder
 	lastAt time.Time
+	// replyStart is where the newest message begins in text.
+	replyStart int
 
 	// The turn's clock as the hooks saw it: UserPromptSubmit starts it, the
 	// first tool call or text frame is the first sign of work, Stop ends it.
@@ -64,6 +66,7 @@ func (m *Manager) Display(f notify.DisplayFrame) {
 		// A turn is several messages (text, tool calls, more text); the
 		// snapshot is all of its text, the same as the turn relay's.
 		t.messageID, t.next, t.parts = f.MessageID, 0, map[int]string{}
+		t.replyStart = t.text.Len()
 	}
 	// A frame at or below the prefix is a replay of one already folded in.
 	// Kept out of parts: an index below next would never be reached by the
@@ -193,7 +196,7 @@ func (m *Manager) finishDisplay(chatID store.ChatID, at time.Time, stopReason st
 		t.timing.EndedAt = at.UnixMilli()
 		t.timing.StopReason = stopReason
 		m.pushStream(chatID, t.turnID, t.text.String(), true, t.timing)
-		return t.text.String()
+		return t.text.String()[t.replyStart:]
 	}
 	return ""
 }

@@ -238,12 +238,13 @@ func readBefore(e Entry, storedUpdated, storedSize int64, storedCount int) bool 
 	return len(e.Events) < storedCount
 }
 
-// transcriptStatus is the state the transcript records, and when: Codex writes
-// its turn lifecycle into the rollout; Claude writes none, so reads unknown
-// here and takes its status from hooks.
+// transcriptStatus is the state the transcript records, and when. Only Codex
+// writes a lifecycle; Claude reads unknown and takes hooks'. Working dates from
+// the last line, so a chat settled as stale works again when its file grows.
 func transcriptStatus(events []agent.Event) (agent.ChatStatus, int64) {
-	status, at := agent.ChatUnknown, int64(0)
+	status, at, last := agent.ChatUnknown, int64(0), int64(0)
 	for _, e := range events {
+		last = max(last, e.At)
 		switch e.Kind {
 		case agent.EventTurnStarted:
 			status = agent.ChatWorking
@@ -269,6 +270,9 @@ func transcriptStatus(events []agent.Event) (agent.ChatStatus, int64) {
 	}
 	if status == agent.ChatUnknown || at == 0 {
 		return agent.ChatUnknown, 0
+	}
+	if status == agent.ChatWorking {
+		at = last
 	}
 	return status, at
 }

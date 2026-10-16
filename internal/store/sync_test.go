@@ -2,6 +2,9 @@ package store
 
 import (
 	"testing"
+	"time"
+
+	"github.com/repogoapp/host/internal/agent"
 )
 
 // A restart keeps the epoch and the counter, so a device's cursor still holds:
@@ -225,5 +228,38 @@ func TestRowsAndDeletionsInterleaveByRevision(t *testing.T) {
 	}
 	if len(next.Delete) != 1 || len(next.Upsert) != 1 || next.Upsert[0].ID != "claude:c" {
 		t.Fatalf("pull since b = upsert %+v delete %v, want a's removal then c", next.Upsert, next.Delete)
+	}
+}
+
+// A restart forgets a working chat's status, and a device holding the row
+// pulls it again; otherwise the phone shows it working for good.
+func TestRestartSendsTheForgottenStatus(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.UnixMilli(1000)
+	if err := db.SetStatus("codex:a", "/tmp/a", agent.ChatWorking, started,
+		TurnObservation{Key: "hook-prompt:p1", StartedAt: &started}); err != nil {
+		t.Fatal(err)
+	}
+	held, err := db.SyncChats(SyncParams{}, "host")
+	if err != nil || len(held.Upsert) != 1 {
+		t.Fatalf("first pull = %d rows, %v", len(held.Upsert), err)
+	}
+	db.Close()
+
+	db, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	next, err := db.SyncChats(SyncParams{Epoch: held.Epoch, Since: held.Revision}, "host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Upsert) != 1 || next.Upsert[0].Status != agent.ChatUnknown {
+		t.Fatalf("pull after restart = %+v, want the chat as unknown", next.Upsert)
 	}
 }

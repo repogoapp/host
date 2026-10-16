@@ -86,6 +86,9 @@ type streamState struct {
 	// Prose resuming after a tool call is a new paragraph; the deltas carry
 	// no message boundary, and the file tail saves them as separate blocks.
 	breakPending bool
+	// replyStart is where the turn's last message begins in text: the one a
+	// turn ends on, where it says what it did.
+	replyStart int
 
 	// The first token tells the user anything is happening, so it does not
 	// wait for the timer.
@@ -112,8 +115,11 @@ func (st *streamState) apply(event agent.Event) bool {
 		st.push(false)
 
 	case agent.EventText:
-		if st.breakPending && st.text.Len() > 0 && !strings.HasSuffix(st.text.String(), "\n") {
-			st.text.WriteString("\n\n")
+		if st.breakPending && st.text.Len() > 0 {
+			if !strings.HasSuffix(st.text.String(), "\n") {
+				st.text.WriteString("\n\n")
+			}
+			st.replyStart = st.text.Len()
 		}
 		st.breakPending = false
 		if st.text.Len() < maxStreamedChars {
@@ -154,7 +160,7 @@ func (st *streamState) apply(event agent.Event) bool {
 		st.timing.EndedAt = event.At
 		st.timing.StopReason = stopReason(event)
 		st.push(true)
-		m.attend(ended(chatID, turnID, st.timing.StopReason, event.Error, st.text.String(), true))
+		m.attend(ended(chatID, turnID, st.timing.StopReason, event.Error, st.text.String()[st.replyStart:], true))
 		return true
 	}
 	return false

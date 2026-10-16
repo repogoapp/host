@@ -320,29 +320,25 @@ func TestStartCarriesTheTitle(t *testing.T) {
 	}
 }
 
-// Stopping a chat the host no longer runs settles it when the cache shows a
-// host turn still working: that turn died with an earlier host process. A
-// turn run elsewhere stays the user's to stop.
-func TestStopSettlesATurnAnEarlierHostLeftWorking(t *testing.T) {
+// Stopping a chat the host no longer runs settles whatever the cache shows
+// working, a dead host turn or a terminal's: the chat must never be left
+// unstoppable. A chat with nothing active still reports ErrNotFound.
+func TestStopSettlesAChatNothingHereRuns(t *testing.T) {
 	svc, _, _ := newService(t, agent.KindClaude)
-	started := time.Now().Add(-time.Minute)
-	if err := svc.Cache.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, started,
-		store.TurnObservation{Key: store.ManagerTurnPrefix + "dead", StartedAt: &started}); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Stop("claude:sess-1"); err != nil {
-		t.Fatalf("Stop = %v, want the dead turn settled", err)
-	}
-	if info, _ := svc.Cache.Info("claude:sess-1"); info.Status != agent.ChatInterrupted {
-		t.Errorf("status = %s, want interrupted", info.Status)
-	}
-
-	later := time.Now()
-	if err := svc.Cache.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, later,
-		store.TurnObservation{Key: "hook-prompt:p1", StartedAt: &later}); err != nil {
-		t.Fatal(err)
+	for _, key := range []string{store.ManagerTurnPrefix + "dead", "hook-prompt:p1"} {
+		started := time.Now()
+		if err := svc.Cache.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, started,
+			store.TurnObservation{Key: key, StartedAt: &started}); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.Stop("claude:sess-1"); err != nil {
+			t.Fatalf("Stop of %s = %v, want the turn settled", key, err)
+		}
+		if info, _ := svc.Cache.Info("claude:sess-1"); info.Status != agent.ChatInterrupted {
+			t.Errorf("%s: status = %s, want interrupted", key, info.Status)
+		}
 	}
 	if err := svc.Stop("claude:sess-1"); !errors.Is(err, agent.ErrNotFound) {
-		t.Fatalf("Stop of a terminal's turn = %v, want ErrNotFound", err)
+		t.Fatalf("Stop of a settled chat = %v, want ErrNotFound", err)
 	}
 }
