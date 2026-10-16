@@ -147,7 +147,7 @@ func (s *Service) Clone(ctx context.Context, nameWithOwner string) (Clone, error
 	owner, name, _ := strings.Cut(nameWithOwner, "/")
 
 	// A second clone of a repository already here is a double tap.
-	dest := filepath.Join(s.dir, reposDir, owner, name)
+	dest := filepath.Join(s.CloneFolder().Dir, owner, name)
 	if isCheckout(dest) {
 		return Clone{NameWithOwner: nameWithOwner, Path: dest, Existed: true}, nil
 	}

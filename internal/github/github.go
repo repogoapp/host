@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -56,6 +57,8 @@ var safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-
 // CloneFolder is where this host clones repositories, shown so the answer to
 // "where did it go" is on screen instead of in our source.
 type CloneFolder struct {
+	// Dir holds clones as `<owner>/<repo>`, so a client can say where one
+	// will go before it starts.
 	Dir string `json:"dir"`
 }
 
@@ -100,7 +103,7 @@ func New(layout Layout, g *git.Service, log *slog.Logger) *Service {
 }
 
 // CloneFolder is where clones land.
-func (s *Service) CloneFolder() CloneFolder { return CloneFolder{Dir: s.dir} }
+func (s *Service) CloneFolder() CloneFolder { return CloneFolder{Dir: filepath.Join(s.dir, reposDir)} }
 
 // Repos lists repositories, newest push first. `owner` defaults to the
 // signed-in account; `query` filters the returned page rather than issuing a

@@ -190,6 +190,10 @@ func TestCloneIsTheRepoFolder(t *testing.T) {
 	if clone.Path != want || clone.Existed {
 		t.Fatalf("Clone = %+v, want a new clone at %q", clone, want)
 	}
+	// What a client shows before the clone is where it went.
+	if got := filepath.Join(s.CloneFolder().Dir, "octocat", "code"); got != want {
+		t.Errorf("CloneFolder joined = %q, want %q", got, want)
+	}
 	// Nothing left behind from the download.
 	if entries, _ := os.ReadDir(filepath.Dir(want)); len(entries) != 1 {
 		t.Errorf("owner folder holds %d entries, want only the clone", len(entries))
