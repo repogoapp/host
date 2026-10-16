@@ -363,29 +363,30 @@ func servers(s *Service) []Server {
 	return s.List("").Servers
 }
 
-// RepoGo's own server is listed off by default, switched per project like a
-// connected one, kept across a restart, and never renamed or removed.
-func TestBuiltinSwitchesPerProject(t *testing.T) {
+// RepoGo's own server is on by default, switched for the whole environment
+// (not per project), kept across a restart, and never renamed or removed.
+func TestBuiltinIsOnUntilSwitchedOffForTheEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mcp.json")
 	var told []Changed
 	s, err := Open(path, func(c Changed) { told = append(told, c) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, other := t.TempDir(), t.TempDir()
-	if got := s.List(project).Builtins; len(got) != 1 || got[0].ID != BuiltinID || len(got[0].Projects) != 0 {
+	project := t.TempDir()
+	if got := s.List(project).Builtins; len(got) != 1 || got[0].ID != BuiltinID || !got[0].On {
 		t.Fatalf("builtins %+v", got)
 	}
-	if s.BuiltinOn(BuiltinID, project) {
-		t.Fatal("on before it was switched on")
+	if !s.BuiltinOn(BuiltinID) {
+		t.Fatal("off before anyone switched it")
 	}
-	if err := s.SetEnabled(BuiltinID, project, true); err != nil {
+	// The project is ignored: a built-in's switch is the environment's.
+	if err := s.SetEnabled(BuiltinID, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if !s.BuiltinOn(BuiltinID, filepath.Join(project, "sub")) || s.BuiltinOn(BuiltinID, other) {
-		t.Fatal("the switch did not land on its project only")
+	if s.BuiltinOn(BuiltinID) {
+		t.Fatal("still on after switching it off")
 	}
-	if len(told) != 1 || len(told[0].Builtins) != 1 || len(told[0].Builtins[0].Projects) != 1 {
+	if len(told) != 1 || len(told[0].Builtins) != 1 || told[0].Builtins[0].On {
 		t.Fatalf("mcp.changed %+v", told)
 	}
 	if err := s.Rename(BuiltinID, "Mine"); !errors.Is(err, ErrInvalid) {
@@ -399,11 +400,11 @@ func TestBuiltinSwitchesPerProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reopened.BuiltinOn(BuiltinID, project) {
+	if reopened.BuiltinOn(BuiltinID) {
 		t.Fatal("the switch did not survive a restart")
 	}
-	if err := reopened.SetEnabled(BuiltinID, project, false); err != nil || reopened.BuiltinOn(BuiltinID, project) {
-		t.Fatalf("switch off: %v", err)
+	if err := reopened.SetEnabled(BuiltinID, project, true); err != nil || !reopened.BuiltinOn(BuiltinID) {
+		t.Fatalf("switch on: %v", err)
 	}
 }
 
@@ -422,10 +423,5 @@ func TestEmptyListingUsesArrays(t *testing.T) {
 	list := open(t).List("")
 	if list.Servers == nil || list.Builtins == nil || list.Installed == nil {
 		t.Fatalf("required collections must be arrays: %+v", list)
-	}
-	for _, builtin := range list.Builtins {
-		if builtin.Projects == nil {
-			t.Fatalf("required builtin arrays: %+v", builtin)
-		}
 	}
 }

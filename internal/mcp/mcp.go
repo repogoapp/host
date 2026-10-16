@@ -10,7 +10,6 @@ package mcp
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/errkind"
-	"github.com/repogoapp/host/internal/files"
 )
 
 var (
@@ -64,13 +62,13 @@ type record struct {
 	ExpiresAt  int64        `json:"expires_at,omitempty"` // unix ms; 0 is long-lived
 }
 
-// Builtin is a server this host serves itself, switched per project like any
-// other but never renamed or removed.
+// Builtin is a server this host serves itself: on by default, switched for
+// the whole environment, never renamed or removed.
 type Builtin struct {
-	ID          string   `json:"id"`
-	Label       string   `json:"label"`
-	Description string   `json:"description"`
-	Projects    []string `json:"projects" wire:"array"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	On          bool   `json:"on"`
 }
 
 // BuiltinID is RepoGo's own server, internal/repogomcp; also its name in a
@@ -85,8 +83,8 @@ var builtins = []Builtin{{
 
 type file struct {
 	Servers []record `json:"servers"`
-	// Built-in id to the project roots it is switched on for.
-	Builtins map[string][]string `json:"builtins,omitempty"`
+	// The built-ins switched off on this environment; the rest are on.
+	BuiltinsOff []string `json:"builtins_off,omitempty"`
 }
 
 type Service struct {
@@ -96,7 +94,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	servers  []record
-	on       map[string][]string
+	off      []string
 	pending  map[string]*pending
 	onChange func(Changed)
 
@@ -119,10 +117,7 @@ func Open(path string, changed func(Changed), providers ...Provider) (*Service, 
 	if _, err := apphome.ReadJSON(path, &f); err != nil {
 		return nil, err
 	}
-	s.servers, s.on = f.Servers, f.Builtins
-	if s.on == nil {
-		s.on = map[string][]string{}
-	}
+	s.servers, s.off = f.Servers, f.BuiltinsOff
 	return s, nil
 }
 
@@ -150,21 +145,18 @@ func (s *Service) List(project string) Listing {
 func (s *Service) builtinsLocked() []Builtin {
 	out := make([]Builtin, 0, len(builtins))
 	for _, b := range builtins {
-		b.Projects = slices.Clone(s.on[b.ID])
-		if b.Projects == nil {
-			b.Projects = []string{}
-		}
+		b.On = !slices.Contains(s.off, b.ID)
 		out = append(out, b)
 	}
 	return out
 }
 
-// BuiltinOn reports whether a built-in is switched on for cwd's project.
-func (s *Service) BuiltinOn(id, cwd string) bool {
-	root := Root(cwd)
+// BuiltinOn reports whether a built-in is on: everywhere on this environment
+// unless switched off.
+func (s *Service) BuiltinOn(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.ContainsFunc(s.on[id], func(p string) bool { return files.Within(p, root) })
+	return !slices.Contains(s.off, id)
 }
 
 func isBuiltin(id string) bool {
@@ -196,19 +188,23 @@ func (s *Service) Rename(id, label string) error {
 	return s.update(id, func(r *record) { r.Label = label })
 }
 
-// SetEnabled switches a server on or off for one project. project may be any
-// folder inside it; the switch lands on its root.
+// SetEnabled switches a connected server on or off for one project, any
+// folder inside it; the switch lands on its root. A built-in switches for the
+// whole environment, so it ignores project.
 func (s *Service) SetEnabled(id, project string, enabled bool) error {
+	if isBuiltin(id) {
+		return s.commit(func() error {
+			s.off = slices.DeleteFunc(slices.Clone(s.off), func(off string) bool { return off == id })
+			if !enabled {
+				s.off = append(s.off, id)
+			}
+			return nil
+		})
+	}
 	if strings.TrimSpace(project) == "" {
 		return ErrInvalid.Errorf("project is required")
 	}
 	root := Root(project)
-	if isBuiltin(id) {
-		return s.commit(func() error {
-			s.on[id] = switched(s.on[id], root, enabled)
-			return nil
-		})
-	}
 	return s.update(id, func(r *record) {
 		// A copy: the rollback in commit still holds the old array.
 		r.Projects = switched(r.Projects, root, enabled)
@@ -271,11 +267,11 @@ func (s *Service) indexLocked(id string) int {
 // list; a failed write restores the servers, so memory never runs ahead of disk.
 func (s *Service) commit(change func() error) error {
 	s.mu.Lock()
-	before, beforeOn := slices.Clone(s.servers), maps.Clone(s.on)
+	before, beforeOff := slices.Clone(s.servers), s.off
 	err := change()
 	if err == nil {
-		if err = apphome.WriteJSON(s.path, file{Servers: s.servers, Builtins: s.on}, 0o600); err != nil {
-			s.servers, s.on = before, beforeOn
+		if err = apphome.WriteJSON(s.path, file{Servers: s.servers, BuiltinsOff: s.off}, 0o600); err != nil {
+			s.servers, s.off = before, beforeOff
 		}
 	}
 	list, on := s.publicLocked(), s.builtinsLocked()

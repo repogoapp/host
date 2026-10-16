@@ -16,9 +16,7 @@
       "id": "id",
       "label": "label",
       "description": "description",
-      "projects": [
-        "projects"
-      ]
+      "on": true
     }
   ],
   "installed": [

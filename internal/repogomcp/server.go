@@ -36,7 +36,7 @@ const instructions = "RepoGo's own tools. `browser` drives the browser in the Re
 type Config struct {
 	// URL is the handler's address on the loopback server, known once it listens.
 	URL func() string
-	// On reports whether the server is switched on for a folder's project.
+	// On reports whether the server is on for a folder; the host switches it for the whole environment.
 	On      func(cwd string) bool
 	Browser *Browser
 	// Plugins runs project plugins; a host without the SDK offers no plugin tools.
@@ -194,7 +194,7 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 	// A session keeps its entry until its next turn, so switching the server
 	// off must also stop calls from the turn already running.
 	if !s.cfg.On(turn.Cwd) {
-		return failed("RepoGo's tools are switched off for this project")
+		return failed("RepoGo's tools are switched off on this environment")
 	}
 	// Bounded by both the turn and the agent's request: a stopped turn or a
 	// dropped call stops waiting on the phone.

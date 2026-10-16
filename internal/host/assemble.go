@@ -73,7 +73,7 @@ func (h *Host) openAgents() error {
 		MCP:   func(ctx context.Context, cwd string) []agent.MCPServer { return h.mcps.ForTurn(ctx, cwd) },
 		Tools: h.tools,
 		// Read when a session starts, so a phone's latest devices.hello counts.
-		// With RepoGo's tools off for the project, the agent runs as it would
+		// With RepoGo's tools off on this environment, the agent runs as it would
 		// in a terminal: nothing added to its system prompt.
 		Instructions: func(id device.ID, cwd string) string {
 			if !h.tools.On(cwd) {
@@ -133,7 +133,7 @@ func (h *Host) openTools() error {
 	})
 	h.tools = repogomcp.New(repogomcp.Config{
 		URL:     func() string { u, _ := h.toolsURL.Load().(string); return u },
-		On:      func(cwd string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID, cwd) },
+		On:      func(string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID) },
 		Browser: browser, Plugins: h.Services.Plugins, Log: h.log,
 	})
 	h.Services.Browser = browser
