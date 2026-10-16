@@ -19,6 +19,12 @@ export default definePlugin({
   methods: {
     texts: method(z.object({}), async (_, ctx) => (await ctx.db.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
     root: method(z.object({}), (_, ctx) => ctx.root, { kind: "query" }),
+    slowTexts: method(z.object({ status: z.string().default("") }), async (_, ctx) => {
+      await Bun.sleep(150);
+      return (await ctx.db.notes.list({ order: "asc" })).map((n) => n.text);
+    }, { kind: "query" }),
+    byPrefix: method(z.object({ prefix: z.string() }), async ({ prefix }, ctx) =>
+      (await ctx.db.notes.list({ order: "asc" })).map((n) => n.text).filter((t) => t.startsWith(prefix)), { kind: "query" }),
   },
 });
 `;
@@ -212,4 +218,50 @@ test("a malformed request is refused with its fields", async () => {
   const reply = await client.request("call", { project: "../escape", dir: "relative", name: "" });
   expect(reply).toMatchObject({ error: { code: "VALIDATION" } });
   expect("error" in reply && Object.keys(reply.error.fieldErrors ?? {})).toContain("/params/project");
+});
+
+test("subscribing again under an id replaces it: one push per change", async () => {
+  const { client } = await start();
+  const { dir } = await checkout({ notes: notesApp });
+  const target = { project: "demo-8", dir };
+  result(await client.request("subscribe", { ...target, subscription: "r1", name: "notes.texts" }));
+  const again = result(await client.request("subscribe", { ...target, subscription: "r1", name: "notes.texts" }));
+  expect(again.revision).toBe(1);
+
+  const pushed = client.nextPush((push) => push.params.subscription === "r1");
+  result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
+  await pushed;
+  await Bun.sleep(100);
+  expect(client.pushes.filter((push) => push.params.subscription === "r1")).toHaveLength(1);
+});
+
+test("an unsubscribe during the first run means it never starts", async () => {
+  const { client } = await start();
+  const { dir } = await checkout({ notes: notesApp });
+  const target = { project: "demo-9", dir };
+  const subscribing = client.request("subscribe", { ...target, subscription: "slow", name: "notes.slowTexts" });
+  result(await client.request("unsubscribe", { subscription: "slow" }));
+  expect(await subscribing).toMatchObject({ error: { code: "INTERNAL" } });
+
+  result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
+  await Bun.sleep(400);
+  expect(client.pushes).toHaveLength(0);
+});
+
+test("rapid input changes under one id push only for the latest input", async () => {
+  const { client } = await start();
+  const { dir } = await checkout({ notes: notesApp });
+  const target = { project: "demo-10", dir };
+  const a = client.request("subscribe", { ...target, subscription: "f", name: "notes.byPrefix", input: { prefix: "a" } });
+  const b = client.request("subscribe", { ...target, subscription: "f", name: "notes.byPrefix", input: { prefix: "b" } });
+  const again = client.request("subscribe", { ...target, subscription: "f", name: "notes.byPrefix", input: { prefix: "a" } });
+  await Promise.all([a, b]);
+  expect(result(await again).result).toEqual([]);
+
+  const pushed = client.nextPush((push) => push.params.subscription === "f");
+  result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "b-only" } }));
+  result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "apple" } }));
+  expect((await pushed).params).toMatchObject({ result: ["apple"] });
+  await Bun.sleep(150);
+  for (const push of client.pushes) expect(push.params).toMatchObject({ result: ["apple"] });
 });

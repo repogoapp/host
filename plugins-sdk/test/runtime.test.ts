@@ -116,6 +116,33 @@ test("the manifest has each method's kind, input and output", async () => {
   expect(plugin.methods.find((m) => m.name === "notes.notes.create")!.kind).toBe("mutation");
 });
 
+test("a method's confirm reaches the manifest, and a collection's delete asks by default", async () => {
+  const runtime = await open();
+  await runtime.add("risky", definePlugin({
+    methods: {
+      wipe: method(z.object({}), () => null, { confirm: "Wipe everything?" }),
+      tidy: method(z.object({}), () => null),
+    },
+  }));
+  const methods = runtime.manifest().plugins.flatMap((plugin) => plugin.methods);
+  const confirm = (name: string) => methods.find((m) => m.name === name)!.confirm;
+  expect(confirm("risky.wipe")).toBe("Wipe everything?");
+  expect(confirm("risky.tidy")).toBeNull();
+  expect(confirm("notes.notes.delete")).toBe("Delete this record?");
+  expect(confirm("notes.notes.create")).toBeNull();
+});
+
+test("a tap runs a confirm method only once answered; code calling code isn't asked", async () => {
+  const runtime = await open();
+  await runtime.add("risky", definePlugin({
+    methods: { wipe: method(z.object({}), () => "wiped", { confirm: "Wipe everything?" }) },
+  }));
+  const asked = await runtime.call("risky.wipe", {}, { confirmed: false }).catch((e) => e);
+  expect(toCallError(asked)).toEqual({ code: "CONFIRM", message: "Wipe everything?" });
+  expect((await runtime.call("risky.wipe", {}, { confirmed: true })).result).toBe("wiped");
+  expect((await runtime.call("risky.wipe")).result).toBe("wiped");
+});
+
 test("a query can't write, even through what it calls", async () => {
   const runtime = await open();
   const sneaky = definePlugin({

@@ -25,6 +25,9 @@ let ready: Promise<void> = Promise.resolve();
 /** Set when the plugins failed to load; every request answers with it until a reload. */
 let loadError: CallError | null = null;
 const subscriptions = new Map<string, Subscription>();
+/** Subscribes whose first run is still out; an unsubscribe meanwhile removes
+ *  the key, and the run then registers nothing. */
+const starting = new Set<string>();
 const touched = new Set<string>();
 let settling: Timer | null = null;
 
@@ -40,12 +43,16 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   }
   await ready;
   if (message.type === "invalidate") return settle(message.tags);
-  if (message.type === "unsubscribe") return void subscriptions.delete(message.subscription);
+  if (message.type === "unsubscribe") {
+    starting.delete(message.subscription);
+    subscriptions.delete(message.subscription);
+    return;
+  }
   if (!runtime || loadError) {
     return post({ type: "reply", id: message.id, error: loadError ?? { code: "INTERNAL", message: "The plugins did not open." } });
   }
   if (message.type === "list") return post({ type: "reply", id: message.id, result: runtime.manifest() });
-  if (message.type === "call") return call(message.id, message.name, message.input);
+  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed);
   if (message.type === "subscribe") return subscribe(message.id, message.subscription, message.name, message.input);
 };
 
@@ -63,9 +70,9 @@ async function open(dir: string, dataDir: string, root: string) {
   }
 }
 
-async function call(id: number, name: string, input: unknown) {
+async function call(id: number, name: string, input: unknown, confirmed: boolean) {
   try {
-    const { result } = await runtime!.call(name, input);
+    const { result } = await runtime!.call(name, input, { confirmed });
     post({ type: "reply", id, result });
   } catch (error) {
     post({ type: "reply", id, error: toCallError(error) });
@@ -74,11 +81,13 @@ async function call(id: number, name: string, input: unknown) {
 
 // The first run answers the request; a failing first run registers nothing.
 async function subscribe(id: number, key: string, name: string, input: unknown) {
+  starting.add(key);
   try {
     const { result, reads } = await runtime!.call(name, input, { expect: "query" });
-    subscriptions.set(key, { name, input, reads: new Set(reads), run: 0 });
+    if (starting.delete(key)) subscriptions.set(key, { name, input, reads: new Set(reads), run: 0 });
     post({ type: "reply", id, result });
   } catch (error) {
+    starting.delete(key);
     post({ type: "reply", id, error: toCallError(error) });
   }
 }

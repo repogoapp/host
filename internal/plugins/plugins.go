@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -66,20 +67,26 @@ type Service struct {
 	server   *server
 	restarts int
 	subs     map[string]*subscription
-	nextSub  int
 	// prints is each checkout's plugins as last loaded, to reload on a change.
 	prints map[string]string
 }
 
-// subscription is one device's subscription. The server knows it by the same
-// id, which the host picks, so a push never arrives before its record.
+// subscription is one device's subscription, by the id the device picked. The
+// server knows it as serverID(device, id), so devices can't collide, and the
+// device can end it even when its subscribe reply never reached it.
 type subscription struct {
 	device   device.ID
+	id       string
 	target   Target
 	name     string
 	input    json.RawMessage
 	revision int
 }
+
+func serverID(d device.ID, id string) string { return string(d) + "/" + id }
+
+// subscriptionID is a device's own name for a subscription: short, and plain.
+var subscriptionID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func New(ctx context.Context, cfg Config) *Service {
 	return &Service{
@@ -127,19 +134,23 @@ func (s *Service) List(ctx context.Context, path string) (Answer, error) {
 	return s.ask(ctx, t, "list", t)
 }
 
-// Call runs one method, a query or a mutation.
-func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage) (Answer, error) {
+// Call runs one method, a query or a mutation. A method with a confirm
+// answers CONFIRM instead of running until confirmed says the user agreed.
+func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, confirmed bool) (Answer, error) {
 	t, err := s.target(path)
 	if err != nil {
 		return Answer{}, err
 	}
-	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input)})
+	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input), Confirmed: confirmed})
 }
 
-// Subscribe runs a query for a device and keeps it: each time a write changes
-// its answer, the device gets plugins.data. A plugin's error on the first run
-// subscribes nothing.
-func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name string, input json.RawMessage) (Subscribed, error) {
+// Subscribe keeps a device's query under the device's id, replacing one
+// already there; each change to its answer sends plugins.data. A plugin's
+// error on the first run subscribes nothing.
+func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name, id string, input json.RawMessage) (Subscribed, error) {
+	if !subscriptionID.MatchString(id) {
+		return Subscribed{}, errkind.ErrInvalid.Errorf("plugins: a subscription id is 1 to 64 letters, digits, - or _")
+	}
 	t, err := s.target(path)
 	if err != nil {
 		return Subscribed{}, err
@@ -149,19 +160,23 @@ func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name string,
 		return Subscribed{}, err
 	}
 	input = orEmpty(input)
+	key := serverID(d, id)
+	record := &subscription{device: d, id: id, target: t, name: name, input: input, revision: 1}
 	s.mu.Lock()
-	s.nextSub++
-	id := fmt.Sprintf("a%d", s.nextSub)
-	s.subs[id] = &subscription{device: d, target: t, name: name, input: input, revision: 1}
+	s.subs[key] = record
 	s.mu.Unlock()
 
-	result, pluginErr, err := srv.request(ctx, "subscribe", subscribeParams{callParams{Target: t, Name: name, Input: input}, id})
+	result, pluginErr, err := srv.request(ctx, "subscribe", subscribeParams{callParams{Target: t, Name: name, Input: input}, key})
 	if err != nil || pluginErr != nil {
 		s.mu.Lock()
-		delete(s.subs, id)
+		if s.subs[key] == record {
+			delete(s.subs, key)
+		}
 		s.mu.Unlock()
 	}
 	if err != nil {
+		// The request may have reached the server: end it there too.
+		_, _, _ = srv.request(s.ctx, "unsubscribe", map[string]string{"subscription": key})
 		return Subscribed{}, err
 	}
 	if pluginErr != nil {
@@ -178,17 +193,17 @@ func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name string,
 
 // Unsubscribe ends one of a device's subscriptions.
 func (s *Service) Unsubscribe(ctx context.Context, d device.ID, id string) error {
+	key := serverID(d, id)
 	s.mu.Lock()
-	sub, ok := s.subs[id]
-	if !ok || sub.device != d {
+	if _, ok := s.subs[key]; !ok {
 		s.mu.Unlock()
 		return ErrNotYours
 	}
-	delete(s.subs, id)
+	delete(s.subs, key)
 	srv := s.server
 	s.mu.Unlock()
 	if srv != nil {
-		_, _, _ = srv.request(ctx, "unsubscribe", map[string]string{"subscription": id})
+		_, _, _ = srv.request(ctx, "unsubscribe", map[string]string{"subscription": key})
 	}
 	return nil
 }
@@ -229,8 +244,9 @@ func (s *Service) FilesChanged(path string, files []string) {
 
 type callParams struct {
 	Target
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"`
+	Confirmed bool            `json:"confirmed,omitempty"`
 }
 
 type subscribeParams struct {
@@ -330,7 +346,7 @@ func (s *Service) pushed(p push) {
 		return
 	}
 	sub.revision++
-	data := Data{Subscription: p.Subscription, Revision: sub.revision, Result: p.Result, Error: p.Error.toError()}
+	data := Data{Subscription: sub.id, Revision: sub.revision, Result: p.Result, Error: p.Error.toError()}
 	d := sub.device
 	s.mu.Unlock()
 	if err := s.cfg.Emit(d, data); err != nil {
@@ -386,7 +402,7 @@ func (s *Service) resubscribe() {
 		if err != nil {
 			return
 		}
-		data := Data{Subscription: id, Error: pluginErr.toError()}
+		data := Data{Subscription: sub.id, Error: pluginErr.toError()}
 		if pluginErr == nil {
 			var first struct {
 				Result json.RawMessage `json:"result"`

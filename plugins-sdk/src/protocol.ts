@@ -15,8 +15,10 @@ export type Target = {
 
 export type Request =
   | { id: number; method: "list"; params: Target }
-  | { id: number; method: "call"; params: Target & { name: string; input?: unknown } }
-  /** `subscription` is the caller's id for it, so a push can't arrive before the caller knows it. */
+  /** `confirmed`: the user has answered the method's `confirm`, or the caller isn't a tap. */
+  | { id: number; method: "call"; params: Target & { name: string; input?: unknown; confirmed?: boolean } }
+  /** `subscription` is the caller's id, so a push can't arrive before the caller
+   *  knows it; subscribing again under an id replaces it. */
   | { id: number; method: "subscribe"; params: Target & { subscription: string; name: string; input?: unknown } }
   | { id: number; method: "unsubscribe"; params: { subscription: string } }
   | { id: number; method: "reload"; params: { project: string } };
@@ -36,7 +38,7 @@ export type DataPush = {
 export type ToWorker =
   | { type: "open"; dir: string; dataDir: string; root: string }
   | { type: "list"; id: number }
-  | { type: "call"; id: number; name: string; input: unknown }
+  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean }
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown }
   | { type: "unsubscribe"; subscription: string }
   /** Another checkout of the same project wrote these tags. */

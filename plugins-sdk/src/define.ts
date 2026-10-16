@@ -16,6 +16,11 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
   output?: O;
   kind: MethodKind;
   description?: string;
+  /**
+   * For what can't be undone: the question a card's button asks before it
+   * runs, such as "Delete every item?". Methods without one run on tap.
+   */
+  confirm?: string;
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>;
 };
 
@@ -36,7 +41,10 @@ export function definePlugin<T extends PluginDefinition>(plugin: T): T {
 export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   input: I,
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>,
-  options: { kind?: MethodKind; output?: O; description?: string } = {},
+  options: { kind?: MethodKind; output?: O; description?: string; confirm?: string } = {},
 ): Method<I, O> {
-  return { input, run, kind: options.kind ?? "mutation", output: options.output, description: options.description };
+  return {
+    input, run, kind: options.kind ?? "mutation", output: options.output,
+    description: options.description, confirm: options.confirm,
+  };
 }

@@ -18,8 +18,12 @@ export type Repogo = {
   /**
    * Runs `<plugin>.<method>` (a query or a mutation) once.
    * Resolves with the plugin's result or its refusal; never rejects for a refusal.
+   * A method the plugin guards with a question answers `{ error: { code: "CONFIRM", message } }`:
+   * ask the user `message`, then call again with `{ confirmed: true }`.
    */
-  call<T = unknown>(method: string, input?: Record<string, unknown>): Promise<RepogoAnswer<T>>;
+  call<T = unknown>(
+    method: string, input?: Record<string, unknown>, options?: { confirmed?: boolean },
+  ): Promise<RepogoAnswer<T>>;
 
   /**
    * Keeps a query live: `onData` runs with its answer now, and again each time

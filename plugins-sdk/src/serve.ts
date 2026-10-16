@@ -24,7 +24,7 @@ const named = target.extend({ name: z.string().min(1), input: z.unknown().option
 
 const requestSchema = z.discriminatedUnion("method", [
   z.object({ id: z.number(), method: z.literal("list"), params: target }),
-  z.object({ id: z.number(), method: z.literal("call"), params: named }),
+  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ confirmed: z.boolean().optional() }) }),
   z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
   z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
   z.object({ id: z.number(), method: z.literal("reload"), params: z.object({ project: projectKey }) }),
@@ -40,7 +40,13 @@ type Subscription = {
   revision: number;
   /** Of the last result or error sent, so an unchanged re-run sends nothing. */
   hash: string;
+  /** The Worker's id for it: new on each subscribe and restart, so an answer
+   *  or push from one it replaced can't reach it. */
+  key: string;
 };
+
+/** A subscribe waiting on its first answer. */
+type Pending = { connection: Connection; checkout: string; key: string };
 
 type Answer = { result: unknown } | { error: CallError };
 
@@ -79,7 +85,7 @@ class Checkout {
     this.post({ type: "open", dir: this.dir, dataDir: join(this.dataDir, this.project), root: resolve(this.dir, "..", "..") });
   }
 
-  request(message: { type: "list" } | { type: "call"; name: string; input: unknown } | { type: "subscribe"; subscription: string; name: string; input: unknown }): Promise<Answer> {
+  request(message: { type: "list" } | { type: "call"; name: string; input: unknown; confirmed: boolean } | { type: "subscribe"; subscription: string; name: string; input: unknown }): Promise<Answer> {
     const id = ++this.nextID;
     return new Promise((resolve) => {
       this.waiting.set(id, resolve);
@@ -106,6 +112,11 @@ class Checkout {
 export async function serve(options: ServeOptions) {
   const checkouts = new Map<string, Checkout>();
   const subscriptions = new Map<string, Subscription>();
+  const pending = new Map<string, Pending>();
+  /** Worker key → subscription id, for the Worker's pushes. */
+  const byKey = new Map<string, string>();
+  let lastKey = 0;
+  const newKey = () => `w${++lastKey}`;
 
   function checkoutFor(project: string, dir: string) {
     const key = `${project}\n${dir}`;
@@ -119,7 +130,9 @@ export async function serve(options: ServeOptions) {
 
   function fromWorker(from: Checkout, message: FromWorker) {
     if (message.type === "data") {
-      return deliver(message.subscription, "error" in message ? { error: message.error } : { result: message.result });
+      const id = byKey.get(message.subscription);
+      if (id) deliver(id, "error" in message ? { error: message.error } : { result: message.result });
+      return;
     }
     if (message.type === "invalidated") {
       // Another checkout of the same project reads the same databases.
@@ -149,7 +162,15 @@ export async function serve(options: ServeOptions) {
     checkouts.set(old.key, checkout);
     for (const [id, subscription] of subscriptions) {
       if (subscription.checkout !== old.key) continue;
-      void checkout.request({ type: "subscribe", subscription: id, name: subscription.name, input: subscription.input }).then((answer) => deliver(id, answer));
+      byKey.delete(subscription.key);
+      const key = newKey();
+      subscription.key = key;
+      byKey.set(key, id);
+      void checkout.request({ type: "subscribe", subscription: key, name: subscription.name, input: subscription.input }).then((answer) => {
+        // Ended or replaced while the new Worker ran it: drop what it registered.
+        if (subscriptions.get(id)?.key === key) deliver(id, answer);
+        else checkout.post({ type: "unsubscribe", subscription: key });
+      });
     }
   }
 
@@ -162,19 +183,30 @@ export async function serve(options: ServeOptions) {
         const answer =
           request.method === "list"
             ? await checkout.request({ type: "list" })
-            : await checkout.request({ type: "call", name: request.params.name, input: request.params.input ?? {} });
+            : await checkout.request({
+              type: "call", name: request.params.name, input: request.params.input ?? {},
+              confirmed: request.params.confirmed ?? false,
+            });
         return { id, ...answer };
       }
       case "subscribe": {
         const { project, dir, name, subscription } = request.params;
         const input = request.params.input ?? {};
-        if (subscriptions.has(subscription)) {
-          return { id, error: { code: "VALIDATION", message: `${subscription} is already a subscription.` } };
-        }
+        // Subscribing again under an id replaces it.
+        unsubscribe(subscription);
         const checkout = checkoutFor(project, dir);
-        const answer = await checkout.request({ type: "subscribe", subscription, name, input });
+        const key = newKey();
+        pending.set(subscription, { connection, checkout: checkout.key, key });
+        const answer = await checkout.request({ type: "subscribe", subscription: key, name, input });
+        if (pending.get(subscription)?.key !== key) {
+          // Ended or replaced while its first run was out: it never starts.
+          checkout.post({ type: "unsubscribe", subscription: key });
+          return { id, error: { code: "INTERNAL", message: `${subscription} ended before its first answer.` } };
+        }
+        pending.delete(subscription);
         if ("error" in answer) return { id, ...answer };
-        subscriptions.set(subscription, { connection, checkout: checkout.key, name, input, revision: 1, hash: hashOf(answer) });
+        subscriptions.set(subscription, { connection, checkout: checkout.key, name, input, revision: 1, hash: hashOf(answer), key });
+        byKey.set(key, subscription);
         return { id, result: { subscription, revision: 1, result: answer.result } };
       }
       case "unsubscribe": {
@@ -190,11 +222,19 @@ export async function serve(options: ServeOptions) {
     }
   }
 
+  /** Ends a subscription, or one still waiting on its first answer. */
   function unsubscribe(id: string) {
+    const waiting = pending.get(id);
+    if (waiting) {
+      pending.delete(id);
+      checkouts.get(waiting.checkout)?.post({ type: "unsubscribe", subscription: waiting.key });
+    }
     const subscription = subscriptions.get(id);
-    if (!subscription) return;
-    subscriptions.delete(id);
-    checkouts.get(subscription.checkout)?.post({ type: "unsubscribe", subscription: id });
+    if (subscription) {
+      subscriptions.delete(id);
+      byKey.delete(subscription.key);
+      checkouts.get(subscription.checkout)?.post({ type: "unsubscribe", subscription: subscription.key });
+    }
   }
 
   async function receive(connection: Connection, line: string) {
@@ -236,6 +276,9 @@ export async function serve(options: ServeOptions) {
         // A host that goes away takes its subscriptions with it.
         for (const [id, subscription] of subscriptions) {
           if (subscription.connection === connection) unsubscribe(id);
+        }
+        for (const [id, waiting] of pending) {
+          if (waiting.connection === connection) unsubscribe(id);
         }
       },
     },

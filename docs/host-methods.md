@@ -1127,6 +1127,7 @@ Params:
 - `project` string
 - `method` string
 - `input` json (omitted when empty) (nullable)
+- `confirmed` bool (omitted when empty)
 
 Result:
 
@@ -1140,6 +1141,7 @@ Params:
 - `project` string
 - `method` string
 - `input` json (omitted when empty) (nullable)
+- `subscription` string
 
 Result:
 

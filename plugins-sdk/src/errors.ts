@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export type ErrorCode = "VALIDATION" | "NOT_FOUND" | "FORBIDDEN" | "INTERNAL";
+/** CONFIRM: the method asks first; its message is the question to put to the user. */
+export type ErrorCode = "VALIDATION" | "NOT_FOUND" | "FORBIDDEN" | "CONFIRM" | "INTERNAL";
 
 /** What a failed call returns: a code, a sentence, and per-field messages keyed by JSON pointer ("/minutes"). */
 export type CallError = { code: ErrorCode; message: string; fieldErrors?: Record<string, string> };

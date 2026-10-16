@@ -50,7 +50,8 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 	if err := json.Unmarshal(args, &p); err != nil || p.Method == "" {
 		return failed("RepoGo plugins: plugin_call needs a method, such as {\"method\":\"plans.list\",\"input\":{}}")
 	}
-	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input)
+	// A confirm guards taps on cards; the agent's own calls go through its permissions.
+	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, true)
 	return pluginResult(answer, err)
 }
 

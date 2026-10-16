@@ -20,13 +20,18 @@ type CallParams struct {
 	Project string          `json:"project"`
 	Method  string          `json:"method"`
 	Input   json.RawMessage `json:"input,omitempty"`
+	// Confirmed is the user's yes to the method's confirm question; without
+	// it, a method that has one answers CONFIRM instead of running.
+	Confirmed bool `json:"confirmed,omitempty"`
 }
 
-// SubscribeParams names a query to keep running, as `<plugin>.<method>`.
+// SubscribeParams names a query to keep running, as `<plugin>.<method>`, under
+// the caller's own id; subscribing again under an id replaces it.
 type SubscribeParams struct {
-	Project string          `json:"project"`
-	Method  string          `json:"method"`
-	Input   json.RawMessage `json:"input,omitempty"`
+	Project      string          `json:"project"`
+	Method       string          `json:"method"`
+	Input        json.RawMessage `json:"input,omitempty"`
+	Subscription string          `json:"subscription"`
 }
 
 type UnsubscribeParams struct {
@@ -43,7 +48,7 @@ func (d Deps) call(ctx context.Context, _ rpc.Caller, p CallParams) (pluginscore
 	if p.Method == "" {
 		return pluginscore.Answer{}, rpc.ErrInvalidParams
 	}
-	return d.Plugins.Call(ctx, p.Project, p.Method, p.Input)
+	return d.Plugins.Call(ctx, p.Project, p.Method, p.Input, p.Confirmed)
 }
 
 // subscribe runs a query now and again whenever a write changes its answer,
@@ -52,7 +57,7 @@ func (d Deps) subscribe(ctx context.Context, c rpc.Caller, p SubscribeParams) (p
 	if p.Method == "" {
 		return pluginscore.Subscribed{}, rpc.ErrInvalidParams
 	}
-	return d.Plugins.Subscribe(ctx, c.Device, p.Project, p.Method, p.Input)
+	return d.Plugins.Subscribe(ctx, c.Device, p.Project, p.Method, p.Subscription, p.Input)
 }
 
 func (d Deps) unsubscribe(ctx context.Context, c rpc.Caller, p UnsubscribeParams) (rpc.Ack, error) {

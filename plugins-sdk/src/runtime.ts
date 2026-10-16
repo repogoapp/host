@@ -14,6 +14,7 @@ export type RegisteredMethod = {
   plugin: string;
   kind: MethodKind;
   description?: string;
+  confirm?: string;
   input: z.ZodType;
   output?: z.ZodType;
   /** `raw` is the input as sent, before defaults filled it in. */
@@ -24,6 +25,8 @@ export type ManifestMethod = {
   name: string;
   kind: MethodKind;
   description: string | null;
+  /** What a card asks before running it; null runs on tap. */
+  confirm: string | null;
   input: unknown;
   output: unknown;
 };
@@ -104,6 +107,7 @@ export class Runtime {
         plugin: name,
         kind: method.kind,
         description: method.description,
+        confirm: method.confirm,
         input: method.input,
         output: method.output,
         run: async (input) => method.run(input, ctx),
@@ -122,9 +126,14 @@ export class Runtime {
    * a card runs a method on its own: it refuses anything that might write, and
    * so does everything the query calls.
    */
-  async call(name: string, input: unknown = {}, options: { expect?: MethodKind } = {}): Promise<CallResult> {
+  /**
+   * `confirmed` is for a call from a tap: false until the user has answered
+   * the method's `confirm`. Code calling code (`ctx.call`) leaves it out.
+   */
+  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean } = {}): Promise<CallResult> {
     const method = this.methods.get(name);
     if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
+    if (method.confirm && options.confirmed === false) throw new MethodError("CONFIRM", method.confirm);
     if ((options.expect === "query" || currentAccess()?.readOnly) && method.kind !== "query") {
       throw new MethodError("FORBIDDEN", `${name} changes data, so it only runs when the user acts.`);
     }
@@ -159,6 +168,7 @@ export class Runtime {
           name: method.name,
           kind: method.kind,
           description: method.description ?? null,
+          confirm: method.confirm ?? null,
           input: z.toJSONSchema(method.input, { io: "input", unrepresentable: "any" }),
           output: method.output ? z.toJSONSchema(method.output, { io: "output", unrepresentable: "any" }) : null,
         })),
@@ -191,7 +201,11 @@ export class Runtime {
       output: z.ZodType,
       description: string,
       run: (input: any, raw: any) => unknown,
-    ) => this.register({ name: `${prefix}.${method}`, plugin, kind, description, input, output, run: async (value, raw) => run(value, raw) });
+      confirm?: string,
+    ) => this.register({
+      name: `${prefix}.${method}`, plugin, kind, description, confirm, input, output,
+      run: async (value, raw) => run(value, raw),
+    });
 
     crud("list", "query", z.object({ limit: z.number().int().positive().max(500).optional() }), z.array(record),
       `List ${name} records, newest first`, (input) => collection.list(input));
@@ -202,9 +216,10 @@ export class Runtime {
       ({ id, ...fields }, raw) =>
         collection.update(id, Object.fromEntries(Object.entries(fields).filter(([key]) => Object.hasOwn(raw ?? {}, key)))),
     );
+    // A delete can't be undone, so a card asks first.
     crud("delete", "mutation", id, z.null(), `Delete a ${name} record by id`, async (input) => {
       await collection.delete(input.id);
       return null;
-    });
+    }, "Delete this record?");
   }
 }
