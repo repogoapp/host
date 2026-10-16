@@ -86,8 +86,9 @@ func TestInterruptSettlesAnyActiveChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chat.Status != agent.ChatInterrupted || chat.LastTurnFinishedAt == nil || *chat.LastTurnFinishedAt != 2000 {
-		t.Errorf("terminal chat = %s finished %v, want interrupted at 2000", chat.Status, chat.LastTurnFinishedAt)
+	// Settling is not activity: the turn ends where it was last seen.
+	if chat.Status != agent.ChatInterrupted || chat.LastTurnFinishedAt == nil || *chat.LastTurnFinishedAt != 1000 {
+		t.Errorf("terminal chat = %s finished %v, want interrupted at 1000", chat.Status, chat.LastTurnFinishedAt)
 	}
 }
 
@@ -130,6 +131,10 @@ func TestInterruptStaleSettlesAbandonedTurns(t *testing.T) {
 			t.Fatal(err)
 		}
 		return chat.Status
+	}
+	// It keeps its place in "Recent activity": its file's last write.
+	if chat, _ := db.Info(chatID("codex", "abandoned")); chat.ActivityAt != 1500 {
+		t.Errorf("abandoned activity_at = %d, want 1500", chat.ActivityAt)
 	}
 	for id, want := range map[string]agent.ChatStatus{
 		"abandoned": agent.ChatInterrupted,

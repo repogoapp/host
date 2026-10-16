@@ -146,10 +146,12 @@ func (s *Store) interrupt(at time.Time, query string, args ...any) (int, error) 
 	for _, id := range orphans {
 		kind, sessionID, _ := id.split()
 		// The finish ends the turn's hold on the row, so a later turn from a
-		// terminal can take it.
+		// terminal can take it. It is the turn's last sign of life, not now:
+		// "Recent activity" sorts on it, and settling is not activity.
 		if _, err := tx.Exec(`UPDATE sessions SET status = ?, status_at = MAX(status_at, ?),
-			last_turn_finished_at = COALESCE(last_turn_finished_at, ?), rev = ? WHERE agent = ? AND session_id = ?`,
-			agent.ChatInterrupted, at.UnixMilli(), at.UnixMilli(), s.rev.Add(1), kind, sessionID); err != nil {
+			last_turn_finished_at = COALESCE(last_turn_finished_at, MAX(COALESCE(last_turn_started_at, 0), updated_at)),
+			rev = ? WHERE agent = ? AND session_id = ?`,
+			agent.ChatInterrupted, at.UnixMilli(), s.rev.Add(1), kind, sessionID); err != nil {
 			return 0, err
 		}
 	}
