@@ -38,7 +38,7 @@ Button: label, optional icon, action; variant="primary|secondary|plain",
   width="fill" for a full-width button; in a Row, flex="grow" on each
   button splits the width between them. Children replace its label/icon.
   role="destructive" makes it red (a menu's destructive item).
-  Put a Row inside Button for a tappable row. Never nest Buttons or put
+  Put a Row inside Button for a tappable custom layout. Never nest Buttons or put
   Router inside Button. Supply a readable label for icon-only Buttons.
 Menu: label and/or icon, variant like Button; contains Buttons and
   Dividers, shown as the system's menu; a Button with role="destructive"
@@ -54,7 +54,8 @@ Route: required path, optional title (may read {{state}}),
 A Router's first route draws in the card. push: opens a route as a page
 on the screen's navigation stack (system bar, back, swipe back); present:
 opens one as a sheet with its own stack and a close button. Give each
-Route a short title and don't repeat it as a heading inside the Route.
+Route a short title; a pushed or presented Route shows it in the system
+bar, so don't repeat it as a heading inside.
 List: a grouped list like the app's Settings; contains Sections.
 Section: optional label (header) and footer; contains Items.
 Item: one row: label, optional icon (SF Symbol, on a colored tile),
@@ -112,6 +113,8 @@ Button actions, one per tap:
 set:target=production — replace a declared state value.
 toggle:tests — "true" becomes "false"; anything else becomes "true".
 send:<text> — send the user's next message to the agent.
+append:<text> — add text to the user's prompt bar after what they typed,
+  unsent, for them to finish or send.
 copy:<text> — copy text.
 open:<url> — open an absolute https or http link.
 browse:<url> — open it in the project's browser, reusing the tab on that site.
@@ -127,12 +130,25 @@ then="push:detail" after set: or toggle: runs a second, local action:
 {{name}} reads the current state value in Text, Badge, Markdown, the labels of
 Buttons, Menus, Items, Toggles and fields, Item subtitle and detail, field and
 Section footers, Section labels, Route titles, Image url and alt, Icon alt,
-set: values, and send:/copy:/browse: payloads. No interpolation elsewhere. A filter
+set: values, and send:/append:/copy:/browse: payloads. No interpolation elsewhere. A filter
 writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
 current), date, time, datetime, number (number:2), currency:USD, percent
 (0.42 is 42%), bytes. Dates are ISO 8601 or Unix seconds or milliseconds.
 Use send: when work is needed; use Router for details already known.
+Use append: for an answer the user may want to add to: "Yes, " or "No, "
+before their reasons, or a choice they'll explain.
 Actions wait for complete Buttons and valid targets.
+
+Keep every card simple and iOS-like:
+- A list of things is a List of Items, never Rows in Buttons.
+- Tapping an Item pushes its details (then="push:detail") rather than
+  showing more inline.
+- In chat, a card is a Col surface="card" padding="lg" radius="lg"
+  width="fill" that opens with a heading Text and a secondary caption.
+  On a tab page or a pushed page, the Route title is in the system bar:
+  no heading in the content and no card around a List.
+- send: and append: buttons in chat are full width (width="fill").
+- One primary Button per card; color only where it means something.
 
 Example:
 ```ui
@@ -140,7 +156,7 @@ Example:
   <Text font="heading">Choose a deployment</Text>
   <Tabs name="target" options="Preview|Production"/>
   <Text color="warning" show="target=Production">Updates the live site.</Text>
-  <Button label="Deploy to {{target}}" variant="primary"
+  <Button label="Deploy to {{target}}" variant="primary" width="fill"
           action="send:Deploy to {{target}}"/>
 </Col>
 ```
@@ -149,22 +165,23 @@ Example:
 ```ui
 <Router id="tests" initial="list">
   <Route path="list" title="Tests">
-    <Grid columns="2">
-      <Text>Tests complete: 62%</Text>
+    <Col surface="card" padding="lg" radius="lg" width="fill" gap="md">
+      <Text font="heading">Tests</Text>
+      <Text font="caption" color="secondary">62% complete · 1 failing</Text>
       <Progress value="0.62"/>
-    </Grid>
-    <Chart values="3 5 2 8" labels="Mon|Tue|Wed|Thu"/>
-    <Button label="Login failure" action="push:login">
-      <Row>
-        <Icon name="exclamationmark.circle" color="red"/>
-        <Text>Login failure</Text>
-      </Row>
-    </Button>
+      <Chart values="3 5 2 8" labels="Mon|Tue|Wed|Thu"/>
+      <List>
+        <Section>
+          <Item icon="exclamationmark.circle" iconColor="red" label="Login failure" action="push:login"/>
+        </Section>
+      </List>
+    </Col>
   </Route>
   <Route path="login" title="Login failure">
     <Col gap="md">
       <Text font="code">Expected 200, got 401</Text>
-      <Button label="Fix login" action="send:Fix the failing login test"/>
+      <Button label="Fix login" variant="primary" width="fill" action="send:Fix the failing login test"/>
+      <Button label="Ask about it" width="fill" action="append:About the failing login test, "/>
     </Col>
   </Route>
 </Router>
@@ -172,13 +189,14 @@ Example:
 
 Example:
 ```ui
-<Col>
+<Col surface="card" padding="lg" radius="lg" width="fill" gap="md">
+  <Text font="heading">New project</Text>
   <Input name="project" value="RepoGo Runtime" placeholder="Project name"/>
   <Radio name="framework" options="Next.js|Vite|SvelteKit" value="Vite"/>
   <Toggle name="tests" label="Run tests first" value="true"/>
   <Slider name="memory" min="128" max="2048" step="128" value="1280"/>
   <Text>{{memory}} MB</Text>
-  <Button label="Create" action="send:Create {{project}} with {{framework}}, tests={{tests}}, memory={{memory}} MB"/>
+  <Button label="Create" variant="primary" width="fill" action="send:Create {{project}} with {{framework}}, tests={{tests}}, memory={{memory}} MB"/>
 </Col>
 ```
 
