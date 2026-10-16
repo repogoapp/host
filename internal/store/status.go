@@ -178,13 +178,17 @@ func mergeTurn(key string, started, finished sql.NullInt64, turn TurnObservation
 		if key != "" && !rowFromFile && !after {
 			return key, started, finished
 		}
-		// The file is reread whole, so its reading replaces its last one.
-		started, finished = sql.NullInt64{}, sql.NullInt64{}
+		// The file is reread whole, so its reading replaces its last one. A
+		// settled turn the file never ended keeps the finish it was given.
+		sameTurn := key == turn.Key
+		started = sql.NullInt64{}
 		if turn.StartedAt != nil {
 			started = sql.NullInt64{Int64: turn.StartedAt.UnixMilli(), Valid: true}
 		}
 		if turn.FinishedAt != nil {
 			finished = sql.NullInt64{Int64: turn.FinishedAt.UnixMilli(), Valid: true}
+		} else if !sameTurn {
+			finished = sql.NullInt64{}
 		}
 		return turn.Key, started, finished
 	}

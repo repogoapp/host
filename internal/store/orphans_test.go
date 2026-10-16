@@ -146,10 +146,14 @@ func TestInterruptStaleSettlesAbandonedTurns(t *testing.T) {
 		}
 	}
 
-	// A reread of the unchanged file keeps the settle; a new line undoes it.
+	// A reread of the unchanged file keeps the settle and the row's place; a
+	// new line undoes it.
 	sync("abandoned", 1500, open...)
 	if got := status("abandoned"); got != agent.ChatInterrupted {
 		t.Errorf("after a reread: %s, want interrupted", got)
+	}
+	if chat, _ := db.Info(chatID("codex", "abandoned")); chat.ActivityAt != 1500 {
+		t.Errorf("after a reread: activity_at = %d, want 1500", chat.ActivityAt)
 	}
 	sync("abandoned", 11000, append(open, agent.Event{Kind: agent.EventToolCall, At: 11000})...)
 	if got := status("abandoned"); got != agent.ChatWorking {
