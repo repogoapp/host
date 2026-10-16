@@ -99,14 +99,19 @@ func TestPluginsToolsNeedTheSDK(t *testing.T) {
 	}
 }
 
-// With the SDK, only a project with a .repogo/plugins folder gets them.
-func TestPluginsToolsFollowTheProjectFolder(t *testing.T) {
+// With the runtime, every project gets them, so an agent can build the first
+// plugin; a project without the folder says so.
+func TestPluginsToolsComeWithTheRuntime(t *testing.T) {
 	s := pluginsServer(t, pluginsService(t, "/sdk"))
 	if got := toolNames(t, s, attachIn(t, s, pluginsProject(t))); got != "browser,plugins,plugin_call" {
 		t.Fatalf("project with plugins: %q", got)
 	}
-	if got := toolNames(t, s, attachIn(t, s, t.TempDir())); got != "browser" {
+	token := attachIn(t, s, t.TempDir())
+	if got := toolNames(t, s, token); got != "browser,plugins,plugin_call" {
 		t.Fatalf("project without plugins: %q", got)
+	}
+	if got := callTool(t, s, token, "plugins", map[string]any{}); !got.IsError || !strings.Contains(got.Content[0].Text, "no .repogo/plugins folder") {
+		t.Fatalf("plugins in a project without them: %+v", got)
 	}
 }
 

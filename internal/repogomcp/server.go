@@ -133,10 +133,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeRPC(w, req.ID, result, rpcErr)
 }
 
-// withPlugins reports whether a session gets the plugin tools: a development host,
-// in a project that has plugins.
-func (s *Server) withPlugins(cwd string) bool {
-	return s.cfg.Plugins.Has(cwd)
+// withPlugins reports whether a session gets the plugin tools: on a host that
+// runs plugins, in every project, so an agent can build a project's first one.
+func (s *Server) withPlugins() bool {
+	return s.cfg.Plugins.On()
 }
 
 func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (any, *jsonrpc.Error) {
@@ -160,7 +160,7 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 		return map[string]any{}, nil
 	case "tools/list":
 		tools := []tool{browserTool}
-		if s.withPlugins(session.cwd) {
+		if s.withPlugins() {
 			tools = append(tools, pluginsTool, pluginCallTool)
 		}
 		return map[string]any{"tools": tools}, nil
@@ -178,7 +178,7 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 }
 
 func (s *Server) instructions(cwd string) string {
-	if s.withPlugins(cwd) {
+	if s.withPlugins() {
 		return instructions + pluginsInstructions
 	}
 	return instructions
@@ -208,7 +208,7 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 	case browserTool.Name:
 		return s.cfg.Browser.Tool(turn, args)
 	case pluginsTool.Name, pluginCallTool.Name:
-		if s.withPlugins(turn.Cwd) {
+		if s.withPlugins() {
 			return pluginsTools(s.cfg.Plugins, turn, name, args)
 		}
 	}

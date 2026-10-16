@@ -23,15 +23,37 @@ var cards string
 //go:embed cards_plugins.md
 var cardsPlugins string
 
+// apps.md is the phone's prompt for building a project's tabs and plugins,
+// copied the same way.
+//
+//go:embed apps.md
+var apps string
+
+// Plugins is what a session's project can do with plugins.
+type Plugins int
+
+const (
+	// NoPlugins: the environment can't run plugins.
+	NoPlugins Plugins = iota
+	// CanAddPlugins: the environment runs plugins; the project has none yet.
+	CanAddPlugins
+	// HasPlugins: the project has a .repogo/plugins folder.
+	HasPlugins
+)
+
 // For is the prompt for c, or "" when it renders nothing beyond plain markdown;
-// a newer markdown version gets the newest text. withPlugins adds live-data
-// cards, for a project with plugins and a client whose cards reach them.
-func For(c device.Client, withPlugins bool) string {
+// a newer markdown version gets the newest text. A client whose cards reach
+// plugins also learns to build them, and to draw the ones the project has.
+func For(c device.Client, plugins Plugins) string {
 	if c.Features["markdown"] < 1 {
 		return ""
 	}
 	prompt := markdownV1 + "\n" + cards
-	if withPlugins && c.Features["plugins"] >= 1 {
+	if c.Features["plugins"] < 1 || plugins == NoPlugins {
+		return prompt
+	}
+	prompt += "\n" + apps
+	if plugins == HasPlugins {
 		prompt += "\n" + cardsPlugins
 	}
 	return prompt

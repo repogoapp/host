@@ -73,12 +73,17 @@ func (h *Host) openAgents() error {
 		MCP:   func(ctx context.Context, cwd string) []agent.MCPServer { return h.mcps.ForTurn(ctx, cwd) },
 		Tools: h.tools,
 		// Read when a session starts, so a phone's latest devices.hello counts.
+		// With RepoGo's tools off for the project, the agent runs as it would
+		// in a terminal: nothing added to its system prompt.
 		Instructions: func(id device.ID, cwd string) string {
+			if !h.tools.On(cwd) {
+				return ""
+			}
 			peer, err := h.devices.Peer(id)
 			if err != nil {
 				return ""
 			}
-			return clientprompt.For(peer.Client, h.Services.Plugins.Has(cwd))
+			return clientprompt.For(peer.Client, h.projectPlugins(cwd))
 		},
 		Log: h.log,
 	})
@@ -429,6 +434,17 @@ func (h *Host) recordHook(n notify.Notice) error {
 		h.log.Error("hook ingestion failed; retaining drop for retry", "err", err)
 	}
 	return err
+}
+
+// projectPlugins is what cwd's project can do with plugins, for its prompt.
+func (h *Host) projectPlugins(cwd string) clientprompt.Plugins {
+	switch {
+	case h.Services.Plugins.Has(cwd):
+		return clientprompt.HasPlugins
+	case h.Services.Plugins.On():
+		return clientprompt.CanAddPlugins
+	}
+	return clientprompt.NoPlugins
 }
 
 // pluginsRuntime is the SDK's source on a dev host (PluginsSDK), else the

@@ -17,7 +17,7 @@ const cardInstructions = "../../../swift/Packages/RepoGoCards/Sources/RepoGoCard
 
 func TestForPicksByMarkdownFeature(t *testing.T) {
 	prompt := func(features map[string]int) string {
-		return clientprompt.For(device.Client{Platform: "ios", Features: features}, false)
+		return clientprompt.For(device.Client{Platform: "ios", Features: features}, clientprompt.NoPlugins)
 	}
 	full := prompt(map[string]int{"markdown": 1})
 	if !strings.Contains(full, "```mermaid") || !strings.Contains(full, "```ui") {
@@ -44,6 +44,7 @@ func TestCardsMatchThePhone(t *testing.T) {
 	for file, start := range map[string]string{
 		"cards.md":         "public static let prompt = #\"\"\"\n",
 		"cards_plugins.md": "public static let plugins = #\"\"\"\n",
+		"apps.md":          "public static let apps = #\"\"\"\n",
 	} {
 		_, body, ok := strings.Cut(string(src), start)
 		body, _, closed := strings.Cut(body, "\n    \"\"\"#")
@@ -62,18 +63,29 @@ func TestCardsMatchThePhone(t *testing.T) {
 	}
 }
 
-// The plugins prompt comes only with a project that has plugins, and only to
-// a client that says its cards reach them.
-func TestPluginsPromptNeedsTheProjectAndTheClient(t *testing.T) {
+// Building plugins comes to a client whose cards reach them, on an
+// environment that runs them; drawing them, only once the project has some.
+func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
 	both := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1}}
 	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
-	if !strings.Contains(clientprompt.For(both, true), "plugin:<plugin>.<method>") {
-		t.Error("a plugins project on a plugins client lacks the plugins prompt")
-	}
-	if strings.Contains(clientprompt.For(both, false), "plugin:<plugin>.<method>") {
-		t.Error("a project without plugins got the plugins prompt")
-	}
-	if strings.Contains(clientprompt.For(clip, true), "plugin:<plugin>.<method>") {
-		t.Error("a client without plugin cards got the plugins prompt")
+	const build, draw = ".repogo/tab.json", "plugin:<plugin>.<method>"
+	for _, c := range []struct {
+		name        string
+		client      device.Client
+		plugins     clientprompt.Plugins
+		build, draw bool
+	}{
+		{"a project with plugins", both, clientprompt.HasPlugins, true, true},
+		{"a project without plugins", both, clientprompt.CanAddPlugins, true, false},
+		{"an environment without the runtime", both, clientprompt.NoPlugins, false, false},
+		{"a client without plugin cards", clip, clientprompt.HasPlugins, false, false},
+	} {
+		prompt := clientprompt.For(c.client, c.plugins)
+		if got := strings.Contains(prompt, build); got != c.build {
+			t.Errorf("%s: building prompt = %v, want %v", c.name, got, c.build)
+		}
+		if got := strings.Contains(prompt, draw); got != c.draw {
+			t.Errorf("%s: plugin cards prompt = %v, want %v", c.name, got, c.draw)
+		}
 	}
 }

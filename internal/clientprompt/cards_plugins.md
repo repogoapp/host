@@ -53,9 +53,5 @@ Example:
 
 Methods are named <plugin>.<method>; a collection adds
 <plugin>.<collection>.list/get/create/update/delete. Check a method with
-the plugins tool before a card names it. To make a plugin, write
-.repogo/plugins/<name>/app.ts with definePlugin from "@repogo/plugins"
-(collections as zod objects, methods via method(input, run, { kind:
-"query" }); a method that can't be undone takes confirm: "Delete every
-item?"), call it once with plugin_call, then the card. Plugins send data
-as it is (dates as ISO or milliseconds); cards format it with filters.
+the plugins tool before a card names it. Plugins send data as it is
+(dates as ISO or milliseconds); cards format it with filters.
