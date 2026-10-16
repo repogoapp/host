@@ -8,43 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/repogoapp/host/internal/files"
 )
 
 // Layout is the projects directory: loose folders at the top, clones at
-// `.repos/<owner>/<repo>`, chat worktrees under `.worktrees/<owner>/<repo>/`.
-// Files reads its Roots, so it exists before the Service that contains paths.
+// `.repos/<owner>/<repo>`. Files reads its Roots, so it exists before the Service that contains paths.
 type Layout struct{ dir string }
 
 func NewLayout(dir string) Layout { return Layout{dir: dir} }
 
-// Checkouts is the one directory this host creates chat worktrees in.
-func (l Layout) Checkouts() string { return filepath.Join(l.dir, checkoutsDir) }
-
-// CheckoutParent is where a chat worktree of owner/repo is filed.
-func CheckoutParent(checkouts, owner, repo string) string {
-	return filepath.Join(checkouts, owner, repo)
-}
-
-// CheckoutRepo reads owner and repo back out of a path under checkouts.
-func CheckoutRepo(checkouts, path string) (owner, repo string, ok bool) {
-	if checkouts == "" || !files.Within(checkouts, path) {
-		return "", "", false
-	}
-	rel, err := filepath.Rel(checkouts, path)
-	if err != nil {
-		return "", "", false
-	}
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) < 3 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
-}
-
-// Roots makes every clone, every chat worktree, and any plain folder directly
-// under the directory a project. Read off the disk each time so it survives
+// Roots makes every clone and any plain folder directly under the directory a
+// project. Read off the disk each time so it survives
 // the chat cache being dropped.
 func (l Layout) Roots() ([]string, error) {
 	out, err := childDirs(l.dir)
@@ -55,25 +28,7 @@ func (l Layout) Roots() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, clones...)
-	repos, err := ownerRepos(l.Checkouts())
-	if err != nil {
-		return nil, err
-	}
-	for _, repo := range repos {
-		checkouts, err := childDirs(repo)
-		if err != nil {
-			return nil, err
-		}
-		for _, checkout := range checkouts {
-			// Everything in here was put there by us, so a folder that is not a
-			// checkout is a half-finished one.
-			if isCheckout(checkout) {
-				out = append(out, checkout)
-			}
-		}
-	}
-	return out, nil
+	return append(out, clones...), nil
 }
 
 // clones is every `.repos/<owner>/<repo>` that is a checkout; anything else
@@ -128,7 +83,7 @@ func childDirs(dir string) ([]string, error) {
 	}
 	out := make([]string, 0, len(items))
 	for _, item := range items {
-		// Skips `.repos` and `.worktrees` at the top level: they hold projects.
+		// Skips `.repos` at the top level: it holds projects.
 		if item.IsDir() && !strings.HasPrefix(item.Name(), ".") {
 			out = append(out, filepath.Join(dir, item.Name()))
 		}

@@ -52,7 +52,7 @@ type Config struct {
 	State string
 	// Home is the user's home: the folder picker browses it and env sources bind under it.
 	Home string
-	// Projects holds clones, new folders and chat worktrees.
+	// Projects holds clones and new folders.
 	Projects string
 	// Attachments holds the files sent with prompts; Read alone reaches them.
 	Attachments string

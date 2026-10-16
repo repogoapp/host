@@ -90,8 +90,8 @@ func (d Deps) list(_ context.Context, _ rpc.Caller, _ rpc.None) (ListResult, err
 }
 
 func (d Deps) rename(_ context.Context, _ rpc.Caller, a RenameParams) (store.Project, error) {
-	row, inherited, err := d.Store.Rename(a.Path, a.Name)
-	return d.marked(row, err, inherited...)
+	row, err := d.Store.Rename(a.Path, a.Name)
+	return d.marked(row, err)
 }
 
 func (d Deps) pin(_ context.Context, _ rpc.Caller, a PinParams) (store.Project, error) {
@@ -99,13 +99,12 @@ func (d Deps) pin(_ context.Context, _ rpc.Caller, a PinParams) (store.Project, 
 	return d.marked(row, err)
 }
 
-// marked announces a row the user changed, with the worktrees that take its
-// name, and answers the row, stamped as listed.
-func (d Deps) marked(row store.Project, err error, inherited ...store.Project) (store.Project, error) {
+// marked announces a row the user changed and answers it, stamped as listed.
+func (d Deps) marked(row store.Project, err error) (store.Project, error) {
 	if err != nil {
 		return store.Project{}, err
 	}
-	d.Sync.Announce(append([]store.Project{row}, inherited...)...)
+	d.Sync.Announce(row)
 	row.HostID = string(d.Self)
 	return row, nil
 }

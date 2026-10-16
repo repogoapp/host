@@ -48,8 +48,8 @@ type Project struct {
 	// other sort key, beside ChatCount.
 	LastMessageAt int64 `json:"last_message_at"`
 
-	// What every surface calls the project: the user's name, else its clone's
-	// for a worktree, else the repository, else the folder (nameRows).
+	// What every surface calls the project: the user's name, else the
+	// repository, else the folder (projectName).
 	DisplayName string `json:"display_name"`
 	// When the user pinned it to the top of the list; nil is not pinned.
 	PinnedAt *int64 `json:"pinned_at,omitempty"`
@@ -60,21 +60,14 @@ type Project struct {
 }
 
 // ProjectKind is what a folder is, which decides how it is shown and what may
-// be done to it. projectsync reads it from git (a clone's `.git` is a folder, a
-// worktree's a file) and this host's worktree folder, so nothing is recorded.
+// be done to it. projectsync reads it from whether `.git` exists, so nothing
+// is recorded.
 type ProjectKind string
 
 const (
-	// ProjectClone is a real clone: `.git` is a directory.
+	// ProjectClone is a git checkout: `.git` is a directory, or a file for a
+	// linked checkout.
 	ProjectClone ProjectKind = "clone"
-
-	// ProjectManaged is a worktree this host made for a chat, the only kind that
-	// is safe to reap.
-	ProjectManaged ProjectKind = "managed"
-
-	// ProjectWorktree is a linked worktree somebody made by hand. A legitimate
-	// place to work; not ours to delete.
-	ProjectWorktree ProjectKind = "worktree"
 
 	// ProjectFolder has no git in it at all. "Open a folder and talk to an
 	// agent" works before anyone runs `git init`.
@@ -156,26 +149,21 @@ func (s *Store) projects(clauses string, args ...any) ([]Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: projects: %w", err)
 	}
-	read := []markedRow{}
+	defer rows.Close()
+
+	out := []Project{}
 	for rows.Next() {
-		var r markedRow
-		if err := rows.Scan(&r.Path, &r.ChatCount, &r.ActivityAt, &r.LastMessageAt,
-			&r.RepoOwner, &r.RepoName, &r.Kind, &r.IconHash, &r.DiffAvailable, &r.FilesChanged, &r.Additions, &r.Deletions,
-			&r.name, &r.PinnedAt); err != nil {
-			rows.Close()
+		var p Project
+		var name *string
+		if err := rows.Scan(&p.Path, &p.ChatCount, &p.ActivityAt, &p.LastMessageAt,
+			&p.RepoOwner, &p.RepoName, &p.Kind, &p.IconHash, &p.DiffAvailable, &p.FilesChanged, &p.Additions, &p.Deletions,
+			&name, &p.PinnedAt); err != nil {
 			return nil, err
 		}
-		read = append(read, r)
+		p.DisplayName = projectName(p.Path, p.RepoName, name)
+		out = append(out, p)
 	}
-	// Closed before naming: the store has one connection, and naming a
-	// worktree reads its clone.
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return s.nameRows(read)
+	return out, rows.Err()
 }
 
 // ProjectChange is what a SyncProjects pass moved: rows that read
@@ -261,13 +249,6 @@ func (s *Store) SyncProjects(rows []Project) (ProjectChange, error) {
 			return ProjectChange{}, err
 		}
 	}
-	// A clone that appeared, went or changed repository renames the worktrees
-	// that take its name, which this pass did not otherwise touch.
-	inherited, err := s.renamedSince(names(all), changed...)
-	if err != nil {
-		return ProjectChange{}, err
-	}
-	out.Changed = append(out.Changed, inherited...)
 	return out, nil
 }
 

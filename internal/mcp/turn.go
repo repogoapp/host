@@ -103,7 +103,7 @@ func (s *Service) refresh(ctx context.Context, id string) record {
 
 // Root is the project a folder belongs to: the top of its git checkout, and
 // for a linked worktree the main checkout, so a switch set in a project holds
-// in every worktree a chat branches into. A folder outside git is its own.
+// in every linked worktree of it. A folder outside git is its own.
 func Root(dir string) string {
 	if root := git.Root(dir); root != "" {
 		return git.MainCheckout(root)

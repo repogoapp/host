@@ -46,11 +46,6 @@ type Syncer struct {
 	icons Icons
 	log   *slog.Logger
 
-	// checkouts is the one directory this host creates worktrees in. It is
-	// what separates a worktree we made for a chat from one the user made by
-	// hand, and it is why that separation needs nothing recorded.
-	checkouts string
-
 	// access is which folders a pass may read inside without waiting on a
 	// privacy prompt.
 	access *protected
@@ -62,13 +57,13 @@ type Syncer struct {
 	nudge   chan struct{}
 }
 
-func New(list Lister, db Cache, icons Icons, checkouts, home string, changed func(store.ProjectChange), log *slog.Logger) *Syncer {
+func New(list Lister, db Cache, icons Icons, home string, changed func(store.ProjectChange), log *slog.Logger) *Syncer {
 	access := newProtected(runtime.GOOS, home)
 	access.stuck = func(root string) {
 		log.Warn("projectsync: not reading inside a folder until macOS allows it", "folder", root)
 	}
 	return &Syncer{
-		list: list, db: db, icons: icons, checkouts: checkouts, access: access,
+		list: list, db: db, icons: icons, access: access,
 		changed: changed, nudge: make(chan struct{}, 1), log: log,
 	}
 }
@@ -165,14 +160,14 @@ func (s *Syncer) Once(ctx context.Context) store.ProjectChange {
 			ChatCount:     activity[entry.Path].Chats,
 			ActivityAt:    activity[entry.Path].ActivityAt,
 			LastMessageAt: activity[entry.Path].LastMessageAt,
-			Kind:          kindOf(entry.Path, s.checkouts),
+			Kind:          kindOf(entry.Path),
 			IconHash:      s.icons.IconHash(entry.Path),
 		}
 		// Left empty when it is already known: SyncProjects carries the stored
 		// value forward, so a pass that did not look cannot erase what an
 		// earlier one found. A plain folder has no origin of its own to read.
 		if !known[entry.Path] && row.Kind != store.ProjectFolder {
-			row.RepoOwner, row.RepoName = repoOf(ctx, entry.Path, s.checkouts)
+			row.RepoOwner, row.RepoName = repoOf(ctx, entry.Path)
 		}
 		// A clone nobody has run a chat in yet still has to sort somewhere, and
 		// the folder's own mtime is the only evidence there is.

@@ -77,7 +77,7 @@ func TestAnUnreadableFolderKeepsItsStoredRow(t *testing.T) {
 		Path: "/Users/me/Desktop/game", Kind: store.ProjectClone, IconHash: "abc", RepoOwner: "me", RepoName: "game",
 	}}}
 	icons := &countedIcons{}
-	s := New(listed{"/Users/me/Desktop/game", "/tmp/p"}, db, icons, "", "/Users/me", ignore, slog.New(slog.DiscardHandler))
+	s := New(listed{"/Users/me/Desktop/game", "/tmp/p"}, db, icons, "/Users/me", ignore, slog.New(slog.DiscardHandler))
 	s.access = newProtected("darwin", "/Users/me")
 	s.access.wait = time.Millisecond
 	block := make(chan struct{})

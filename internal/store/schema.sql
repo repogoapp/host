@@ -134,7 +134,7 @@ CREATE TABLE projects (
   repo_owner TEXT NOT NULL DEFAULT '',
   repo_name  TEXT NOT NULL DEFAULT '',
 
-  -- clone | managed | worktree | folder; see projectsync.kindOf.
+  -- clone | folder; see projectsync.kindOf.
   kind       TEXT NOT NULL DEFAULT 'folder',
   -- projects.detect_icon's content_hash, '' for no icon, so a device fetches an
   -- icon only when this moves.

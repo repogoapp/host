@@ -5,34 +5,20 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/repogoapp/host/internal/files"
 	gitcore "github.com/repogoapp/host/internal/git"
-	"github.com/repogoapp/host/internal/github"
 	"github.com/repogoapp/host/internal/store"
 )
 
-// kindOf classifies from git's own invariant (a clone's `.git` is a directory,
-// a linked worktree's is a file) plus the one directory this host creates
-// worktrees in, so nothing needs recording.
-func kindOf(path, checkouts string) store.ProjectKind {
-	info, err := os.Lstat(filepath.Join(path, ".git"))
-	switch {
-	case err != nil:
+// kindOf is a clone when `.git` exists, a directory or a linked checkout's
+// file, so nothing needs recording.
+func kindOf(path string) store.ProjectKind {
+	if _, err := os.Lstat(filepath.Join(path, ".git")); err != nil {
 		return store.ProjectFolder
-	case info.IsDir():
-		return store.ProjectClone
-	case checkouts != "" && files.Within(checkouts, path):
-		return store.ProjectManaged
-	default:
-		return store.ProjectWorktree
 	}
+	return store.ProjectClone
 }
 
-// repoOf is the repository a checkout belongs to, as the origin (or folder)
-// spells it. The path layout first because it is free; origin costs a subprocess.
-func repoOf(ctx context.Context, path, checkouts string) (owner, name string) {
-	if owner, name, ok := github.CheckoutRepo(checkouts, path); ok {
-		return owner, name
-	}
+// repoOf is the repository a checkout belongs to, as its origin spells it.
+func repoOf(ctx context.Context, path string) (owner, name string) {
 	return gitcore.OwnerRepo(ctx, path)
 }

@@ -322,7 +322,7 @@ func TestSubscriptionsAreBounded(t *testing.T) {
 	}
 }
 
-// A worktree — one per chat, which is where the host is going — keeps its metadata
+// A linked worktree keeps its metadata
 // elsewhere and leaves a pointer file behind. Following it is what keeps the
 // cheap branch check working there at all.
 func TestFingerprintFollowsAWorktreePointer(t *testing.T) {

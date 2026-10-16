@@ -32,10 +32,6 @@ const (
 	// in it leaves nothing stale. Owner-scoped because repo names collide.
 	reposDir = ".repos"
 
-	// checkoutsDir holds `<dir>/.worktrees/<owner>/<repo>/<branch>-a91c4f` chat
-	// worktrees, one folder per repo so reaping or listing a repo is one path.
-	checkoutsDir = ".worktrees"
-
 	// MaxRepos bounds one listing. Nobody scrolls past this on a phone, and the
 	// filtering that finds the repo you want happens on the string, not by
 	// fetching more pages.

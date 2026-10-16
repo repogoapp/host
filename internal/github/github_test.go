@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"github.com/repogoapp/host/internal/errkind"
@@ -82,8 +81,8 @@ func TestRootsAreTheClonedFolders(t *testing.T) {
 // are two checkouts. Flat naming made the second one silently open the first.
 func TestRootsAreOwnerScoped(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"octocat/code/main", "alice/code/main"} {
-		if err := os.MkdirAll(filepath.Join(dir, ".worktrees", name, ".git"), 0o755); err != nil {
+	for _, name := range []string{"octocat/code", "alice/code"} {
+		if err := os.MkdirAll(filepath.Join(dir, ".repos", name, ".git"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -99,8 +98,8 @@ func TestRootsAreOwnerScoped(t *testing.T) {
 	}
 	want := []string{
 		filepath.Join(dir, "by-hand"),
-		filepath.Join(dir, ".worktrees", "alice", "code", "main"),
-		filepath.Join(dir, ".worktrees", "octocat", "code", "main"),
+		filepath.Join(dir, ".repos", "alice", "code"),
+		filepath.Join(dir, ".repos", "octocat", "code"),
 	}
 	if len(roots) != len(want) {
 		t.Fatalf("Roots = %v, want %v", roots, want)
@@ -122,45 +121,6 @@ func TestRootsBeforeAnyoneHasCloned(t *testing.T) {
 	}
 	if len(roots) != 0 {
 		t.Errorf("Roots = %v, want none", roots)
-	}
-}
-
-// A repository's chat worktrees are projects beside its clone; a folder in
-// the worktree tree that is not a checkout is a half-finished one.
-func TestWorktreesBesideTheCloneAreProjects(t *testing.T) {
-	dir := t.TempDir()
-	clone := filepath.Join(dir, ".repos", "octocat", "code")
-	if err := os.MkdirAll(filepath.Join(clone, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	checkouts := CheckoutParent(NewLayout(dir).Checkouts(), "octocat", "code")
-	for _, name := range []string{"main-a91c4f", "main-3f0e21"} {
-		if err := os.MkdirAll(filepath.Join(checkouts, name), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		link := []byte("gitdir: " + filepath.Join(clone, ".git", "worktrees", name))
-		if err := os.WriteFile(filepath.Join(checkouts, name, ".git"), link, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.MkdirAll(filepath.Join(checkouts, "died-mid-create"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	roots, err := NewLayout(dir).Roots()
-	if err != nil {
-		t.Fatalf("Roots: %v", err)
-	}
-	want := []string{
-		clone,
-		filepath.Join(checkouts, "main-3f0e21"),
-		filepath.Join(checkouts, "main-a91c4f"),
-	}
-	if !slices.Equal(roots, want) {
-		t.Fatalf("Roots = %v, want %v", roots, want)
-	}
-	if owner, repo, ok := CheckoutRepo(NewLayout(dir).Checkouts(), want[1]); !ok || owner != "octocat" || repo != "code" {
-		t.Errorf("CheckoutRepo = %q %q %v, want octocat code", owner, repo, ok)
 	}
 }
 

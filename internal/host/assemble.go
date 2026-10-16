@@ -320,7 +320,7 @@ func (h *Host) openProjects() error {
 	h.onClose(s.Tools.Close)
 	s.Tools.Tools = append([]clitool.Tool{gh.Tool()}, h.agents.Tools()...)
 	s.Projects = project.New(projectFiles, h.db)
-	s.ProjectSync = projectsync.New(projectFiles, h.db, s.Projects, gh.Checkouts(), h.cfg.Home, h.projectsChanged, h.log)
+	s.ProjectSync = projectsync.New(projectFiles, h.db, s.Projects, h.cfg.Home, h.projectsChanged, h.log)
 	// Every commit that moves a chat row reaches the devices, and may move its
 	// project's activity, which projectsync re-reads a settle later. Earlier
 	// writes (the queue restored at start) had no device to reach yet.

@@ -9,28 +9,20 @@ import (
 	"testing"
 
 	"github.com/repogoapp/host/internal/files"
-	"github.com/repogoapp/host/internal/github"
 	"github.com/repogoapp/host/internal/store"
 )
 
-// git's own invariant does the first cut, and the owned directory the second.
+// A clone has `.git`, a directory or a linked checkout's file; anything
+// else is a folder.
 func TestKindOf(t *testing.T) {
 	root := t.TempDir()
-	checkouts := filepath.Join(root, "checkouts")
 
-	// A clone: .git is a directory.
 	clone := filepath.Join(root, "clone")
 	mkdir(t, filepath.Join(clone, ".git"))
 
-	// A linked worktree we made: .git is a FILE, inside the owned directory.
-	managed := filepath.Join(checkouts, "octocat", "code", "main-a91c4f")
-	mkdir(t, managed)
-	write(t, filepath.Join(managed, ".git"), "gitdir: /elsewhere\n")
-
-	// A linked worktree somebody made by hand, outside it.
-	loose := filepath.Join(root, "hand-made")
-	mkdir(t, loose)
-	write(t, filepath.Join(loose, ".git"), "gitdir: /elsewhere\n")
+	linked := filepath.Join(root, "linked")
+	mkdir(t, linked)
+	write(t, filepath.Join(linked, ".git"), "gitdir: /elsewhere\n")
 
 	// No git at all — an ordinary folder, which is a supported project.
 	plain := filepath.Join(root, "notes")
@@ -41,40 +33,12 @@ func TestKindOf(t *testing.T) {
 		want store.ProjectKind
 	}{
 		{clone, store.ProjectClone},
-		{managed, store.ProjectManaged},
-		{loose, store.ProjectWorktree},
+		{linked, store.ProjectClone},
 		{plain, store.ProjectFolder},
 	} {
-		if got := kindOf(c.path, checkouts); got != c.want {
+		if got := kindOf(c.path); got != c.want {
 			t.Errorf("kindOf(%s) = %q, want %q", filepath.Base(c.path), got, c.want)
 		}
-	}
-
-	// A host that creates no worktrees can have nothing managed.
-	if got := kindOf(managed, ""); got != store.ProjectWorktree {
-		t.Errorf("with no checkouts dir, kindOf = %q, want %q", got, store.ProjectWorktree)
-	}
-}
-
-// The clone layout names the repository for free; everything else has to ask
-// git, and a folder with no origin has no repository at all.
-func TestRepoFromLayout(t *testing.T) {
-	checkouts := t.TempDir()
-	path := filepath.Join(checkouts, "Octocat", "Code", "main-a91c4f")
-
-	// Case kept: the phone shows the name as spelled and folds case itself
-	// when it groups `Octocat/Code` with `octocat/code`.
-	owner, name, ok := github.CheckoutRepo(checkouts, path)
-	if !ok || owner != "Octocat" || name != "Code" {
-		t.Errorf("CheckoutRepo = %q/%q ok=%v, want Octocat/Code", owner, name, ok)
-	}
-
-	// The clone directory itself is two levels deep, not three — not a checkout.
-	if _, _, ok := github.CheckoutRepo(checkouts, filepath.Join(checkouts, "octocat")); ok {
-		t.Error("a bare owner directory was read as a checkout")
-	}
-	if _, _, ok := github.CheckoutRepo(checkouts, "/somewhere/else"); ok {
-		t.Error("a path outside the checkouts dir was read as a checkout")
 	}
 }
 
@@ -136,7 +100,7 @@ func TestAPlainFolderInsideARepoHasNoRepository(t *testing.T) {
 	mkdir(t, notes)
 
 	db := &recorded{}
-	New(listed{notes}, db, noIcons{}, "", "", ignore, slog.New(slog.DiscardHandler)).Once(context.Background())
+	New(listed{notes}, db, noIcons{}, "", ignore, slog.New(slog.DiscardHandler)).Once(context.Background())
 	if len(db.rows) != 1 || db.rows[0].Kind != store.ProjectFolder || db.rows[0].RepoOwner != "" || db.rows[0].RepoName != "" {
 		t.Errorf("rows = %+v, want one folder with no repository", db.rows)
 	}

@@ -99,7 +99,7 @@ func (s *Service) DetectIcon(ctx context.Context, path, ifNoneMatch string) (Res
 	}
 
 	// Read before the early return: a project with no icon still has a
-	// repository, and without it cannot group with its worktrees.
+	// repository, and without it cannot group with its other checkouts.
 	owner, name, err := s.repos.Repo(path)
 	if err != nil {
 		return Result{}, err

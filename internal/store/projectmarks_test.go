@@ -50,98 +50,16 @@ func TestProjectNamesFollowOneRule(t *testing.T) {
 		}
 	}
 
-	row, _, err := db.Rename("/src/codev2", "  RepoGo   v2 ")
+	row, err := db.Rename("/src/codev2", "  RepoGo   v2 ")
 	if err != nil || row.DisplayName != "RepoGo v2" {
 		t.Fatalf("rename = %q, %v", row.DisplayName, err)
 	}
-	if row, _, _ := db.Rename("/src/codev2", "  "); row.DisplayName != "repogo" {
+	if row, _ := db.Rename("/src/codev2", "  "); row.DisplayName != "repogo" {
 		t.Fatalf("blank rename = %q, want the repository back", row.DisplayName)
 	}
-	if _, _, err := db.Rename("/not/listed", "x"); !errors.Is(err, ErrInvalid) {
+	if _, err := db.Rename("/not/listed", "x"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("renaming an unlisted folder = %v, want ErrInvalid", err)
 	}
-}
-
-// A worktree is called what its repository's clone is, and renaming the clone
-// renames the worktree with it; a worktree the user named keeps its name.
-func TestAWorktreeTakesItsClonesName(t *testing.T) {
-	db := newStore(t)
-	if _, err := db.SyncProjects([]Project{
-		{Path: "/src/RepoGo", Kind: ProjectClone, RepoOwner: "alice", RepoName: "repogo", ActivityAt: 1},
-		{Path: "/src/.worktrees/alice/repogo/fix-a1b2c3", Kind: ProjectManaged, RepoOwner: "alice", RepoName: "repogo", ActivityAt: 2},
-		{Path: "/src/by-hand", Kind: ProjectWorktree, RepoOwner: "alice", RepoName: "repogo", ActivityAt: 3},
-		{Path: "/src/other", Kind: ProjectManaged, RepoOwner: "bob", RepoName: "other", ActivityAt: 4},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	called := func(path string) string {
-		row, err := db.Project(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return row.DisplayName
-	}
-	if got := called("/src/.worktrees/alice/repogo/fix-a1b2c3"); got != "RepoGo" {
-		t.Fatalf("worktree is called %q, want its clone's RepoGo", got)
-	}
-	// No clone of bob/other is listed, so its worktree is called by its repository.
-	if got := called("/src/other"); got != "other" {
-		t.Fatalf("worktree without a clone is called %q, want other", got)
-	}
-
-	row, inherited, err := db.Rename("/src/RepoGo", "Mobile")
-	if err != nil || row.DisplayName != "Mobile" {
-		t.Fatalf("rename = %q, %v", row.DisplayName, err)
-	}
-	if got := paths(inherited); !slices.Equal(got, []string{"/src/.worktrees/alice/repogo/fix-a1b2c3", "/src/by-hand"}) {
-		t.Fatalf("renamed with the clone = %v", got)
-	}
-	if got := called("/src/by-hand"); got != "Mobile" {
-		t.Fatalf("worktree after the clone's rename = %q, want Mobile", got)
-	}
-
-	// A worktree's own name wins, and the clone's next rename leaves it alone.
-	if _, _, err := db.Rename("/src/by-hand", "Experiment"); err != nil {
-		t.Fatal(err)
-	}
-	_, inherited, err = db.Rename("/src/RepoGo", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := paths(inherited); !slices.Equal(got, []string{"/src/.worktrees/alice/repogo/fix-a1b2c3"}) {
-		t.Fatalf("renamed with the clone = %v, want only the unnamed worktree", got)
-	}
-	if got := called("/src/by-hand"); got != "Experiment" {
-		t.Fatalf("named worktree = %q, want Experiment", got)
-	}
-}
-
-// A sync that removes a clone sends the worktrees it renamed, though their
-// own rows did not move.
-func TestASyncSendsTheWorktreesAClonesRemovalRenames(t *testing.T) {
-	db := newStore(t)
-	clone := Project{Path: "/src/RepoGo", Kind: ProjectClone, RepoOwner: "alice", RepoName: "repogo", ActivityAt: 1}
-	worktree := Project{Path: "/src/wt", Kind: ProjectWorktree, RepoOwner: "alice", RepoName: "repogo", ActivityAt: 2}
-	if _, err := db.SyncProjects([]Project{clone, worktree}); err != nil {
-		t.Fatal(err)
-	}
-	change, err := db.SyncProjects([]Project{worktree})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(change.Removed, []string{"/src/RepoGo"}) || len(change.Changed) != 1 ||
-		change.Changed[0].Path != "/src/wt" || change.Changed[0].DisplayName != "repogo" {
-		t.Fatalf("change = %+v", change)
-	}
-}
-
-func paths(rows []Project) []string {
-	out := []string{}
-	for _, p := range rows {
-		out = append(out, p.Path)
-	}
-	slices.Sort(out)
-	return out
 }
 
 // A pinned project is listed even past the cap, and unpinning clears it.
