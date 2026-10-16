@@ -7,31 +7,64 @@ quotes. Use these tags:
 
 Col: vertical children. Row: horizontal children.
 Grid: columns="1..4" (default 2), visual children; gap like Col, no scroll.
+  masonry="true" puts each child in the shortest column (photo walls,
+  notes of mixed height); an Each inside deals its rows out.
 Tabs: name, options="Overview|Logs", optional value; self-closing; declares its own state (no State needed).
 Input: name, optional value/placeholder, type="text|number" (default text); self-closing; declares state like Tabs (no State needed).
+TextArea: name, optional value/placeholder, rows="2..12" (default 4); several lines, like a commit message; self-closing; declares state like Input.
 Select: name, options="Next.js|Vite", optional value; self-closing; declares state like Tabs (no State needed).
+Input, TextArea, Select, Radio and Slider take label (a small header above) and footer (a line below), as a form's rows do.
 Radio: name, options="Build muscle|Lose fat|Get stronger", optional value, direction="col|row" (default col); self-closing; declares state like Select.
 Toggle: name, nonempty label, value="true|false" (default false); self-closing; declares state like Tabs (no State needed).
 Slider: name, min/max (default 0/1), optional positive step/value; plain decimals; self-closing; declares state like Tabs (no State needed).
-Chart: type="bar|line", values="3 5 2", labels="Mon|Tue|Wed"; self-closing; color defaults primary, height compact.
+Chart: type="bar|line", values="3|5|2" (or spaces), labels="Mon|Tue|Wed"; self-closing; color defaults primary, height compact.
 Text: plain text; font="title|heading|body|caption|code", default body.
 Badge: short label in a pill; color tints it, default neutral.
-Icon: name="SF Symbol"; size="sm|md|lg", default md.
+Markdown: its text drawn as Markdown (headings, lists, tables, code, links);
+  may read {{…}}, such as <Markdown>{{plan.body}}</Markdown>. Indent it with
+  the card; the indent is dropped. A ```ui fence inside shows as code.
+  When its text has its own code fence, open the card with four backticks
+  (````ui … ````) so the inner fence doesn't end it.
+Image: url (http or https, may read {{…}}); size="sm|md|lg|xl" (or points)
+  for a square, else width and aspect="16:9"; fit="fill|fit" (fill crops,
+  the default; fit shows it all); with neither size nor aspect it keeps its
+  own shape uncropped; radius (pill for a circle); alt for VoiceOver.
+Icon: name="SF Symbol"; size="sm|md|lg", default md; alt names it for
+  VoiceOver (without one it's decorative).
 Progress: value="0..1" plain decimal bar; self-closing; color tints it, default primary.
 Button: label, optional icon, action; variant="primary|secondary|plain",
   default secondary. primary is a filled capsule (one per card, for the
   main action), secondary an outlined one, plain just text. Add
   width="fill" for a full-width button; in a Row, flex="grow" on each
   button splits the width between them. Children replace its label/icon.
+  role="destructive" makes it red (a menu's destructive item).
   Put a Row inside Button for a tappable row. Never nest Buttons or put
   Router inside Button. Supply a readable label for icon-only Buttons.
+Menu: label and/or icon, variant like Button; contains Buttons and
+  Dividers, shown as the system's menu; a Button with role="destructive"
+  is its red, destructive item.
+Toolbar: Buttons and Menus for the bar of the page or sheet the card is
+  on (an Add button, a "…" Menu); where there's no bar, a row of them.
 Divider, Spacer: separator and flexible space along the parent layout.
-State: top-level local string value; declare before visible content.
+State: a local string value; declare it at the top (anywhere but inside Each).
 Router: optional id and initial route path; contains Route elements.
-Route: required path, optional title; contains visual children.
-Router draws a navigation bar: every Route's title centred, back (named
-for the previous Route), home and a tappable trail when deeper. Give each
+Route: required path, optional title (may read {{state}}),
+  sheet="medium|large" for the heights it rests at when presented;
+  contains visual children.
+A Router's first route draws in the card. push: opens a route as a page
+on the screen's navigation stack (system bar, back, swipe back); present:
+opens one as a sheet with its own stack and a close button. Give each
 Route a short title and don't repeat it as a heading inside the Route.
+List: a grouped list like the app's Settings; contains Sections.
+Section: optional label (header) and footer; contains Items.
+Item: one row: label, optional icon (SF Symbol, on a colored tile),
+  iconColor, subtitle, detail (grey trailing text), action, role="destructive".
+  Children replace detail as trailing content (Badge, Toggle, Text, Menu).
+  Swipe children (label, icon, color, role="destructive", action, Params)
+  are its swipe actions, a long-press menu where it can't swipe.
+  The row lays itself out (no Spacer); a chevron shows for push:,
+  present:, page:, open: and browse:. Prefer a List of Items over Rows
+  inside Buttons for lists and settings.
 
 Prefer Radio for 2–5 choices visible at once, Select for longer lists,
 and Tabs for switching what the card shows.
@@ -52,19 +85,20 @@ height="auto|compact|regular|tall": named heights 120,240,360 points.
 maxHeight="compact|regular|tall". Prefer auto height for text.
 flex="none|grow": grow shares spare width among direct Row children.
   Do not combine grow with a fixed width.
-Text/Badge/Icon/Button/Progress/Chart/Radio color="primary|secondary|accent|success|warning|
+Text/Badge/Icon/Button/Menu/Progress/Chart/Radio/Slider color="primary|secondary|accent|success|warning|
   danger|blue|green|orange|red|purple|pink|teal|yellow|gray".
   Icon and Badge default secondary; everything else primary (white in dark
   mode, black in light). Keep cards neutral: name a color only where it
   means something (success, danger, a category). A Button's color tints
   its capsule and label.
+Button/Item transition="zoom": the page or sheet it opens grows out of it.
 Row scroll="auto": horizontal scrolling.
 Col scroll="auto": vertical scrolling; maxHeight defaults regular.
   Do not nest same-axis scrolling. Scrolling Row children use intrinsic
   or named widths, without fill, grow, or Spacer.
 show="name=value": visible only when equal.
 selected="name=value": selected styling.
-Button/Input/Select/Radio/Toggle/Slider enabled="name=value": enabled only when equal.
+Button/Menu/Item and every control enabled="name=value": enabled only when equal.
 Conditions are one literal equality, with no other expressions.
 
 Declare local string state:
@@ -80,12 +114,25 @@ toggle:tests — "true" becomes "false"; anything else becomes "true".
 send:<text> — send the user's next message to the agent.
 copy:<text> — copy text.
 open:<url> — open an absolute https or http link.
-push:<path> — open a Route in the nearest Router.
-back — return to that Router's previous route.
+browse:<url> — open it in the project's browser, reusing the tab on that site.
+push:<path> — open a Route of the nearest Router as a page.
+present:<path> — open a Route as a sheet.
+page:<project path> — on a project's tab pages, open another of its pages
+  (page:.repogo/tabs/vercel.md); sheet="large" on the Button or Item opens
+  it in a sheet instead.
+back — return to the previous route, page or sheet.
+then="push:detail" after set: or toggle: runs a second, local action:
+  action="set:item={{row.id}}" then="push:detail" picks a row and opens it.
 
-{{name}} reads the current state value in Text, Badge, Button labels, and send:/copy: payloads.
-No interpolation elsewhere. Use send: when work is needed; use Router for
-details already known. Actions wait for complete Buttons and valid targets.
+{{name}} reads the current state value in Text, Badge, Markdown, the labels of
+Buttons, Menus, Items, Toggles and fields, Item subtitle and detail, field and
+Section footers, Section labels, Route titles, Image url and alt, Icon alt,
+set: values, and send:/copy:/browse: payloads. No interpolation elsewhere. A filter
+writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
+current), date, time, datetime, number (number:2), currency:USD, percent
+(0.42 is 42%), bytes. Dates are ISO 8601 or Unix seconds or milliseconds.
+Use send: when work is needed; use Router for details already known.
+Actions wait for complete Buttons and valid targets.
 
 Example:
 ```ui
@@ -133,6 +180,48 @@ Example:
   <Text>{{memory}} MB</Text>
   <Button label="Create" action="send:Create {{project}} with {{framework}}, tests={{tests}}, memory={{memory}} MB"/>
 </Col>
+```
+
+Example:
+```ui
+<List>
+  <Section label="Environment" footer="Only on this device.">
+    <Item icon="desktopcomputer" iconColor="gray" label="Name" detail="MacBook Pro"/>
+    <Item icon="bell.badge.fill" iconColor="red" label="Alerts">
+      <Toggle name="alerts" label="Alerts" value="true"/>
+    </Item>
+    <Item icon="book.fill" label="Docs" action="browse:https://repogo.app/docs"/>
+  </Section>
+</List>
+```
+
+Example:
+```ui
+<State name="release" value=""/>
+<Router id="releases" initial="list">
+  <Route path="list" title="Releases">
+    <List>
+      <Section label="Recent">
+        <Item icon="tag.fill" label="v2.1" subtitle="Faster search" action="set:release=v2.1" then="present:notes">
+          <Swipe label="Copy" icon="doc.on.doc" action="copy:v2.1"/>
+        </Item>
+        <Item icon="tag.fill" label="v2.0" subtitle="Sheets and menus" action="set:release=v2.0" then="present:notes"/>
+      </Section>
+    </List>
+  </Route>
+  <Route path="notes" title="{{release}}" sheet="medium|large">
+    <Toolbar>
+      <Menu icon="ellipsis">
+        <Button label="Copy version" icon="doc.on.doc" action="copy:{{release}}"/>
+      </Menu>
+    </Toolbar>
+    <Markdown>
+      ### What's new in {{release}}
+      - Search waits until you stop typing
+      - Pages open in sheets
+    </Markdown>
+  </Route>
+</Router>
 ```
 
 Keep each fence small: at most 64 KiB, 512 elements, and depth 32.

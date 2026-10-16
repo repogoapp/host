@@ -82,7 +82,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 	own := r.deps.Tools != nil && r.deps.Tools.On(req.Cwd)
 	var instructions string
 	if r.deps.Instructions != nil {
-		instructions = r.deps.Instructions(req.Device)
+		instructions = r.deps.Instructions(req.Device, req.Cwd)
 	}
 	raw, _ := json.Marshal(struct {
 		Servers      []agent.MCPServer

@@ -34,9 +34,10 @@ type Dependencies struct {
 	// Tools is RepoGo's own MCP server; nil on a host that serves none.
 	Tools Tools
 
-	// Instructions is what a session started for this device adds to the
-	// agent's system prompt, from what its client renders; "" adds nothing.
-	Instructions func(device.ID) string
+	// Instructions is what a session started for this device in cwd adds to
+	// the agent's system prompt, from what its client renders and what the
+	// project has; "" adds nothing.
+	Instructions func(d device.ID, cwd string) string
 
 	Log *slog.Logger
 }

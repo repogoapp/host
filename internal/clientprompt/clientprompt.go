@@ -17,11 +17,22 @@ var markdownV1 string
 //go:embed cards.md
 var cards string
 
-// For is the prompt for c, or "" when it renders nothing beyond plain
-// markdown. A newer markdown version than the host knows gets the newest text.
-func For(c device.Client) string {
-	if c.Features["markdown"] >= 1 {
-		return markdownV1 + "\n" + cards
+// cards_plugins.md is the phone's prompt for cards that read and write a
+// project's plugins, copied the same way.
+//
+//go:embed cards_plugins.md
+var cardsPlugins string
+
+// For is the prompt for c, or "" when it renders nothing beyond plain markdown;
+// a newer markdown version gets the newest text. withPlugins adds live-data
+// cards, for a project with plugins and a client whose cards reach them.
+func For(c device.Client, withPlugins bool) string {
+	if c.Features["markdown"] < 1 {
+		return ""
 	}
-	return ""
+	prompt := markdownV1 + "\n" + cards
+	if withPlugins && c.Features["plugins"] >= 1 {
+		prompt += "\n" + cardsPlugins
+	}
+	return prompt
 }

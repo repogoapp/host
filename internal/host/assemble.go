@@ -73,12 +73,12 @@ func (h *Host) openAgents() error {
 		MCP:   func(ctx context.Context, cwd string) []agent.MCPServer { return h.mcps.ForTurn(ctx, cwd) },
 		Tools: h.tools,
 		// Read when a session starts, so a phone's latest devices.hello counts.
-		Instructions: func(id device.ID) string {
+		Instructions: func(id device.ID, cwd string) string {
 			peer, err := h.devices.Peer(id)
 			if err != nil {
 				return ""
 			}
-			return clientprompt.For(peer.Client)
+			return clientprompt.For(peer.Client, h.Services.Plugins.Has(cwd))
 		},
 		Log: h.log,
 	})
