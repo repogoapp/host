@@ -907,6 +907,7 @@ Result:
 - `relay_connected` bool
 - `update_failed` string (omitted when empty)
 - `battery` object{Battery} (omitted when empty) (nullable)
+- `storage` object{Storage} (omitted when empty) (nullable)
 - `cloud` object{Cloud} (omitted when empty) (nullable)
 - `network` object{Network}
 - `capabilities` [string] (omitted when empty) (nullable)

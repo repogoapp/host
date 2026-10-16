@@ -296,7 +296,7 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 	// Battery is persisted in widget snapshots; status is encoded for diagnostics.
 	if (t.PkgPath() == "github.com/repogoapp/host/internal/power" && t.Name() == "Battery") ||
 		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && t.Name() == "Status") ||
-		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && (t.Name() == "Network" || t.Name() == "Cloud")) {
+		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && (t.Name() == "Network" || t.Name() == "Cloud" || t.Name() == "Storage")) {
 		return "Codable"
 	}
 	switch g.dirs[t] {

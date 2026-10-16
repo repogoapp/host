@@ -92,3 +92,13 @@ func TestReleaseSaysWhetherTheHostIsBehind(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusCarriesTheHomeVolume(t *testing.T) {
+	status, err := newService(reading{}).Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := status.Storage; s == nil || s.TotalBytes == 0 || s.FreeBytes > s.TotalBytes {
+		t.Fatalf("storage %+v, want the home volume with free within total", s)
+	}
+}

@@ -28,6 +28,8 @@ type Status struct {
 	UpdateFailed string `json:"update_failed,omitempty"`
 	// Absent off macOS, and until the host has read the battery once.
 	Battery *power.Battery `json:"battery,omitempty"`
+	// Absent when the home volume can't be read.
+	Storage *Storage `json:"storage,omitempty"`
 	// Cloud is set on a host that runs for a bounded session.
 	Cloud   *Cloud  `json:"cloud,omitempty"`
 	Network Network `json:"network"`
@@ -154,6 +156,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	local := localNetwork()
+	storage, hasStorage := homeStorage()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := Status{
@@ -166,6 +169,9 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	}
 	if b, ok := s.d.Power.Battery(); ok {
 		out.Battery = &b
+	}
+	if hasStorage {
+		out.Storage = &storage
 	}
 	out.Capabilities = []string{CapabilityDevices, CapabilityUsage}
 	if s.d.Trash {

@@ -10,6 +10,10 @@
     "charging": true,
     "plugged_in": true
   },
+  "storage": {
+    "total_bytes": 1,
+    "free_bytes": 1
+  },
   "cloud": {
     "provider": "provider",
     "stops_at": "0001-01-01T00:00:00Z"
