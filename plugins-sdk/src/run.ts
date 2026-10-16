@@ -6,6 +6,7 @@
 //   run.ts list                            → the manifest
 //   run.ts call <method> [input] [--query] → { result, reads, invalidates } or { error }
 
+import "./self";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";

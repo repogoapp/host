@@ -77,14 +77,14 @@ type server struct {
 	gone    chan struct{}
 }
 
-// startServer runs the SDK's server under ctx and connects to it. onPush gets
-// every subscription answer; onGone runs once when the connection ends.
-func startServer(ctx context.Context, bun, sdk, socket, dataDir string, log *slog.Logger, onPush func(push), onGone func(*server)) (*server, error) {
+// startServer runs the plugins server (runtime's `serve`) under ctx and connects
+// to it. onPush gets every subscription answer; onGone runs once when it ends.
+func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log *slog.Logger, onPush func(push), onGone func(*server)) (*server, error) {
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, bun, filepath.Join(sdk, "src", "run.ts"), "serve")
-	cmd.Dir = sdk
+	cmd := exec.CommandContext(ctx, bun, runtime, "serve")
+	cmd.Dir = filepath.Dir(runtime)
 	cmd.Env = append(os.Environ(),
 		"REPOGO_PLUGINS_SOCKET="+socket,
 		"REPOGO_DATA_DIR="+dataDir,

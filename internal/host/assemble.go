@@ -121,10 +121,8 @@ func (h *Host) openTools() error {
 			}
 		},
 	})
-	// A project's plugins are a development feature: a released host has no SDK,
-	// so neither the MCP tools nor the plugins.* methods run.
 	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
-		SDK: h.cfg.PluginsSDK, Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
+		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
 		Emit: func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
 		Log:  h.log,
 	})
@@ -431,4 +429,17 @@ func (h *Host) recordHook(n notify.Notice) error {
 		h.log.Error("hook ingestion failed; retaining drop for retry", "err", err)
 	}
 	return err
+}
+
+// pluginsRuntime is the SDK's source on a dev host (PluginsSDK), else the
+// runtime this binary carries, unpacked; "" leaves project plugins off.
+func (h *Host) pluginsRuntime() string {
+	if h.cfg.PluginsSDK != "" {
+		return filepath.Join(h.cfg.PluginsSDK, "src", "run.ts")
+	}
+	runtime, err := pluginscore.Unpack(h.state("plugins-runtime"))
+	if err != nil {
+		h.log.Warn("plugins: could not unpack the runtime", "err", err)
+	}
+	return runtime
 }

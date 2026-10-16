@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { definePlugin, method, MethodError, Runtime, toCallError, z } from "../src";
+import { definePlugin, method, MethodError, toCallError, z } from "../src";
+import { Runtime } from "../src/runtime";
 
 const notes = definePlugin({
   description: "Notes",

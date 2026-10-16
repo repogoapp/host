@@ -133,7 +133,7 @@ func newService(t *testing.T, sdkDir string) (*Service, *pushes) {
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	p := &pushes{more: make(chan struct{}, 1)}
 	s := New(t.Context(), Config{
-		SDK: sdkDir, Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
+		Runtime: sdkRuntime(sdkDir), Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
 		Emit: p.emit, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	return s, p
@@ -148,11 +148,19 @@ func texts(t *testing.T, raw json.RawMessage) []string {
 	return out
 }
 
-func TestWithoutTheSDKPluginsAreOff(t *testing.T) {
+// sdkRuntime is the SDK's source entry, or "" for a host without a runtime.
+func sdkRuntime(sdkDir string) string {
+	if sdkDir == "" {
+		return ""
+	}
+	return filepath.Join(sdkDir, "src", "run.ts")
+}
+
+func TestWithoutARuntimePluginsAreOff(t *testing.T) {
 	s, _ := newService(t, "")
 	root := project(t, "", map[string]string{"notes": notesPlugin})
 	if s.On() || s.Has(root) {
-		t.Fatal("a host without the SDK offers plugins")
+		t.Fatal("a host without a runtime offers plugins")
 	}
 	if _, err := s.Call(t.Context(), root, "notes.texts", nil, true); !errors.Is(err, ErrOff) {
 		t.Fatalf("err = %v, want ErrOff", err)

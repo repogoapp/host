@@ -69,7 +69,8 @@ class Checkout {
   }
 
   private start() {
-    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+    // Beside this file: worker.ts in the source, worker.js in the host's bundle.
+    this.worker = new Worker(new URL(import.meta.url.endsWith(".ts") ? "./worker.ts" : "./worker.js", import.meta.url));
     this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
       const message = event.data;
       if (message.type !== "reply") return this.onMessage(this, message);

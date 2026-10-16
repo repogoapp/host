@@ -31,9 +31,9 @@ import (
 const Folder = ".repogo/plugins"
 
 var (
-	// ErrOff is a host without the plugins SDK: a release, or a dev host started
-	// without REPOGO_PLUGINS_SDK.
-	ErrOff = errkind.New(errkind.Unavailable, "plugins: project plugins are a development feature on this host")
+	// ErrOff is a host without a plugins runtime: a dev build started without
+	// REPOGO_PLUGINS_SDK.
+	ErrOff = errkind.New(errkind.Unavailable, "plugins: this host was built without the plugins runtime")
 	// ErrNoPlugins is a project without a .repogo/plugins folder.
 	ErrNoPlugins = errkind.New(errkind.NotFound, "plugins: this project has no "+Folder+" folder")
 	// ErrNotYours is a subscription another device made, or one that ended.
@@ -44,8 +44,9 @@ var (
 const maxRestartWait = 30 * time.Second
 
 type Config struct {
-	// SDK is the plugins SDK's folder (its src/run.ts); empty leaves plugins off.
-	SDK string
+	// Runtime is the plugins server's entry: the SDK's src/run.ts on a dev host,
+	// the unpacked bundle (Unpack) on a release; empty leaves plugins off.
+	Runtime string
 	// Socket is where the plugins server listens; DataDir holds every project's
 	// databases, one folder per project.
 	Socket  string
@@ -96,7 +97,7 @@ func New(ctx context.Context, cfg Config) *Service {
 }
 
 // On reports whether this host runs project plugins.
-func (s *Service) On() bool { return s.cfg.SDK != "" }
+func (s *Service) On() bool { return s.cfg.Runtime != "" }
 
 // Has reports whether a folder's project has plugins this host would run.
 func (s *Service) Has(path string) bool {
@@ -319,12 +320,12 @@ func (s *Service) running(ctx context.Context) (*server, error) {
 	}
 	bun, err := bunPath()
 	if err != nil {
-		return nil, errkind.ErrUnavailable.Errorf("plugins: Bun is not installed on this environment")
+		return nil, errkind.ErrUnavailable.Errorf("plugins: install Bun (bun.sh) on this environment to run its project plugins")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	srv, err = startServer(s.ctx, bun, s.cfg.SDK, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.lost)
+	srv, err = startServer(s.ctx, bun, s.cfg.Runtime, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.lost)
 	if err != nil {
 		return nil, err
 	}

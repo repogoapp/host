@@ -27,7 +27,7 @@ func pluginsProject(t *testing.T) string {
 	return root
 }
 
-// pluginsService runs plugins from sdk; "" is a host without the SDK.
+// pluginsService runs plugins from sdk's source; "" is a host without a runtime.
 func pluginsService(t *testing.T, sdk string) *plugins.Service {
 	t.Helper()
 	home, err := os.MkdirTemp("", "rgm")
@@ -36,9 +36,17 @@ func pluginsService(t *testing.T, sdk string) *plugins.Service {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	return plugins.New(t.Context(), plugins.Config{
-		SDK: sdk, Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
+		Runtime: runtimeOf(sdk), Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
 		Emit: func(device.ID, emit.Event) error { return nil }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
+}
+
+// runtimeOf is the SDK's source entry, or "" for none.
+func runtimeOf(sdk string) string {
+	if sdk == "" {
+		return ""
+	}
+	return filepath.Join(sdk, "src", "run.ts")
 }
 
 func pluginsServer(t *testing.T, service *plugins.Service) *Server {
@@ -77,8 +85,8 @@ func toolNames(t *testing.T, s *Server, token string) string {
 	return strings.Join(names, ",")
 }
 
-// A host without the SDK (every release) offers neither tool, even in a
-// project with plugins, and refuses a call by name.
+// A host without a runtime (a dev build without the SDK) offers neither tool,
+// even in a project with plugins, and refuses a call by name.
 func TestPluginsToolsNeedTheSDK(t *testing.T) {
 	root := pluginsProject(t)
 	s := pluginsServer(t, pluginsService(t, ""))

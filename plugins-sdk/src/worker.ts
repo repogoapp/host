@@ -1,3 +1,4 @@
+import "./self";
 import { toCallError, type CallError } from "./errors";
 import type { FromWorker, ToWorker } from "./protocol";
 import { Runtime } from "./runtime";

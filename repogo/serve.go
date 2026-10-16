@@ -180,7 +180,7 @@ func ensureNode(ctx context.Context, log *slog.Logger) {
 }
 
 // pluginsSDK is the plugins SDK's folder on a development host, from the dev
-// scripts; a release runs no project plugins.
+// scripts; a release runs the runtime it carries instead.
 func pluginsSDK() string {
 	if !release.IsDev() {
 		return ""

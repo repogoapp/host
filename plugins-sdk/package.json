@@ -1,13 +1,24 @@
 {
   "name": "@repogo/plugins",
-  "version": "0.0.0",
-  "description": "Plugins an agent writes and calls: collections and methods over SQLite",
+  "version": "0.1.24",
+  "description": "Write RepoGo plugins: collections and methods over SQLite that agents and cards call",
   "type": "module",
-  "main": "src/index.ts",
-  "bin": {
-    "repogo-plugins": "src/run.ts"
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.md"
+  ],
   "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts --target=bun --outdir dist --external zod && tsc -p tsconfig.build.json",
+    "build:runtime": "bun build src/run.ts src/worker.ts --target=bun --outdir ../internal/plugins/runtime",
+    "prepack": "cp ../LICENSE.md LICENSE.md && bun run build",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
@@ -17,5 +28,15 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.9.0"
+  },
+  "license": "FSL-1.1-ALv2",
+  "homepage": "https://repogo.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/repogoapp/host.git",
+    "directory": "plugins-sdk"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
