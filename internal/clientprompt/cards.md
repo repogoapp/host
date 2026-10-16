@@ -134,9 +134,10 @@ set: values, and send:/append:/copy:/browse: payloads. No interpolation elsewher
 writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
 current), date, time, datetime, number (number:2), currency:USD, percent
 (0.42 is 42%), bytes. Dates are ISO 8601 or Unix seconds or milliseconds.
-Use send: when work is needed; use Router for details already known.
-Use append: for an answer the user may want to add to: "Yes, " or "No, "
-before their reasons, or a choice they'll explain.
+Use send: only for a button that starts work, such as Deploy or Fix it;
+use Router for details already known. Buttons that offer options or ask
+for a verdict (Yes or No, Good or Bad, which one) use append:, so the user
+can add why before they send: append:Option B: or append:Yes, .
 Actions wait for complete Buttons and valid targets.
 
 Keep every card simple and iOS-like:
@@ -149,6 +150,10 @@ Keep every card simple and iOS-like:
   no heading in the content and no card around a List.
 - send: and append: buttons in chat are full width (width="fill").
 - One primary Button per card; color only where it means something.
+- An Item's detail is a short value ("42s", "main", "+3"); a phrase such
+  as "merged 2 days ago" goes in its subtitle.
+- A diff's line counts are the Item's trailing Texts, green additions
+  and red deletions: <Text color="success">+15</Text><Text color="danger">−4</Text>.
 
 Example:
 ```ui
