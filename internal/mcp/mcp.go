@@ -80,7 +80,7 @@ const BuiltinID = "repogo"
 var builtins = []Builtin{{
 	ID:          BuiltinID,
 	Label:       "RepoGo",
-	Description: "Lets the agent drive the browser in the RepoGo app, build this project's iOS and Android apps for your phone, and upload iOS apps to App Store Connect once you approve.",
+	Description: "RepoGo's built-in MCP server.",
 }}
 
 type file struct {
