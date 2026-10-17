@@ -7,6 +7,7 @@ import (
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/agentcatalog"
+	"github.com/repogoapp/host/internal/agents/acp"
 	"github.com/repogoapp/host/internal/agents/claude"
 	"github.com/repogoapp/host/internal/agents/codex"
 	"github.com/repogoapp/host/internal/agentusage"
@@ -14,6 +15,7 @@ import (
 	"github.com/repogoapp/host/internal/clitool"
 	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/session"
 	"github.com/repogoapp/host/internal/shipping"
 )
@@ -26,6 +28,7 @@ type Factory func(agent.Dependencies) agent.Identity
 var factories = []Factory{
 	func(d agent.Dependencies) agent.Identity { return claude.New(d) },
 	func(d agent.Dependencies) agent.Identity { return codex.New(d) },
+	func(d agent.Dependencies) agent.Identity { return acp.New(d) },
 }
 
 // Registry is one host's providers, sorted by what each can do. Every slice is
@@ -40,6 +43,8 @@ type Registry struct {
 	MCP      []mcp.Provider
 	Shipping []shipping.Provider
 	Labelers []chatwire.Labeler
+	// ProjectAgents lists each project's own agents for the picker.
+	ProjectAgents projectagent.Lister
 	// Providers is each agent whose CLI the host installs and signs in.
 	Providers agent.Providers
 }
@@ -94,6 +99,9 @@ func Construct(deps agent.Dependencies, factories ...Factory) (*Registry, error)
 		}
 		if c, ok := p.(chatwire.Labeler); ok {
 			r.Labelers = append(r.Labelers, c)
+		}
+		if c, ok := p.(projectagent.Lister); ok {
+			r.ProjectAgents = c
 		}
 		if c, ok := p.(shipping.Provider); ok {
 			r.Shipping = append(r.Shipping, c)

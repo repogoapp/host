@@ -1,0 +1,16 @@
+{
+  "agents": [
+    {
+      "id": "id",
+      "name": "name",
+      "error": "error",
+      "models": [
+        {
+          "id": "id",
+          "name": "name"
+        }
+      ],
+      "model": "model"
+    }
+  ]
+}

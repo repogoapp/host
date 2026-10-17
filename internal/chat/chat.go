@@ -279,6 +279,8 @@ type Start struct {
 	Agent string
 	// Title names the chat; empty leaves it to the prompt's opening words.
 	Title string
+	// ProjectAgent is the project's own agent an acp chat runs.
+	ProjectAgent string
 }
 
 // Start queues a new chat's first turn in the project folder. The chat id
@@ -300,7 +302,7 @@ func (s *Service) Start(where Start, t Turn) (agent.TurnStatus, error) {
 	}
 	// No chat id yet: the Manager queues the turn under a placeholder and
 	// renames it once the provider opens the session.
-	status, _, err := s.enqueue(t, agent.TurnRequest{Cwd: path, Agent: agent.Kind(where.Agent), Title: title}, false)
+	status, _, err := s.enqueue(t, agent.TurnRequest{Cwd: path, Agent: agent.Kind(where.Agent), Title: title, ProjectAgent: where.ProjectAgent}, false)
 	return status, err
 }
 

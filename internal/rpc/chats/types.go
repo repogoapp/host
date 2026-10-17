@@ -136,6 +136,8 @@ type StartParams struct {
 	Cwd   string    `json:"cwd"`
 	Agent string    `json:"agent"`
 	Title string    `json:"title"`
+	// ProjectAgent names one of the project's own agents when Agent is acp.
+	ProjectAgent string `json:"project_agent,omitempty"`
 }
 
 type StartResult struct {

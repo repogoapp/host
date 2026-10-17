@@ -28,10 +28,12 @@ import (
 	mcpcore "github.com/repogoapp/host/internal/mcp"
 	pluginscore "github.com/repogoapp/host/internal/plugins"
 	projectcore "github.com/repogoapp/host/internal/project"
+	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	actionsrpc "github.com/repogoapp/host/internal/rpc/actions"
+	agentsrpc "github.com/repogoapp/host/internal/rpc/agents"
 	browserrpc "github.com/repogoapp/host/internal/rpc/browser"
 	"github.com/repogoapp/host/internal/rpc/chats"
 	"github.com/repogoapp/host/internal/rpc/devices"
@@ -83,6 +85,8 @@ type Config struct {
 	Tools *clitool.Inventory
 	// Agents is each agent's definition, for its resume command.
 	Agents agent.Providers
+	// ProjectAgents lists each project's own agents, models included.
+	ProjectAgents projectagent.Lister
 
 	// Chats is every chat workflow; Live streams one to the devices watching.
 	Chats *chat.Service
@@ -161,6 +165,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	toolsrpc.Register(r, toolsrpc.Deps{Tools: cfg.Tools})
 	shippingrpc.Register(r, shippingrpc.Deps{Usage: cfg.Usage, ModelLabel: cfg.AgentCatalog.ModelLabel})
 	portsrpc.Register(r)
+	agentsrpc.Register(r, agentsrpc.Deps{Files: cfg.Files, Agents: cfg.ProjectAgents})
 	forwardrpc.Register(r, forwardrpc.Deps{Fetcher: cfg.Fetcher, Pipes: cfg.Pipes})
 	terminalsrpc.Register(r, terminalsrpc.Deps{Terminals: cfg.Terminals})
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})

@@ -76,6 +76,16 @@ Result:
 
 - `requests` [object{Request}]
 
+## `agents.list`
+
+Params:
+
+- `project` string
+
+Result:
+
+- `agents` [object{ProjectAgent}]
+
 ## `browser.respond`
 
 Params:
@@ -268,6 +278,7 @@ Params:
 - `cwd` string
 - `agent` string
 - `title` string
+- `project_agent` string (omitted when empty)
 
 Result:
 

@@ -42,6 +42,9 @@ func fakeRPC() {
 			_ = out.Encode(map[string]any{"jsonrpc": "2.0", "id": "server-id", "method": "unknown", "params": struct{}{}})
 		case "malformed":
 			_, _ = os.Stdout.WriteString("not json\n")
+		case "logged":
+			_, _ = os.Stdout.WriteString("eve: starting\n")
+			_ = out.Encode(map[string]any{"jsonrpc": "2.0", "id": frame.ID, "result": "after"})
 		case "exit":
 			os.Exit(17)
 		case "wait":
@@ -55,11 +58,17 @@ func fakeRPC() {
 }
 func startFake(t *testing.T, h Handlers) *Client {
 	t.Helper()
+	return startFakeWith(t, Options{}, h)
+}
+func startFakeWith(t *testing.T, opts Options, h Handlers) *Client {
+	t.Helper()
 	path, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := Start(t.Context(), Options{Executable: path, Cwd: t.TempDir(), Env: append(os.Environ(), "REPOGO_FAKE_STDIORPC=1"), Version: "2.0"}, h)
+	opts.Executable, opts.Cwd, opts.Version = path, t.TempDir(), "2.0"
+	opts.Env = append(os.Environ(), "REPOGO_FAKE_STDIORPC=1")
+	c, err := Start(t.Context(), opts, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +124,18 @@ func TestMalformedFrameAndExitEndPendingCalls(t *testing.T) {
 				t.Fatalf("exit %+v", c.Exit())
 			}
 		})
+	}
+}
+func TestLogLinesKeepsNonJSONStdoutAsLog(t *testing.T) {
+	c := startFakeWith(t, Options{LogLines: true}, Handlers{})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var result string
+	if err := c.Call(ctx, "logged", nil, &result); err != nil || result != "after" {
+		t.Fatalf("%q %v", result, err)
+	}
+	if !strings.Contains(c.Stderr(), "eve: starting") {
+		t.Fatalf("stderr %q", c.Stderr())
 	}
 }
 func TestCloseEndsPendingCalls(t *testing.T) {

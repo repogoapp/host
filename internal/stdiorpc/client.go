@@ -62,6 +62,7 @@ type Client struct {
 	ctx           context.Context
 	handlers      Handlers
 	version       string
+	logLines      bool
 	notifications chan Notification
 	done          chan struct{}
 	exited        chan struct{}
@@ -118,7 +119,7 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error
 	}
 	outWriter.Close()
 	errWriter.Close()
-	c := &Client{cmd: cmd, stdin: stdin, cancel: cancel, ctx: procCtx, handlers: handlers, version: opts.Version,
+	c := &Client{cmd: cmd, stdin: stdin, cancel: cancel, ctx: procCtx, handlers: handlers, version: opts.Version, logLines: opts.LogLines,
 		notifications: make(chan Notification, notificationBuffer), done: make(chan struct{}),
 		exited: make(chan struct{}), writes: make(chan struct{}, 1),
 		pending: map[int64]chan response{}, requests: map[string]context.CancelFunc{}}
@@ -179,16 +180,21 @@ func (c *Client) readStderr(r io.Reader) {
 	for {
 		n, err := r.Read(b)
 		if n > 0 {
-			c.mu.Lock()
-			c.stderr = append(c.stderr, b[:n]...)
-			if len(c.stderr) > maxStderr {
-				c.stderr = append([]byte(nil), c.stderr[len(c.stderr)-maxStderr:]...)
-			}
-			c.mu.Unlock()
+			c.keepStderr(b[:n])
 		}
 		if err != nil {
 			return
 		}
+	}
+}
+
+// keepStderr adds to the kept tail of what the process logged.
+func (c *Client) keepStderr(b []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stderr = append(c.stderr, b...)
+	if len(c.stderr) > maxStderr {
+		c.stderr = append([]byte(nil), c.stderr[len(c.stderr)-maxStderr:]...)
 	}
 }
 
@@ -208,6 +214,10 @@ func (c *Client) readMessages(r io.Reader) {
 	for scanner.Scan() {
 		var m envelope
 		if err := json.Unmarshal(scanner.Bytes(), &m); err != nil {
+			if c.logLines {
+				c.keepStderr(append(scanner.Bytes(), '\n'))
+				continue
+			}
 			c.fail(fmt.Errorf("stdiorpc: malformed stdout frame: %w", err))
 			return
 		}

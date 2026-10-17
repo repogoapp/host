@@ -6,6 +6,9 @@ type Options struct {
 	Executable, Cwd string
 	Args, Env       []string
 	Version         string
+	// LogLines keeps a stdout line that isn't JSON with stderr instead of
+	// failing: some servers (ACP agents such as eve) print progress there.
+	LogLines bool
 }
 
 type Request struct {

@@ -101,6 +101,7 @@ func (h *Host) openAgents() error {
 	s := &h.Services
 	s.Agents = h.agents.Providers
 	s.AgentUsage = agentusage.New(h.agents.Kinds(), h.agents.Usage...)
+	s.ProjectAgents = h.agents.ProjectAgents
 	s.AgentCatalog = agentcatalog.New(h.agents.Kinds(), h.agents.Catalogs...)
 	// Its own database: the chat cache is disposable, and this is history the
 	// transcripts may no longer hold.

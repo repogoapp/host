@@ -42,6 +42,7 @@ var methodExports = map[string]bool{
 	"projects.delete": true,
 	"actions.list":    true, "actions.run": true, "actions.start": true, "actions.stop": true,
 	"plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
+	"agents.list": true,
 	// Terminal and forwarding.
 	"terminals.create": true, "terminals.list": true, "terminals.subscribe": true,
 	"terminals.unsubscribe": true, "terminals.attach": true, "terminals.detach": true,
@@ -405,6 +406,8 @@ func (g *swiftGen) assignNames() {
 		}
 		if t.PkgPath() == "github.com/repogoapp/host/internal/store" {
 			switch t.Name() {
+	"github.com/repogoapp/host/internal/rpc/agents":  "agents",
+	"github.com/repogoapp/host/internal/projectagent": "agents",
 			case "Chat", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
 				family = "chats"
 			case "Schedule":

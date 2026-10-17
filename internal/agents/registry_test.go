@@ -31,7 +31,9 @@ func TestRegistryConstructsIsolatedProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	if len(a.Agents) != 2 || len(a.Adapters) != 2 || len(a.Sessions) != 2 || len(a.Hooks) != 2 || len(a.Catalogs) != 2 || len(a.Usage) != 2 || len(a.MCP) != 2 || len(a.Shipping) != 2 {
+	// Claude, Codex and ACP run turns and keep history; ACP has no CLI to install,
+	// sign in, or read models, usage and hooks from.
+	if len(a.Agents) != 3 || len(a.Adapters) != 3 || len(a.Sessions) != 3 || len(a.Providers) != 2 || len(a.Hooks) != 2|| len(a.Catalogs) != 2 || len(a.Usage) != 2 || len(a.MCP) != 2 || len(a.Shipping) != 2 {
 		t.Fatalf("incomplete registry: %+v", a)
 	}
 	for i, p := range a.Tools() {
