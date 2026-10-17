@@ -184,6 +184,15 @@ test("plugins in two checkouts that name the same db share it, and a write in on
   expect((await stat(join(dataDir, "todos.db"))).isFile()).toBe(true);
 });
 
+test("a call's root is the caller's project; the folder's own checkout when left out", async () => {
+  const { client } = await start();
+  const { root, dir } = await checkout({ notes: notesApp });
+  expect(result(await client.request("call", { dir, name: "notes.root" }))).toBe(root);
+  expect(result(await client.request("call", { dir, root: "/tmp/elsewhere", name: "notes.root" }))).toBe("/tmp/elsewhere");
+  const subscribed = result(await client.request("subscribe", { dir, root: "/tmp/elsewhere", subscription: "r1", name: "notes.root" }));
+  expect(subscribed.result).toBe("/tmp/elsewhere");
+});
+
 test("a reload runs the new code and pushes what changed", async () => {
   const { client } = await start();
   const { dir } = await checkout({ notes: notesApp });

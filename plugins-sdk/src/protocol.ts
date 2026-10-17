@@ -5,8 +5,12 @@ import type { Manifest } from "./runtime";
 // object per line. A request carries an `id` and gets one reply with that `id`;
 // a push (`data`) has none.
 
-/** Every request names the code it runs: the `.repogo/plugins` folder of the checkout a call comes from. */
-export type Target = { dir: string };
+/**
+ * Every request names the code it runs, `dir`: a `.repogo/plugins` folder, or
+ * the environment's own under `~/.repogo`. `root` is the caller's project; a
+ * project's folder leaves it out and its checkout is the root.
+ */
+export type Target = { dir: string; root?: string };
 
 export type Request =
   | { id: number; method: "list"; params: Target }
@@ -33,8 +37,8 @@ export type DataPush = {
 export type ToWorker =
   | { type: "open"; dir: string; dataDir: string; root: string }
   | { type: "list"; id: number }
-  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean }
-  | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown }
+  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean; root?: string }
+  | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown; root?: string }
   | { type: "unsubscribe"; subscription: string }
   /** Another Worker wrote these tags. */
   | { type: "invalidate"; tags: string[] };

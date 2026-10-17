@@ -128,8 +128,9 @@ func (h *Host) openTools() error {
 	})
 	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
-		Emit: func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
-		Log:  h.log,
+		Global: h.state("plugins"),
+		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
+		Log:    h.log,
 	})
 	h.tools = repogomcp.New(repogomcp.Config{
 		URL:     func() string { u, _ := h.toolsURL.Load().(string); return u },
@@ -266,7 +267,11 @@ func (h *Host) openProjects() error {
 	projectFiles := files.New(files.Config{
 		Roots: files.Union(h.db, layout), Home: h.cfg.Home, Picks: h.db, Folders: layout,
 		Projects: h.cfg.Projects, Trash: files.TrashDir(runtime.GOOS, h.cfg.Home),
-		ReadOnly: []files.ReadOnlyDir{{Path: h.cfg.Attachments, MaxBytes: agent.MaxUploadBytes}},
+		// The environment's own plugins and pages are every project's to read and watch.
+		ReadOnly: []files.ReadOnlyDir{
+			{Path: h.cfg.Attachments, MaxBytes: agent.MaxUploadBytes},
+			{Path: h.state("plugins"), MaxBytes: files.MaxFileBytes},
+		},
 	})
 	gitService := gitcore.New(projectFiles, h.log)
 	terminals := terminal.New(projectFiles, h.emitter, h.log)
@@ -284,7 +289,7 @@ func (h *Host) openProjects() error {
 		return err
 	}
 	h.onClose(acts.Shutdown)
-	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Totals: h.db, Pushes: h.Pushes,
+	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Contain: projectFiles.ContainRead, Totals: h.db, Pushes: h.Pushes,
 		Files: h.Services.Plugins.FilesChanged, Log: h.log})
 	gh := ghcore.New(layout, gitService, h.log)
 	h.Services.GitHub = gh

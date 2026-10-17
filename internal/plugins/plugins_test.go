@@ -3,6 +3,7 @@ package plugins
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -354,5 +355,64 @@ func TestSubscribingAgainReplaces(t *testing.T) {
 	got := p.next(t, 1, func(s sent) bool { return s.data.Subscription == "list" })
 	if got.data.Revision != 3 || p.count() != 2 {
 		t.Fatalf("pushes = %d, last revision %d; want 2 pushes, revision 3", p.count(), got.data.Revision)
+	}
+}
+
+// The environment's own plugins serve every project, under the project's own:
+// a method runs with the caller's project as its root, the manifest says where
+// each plugin is, and a project plugin of the same name wins.
+func TestTheEnvironmentsPluginsServeEveryProject(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	s.cfg.Global = filepath.Join(project(t, dir, map[string]string{
+		"vercel": `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: { root: method(z.object({}), (_, ctx) => ctx.root, { kind: "query" }) },
+});
+`,
+		"notes": notesPlugin,
+	}), ".repogo", "plugins")
+	root := project(t, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: { texts: method(z.object({}), () => ["mine"], { kind: "query" }) },
+});
+`})
+
+	got, err := s.Call(t.Context(), root, "vercel.root", nil, true)
+	if err != nil || got.Error != nil || string(got.Result) != fmt.Sprintf("%q", root) {
+		t.Fatalf("vercel.root = %s %+v %v, want the project", got.Result, got.Error, err)
+	}
+	mine, err := s.Call(t.Context(), root, "notes.texts", nil, true)
+	if err != nil || strings.Join(texts(t, mine.Result), ",") != "mine" {
+		t.Fatalf("notes.texts = %s %v, want the project's plugin", mine.Result, err)
+	}
+	list, err := s.List(t.Context(), root)
+	if err != nil || list.Error != nil {
+		t.Fatalf("list: %+v %v", list.Error, err)
+	}
+	var manifest struct {
+		Plugins []struct {
+			Name string `json:"name"`
+			Dir  string `json:"dir"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(list.Result, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	dirs := map[string]string{}
+	for _, p := range manifest.Plugins {
+		dirs[p.Name] = p.Dir
+	}
+	if len(manifest.Plugins) != 2 || dirs["notes"] != filepath.Join(root, ".repogo", "plugins", "notes") || dirs["vercel"] != filepath.Join(s.cfg.Global, "vercel") {
+		t.Fatalf("manifest dirs = %v", dirs)
+	}
+
+	// A project without its own folder still has the environment's.
+	bare := t.TempDir()
+	if !s.Has(bare) {
+		t.Fatal("a project without plugins should have the environment's")
+	}
+	if got, err := s.Call(t.Context(), bare, "vercel.root", nil, true); err != nil || string(got.Result) != fmt.Sprintf("%q", bare) {
+		t.Fatalf("vercel.root from a bare project = %s %v", got.Result, err)
 	}
 }

@@ -1,6 +1,7 @@
-// Package plugins runs the plugins an agent writes for a project
-// (`<project>/.repogo/plugins/<name>/app.ts`) through one plugins server, and keeps
-// the devices' subscriptions to their queries.
+// Package plugins runs the plugins an agent writes, for a project
+// (`<project>/.repogo/plugins/<name>/app.ts`) or for every project (the
+// environment's own folder), through one plugins server, and keeps the devices'
+// subscriptions to their queries.
 package plugins
 
 import (
@@ -33,8 +34,9 @@ var (
 	// ErrOff is a host without a plugins runtime: a dev build started without
 	// REPOGO_PLUGINS_SDK.
 	ErrOff = errkind.New(errkind.Unavailable, "plugins: this host was built without the plugins runtime")
-	// ErrNoPlugins is a project without a .repogo/plugins folder.
-	ErrNoPlugins = errkind.New(errkind.NotFound, "plugins: this project has no "+Folder+" folder")
+	// ErrNoPlugins is a project without a .repogo/plugins folder, on an
+	// environment without its own.
+	ErrNoPlugins = errkind.New(errkind.NotFound, "plugins: this project has no "+Folder+" folder, and the environment has none")
 	// ErrNotYours is a subscription another device made, or one that ended.
 	ErrNotYours = errkind.New(errkind.NotFound, "plugins: no such subscription")
 )
@@ -50,6 +52,9 @@ type Config struct {
 	// one file per db a plugin names.
 	Socket  string
 	DataDir string
+	// Global is the environment's own plugins folder, served to every project
+	// under the project's own; empty leaves it off.
+	Global string
 	// Emit sends a subscription's new answer to the device that made it.
 	Emit func(device.ID, emit.Event) error
 	Log  *slog.Logger
@@ -100,43 +105,108 @@ func (s *Service) On() bool { return s.cfg.Runtime != "" }
 
 // Has reports whether a folder's project has plugins this host would run.
 func (s *Service) Has(path string) bool {
-	_, err := s.target(path)
+	_, err := s.targets(path)
 	return err == nil
 }
 
-// Target is what the plugins server needs for a folder: the plugins folder of
-// the checkout it is in.
+// Target is what the plugins server needs: the plugins folder to run, and for
+// the environment's own folder the caller's project, which is otherwise the
+// folder's checkout.
 type Target struct {
-	Dir string `json:"dir"`
+	Dir  string `json:"dir"`
+	Root string `json:"root,omitempty"`
 }
 
-func (s *Service) target(path string) (Target, error) {
+// targets is where a folder's plugins come from, the project's own first,
+// then the environment's; each only when its folder exists.
+func (s *Service) targets(path string) ([]Target, error) {
 	if !s.On() {
-		return Target{}, ErrOff
+		return nil, ErrOff
 	}
 	if !filepath.IsAbs(path) {
-		return Target{}, errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
+		return nil, errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
 	}
-	dir := filepath.Join(checkout(path), filepath.FromSlash(Folder))
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return Target{}, ErrNoPlugins
+	root := checkout(path)
+	var out []Target
+	if dir := filepath.Join(root, filepath.FromSlash(Folder)); isDir(dir) {
+		out = append(out, Target{Dir: dir})
 	}
-	return Target{Dir: dir}, nil
+	if isDir(s.cfg.Global) {
+		out = append(out, Target{Dir: s.cfg.Global, Root: root})
+	}
+	if len(out) == 0 {
+		return nil, ErrNoPlugins
+	}
+	return out, nil
 }
 
-// List is the manifest of a folder's plugins: each plugin, its methods and their input schemas.
+// targetOf is the folder holding a method's plugin: the project's shadows the
+// environment's. Neither having it goes to the first, whose answer is NOT_FOUND.
+func (s *Service) targetOf(path, method string) (Target, error) {
+	targets, err := s.targets(path)
+	if err != nil {
+		return Target{}, err
+	}
+	plugin, _, _ := strings.Cut(method, ".")
+	for _, t := range targets {
+		if _, err := os.Stat(filepath.Join(t.Dir, plugin, "app.ts")); err == nil {
+			return t, nil
+		}
+	}
+	return targets[0], nil
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return path != "" && err == nil && info.IsDir()
+}
+
+// List is the manifest of a folder's plugins: each plugin, its folder (`dir`),
+// its methods and their input schemas. A project plugin hides an environment
+// plugin of the same name.
 func (s *Service) List(ctx context.Context, path string) (Answer, error) {
-	t, err := s.target(path)
+	targets, err := s.targets(path)
 	if err != nil {
 		return Answer{}, err
 	}
-	return s.ask(ctx, t, "list", t)
+	plugins := []json.RawMessage{}
+	seen := map[string]bool{}
+	for _, t := range targets {
+		answer, err := s.ask(ctx, t, "list", t)
+		if err != nil || answer.Error != nil {
+			return answer, err
+		}
+		var manifest struct {
+			Plugins []map[string]any `json:"plugins"`
+		}
+		if err := json.Unmarshal(answer.Result, &manifest); err != nil {
+			return Answer{}, fmt.Errorf("plugins: manifest of %s: %w", t.Dir, err)
+		}
+		for _, plugin := range manifest.Plugins {
+			name, _ := plugin["name"].(string)
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			plugin["dir"] = filepath.Join(t.Dir, name)
+			entry, err := json.Marshal(plugin)
+			if err != nil {
+				return Answer{}, err
+			}
+			plugins = append(plugins, entry)
+		}
+	}
+	result, err := json.Marshal(map[string]any{"plugins": plugins})
+	if err != nil {
+		return Answer{}, err
+	}
+	return Answer{Result: result}, nil
 }
 
 // Call runs one method, a query or a mutation. A method with a confirm
 // answers CONFIRM instead of running until confirmed says the user agreed.
 func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, confirmed bool) (Answer, error) {
-	t, err := s.target(path)
+	t, err := s.targetOf(path, name)
 	if err != nil {
 		return Answer{}, err
 	}
@@ -150,7 +220,7 @@ func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name, id str
 	if !subscriptionID.MatchString(id) {
 		return Subscribed{}, errkind.ErrInvalid.Errorf("plugins: a subscription id is 1 to 64 letters, digits, - or _")
 	}
-	t, err := s.target(path)
+	t, err := s.targetOf(path, name)
 	if err != nil {
 		return Subscribed{}, err
 	}
@@ -228,13 +298,21 @@ func (s *Service) Leave(d device.ID) {
 	}
 }
 
-// FilesChanged reloads a project's plugins when their code moved under a watched
-// folder, so subscriptions show what the edited code answers.
+// FilesChanged reloads plugins whose code moved under a watched folder, a
+// project's or the environment's own, so subscriptions show what the edited
+// code answers.
 func (s *Service) FilesChanged(path string, files []string) {
 	for _, f := range files {
-		if strings.HasPrefix(f, Folder+"/") && !strings.Contains(f, "/node_modules/") {
-			if t, err := s.target(path); err == nil {
-				s.reload(s.ctx, t)
+		if strings.Contains("/"+f, "/node_modules/") {
+			continue
+		}
+		if path == s.cfg.Global && isDir(path) {
+			s.reload(s.ctx, Target{Dir: s.cfg.Global})
+			return
+		}
+		if strings.HasPrefix(f, Folder+"/") {
+			if dir := filepath.Join(checkout(path), filepath.FromSlash(Folder)); isDir(dir) {
+				s.reload(s.ctx, Target{Dir: dir})
 			}
 			return
 		}

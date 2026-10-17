@@ -379,3 +379,47 @@ func TestUnionSurvivesAFailingSource(t *testing.T) {
 type failingRoots struct{}
 
 func (failingRoots) Roots() ([]string, error) { return nil, errors.New("cache is gone") }
+
+// A device names what is under home with `~/`, without knowing where home is;
+// it still has to land in a root or a read-only directory.
+func TestTildeExpandsToHomeForReads(t *testing.T) {
+	_, root, _ := project(t)
+	home := filepath.Dir(root)
+	plugins := filepath.Join(home, ".repogo", "plugins", "vercel", "pages")
+	if err := os.MkdirAll(plugins, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugins, "index.md"), []byte("# Vercel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".secret"), []byte("no"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc := files.New(files.Config{
+		Roots: files.StaticRoots{root}, Home: home,
+		ReadOnly: []files.ReadOnlyDir{{Path: filepath.Join(home, ".repogo", "plugins"), MaxBytes: files.MaxFileBytes}},
+	})
+
+	file, err := svc.Read("~/.repogo/plugins/vercel/pages/index.md")
+	if err != nil || string(file.Content) != "# Vercel" {
+		t.Fatalf("read ~/: %v, %q", err, file.Content)
+	}
+	if _, err := svc.Read("~/.secret"); !errors.Is(err, files.ErrOutsideRoots) {
+		t.Errorf("read ~/.secret: %v, want ErrOutsideRoots", err)
+	}
+	if _, err := svc.ContainRead("~/.repogo/plugins"); err != nil {
+		t.Errorf("contain ~/.repogo/plugins for a watch: %v", err)
+	}
+	// Missing under the folder is not found, not outside: a project reads the
+	// environment's manifest whether or not it exists.
+	if _, err := svc.Read("~/.repogo/plugins/tab.json"); !errors.Is(err, files.ErrNotFound) {
+		t.Errorf("read a missing file under the folder: %v, want ErrNotFound", err)
+	}
+	empty := files.New(files.Config{
+		Roots: files.StaticRoots{root}, Home: home,
+		ReadOnly: []files.ReadOnlyDir{{Path: filepath.Join(home, "nothing", "plugins"), MaxBytes: files.MaxFileBytes}},
+	})
+	if _, err := empty.Read("~/nothing/plugins/tab.json"); !errors.Is(err, files.ErrNotFound) {
+		t.Errorf("read under a folder that doesn't exist: %v, want ErrNotFound", err)
+	}
+}

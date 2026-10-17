@@ -1,4 +1,5 @@
 import { SQL } from "bun";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -59,6 +60,9 @@ export class Runtime {
     private root: string,
   ) {}
 
+  /** The caller's project while a call runs, for plugins that serve every project. */
+  private callRoot = new AsyncLocalStorage<string>();
+
   /** `root` is the project's checkout, `ctx.root` to its plugins; the working directory when left out. */
   static async open(options: { dataDir: string; root?: string }) {
     await mkdir(options.dataDir, { recursive: true });
@@ -91,9 +95,10 @@ export class Runtime {
       this.registerCrud(name, collectionName, collection, schema);
     }
 
+    const runtime = this;
     const ctx: Context = {
       plugin: name,
-      root: this.root,
+      get root() { return runtime.callRoot.getStore() ?? runtime.root; },
       db,
       call: async (method, input) => (await this.call(method.includes(".") ? method : `${name}.${method}`, input)).result,
       emit: (event, payload) => this.events.emit(`${name}.${event}`, payload),
@@ -128,8 +133,14 @@ export class Runtime {
   /**
    * `confirmed` is for a call from a tap: false until the user has answered
    * the method's `confirm`. Code calling code (`ctx.call`) leaves it out.
+   * `root` is the caller's project, for plugins loaded from the environment's
+   * own folder; code calling code inherits it.
    */
-  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean } = {}): Promise<CallResult> {
+  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string } = {}): Promise<CallResult> {
+    if (options.root && options.root !== this.callRoot.getStore()) {
+      const { root, ...rest } = options;
+      return this.callRoot.run(root, () => this.call(name, input, rest));
+    }
     const method = this.methods.get(name);
     if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
     if (method.confirm && options.confirmed === false) throw new MethodError("CONFIRM", method.confirm);

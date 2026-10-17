@@ -28,6 +28,13 @@ data `<project>.<name>`. A bare name (`todos`) is shared by every plugin that
 names it, in any project, so they must agree on their collections' schemas.
 Data stays in place when the project moves. A plugin without collections has no file.
 
+A plugin for every project goes in `~/.repogo/plugins/<name>/app.ts` instead
+of a project's folder: the same shape, run with `ctx.root` set to whichever
+project calls it. A project plugin of the same name takes precedence. Pages
+beside it (`pages/*.md`) are reachable from any project as
+`~/.repogo/plugins/<name>/pages/<page>.md`, and `~/.repogo/plugins/tab.json`
+lists the pages every project's tab shows.
+
 Add it to `.repogo/plugins/package.json` (`bun add @repogo/plugins`) for types
 and editor help. The RepoGo host runs plugins with its own copy of this
 package, the version it shipped with, so a plugin always matches the host.

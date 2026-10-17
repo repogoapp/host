@@ -165,7 +165,7 @@ func capped(changes []FileChange, truncated bool) ([]FileChange, bool) {
 
 // sendChanges tells the room which files moved. Nothing is sent for a settle
 // that moved only git's own state.
-func (m *Manager) sendChanges(path string, changes []FileChange, truncated bool) {
+func (m *Manager) sendChanges(path, real string, changes []FileChange, truncated bool) {
 	if len(changes) == 0 && !truncated {
 		return
 	}
@@ -173,7 +173,7 @@ func (m *Manager) sendChanges(path string, changes []FileChange, truncated bool)
 	for i, c := range changes {
 		names[i] = c.File
 	}
-	m.files(path, names)
+	m.files(real, names)
 	payload, err := json.Marshal(FilesChanged{Path: path, Changes: changes, Truncated: truncated})
 	if err != nil {
 		return

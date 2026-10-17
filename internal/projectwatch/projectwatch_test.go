@@ -622,12 +622,12 @@ func TestFileChangesReachTheRoom(t *testing.T) {
 	_ = m.Watch("a", []string{"/proj"}, false)
 	_ = m.Watch("b", []string{"/proj"}, false)
 
-	m.sendChanges("/proj", nil, false)
+	m.sendChanges("/proj", "/proj", nil, false)
 	if n := len(pub.filePushes()); n != 0 {
 		t.Fatalf("pushes = %d for no files, want 0", n)
 	}
 
-	m.sendChanges("/proj", []FileChange{{File: "src/app.ts", Kind: KindUpdate}}, false)
+	m.sendChanges("/proj", "/proj", []FileChange{{File: "src/app.ts", Kind: KindUpdate}}, false)
 	pushes := pub.filePushes()
 	if len(pushes) != 2 {
 		t.Fatalf("pushes = %d, want 2 — one per device", len(pushes))
@@ -640,8 +640,30 @@ func TestFileChangesReachTheRoom(t *testing.T) {
 		t.Errorf("push = %+v", got)
 	}
 
-	m.sendChanges("/elsewhere", []FileChange{{File: "x", Kind: KindUpdate}}, false)
+	m.sendChanges("/elsewhere", "/elsewhere", []FileChange{{File: "x", Kind: KindUpdate}}, false)
 	if n := len(pub.filePushes()); n != 2 {
 		t.Errorf("pushes = %d after a path nobody watches, want still 2", n)
+	}
+}
+
+// Contain, when given, decides what a device may watch, so a read-only folder
+// outside every project can be watched; the room is keyed as the device spelled it.
+func TestContainDecidesWhatIsWatched(t *testing.T) {
+	m := New(Deps{Git: &fakeGit{}, Totals: fakeTotals{}, Pushes: newPub(), Files: func(string, []string) {}, Log: slog.New(slog.DiscardHandler),
+		Contain: func(path string) (string, error) {
+			if path == "~/.repogo/plugins" {
+				return "/home/.repogo/plugins", nil
+			}
+			return "", errors.New("outside")
+		}})
+	if err := m.Watch("a", []string{"~/.repogo/plugins", "/proj"}, false); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	_, global := m.rooms["~/.repogo/plugins"]
+	_, proj := m.rooms["/proj"]
+	m.mu.Unlock()
+	if !global || proj {
+		t.Fatalf("rooms: global=%v proj=%v, want only the folder Contain allowed", global, proj)
 	}
 }

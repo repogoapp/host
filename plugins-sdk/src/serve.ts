@@ -18,7 +18,7 @@ export type ServeOptions = {
 };
 
 const pluginsDir = z.string().refine(isAbsolute, "dir is an absolute path");
-const target = z.object({ dir: pluginsDir });
+const target = z.object({ dir: pluginsDir, root: z.string().refine(isAbsolute, "root is an absolute path").optional() });
 const named = target.extend({ name: z.string().min(1), input: z.unknown().optional() });
 
 const requestSchema = z.discriminatedUnion("method", [
@@ -36,6 +36,7 @@ type Subscription = {
   checkout: string;
   name: string;
   input: unknown;
+  root?: string;
   revision: number;
   /** Of the last result or error sent, so an unchanged re-run sends nothing. */
   hash: string;
@@ -83,7 +84,7 @@ class Checkout {
     this.post({ type: "open", dir: this.dir, dataDir: this.dataDir, root: resolve(this.dir, "..", "..") });
   }
 
-  request(message: { type: "list" } | { type: "call"; name: string; input: unknown; confirmed: boolean } | { type: "subscribe"; subscription: string; name: string; input: unknown }): Promise<Answer> {
+  request(message: { type: "list" } | { type: "call"; name: string; input: unknown; confirmed: boolean; root?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
     const id = ++this.nextID;
     return new Promise((resolve) => {
       this.waiting.set(id, resolve);
@@ -163,7 +164,7 @@ export async function serve(options: ServeOptions) {
       const key = newKey();
       subscription.key = key;
       byKey.set(key, id);
-      void checkout.request({ type: "subscribe", subscription: key, name: subscription.name, input: subscription.input }).then((answer) => {
+      void checkout.request({ type: "subscribe", subscription: key, name: subscription.name, input: subscription.input, root: subscription.root }).then((answer) => {
         // Ended or replaced while the new Worker ran it: drop what it registered.
         if (subscriptions.get(id)?.key === key) deliver(id, answer);
         else checkout.post({ type: "unsubscribe", subscription: key });
@@ -182,19 +183,19 @@ export async function serve(options: ServeOptions) {
             ? await checkout.request({ type: "list" })
             : await checkout.request({
               type: "call", name: request.params.name, input: request.params.input ?? {},
-              confirmed: request.params.confirmed ?? false,
+              confirmed: request.params.confirmed ?? false, root: request.params.root,
             });
         return { id, ...answer };
       }
       case "subscribe": {
-        const { dir, name, subscription } = request.params;
+        const { dir, name, subscription, root } = request.params;
         const input = request.params.input ?? {};
         // Subscribing again under an id replaces it.
         unsubscribe(subscription);
         const checkout = checkoutFor(dir);
         const key = newKey();
         pending.set(subscription, { connection, checkout: checkout.dir, key });
-        const answer = await checkout.request({ type: "subscribe", subscription: key, name, input });
+        const answer = await checkout.request({ type: "subscribe", subscription: key, name, input, root });
         if (pending.get(subscription)?.key !== key) {
           // Ended or replaced while its first run was out: it never starts.
           checkout.post({ type: "unsubscribe", subscription: key });
@@ -202,7 +203,7 @@ export async function serve(options: ServeOptions) {
         }
         pending.delete(subscription);
         if ("error" in answer) return { id, ...answer };
-        subscriptions.set(subscription, { connection, checkout: checkout.dir, name, input, revision: 1, hash: hashOf(answer), key });
+        subscriptions.set(subscription, { connection, checkout: checkout.dir, name, input, root, revision: 1, hash: hashOf(answer), key });
         byKey.set(key, subscription);
         return { id, result: { subscription, revision: 1, result: answer.result } };
       }

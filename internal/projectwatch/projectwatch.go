@@ -63,6 +63,7 @@ var gitFiles = []string{"HEAD", "index", "refs", "packed-refs", "MERGE_HEAD"}
 
 type Manager struct {
 	files   func(path string, files []string)
+	contain func(path string) (string, error)
 	git     Git
 	log     *slog.Logger
 	totals  Totals
@@ -94,6 +95,10 @@ type room struct {
 
 type Deps struct {
 	Git Git
+	// Contain resolves a path a device may watch; Git's containment when nil.
+	// Wider than Git's so a read-only folder, the environment's own plugins,
+	// can be watched too.
+	Contain func(path string) (string, error)
 	// Totals keeps each project's diff totals for the project list.
 	Totals Totals
 	// Pushes carries fs.changed and git.changed to the devices watching.
@@ -105,8 +110,13 @@ type Deps struct {
 }
 
 func New(d Deps) *Manager {
+	contain := d.Contain
+	if contain == nil {
+		contain = d.Git.Contain
+	}
 	return &Manager{
 		git:     d.Git,
+		contain: contain,
 		totals:  d.Totals,
 		pub:     d.Pushes,
 		files:   d.Files,
@@ -133,11 +143,11 @@ func (m *Manager) Watch(caller device.ID, paths []string, resync bool) error {
 	}
 	// A path failing containment is dropped, not fatal: one deleted folder must
 	// not silence the other forty-nine. Kept as the device spelled it, since the
-	// phone routes a push by its own cwd.
-	want := make(map[string]bool, len(paths))
+	// phone routes a push by its own cwd; the resolved path is what is watched.
+	want := make(map[string]string, len(paths))
 	for _, path := range paths {
-		if _, err := m.git.Contain(path); err == nil && path != "" {
-			want[path] = true
+		if real, err := m.contain(path); err == nil && path != "" {
+			want[path] = real
 		}
 	}
 
@@ -147,13 +157,13 @@ func (m *Manager) Watch(caller device.ID, paths []string, resync bool) error {
 	// Leave the unwanted, then join the new, so a one-row change does not restart
 	// the other watchers.
 	for path, r := range m.rooms {
-		if !want[path] {
+		if _, ok := want[path]; !ok {
 			m.leaveLocked(path, r, caller)
 		}
 	}
 	var greet [][]byte
-	for path := range want {
-		last := m.joinLocked(path, caller)
+	for path, real := range want {
+		last := m.joinLocked(path, real, caller)
 		if resync {
 			last = m.rooms[path].sent
 		}
@@ -238,7 +248,7 @@ func (m *Manager) sweep() {
 
 // joinLocked adds a device to a room, starting the watcher if it is the first.
 // It returns the room's last push when the device is new to a running room.
-func (m *Manager) joinLocked(path string, caller device.ID) []byte {
+func (m *Manager) joinLocked(path, real string, caller device.ID) []byte {
 	if r, ok := m.rooms[path]; ok {
 		if _, joined := r.subs[caller]; joined {
 			return nil
@@ -260,7 +270,7 @@ func (m *Manager) joinLocked(path string, caller device.ID) []byte {
 		wake:   make(chan struct{}, 1),
 	}
 	m.rooms[path] = r
-	go m.watch(ctx, path, r.wake)
+	go m.watch(ctx, path, real, r.wake)
 	m.log.Info("watch: watcher started", "path", path)
 	return nil
 }
@@ -291,10 +301,11 @@ func (m *Manager) expire(path string, r *room) {
 	m.log.Info("watch: watcher stopped", "path", path)
 }
 
-// watch is the one goroutine per project.
-func (m *Manager) watch(ctx context.Context, path string, wake chan struct{}) {
+// watch is the one goroutine per project: `path` as the device spelled it,
+// for git and the pushes; `real` resolved, for the folder on disk.
+func (m *Manager) watch(ctx context.Context, path, real string, wake chan struct{}) {
 	var moved changedFiles
-	stop, live := watchTree(path, func(file string, created bool) {
+	stop, live := watchTree(real, func(file string, created bool) {
 		moved.add(file, created)
 		nudge(wake)
 	})
@@ -328,10 +339,10 @@ func (m *Manager) watch(ctx context.Context, path string, wake chan struct{}) {
 			m.poll(ctx, path)
 			files, truncated := moved.take()
 			files = m.dropIgnored(ctx, path, &moved, files)
-			changes, truncated := capped(classify(path, files), truncated)
-			m.sendChanges(path, changes, truncated)
+			changes, truncated := capped(classify(real, files), truncated)
+			m.sendChanges(path, real, changes, truncated)
 		case now := <-t.C:
-			next := fingerprint(path)
+			next := fingerprint(real)
 			// Without a tree watcher, the fingerprint catches what git writes (a
 			// commit, a checkout, a stage) within one tick; the timer catches edits.
 			if !live && next == mark && now.Sub(lastFull) < full {
@@ -450,7 +461,7 @@ func fingerprint(path string) string {
 	return string(b)
 }
 
-func sortedKeys(set map[string]bool) []string {
+func sortedKeys(set map[string]string) []string {
 	keys := make([]string, 0, len(set))
 	for key := range set {
 		keys = append(keys, key)

@@ -15,6 +15,7 @@ const settleMs = Number(process.env.REPOGO_PLUGINS_SETTLE_MS ?? 100);
 type Subscription = {
   name: string;
   input: unknown;
+  root?: string;
   reads: Set<string>;
   /** Bumped per run, so a slow run that finishes after a newer one is dropped. */
   run: number;
@@ -53,8 +54,8 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     return post({ type: "reply", id: message.id, error: loadError ?? { code: "INTERNAL", message: "The plugins did not open." } });
   }
   if (message.type === "list") return post({ type: "reply", id: message.id, result: runtime.manifest() });
-  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed);
-  if (message.type === "subscribe") return subscribe(message.id, message.subscription, message.name, message.input);
+  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.root);
+  if (message.type === "subscribe") return subscribe(message.id, message.subscription, message.name, message.input, message.root);
 };
 
 async function open(dir: string, dataDir: string, root: string) {
@@ -71,9 +72,9 @@ async function open(dir: string, dataDir: string, root: string) {
   }
 }
 
-async function call(id: number, name: string, input: unknown, confirmed: boolean) {
+async function call(id: number, name: string, input: unknown, confirmed: boolean, root?: string) {
   try {
-    const { result } = await runtime!.call(name, input, { confirmed });
+    const { result } = await runtime!.call(name, input, { confirmed, root });
     post({ type: "reply", id, result });
   } catch (error) {
     post({ type: "reply", id, error: toCallError(error) });
@@ -81,11 +82,11 @@ async function call(id: number, name: string, input: unknown, confirmed: boolean
 }
 
 // The first run answers the request; a failing first run registers nothing.
-async function subscribe(id: number, key: string, name: string, input: unknown) {
+async function subscribe(id: number, key: string, name: string, input: unknown, root?: string) {
   starting.add(key);
   try {
-    const { result, reads } = await runtime!.call(name, input, { expect: "query" });
-    if (starting.delete(key)) subscriptions.set(key, { name, input, reads: new Set(reads), run: 0 });
+    const { result, reads } = await runtime!.call(name, input, { expect: "query", root });
+    if (starting.delete(key)) subscriptions.set(key, { name, input, root, reads: new Set(reads), run: 0 });
     post({ type: "reply", id, result });
   } catch (error) {
     starting.delete(key);
@@ -110,7 +111,7 @@ function rerun() {
 async function refresh(key: string, subscription: Subscription) {
   const run = ++subscription.run;
   const answer = await runtime!
-    .call(subscription.name, subscription.input, { expect: "query" })
+    .call(subscription.name, subscription.input, { expect: "query", root: subscription.root })
     .then(({ result, reads }) => ({ result, reads }), (error) => ({ error: toCallError(error) }));
   // Unsubscribed meanwhile, or a newer run started: this answer is stale.
   if (subscriptions.get(key) !== subscription || subscription.run !== run) return;

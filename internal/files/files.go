@@ -174,6 +174,28 @@ func (s *Service) Projects() ([]Entry, error) {
 // so every family shares one containment implementation.
 func (s *Service) Contain(path string) (string, error) { return s.contain(path, false) }
 
+// ContainRead is Contain widened to the read-only directories, for what a
+// device may read or watch but not change.
+func (s *Service) ContainRead(path string) (string, error) {
+	full, _, _, err := s.containRead(path)
+	return full, err
+}
+
+// expand makes `~` and `~/…` the home folder, so a device can name what is
+// under it, such as the environment's own plugins, without knowing where home is.
+func (s *Service) expand(path string) string {
+	if s.cfg.Home == "" {
+		return path
+	}
+	if path == "~" {
+		return s.cfg.Home
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(s.cfg.Home, path[2:])
+	}
+	return path
+}
+
 func (s *Service) List(path string) ([]Entry, error) {
 	root, dir, err := s.directory(path, Scope{})
 	if err != nil {
@@ -385,14 +407,18 @@ func resolveIn(roots []string, path string, allowMissing bool) (string, string, 
 // a host with no projects still shows what it was sent. Symlinks resolve before
 // the check, so a link in there to `~/.ssh` falls through and is refused.
 func (s *Service) containRead(path string) (string, string, int64, error) {
+	path = s.expand(path)
 	if clean := filepath.Clean(path); path != "" && filepath.IsAbs(clean) {
-		if resolved, err := filepath.EvalSymlinks(clean); err == nil {
-			for _, dir := range s.cfg.ReadOnly {
-				root, err := filepath.EvalSymlinks(dir.Path)
-				if err == nil && Within(root, resolved) {
-					return resolved, root, dir.MaxBytes, nil
-				}
+		resolved := resolveDeepest(clean)
+		for _, dir := range s.cfg.ReadOnly {
+			if dir.Path == "" || !Within(resolveDeepest(filepath.Clean(dir.Path)), resolved) {
+				continue
 			}
+			// Missing under the directory is not found, whether or not the directory is.
+			if _, err := os.Lstat(resolved); err != nil {
+				return "", "", 0, fmt.Errorf("%w: %s", ErrNotFound, path)
+			}
+			return resolved, resolveDeepest(filepath.Clean(dir.Path)), dir.MaxBytes, nil
 		}
 	}
 	roots, err := s.resolvedRoots()
@@ -401,6 +427,24 @@ func (s *Service) containRead(path string) (string, string, int64, error) {
 	}
 	full, base, err := resolveIn(roots, path, false)
 	return full, base, MaxFileBytes, err
+}
+
+// resolveDeepest follows symlinks on the deepest part of the path that exists
+// and joins the rest back on, so a missing file still has a place, inside a
+// root or outside it.
+func resolveDeepest(path string) string {
+	rest := ""
+	for p := path; ; {
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
+	}
 }
 
 // resolveExisting follows symlinks on the deepest part of the path that exists.

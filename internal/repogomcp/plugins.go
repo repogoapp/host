@@ -8,15 +8,17 @@ import (
 	"github.com/repogoapp/host/internal/plugins"
 )
 
-// A project's plugins are TypeScript in `<project>/.repogo/plugins/<name>/app.ts`,
-// run by the plugins server (internal/plugins). These tools reach them from a turn.
+// Plugins are TypeScript in `<project>/.repogo/plugins/<name>/app.ts`, or in
+// `~/.repogo/plugins` for every project, run by the plugins server
+// (internal/plugins). These tools reach them from a turn.
 
-const pluginsInstructions = " `plugins` lists this project's plugins (`.repogo/plugins`) and their methods; " +
-	"`plugin_call` runs one."
+const pluginsInstructions = " `plugins` lists this project's plugins (`.repogo/plugins`, and the environment's own " +
+	"in `~/.repogo/plugins`) and their methods; `plugin_call` runs one."
 
 var pluginsTool = tool{
 	Name: "plugins",
-	Description: "List the plugins in this project's .repogo/plugins folder: each plugin's methods, " +
+	Description: "List the plugins this project can use: its own in .repogo/plugins and the environment's in " +
+		"~/.repogo/plugins (each plugin's `dir` says which), with each plugin's methods, " +
 		"whether a method is a query (reads) or a mutation (writes), and the JSON Schema of its input. " +
 		"Call this before plugin_call, and again after writing or changing a plugin.",
 	InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
@@ -24,7 +26,7 @@ var pluginsTool = tool{
 
 var pluginCallTool = tool{
 	Name: "plugin_call",
-	Description: "Run one method of a plugin in this project's .repogo/plugins folder and return its result. " +
+	Description: "Run one method of a plugin this project can use and return its result. " +
 		"`method` is `<plugin>.<method>` as `plugins` lists it, such as `plans.move`; " +
 		"`input` must match that method's input schema.",
 	InputSchema: map[string]any{
