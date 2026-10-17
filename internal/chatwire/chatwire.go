@@ -26,6 +26,9 @@ type Page struct {
 	HostID string `json:"host_id,omitempty"`
 	Cwd    string `json:"cwd"`
 	Agent  string `json:"agent"`
+	// ProjectAgent is which of the project's own agents the chat runs; see
+	// store.Chat.
+	ProjectAgent string `json:"project_agent,omitempty"`
 
 	// Generation the rows came from; a client holding another refetches from 0.
 	Generation int64 `json:"generation"`
@@ -157,7 +160,7 @@ func New(labelers []Labeler) *Builder {
 func (b *Builder) Page(p store.Page) Page {
 	return Page{
 		ChatID: p.ChatID, Events: b.Messages(agent.Kind(p.Agent), p.Events),
-		HostID: p.HostID, Cwd: p.Cwd, Agent: p.Agent, Generation: p.Generation,
+		HostID: p.HostID, Cwd: p.Cwd, Agent: p.Agent, ProjectAgent: p.ProjectAgent, Generation: p.Generation,
 		EventCount: p.EventCount, NextIndex: p.NextIndex, FirstIndex: p.FirstIndex, HasBefore: p.HasBefore,
 	}
 }

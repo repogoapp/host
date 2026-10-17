@@ -146,6 +146,9 @@ func fakeAgent() {
 				chunk(fmt.Sprintf("%s %v", r.Action, r.Content["answer"]))
 			case text == "pid":
 				chunk(fmt.Sprint(os.Getpid()))
+			case text == "fail":
+				send(map[string]any{"jsonrpc": "2.0", "id": f.ID, "error": map[string]any{"code": -32002, "message": "The model connection is unavailable."}})
+				continue
 			case text == "model":
 				chunk(models[session] + os.Getenv("FAKE_MODEL"))
 			case text == "wait":
@@ -305,7 +308,7 @@ func kinds(events []agent.Event) []string {
 func TestNewChatStreamsAndKeepsItsTranscript(t *testing.T) {
 	dir, root := project(t), t.TempDir()
 	p := provider(t, root)
-	first := send(t, p, agent.TurnRequest{Cwd: dir, Agent: agent.KindACP, ProjectAgent: "fake", Prompt: "hello"}, allowAll)
+	first := send(t, p, agent.TurnRequest{Cwd: dir, Agent: agent.KindProject, ProjectAgent: "fake", Prompt: "hello"}, allowAll)
 	if first.err != nil {
 		t.Fatal(first.err)
 	}
@@ -326,7 +329,7 @@ func TestNewChatStreamsAndKeepsItsTranscript(t *testing.T) {
 
 	// A second chat on a host started afresh is a chat of its own.
 	again := provider(t, root)
-	second := send(t, again, agent.TurnRequest{Cwd: dir, Agent: agent.KindACP, ProjectAgent: "fake", Prompt: "hello"}, allowAll)
+	second := send(t, again, agent.TurnRequest{Cwd: dir, Agent: agent.KindProject, ProjectAgent: "fake", Prompt: "hello"}, allowAll)
 	if second.err != nil || len(second.asked) != 0 || second.chat == first.chat {
 		t.Fatalf("second chat: err %v asked %+v", second.err, second.asked)
 	}
@@ -449,6 +452,34 @@ func TestQuestionsAreAskedAndAnsweredWithTheAgentsValues(t *testing.T) {
 		if res.err != nil || res.text != want {
 			t.Fatalf("%s: %v %q, want %q", prompt, res.err, res.text, want)
 		}
+	}
+}
+
+// A failure reads as the agent's own words; the transport's stays in the log.
+func TestFailuresReadAsTheAgentsWords(t *testing.T) {
+	dir := project(t)
+	p := provider(t, t.TempDir())
+	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "fail"}, allowAll)
+	if got.err == nil || got.err.Error() != "Fake couldn't answer: The model connection is unavailable." {
+		t.Fatalf("err %v", got.err)
+	}
+}
+
+// A chat's row names its project agent and the model its newest turn ran on.
+func TestSessionsNameTheAgentAndModel(t *testing.T) {
+	dir := projectWith(t, map[string]any{"modelEnv": "FAKE_MODEL",
+		"models": []any{map[string]string{"id": "sonnet", "name": "Sonnet"}, map[string]string{"id": "haiku", "name": "Haiku"}}})
+	p := provider(t, t.TempDir())
+	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "hello", Config: agent.TurnConfig{Model: "haiku"}}, allowAll)
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	metas, err := p.Sessions().List()
+	if err != nil || len(metas) != 1 {
+		t.Fatalf("metas %+v %v", metas, err)
+	}
+	if m := metas[0]; m.ProjectAgent != "fake" || m.Model != "haiku" || m.ModelLabel != "Haiku" {
+		t.Fatalf("meta %+v", m)
 	}
 }
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"database/sql"
 	"fmt"
 	"slices"
@@ -105,6 +106,10 @@ type Chat struct {
 	// What a phone shows for Model; see Stamp.
 	ModelLabel string `json:"model_label,omitempty"`
 
+	// Which of the project's own agents the chat runs; omitted for every other
+	// agent. With Agent it is what a new turn there would start.
+	ProjectAgent string `json:"project_agent,omitempty"`
+
 	// What the newest turn ran with, read from the transcript; omitted when
 	// unknown. The same names and values chats.send takes.
 	PermissionMode string `json:"permission_mode,omitempty"`
@@ -131,10 +136,11 @@ type Chat struct {
 }
 
 // Stamp adds what the cache does not store, for a row leaving this host: the
-// host it lives on, and what a phone shows for its model.
+// host it lives on, and what a phone shows for its model when the agent did
+// not name it.
 func (c *Chat) Stamp(host string, modelLabel func(agent.Kind, string) string) {
 	c.HostID = host
-	c.ModelLabel = modelLabel(agent.Kind(c.Agent), c.Model)
+	c.ModelLabel = cmp.Or(c.ModelLabel, modelLabel(agent.Kind(c.Agent), c.Model))
 }
 
 // Message is one normalized event.
@@ -160,6 +166,8 @@ type Page struct {
 	HostID string `json:"host_id,omitempty"`
 	Cwd    string `json:"cwd"`
 	Agent  string `json:"agent"`
+	// ProjectAgent is which of the project's own agents the chat runs; see Chat.
+	ProjectAgent string `json:"project_agent,omitempty"`
 
 	// Generation the rows came from. A client whose held generation differs
 	// must drop everything it has for this chat and refetch from index 0.
@@ -238,7 +246,7 @@ type ChatPage struct {
 // numbers, the queue's count and version), for queryChats.
 const chatSelect = `
 SELECT s.agent, s.session_id, s.title, s.last_reply,
-  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.event_count, s.generation, s.context_used, s.context_size, s.model, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, s.rev, COALESCE(v.number, 0),
+  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.event_count, s.generation, s.context_used, s.context_size, s.model, s.model_label, s.project_agent, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, s.rev, COALESCE(v.number, 0),
   (SELECT COUNT(*) FROM state.queued_turns t WHERE t.chat_id = s.agent || ':' || s.session_id), COALESCE(q.rev, 0)
 FROM sessions s LEFT JOIN state.chat_marks m ON m.agent = s.agent AND m.session_id = s.session_id
 LEFT JOIN state.voice_numbers v ON v.agent = s.agent AND v.session_id = s.session_id
@@ -261,7 +269,7 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 		var c Chat
 		var agent, sessionID string
 		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.LastReply, &c.LastUserMessagePreview, &c.CWD,
-			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.EventCount, &c.Generation, &c.ContextUsed, &c.ContextSize, &c.Model, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
+			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.EventCount, &c.Generation, &c.ContextUsed, &c.ContextSize, &c.Model, &c.ModelLabel, &c.ProjectAgent, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
 			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.Revision, &c.VoiceNumber,
 			&c.QueuedCount, &c.QueueRevision); err != nil {
 			return nil, err
@@ -556,8 +564,8 @@ func (s *Store) header(id ChatID) (Page, int64, error) {
 	page := Page{ChatID: id, Agent: agent}
 	var sid int64
 	err = s.db.QueryRow(
-		`SELECT sid, generation, event_count, cwd FROM sessions WHERE agent = ? AND session_id = ?`,
-		agent, sessionID).Scan(&sid, &page.Generation, &page.EventCount, &page.Cwd)
+		`SELECT sid, generation, event_count, cwd, project_agent FROM sessions WHERE agent = ? AND session_id = ?`,
+		agent, sessionID).Scan(&sid, &page.Generation, &page.EventCount, &page.Cwd, &page.ProjectAgent)
 	if err == sql.ErrNoRows {
 		return Page{}, 0, fmt.Errorf("%w: chat %q", ErrNotFound, id)
 	}

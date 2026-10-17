@@ -20,6 +20,10 @@ import (
 	"github.com/repogoapp/host/internal/session"
 )
 
+// home is the provider's folder in the host's state: chat transcripts and the
+// models agents reported.
+const home = "acp"
+
 // Provider is this host's ACP runner and the transcripts it writes.
 type Provider struct {
 	deps agent.Dependencies
@@ -34,9 +38,9 @@ type Provider struct {
 // New builds this host's provider. A Root in deps (tests, the hermetic test
 // host) keeps its transcripts and reported models under it.
 func New(deps agent.Dependencies) *Provider {
-	dir := filepath.Join(deps.Root, string(agent.KindACP))
+	dir := filepath.Join(deps.Root, home)
 	if deps.Root == "" {
-		dir, _ = apphome.Path(string(agent.KindACP))
+		dir, _ = apphome.Path(home)
 	}
 	return &Provider{
 		deps:     deps,
@@ -45,7 +49,7 @@ func New(deps agent.Dependencies) *Provider {
 	}
 }
 
-func (p *Provider) Kind() agent.Kind { return agent.KindACP }
+func (p *Provider) Kind() agent.Kind { return agent.KindProject }
 func (p *Provider) Name() string     { return "Project agent" }
 
 // Available is true wherever the host runs: each project brings its own
@@ -71,7 +75,7 @@ type chat struct {
 	session string
 }
 
-func (c chat) key() string { return agent.ChatID(agent.KindACP, c.id) }
+func (c chat) key() string { return agent.ChatID(agent.KindProject, c.id) }
 
 // Send runs one turn on the chat's agent process, starting one if needed.
 func (p *Provider) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
@@ -103,6 +107,22 @@ func (p *Provider) run(ctx context.Context, c chat, req agent.TurnRequest, io ag
 		return agent.Result{}, err
 	}
 	defer p.pool.Release(proc.key, proc)
+	result, err := p.turn(ctx, proc, c, req, io)
+	if err != nil {
+		var f failure
+		if errors.As(err, &f) {
+			p.deps.Log.Info("ACP agent failed", "agent", c.manifest.ID, "step", f.step, "error", detail(err, proc.client))
+		}
+		if proc.exited() {
+			p.pool.Retire(proc.key, proc)
+		}
+	}
+	return result, err
+}
+
+// turn opens the chat's session in the process, on the model asked for, and
+// runs the prompt.
+func (p *Provider) turn(ctx context.Context, proc *agentProcess, c chat, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
 	cs, err := proc.session(ctx, c, p.mcpServers(ctx, c, proc.caps))
 	if err != nil {
 		return agent.Result{}, err
@@ -110,11 +130,10 @@ func (p *Provider) run(ctx context.Context, c chat, req agent.TurnRequest, io ag
 	if err := proc.useModel(ctx, cs, req.Config.Model); err != nil {
 		return agent.Result{}, err
 	}
-	result, err := proc.prompt(ctx, cs, req, io)
-	if err != nil && proc.exited() {
-		p.pool.Retire(proc.key, proc)
+	if id, name := proc.modelInUse(cs, c.manifest); id != "" {
+		_ = c.file.append(line{Type: lineModel, Model: id, ModelName: name})
 	}
-	return result, err
+	return proc.prompt(ctx, cs, req, io)
 }
 
 // open finds the chat a turn belongs to. A new one gets its id and file here,

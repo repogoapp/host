@@ -32,6 +32,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `host_id` string (omitted when empty)
 - `cwd` string
 - `agent` string
+- `project_agent` string (omitted when empty)
 - `generation` int
 - `event_count` int
 - `next_index` int
@@ -88,6 +89,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `context_size` int (omitted when empty)
 - `model` string (omitted when empty)
 - `model_label` string (omitted when empty)
+- `project_agent` string (omitted when empty)
 - `permission_mode` string (omitted when empty)
 - `mode` string (omitted when empty)
 - `reasoning_level` string (omitted when empty)

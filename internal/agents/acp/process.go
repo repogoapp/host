@@ -86,7 +86,8 @@ func (p *Provider) start(ctx context.Context, m projectagent.Manifest, model str
 		Executable: executable(m), Args: m.Args, Cwd: m.Workdir(), Env: env, Version: "2.0", LogLines: true,
 	}, stdiorpc.Handlers{Request: proc.request, Notification: proc.notify})
 	if err != nil {
-		return nil, fmt.Errorf("start %s: %w", m.Name, err)
+		p.deps.Log.Info("ACP agent failed", "agent", m.ID, "step", "start", "error", err)
+		return nil, failure{name: m.Name, step: "couldn't start", err: err}
 	}
 	proc.client = client
 	open, cancel := context.WithTimeout(ctx, openTimeout)
@@ -96,8 +97,9 @@ func (p *Provider) start(ctx context.Context, m projectagent.Manifest, model str
 		ProtocolVersion: protocolVersion, ClientInfo: implementation{Name: "repogo"},
 	}, &init)
 	if err != nil {
+		p.deps.Log.Info("ACP agent failed", "agent", m.ID, "step", "initialize", "error", detail(err, client))
 		proc.close()
-		return nil, fmt.Errorf("start %s: %w", m.Name, withStderr(err, client))
+		return nil, failure{name: m.Name, step: "couldn't start", err: err}
 	}
 	proc.caps = init.AgentCapabilities
 	return proc, nil
@@ -142,7 +144,7 @@ func (proc *agentProcess) session(ctx context.Context, c chat, servers []mcpServ
 	}
 	var opened newSessionResult
 	if err := proc.client.Call(open, methodNewSession, params, &opened); err != nil {
-		return nil, fmt.Errorf("open a %s session: %w", proc.name, withStderr(err, proc.client))
+		return nil, failure{name: proc.name, step: "couldn't open a chat", err: err}
 	}
 	cs = &chatSession{id: opened.SessionID, file: c.file, replay: c.session != "" || c.hasHistory()}
 	if err := c.file.append(line{Type: lineSession, Session: cs.id}); err != nil {
@@ -181,10 +183,28 @@ func (proc *agentProcess) useModel(ctx context.Context, cs *chatSession, model s
 	var set sessionResult
 	err := proc.client.Call(ctx, methodSetConfig, setConfigParams{SessionID: cs.id, ConfigID: current.ConfigID, Value: model}, &set)
 	if err != nil {
-		return fmt.Errorf("switch %s to %s: %w", proc.name, model, withStderr(err, proc.client))
+		return failure{name: proc.name, step: "couldn't switch to " + model, err: err}
 	}
 	proc.setModels(cs, set.ConfigOptions)
 	return nil
+}
+
+// modelInUse is the model a session's next turn runs on and its display
+// name: the manifest's for the process, else the session's own option.
+func (proc *agentProcess) modelInUse(cs *chatSession, m projectagent.Manifest) (id, name string) {
+	models := m.Models
+	id = proc.model
+	if id == "" {
+		proc.mu.Lock()
+		id, models = cs.models.Current, cs.models.Models
+		proc.mu.Unlock()
+	}
+	for _, model := range models {
+		if model.ID == id {
+			return id, model.Name
+		}
+	}
+	return id, ""
 }
 
 // busy reports whether any chat's turn is running on this process.
@@ -294,7 +314,7 @@ func (proc *agentProcess) prompt(ctx context.Context, cs *chatSession, req agent
 	}
 	t.finish()
 	if got.err != nil {
-		return t.result(""), fmt.Errorf("%s: %w", proc.name, withStderr(got.err, proc.client))
+		return t.result(""), failure{name: proc.name, step: "couldn't answer", err: got.err}
 	}
 	return t.result(got.result.StopReason), nil
 }
@@ -446,11 +466,4 @@ func (proc *agentProcess) close() {
 	proc.closed = true
 	proc.mu.Unlock()
 	_ = proc.client.Close()
-}
-
-func withStderr(err error, c *stdiorpc.Client) error {
-	if l := lastLine(c.Stderr()); l != "" {
-		return fmt.Errorf("%w (%s)", err, l)
-	}
-	return err
 }

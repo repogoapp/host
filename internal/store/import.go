@@ -178,7 +178,7 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	agentTitled := collapseSpace(e.Meta.Title) != ""
 	if err := b.upsert.QueryRow(kind, id, e.Meta.Cwd, titleFor(e.Meta, e.Events), lastReply(e.Events), e.Meta.Path,
 		createdAt(e.Meta, e.Events), e.Meta.UpdatedAt.UnixMilli(), e.Meta.SizeBytes, len(e.Events), int64(full), b.now,
-		e.Meta.ContextUsed, e.Meta.ContextSize, e.Meta.Model,
+		e.Meta.ContextUsed, e.Meta.ContextSize, e.Meta.Model, e.Meta.ModelLabel, e.Meta.ProjectAgent,
 		string(e.Meta.Settings.PermissionMode), e.Meta.Settings.Mode, e.Meta.Settings.ReasoningLevel, e.Meta.Settings.FastMode,
 		lastMessageAt(e.Events), b.s.rev.Add(1), agentTitled, bump).Scan(&sid, &title, &searchHash); err != nil {
 		return false, false, err

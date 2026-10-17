@@ -21,7 +21,7 @@ func newSessions(dir string) *Sessions {
 	return &Sessions{dir: dir, peeks: session.NewPeekCache[chatInfo]()}
 }
 
-func (s *Sessions) Kind() agent.Kind { return agent.KindACP }
+func (s *Sessions) Kind() agent.Kind { return agent.KindProject }
 
 func (s *Sessions) path(id string) string { return filepath.Join(s.dir, id+".jsonl") }
 
@@ -49,8 +49,9 @@ func (s *Sessions) List() ([]session.Meta, error) {
 			continue
 		}
 		out = append(out, session.Meta{
-			ID: strings.TrimSuffix(filepath.Base(f.Path), ".jsonl"), Agent: agent.KindACP,
-			Cwd: infos[i].Cwd, Title: infos[i].Title, Path: f.Path,
+			ID: strings.TrimSuffix(filepath.Base(f.Path), ".jsonl"), Agent: agent.KindProject,
+			Cwd: infos[i].Cwd, Title: infos[i].Title, Path: f.Path, ProjectAgent: infos[i].Agent,
+			Model: infos[i].Model, ModelLabel: infos[i].ModelName,
 			UpdatedAt: f.Info.ModTime(), SizeBytes: f.Info.Size(),
 		})
 	}

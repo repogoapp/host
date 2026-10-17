@@ -22,6 +22,7 @@
   "context_size": 1,
   "model": "model",
   "model_label": "model_label",
+  "project_agent": "project_agent",
   "permission_mode": "permission_mode",
   "mode": "mode",
   "reasoning_level": "reasoning_level",

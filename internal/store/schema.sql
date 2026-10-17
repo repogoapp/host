@@ -37,6 +37,11 @@ CREATE TABLE sessions (
   context_size INTEGER NOT NULL DEFAULT 0,
   -- The newest request's model id, '' unknown. Re-derived from the transcript.
   model       TEXT    NOT NULL DEFAULT '',
+  -- model's display name when the agent names its models itself, '' to name it
+  -- from the agent's catalog. Re-derived from the transcript like model.
+  model_label TEXT    NOT NULL DEFAULT '',
+  -- Which of the project's own agents the chat runs, '' for every other agent.
+  project_agent TEXT  NOT NULL DEFAULT '',
   -- What the newest turn ran with (session.Settings), '' or NULL unknown.
   -- Re-derived from the transcript like model.
   permission_mode TEXT NOT NULL DEFAULT '',

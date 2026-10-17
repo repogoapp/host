@@ -1,7 +1,8 @@
 {
   "agents": [
     {
-      "id": "id",
+      "agent": "agent",
+      "project_agent": "project_agent",
       "name": "name",
       "error": "error",
       "models": [

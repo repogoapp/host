@@ -22,8 +22,8 @@ package store
 // Writes 2 and 3 above. The generation bump is a parameter: it means "the
 // history you hold is gone", so an append, which a reader keeps, must not bump it.
 const sessionUpsert = `
-INSERT INTO sessions (agent, session_id, cwd, title, last_reply, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size, model, permission_mode, mode, reasoning_level, fast_mode, last_message_at, rev)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO sessions (agent, session_id, cwd, title, last_reply, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size, model, model_label, project_agent, permission_mode, mode, reasoning_level, fast_mode, last_message_at, rev)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(agent, session_id) DO UPDATE SET
   cwd = excluded.cwd, last_reply = excluded.last_reply, path = excluded.path,
   -- The agent's own title (a rename, its generated one) always wins. Opening
@@ -40,6 +40,8 @@ ON CONFLICT(agent, session_id) DO UPDATE SET
   context_used = CASE WHEN excluded.context_used > 0 THEN excluded.context_used ELSE sessions.context_used END,
   context_size = CASE WHEN excluded.context_size > 0 THEN excluded.context_size ELSE sessions.context_size END,
   model = CASE WHEN excluded.model != '' THEN excluded.model ELSE sessions.model END,
+  model_label = CASE WHEN excluded.model != '' THEN excluded.model_label ELSE sessions.model_label END,
+  project_agent = excluded.project_agent,
   permission_mode = CASE WHEN excluded.permission_mode != '' THEN excluded.permission_mode ELSE sessions.permission_mode END,
   mode = CASE WHEN excluded.mode != '' THEN excluded.mode ELSE sessions.mode END,
   reasoning_level = CASE WHEN excluded.reasoning_level != '' THEN excluded.reasoning_level ELSE sessions.reasoning_level END,

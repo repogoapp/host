@@ -58,6 +58,13 @@ type Meta struct {
 	// Model is the provider's id for the model that served the newest request
 	// (`claude-opus-5-5`, `gpt-6-astra`); empty when the transcript names none.
 	Model string `json:"model,omitempty"`
+	// ModelLabel is Model's display name when the agent names its models
+	// itself; empty leaves it to the agent's catalog.
+	ModelLabel string `json:"model_label,omitempty"`
+
+	// ProjectAgent is which of the project's own agents (.repogo/agents) the
+	// session ran; empty for every other agent.
+	ProjectAgent string `json:"project_agent,omitempty"`
 
 	// Settings is what the newest turn ran with, as the transcript records it.
 	Settings Settings `json:"settings"`

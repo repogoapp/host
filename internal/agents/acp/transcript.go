@@ -21,6 +21,8 @@ const (
 	lineSession = "session"
 	// lineTitle is a rename; the newest wins.
 	lineTitle = "title"
+	// lineModel is the model a turn runs on, by id and display name.
+	lineModel = "model"
 	lineEvent = "event"
 )
 
@@ -28,11 +30,13 @@ type line struct {
 	Type string `json:"type"`
 	At   string `json:"at"`
 
-	Agent   string       `json:"agent,omitempty"`
-	Cwd     string       `json:"cwd,omitempty"`
-	Session string       `json:"session,omitempty"`
-	Title   string       `json:"title,omitempty"`
-	Event   *agent.Event `json:"event,omitempty"`
+	Agent     string       `json:"agent,omitempty"`
+	Cwd       string       `json:"cwd,omitempty"`
+	Session   string       `json:"session,omitempty"`
+	Title     string       `json:"title,omitempty"`
+	Model     string       `json:"model,omitempty"`
+	ModelName string       `json:"model_name,omitempty"`
+	Event     *agent.Event `json:"event,omitempty"`
 }
 
 // transcript is one chat's file; a turn's events and the agent's updates
@@ -45,6 +49,8 @@ type transcript struct {
 // chatInfo is what a transcript says about its chat, read back.
 type chatInfo struct {
 	Agent, Cwd, Session, Title string
+	// Model and ModelName are the newest turn's.
+	Model, ModelName string
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
@@ -100,6 +106,8 @@ func readInfo(path string) (chatInfo, error) {
 			info.Session = l.Session
 		case lineTitle:
 			info.Title = l.Title
+		case lineModel:
+			info.Model, info.ModelName = l.Model, l.ModelName
 		}
 	})
 	return info, err
