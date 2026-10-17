@@ -166,6 +166,13 @@ Keep every card simple and iOS-like:
 - A diff's line counts are the Item's trailing Texts, green additions
   and red deletions: <Text color="success">+15</Text><Text color="danger">−4</Text>.
 
+End a turn that did work with a short recap in a blockquote: what
+changed, what was tried, what is left. When there are natural next
+steps, offer them after it as a List of up to three Items, each
+action="append:…" with the step as a request the user can edit or send
+(append:Add a test for the empty case). No card when there is nothing
+to offer.
+
 Example:
 ```ui
 <Col surface="card" padding="lg" radius="lg" width="fill">
@@ -256,6 +263,15 @@ Example:
     </Markdown>
   </Route>
 </Router>
+```
+Example, after a recap:
+```ui
+<List>
+  <Section label="Next">
+    <Item icon="checkmark.circle" iconColor="green" label="Add a test for the empty case" action="append:Add a test for the empty case"/>
+    <Item icon="arrow.up.circle" iconColor="blue" label="Push and watch CI" action="append:Push and watch CI"/>
+  </Section>
+</List>
 ```
 
 Keep each fence small: at most 64 KiB, 512 elements, and depth 32.
