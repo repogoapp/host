@@ -23,7 +23,10 @@ export function toCallError(error: unknown): CallError {
   if (error instanceof z.ZodError) {
     const fieldErrors: Record<string, string> = {};
     for (const issue of error.issues) fieldErrors["/" + issue.path.join("/")] ??= issue.message;
-    return { code: "VALIDATION", message: "Check the highlighted fields.", fieldErrors };
+    // One field's message is the whole error: the schema's own words, as the author wrote them.
+    const messages = Object.values(fieldErrors);
+    const message = messages.length === 1 ? messages[0]! : "Check the highlighted fields.";
+    return { code: "VALIDATION", message, fieldErrors };
   }
   return { code: "INTERNAL", message: error instanceof Error ? error.message : String(error) };
 }

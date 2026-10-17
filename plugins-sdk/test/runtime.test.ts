@@ -118,6 +118,11 @@ test("errors are structured, with messages per field", async () => {
   const runtime = await open();
   const invalid = await runtime.call("notes.notes.create", { text: 5 }).catch((e) => e);
   expect(toCallError(invalid)).toMatchObject({ code: "VALIDATION", fieldErrors: { "/text": expect.any(String) } });
+  // One failing field speaks for the whole error, in the schema's words.
+  const one = z.object({ text: z.string().min(1, "Write a note first") }).safeParse({ text: "" });
+  expect(toCallError(one.error)).toMatchObject({ message: "Write a note first", fieldErrors: { "/text": "Write a note first" } });
+  const two = z.object({ a: z.string(), b: z.string() }).safeParse({});
+  expect(toCallError(two.error).message).toBe("Check the highlighted fields.");
   const missing = await runtime.call("notes.nope").catch((e) => e);
   expect(missing).toBeInstanceOf(MethodError);
   expect(toCallError(missing).code).toBe("NOT_FOUND");
