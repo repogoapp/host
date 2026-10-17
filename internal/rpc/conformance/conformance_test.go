@@ -190,6 +190,7 @@ var unchecked = map[string]string{
 	"mcp.connect":      "needs a live probe; covered in internal/mcp",
 	"mcp.oauth_start":  "same",
 	"mcp.oauth_finish": "same, and it calls the server's token endpoint",
+	"mcp.call":         "calls a connected server's tools; covered against httptest servers in internal/mcp",
 
 	"tunnels.open":  "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
 	"tunnels.close": "same",

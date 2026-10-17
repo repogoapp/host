@@ -64,7 +64,7 @@ var methodExports = map[string]bool{
 	// MCP.
 	"mcp.list": true, "mcp.probe": true, "mcp.connect": true,
 	"mcp.oauth_start": true, "mcp.oauth_finish": true, "mcp.rename": true,
-	"mcp.set_enabled": true, "mcp.remove": true,
+	"mcp.set_enabled": true, "mcp.remove": true, "mcp.call": true,
 	// Tunnels.
 	"tunnels.list": true, "tunnels.open": true, "tunnels.close": true,
 	// Schedules.

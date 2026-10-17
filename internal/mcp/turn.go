@@ -22,40 +22,93 @@ const refreshSkew = 5 * time.Minute
 // that cannot be called (OAuth with no token) is left out, not failed: MCP is
 // never the reason a turn cannot run.
 func (s *Service) ForTurn(ctx context.Context, cwd string) []agent.MCPServer {
+	var out []agent.MCPServer
+	for _, n := range s.onFor(ctx, cwd) {
+		out = append(out, agent.MCPServer{Type: "http", Name: n.key, URL: n.record.URL, Headers: n.headers})
+	}
+	return out
+}
+
+// Keys is the key of each server cwd's project can call, as cards and agents
+// name it, without refreshing any token: what a session's prompt lists.
+func (s *Service) Keys(cwd string) []string {
+	var keys []string
+	for _, n := range keyed(s.switchedFor(cwd)) {
+		keys = append(keys, n.key)
+	}
+	return keys
+}
+
+// named is a server switched on for a project, under the key an agent
+// namespaces its tools by and a card names it with, with its auth headers.
+type named struct {
+	key     string
+	record  record
+	headers []agent.Header
+}
+
+// onFor is the servers switched on for cwd's project that can be called, each
+// token refreshed when it is about to lapse.
+func (s *Service) onFor(ctx context.Context, cwd string) []named {
+	on := s.switchedFor(cwd)
+	for i, r := range on {
+		if r.OAuth != nil && r.Refresh != "" && r.ExpiresAt != 0 &&
+			time.Until(time.UnixMilli(r.ExpiresAt)) < refreshSkew {
+			on[i] = s.refresh(ctx, r.ID)
+		}
+	}
+	return keyed(on)
+}
+
+func (s *Service) switchedFor(cwd string) []record {
 	root := Root(cwd)
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	var on []record
 	for _, r := range s.servers {
-		// A folder outside git has no root above it, so a chat in one of its
-		// subfolders still belongs to the project it was switched on in.
-		if slices.ContainsFunc(r.Projects, func(p string) bool { return files.Within(p, root) }) {
+		if switchedOn(r, root) {
 			on = append(on, r)
 		}
 	}
-	s.mu.Unlock()
+	return on
+}
 
+// keyed names the servers that can be called, in order, so the prompt, a
+// turn and a card give each the same key.
+func keyed(on []record) []named {
 	// RepoGo's own server is added by the agent, under its own name.
 	taken := map[string]bool{BuiltinID: true}
-	var out []agent.MCPServer
+	var out []named
 	for _, r := range on {
-		if r.OAuth != nil && r.Refresh != "" && r.ExpiresAt != 0 &&
-			time.Until(time.UnixMilli(r.ExpiresAt)) < refreshSkew {
-			r = s.refresh(ctx, r.ID)
-		}
-		headers := []agent.Header{}
-		switch {
-		case r.Auth != AuthNone && r.Secret == "":
+		headers, ok := r.headers()
+		if !ok {
 			continue
-		case r.HeaderName != "":
-			headers = append(headers, agent.Header{Name: r.HeaderName, Value: r.Secret})
-		case r.Secret != "":
-			headers = append(headers, agent.Header{Name: "Authorization", Value: "Bearer " + r.Secret})
 		}
 		key := slug(r.Label, taken)
 		taken[key] = true
-		out = append(out, agent.MCPServer{Type: "http", Name: key, URL: r.URL, Headers: headers})
+		out = append(out, named{key: key, record: r, headers: headers})
 	}
 	return out
+}
+
+// switchedOn reports whether r is on for the project at root. A folder outside
+// git has no root above it, so a chat in one of its subfolders still belongs
+// to the project it was switched on in.
+func switchedOn(r record, root string) bool {
+	return slices.ContainsFunc(r.Projects, func(p string) bool { return files.Within(p, root) })
+}
+
+// headers is what calling r takes; false when it needs a credential it lacks.
+func (r record) headers() ([]agent.Header, bool) {
+	switch {
+	case r.Auth != AuthNone && r.Secret == "":
+		return nil, false
+	case r.HeaderName != "":
+		return []agent.Header{{Name: r.HeaderName, Value: r.Secret}}, true
+	case r.Secret != "":
+		return []agent.Header{{Name: "Authorization", Value: "Bearer " + r.Secret}}, true
+	}
+	return []agent.Header{}, true
 }
 
 // refresh trades the stored refresh token for a new access token and returns

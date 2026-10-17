@@ -17,7 +17,7 @@ const cardInstructions = "../../../swift/Packages/RepoGoCards/Sources/RepoGoCard
 
 func TestForPicksByMarkdownFeature(t *testing.T) {
 	prompt := func(features map[string]int) string {
-		return clientprompt.For(device.Client{Platform: "ios", Features: features}, clientprompt.NoPlugins)
+		return clientprompt.For(device.Client{Platform: "ios", Features: features}, clientprompt.NoPlugins, nil)
 	}
 	full := prompt(map[string]int{"markdown": 1})
 	if !strings.Contains(full, "```mermaid") || !strings.Contains(full, "```ui") {
@@ -43,7 +43,9 @@ func TestCardsMatchThePhone(t *testing.T) {
 	}
 	for file, start := range map[string]string{
 		"cards.md":         "public static let prompt = #\"\"\"\n",
+		"cards_data.md":    "public static let data = #\"\"\"\n",
 		"cards_plugins.md": "public static let plugins = #\"\"\"\n",
+		"cards_mcp.md":     "public static let mcp = #\"\"\"\n",
 		"apps.md":          "public static let apps = #\"\"\"\n",
 	} {
 		_, body, ok := strings.Cut(string(src), start)
@@ -80,12 +82,47 @@ func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
 		{"an environment without the runtime", both, clientprompt.NoPlugins, false, false},
 		{"a client without plugin cards", clip, clientprompt.HasPlugins, false, false},
 	} {
-		prompt := clientprompt.For(c.client, c.plugins)
+		prompt := clientprompt.For(c.client, c.plugins, nil)
 		if got := strings.Contains(prompt, build); got != c.build {
 			t.Errorf("%s: building prompt = %v, want %v", c.name, got, c.build)
 		}
 		if got := strings.Contains(prompt, draw); got != c.draw {
 			t.Errorf("%s: plugin cards prompt = %v, want %v", c.name, got, c.draw)
 		}
+	}
+}
+
+// MCP cards come to a client that draws them, for a project with a server on,
+// with the data elements whether or not the project has plugins.
+func TestMCPPromptFollowsTheProjectAndTheClient(t *testing.T) {
+	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1, "mcp": 1}}
+	older := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1}}
+	const data, draw = "Data: name, method=", "mcp:<server>.<tool>"
+	for _, c := range []struct {
+		name       string
+		client     device.Client
+		plugins    clientprompt.Plugins
+		servers    []string
+		data, draw bool
+	}{
+		{"servers on, no plugins", app, clientprompt.NoPlugins, []string{"neon"}, true, true},
+		{"servers on and plugins", app, clientprompt.HasPlugins, []string{"neon"}, true, true},
+		{"no servers on", app, clientprompt.CanAddPlugins, nil, false, false},
+		{"a client without MCP cards", older, clientprompt.CanAddPlugins, []string{"neon"}, false, false},
+	} {
+		prompt := clientprompt.For(c.client, c.plugins, c.servers)
+		if got := strings.Contains(prompt, data); got != c.data {
+			t.Errorf("%s: data prompt = %v, want %v", c.name, got, c.data)
+		}
+		if got := strings.Contains(prompt, draw); got != c.draw {
+			t.Errorf("%s: MCP cards prompt = %v, want %v", c.name, got, c.draw)
+		}
+		if strings.Count(prompt, data) > 1 {
+			t.Errorf("%s: the data prompt appears twice", c.name)
+		}
+	}
+	prompt := clientprompt.For(app, clientprompt.NoPlugins, []string{"neon", "vercel"})
+	if !strings.HasSuffix(prompt, "MCP servers for cards: `neon`, `vercel`.\n") {
+		t.Errorf("the prompt doesn't end naming the servers:\n%s", prompt[len(prompt)-200:])
 	}
 }

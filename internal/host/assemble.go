@@ -83,7 +83,7 @@ func (h *Host) openAgents() error {
 			if err != nil {
 				return ""
 			}
-			return clientprompt.For(peer.Client, h.projectPlugins(cwd))
+			return clientprompt.For(peer.Client, h.projectPlugins(cwd), h.mcps.Keys(cwd))
 		},
 		Log: h.log,
 	})
@@ -136,7 +136,7 @@ func (h *Host) openTools() error {
 	h.tools = repogomcp.New(repogomcp.Config{
 		URL:     func() string { u, _ := h.toolsURL.Load().(string); return u },
 		On:      func(string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID) },
-		Browser: browser, Plugins: h.Services.Plugins, Log: h.log,
+		Browser: browser, Plugins: h.Services.Plugins, MCP: h.mcps, Log: h.log,
 	})
 	h.Services.Browser = browser
 	return nil

@@ -1,9 +1,11 @@
 // Package mcp is the `mcp.*` methods: the MCP servers this host hands its
-// agents, connected from a device and switched on per project.
+// agents, connected from a device and switched on per project, and their
+// tools called for a device's cards.
 package mcp
 
 import (
 	"context"
+	"encoding/json"
 
 	mcpcore "github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/rpc"
@@ -73,6 +75,20 @@ type SetEnabledParams struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// CallParams names a tool of a server switched on for the project, by the
+// key an agent knows the server by.
+type CallParams struct {
+	Project string          `json:"project"`
+	Server  string          `json:"server"`
+	Tool    string          `json:"tool"`
+	Input   json.RawMessage `json:"input,omitempty"`
+	// Read is a card's Data loading: only a read-only tool runs.
+	Read bool `json:"read,omitempty"`
+	// Confirmed is the user's yes; without it a destructive tool answers
+	// CONFIRM instead of running.
+	Confirmed bool `json:"confirmed,omitempty"`
+}
+
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "mcp.list", d.list)
 	rpc.Add(r, "mcp.probe", d.probe)
@@ -83,6 +99,7 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "mcp.rename", d.rename)
 	rpc.Add(r, "mcp.set_enabled", d.setEnabled)
 	rpc.Add(r, "mcp.remove", d.remove)
+	rpc.Add(r, "mcp.call", d.call)
 }
 
 func (d Deps) list(_ context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {
@@ -119,4 +136,11 @@ func (d Deps) setEnabled(_ context.Context, _ rpc.Caller, a SetEnabledParams) (r
 
 func (d Deps) remove(_ context.Context, _ rpc.Caller, a ServerParams) (rpc.Ack, error) {
 	return rpc.OK, d.MCP.Remove(a.ID)
+}
+
+func (d Deps) call(ctx context.Context, _ rpc.Caller, a CallParams) (mcpcore.Answer, error) {
+	if a.Project == "" || a.Server == "" || a.Tool == "" {
+		return mcpcore.Answer{}, rpc.ErrInvalidParams
+	}
+	return d.MCP.Call(ctx, a.Project, a.Server, a.Tool, a.Input, a.Read, a.Confirmed)
 }

@@ -4,6 +4,7 @@ package clientprompt
 
 import (
 	_ "embed"
+	"strings"
 
 	"github.com/repogoapp/host/internal/device"
 )
@@ -17,11 +18,17 @@ var markdownV1 string
 //go:embed cards.md
 var cards string
 
-// cards_plugins.md is the phone's prompt for cards that read and write a
-// project's plugins, copied the same way.
+// cards_data.md is the elements cards read and write live data with, and
+// cards_plugins.md and cards_mcp.md its two sources; copied the same way.
 //
+//go:embed cards_data.md
+var cardsData string
+
 //go:embed cards_plugins.md
 var cardsPlugins string
+
+//go:embed cards_mcp.md
+var cardsMCP string
 
 // apps.md is the phone's prompt for building a project's tabs and plugins,
 // copied the same way.
@@ -41,20 +48,27 @@ const (
 	HasPlugins
 )
 
-// For is the prompt for c, or "" when it renders nothing beyond plain markdown;
-// a newer markdown version gets the newest text. A client whose cards reach
-// plugins also learns to build them, and to draw the ones the project has.
-func For(c device.Client, plugins Plugins) string {
+// For is the prompt for c, or "" when it renders nothing beyond plain markdown.
+// A client whose cards reach plugins learns to build them and draw the project's;
+// one whose cards reach MCP servers, to draw those switched on for it, by key.
+func For(c device.Client, plugins Plugins, servers []string) string {
 	if c.Features["markdown"] < 1 {
 		return ""
 	}
 	prompt := markdownV1 + "\n" + cards
-	if c.Features["plugins"] < 1 || plugins == NoPlugins {
-		return prompt
+	pluginCards := c.Features["plugins"] >= 1 && plugins != NoPlugins
+	mcpCards := c.Features["mcp"] >= 1 && len(servers) > 0
+	if pluginCards {
+		prompt += "\n" + apps
 	}
-	prompt += "\n" + apps
-	if plugins == HasPlugins {
+	if (pluginCards && plugins == HasPlugins) || mcpCards {
+		prompt += "\n" + cardsData
+	}
+	if pluginCards && plugins == HasPlugins {
 		prompt += "\n" + cardsPlugins
+	}
+	if mcpCards {
+		prompt += "\n" + cardsMCP + "MCP servers for cards: `" + strings.Join(servers, "`, `") + "`.\n"
 	}
 	return prompt
 }

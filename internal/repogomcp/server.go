@@ -18,6 +18,7 @@ import (
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/plugins"
 )
 
@@ -41,7 +42,9 @@ type Config struct {
 	Browser *Browser
 	// Plugins runs project plugins; a host without the SDK offers no plugin tools.
 	Plugins *plugins.Service
-	Log     *slog.Logger
+	// MCP is the servers the user connected; a project with some switched on gets mcp_tools.
+	MCP *mcp.Service
+	Log *slog.Logger
 }
 
 type Server struct {
@@ -163,6 +166,9 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 		if s.withPlugins() {
 			tools = append(tools, pluginsTool, pluginCallTool)
 		}
+		if s.withMCP(session.cwd) {
+			tools = append(tools, mcpToolsTool)
+		}
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":
 		var p struct {
@@ -178,10 +184,14 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 }
 
 func (s *Server) instructions(cwd string) string {
+	out := instructions
 	if s.withPlugins() {
-		return instructions + pluginsInstructions
+		out += pluginsInstructions
 	}
-	return instructions
+	if s.withMCP(cwd) {
+		out += mcpToolsInstructions
+	}
+	return out
 }
 
 // call runs a tool for the session's current turn. Failures are results, not
@@ -211,6 +221,8 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 		if s.withPlugins() {
 			return pluginsTools(s.cfg.Plugins, turn, name, args)
 		}
+	case mcpToolsTool.Name:
+		return mcpTools(s.cfg.MCP, turn)
 	}
 	return failed("unknown tool: " + name)
 }

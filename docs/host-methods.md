@@ -949,6 +949,22 @@ Result:
 
 - `outcome` string
 
+## `mcp.call`
+
+Params:
+
+- `project` string
+- `server` string
+- `tool` string
+- `input` json (omitted when empty) (nullable)
+- `read` bool (omitted when empty)
+- `confirmed` bool (omitted when empty)
+
+Result:
+
+- `result` json (omitted when empty) (nullable)
+- `error` object{Failure} (omitted when empty) (nullable)
+
 ## `mcp.connect`
 
 Params:

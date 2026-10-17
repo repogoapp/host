@@ -91,12 +91,16 @@ type Service struct {
 	path      string
 	providers []Provider
 	http      *http.Client
+	// calls is for tools, which may run longer than a sign-in step.
+	calls *http.Client
 
 	mu       sync.Mutex
 	servers  []record
 	off      []string
 	pending  map[string]*pending
 	onChange func(Changed)
+	// sessions is each server's open session, for cards calling its tools.
+	sessions map[string]*session
 
 	// One refresh per server at a time: providers that rotate refresh tokens
 	// invalidate the first result when a second lands.
@@ -111,7 +115,9 @@ func Open(path string, changed func(Changed), providers ...Provider) (*Service, 
 		onChange:  changed,
 		providers: providers,
 		http:      &http.Client{Timeout: 15 * time.Second},
+		calls:     &http.Client{Timeout: time.Minute},
 		pending:   map[string]*pending{},
+		sessions:  map[string]*session{},
 	}
 	var f file
 	if _, err := apphome.ReadJSON(path, &f); err != nil {
@@ -231,6 +237,7 @@ func (s *Service) Remove(id string) error {
 			return ErrNotFound
 		}
 		s.servers = slices.Delete(s.servers, i, i+1)
+		delete(s.sessions, id)
 		return nil
 	})
 }
@@ -252,6 +259,7 @@ func (s *Service) put(r record) (Server, error) {
 	return r.Server, s.commit(func() error {
 		if i := s.indexLocked(r.ID); i >= 0 {
 			s.servers[i] = r
+			delete(s.sessions, r.ID)
 		} else {
 			s.servers = append(s.servers, r)
 		}
