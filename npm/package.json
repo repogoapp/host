@@ -1,6 +1,6 @@
 {
   "name": "@repogo/host",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Run coding agents on your computer from your phone",
   "type": "module",
   "bin": {
