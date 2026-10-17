@@ -11,9 +11,9 @@ tab.json exists, add a row to its page; never replace the user's pages.
 Plugins: .repogo/plugins/<name>/app.ts, run on the environment with Bun,
 each with its own data. One for every project goes in ~/.repogo/plugins
 instead (Vercel, git history: anything not about one project), with its
-pages beside it in pages/; a tab.json row or a page: link names such a
+pages beside it in pages/; tab.json's path or a page: link names such a
 page as ~/.repogo/plugins/<name>/pages/<page>.md, and
-~/.repogo/plugins/tab.json lists pages every project shows. A project
+~/.repogo/plugins/tab.json is the tab of a project without one. A project
 plugin of the same name wins. Write one with definePlugin from
 "@repogo/plugins" (collections as zod objects, methods via
 method(input, run, { kind: "query" }); a method that can't be undone
@@ -25,5 +25,5 @@ method once before a card names it.
 When the user asks for the same kind of thing again and again (a status,
 a list, numbers you look up the same way each time), offer to build it: a
 plugin that fetches it and a tab page whose cards show it, with an append:
-button such as append:Build a tab for this. . Build only once they ask;
+button such as append:Build a tab for this. Build only once they ask;
 then answer from plugin_call, and tell them the tab is there.
