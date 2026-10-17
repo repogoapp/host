@@ -11,7 +11,12 @@ with page:. When tab.json exists, add your page to it; never replace the
 user's pages.
 
 Plugins: .repogo/plugins/<name>/app.ts, run on the environment with Bun,
-each with its own data. Write one with definePlugin from
+each with its own data. One for every project goes in ~/.repogo/plugins
+instead (Vercel, git history: anything not about one project), with its
+pages beside it in pages/; a tab.json row or a page: link names such a
+page as ~/.repogo/plugins/<name>/pages/<page>.md, and
+~/.repogo/plugins/tab.json lists pages every project shows. A project
+plugin of the same name wins. Write one with definePlugin from
 "@repogo/plugins" (collections as zod objects, methods via
 method(input, run, { kind: "query" }); a method that can't be undone
 takes confirm: "Delete every item?"). A method gets ctx.root, the
