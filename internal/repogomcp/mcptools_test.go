@@ -22,6 +22,12 @@ func mcpService(t *testing.T) *mcp.Service {
 	return s
 }
 
+// mcpServiceFunc is mcpService as the server reads it.
+func mcpServiceFunc(t *testing.T) func() *mcp.Service {
+	s := mcpService(t)
+	return func() *mcp.Service { return s }
+}
+
 // docsServer is an MCP server needing no sign-in, with a read and a write.
 func docsServer(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +65,7 @@ func TestMCPToolsListsTheProjectsServers(t *testing.T) {
 	}
 	s := New(Config{
 		URL: func() string { return "http://127.0.0.1:1/mcp/repogo" }, On: func(string) bool { return true },
-		Browser: newFakePhone(true, nil).browser, Plugins: pluginsService(t, ""), MCP: service,
+		Browser: newFakePhone(true, nil).browser, Plugins: pluginsService(t, ""), MCP: func() *mcp.Service { return service },
 	})
 
 	if got := toolNames(t, s, attachIn(t, s, other)); got != "browser" {

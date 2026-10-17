@@ -223,6 +223,33 @@ func TestASubscriptionPushesToItsDevice(t *testing.T) {
 	}
 }
 
+const ticksPlugin = `import { definePlugin, stream, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: {
+    ticks: stream(z.object({ count: z.number() }), async function* ({ count }) {
+      for (let i = 1; i <= count; i++) yield i;
+    }),
+  },
+});
+`
+
+// A stream answers empty and says so; its items reach the device as one
+// push, the next revision, ended.
+func TestAStreamPushesItsItems(t *testing.T) {
+	dir := sdk(t)
+	s, p := newService(t, dir)
+	root := project(t, dir, map[string]string{"ticks": ticksPlugin})
+
+	sub, err := s.Subscribe(t.Context(), "phone", root, "ticks.ticks", "s1", json.RawMessage(`{"count":3}`))
+	if err != nil || !sub.Stream || string(sub.Result) != "[]" {
+		t.Fatalf("subscribe = %+v %v", sub, err)
+	}
+	got := p.next(t, 0, func(s sent) bool { return s.data.Done })
+	if got.to != "phone" || got.data.Revision != 2 || string(got.data.Items) != "[1,2,3]" || got.data.Error != nil {
+		t.Fatalf("push = %+v items %s", got, got.data.Items)
+	}
+}
+
 // A device that leaves takes its subscriptions with it.
 func TestLeavingEndsADevicesSubscriptions(t *testing.T) {
 	dir := sdk(t)

@@ -32,7 +32,8 @@ func Register(r *rpc.Router, d Deps) {
 	// only: the tunnel lasts while that device stays paired.
 	rpc.Add(r, "tunnels.open", d.open, rpc.Paired)
 	rpc.Add(r, "tunnels.close", d.close)
-	rpc.Add(r, "tunnels.list", d.list)
+	rpc.Add(r, "tunnels.list", d.list, rpc.Tool("The open tunnels: each public URL and the local port "+
+		"it reaches."), rpc.Read, rpc.LiveOn("tunnels.changed"))
 }
 
 func (d Deps) open(ctx context.Context, c rpc.Caller, a OpenParams) (OpenResult, error) {

@@ -297,3 +297,75 @@ test("rapid input changes under one id push only for the latest input", async ()
   await Bun.sleep(150);
   for (const push of client.pushes) expect(push.params).toMatchObject({ result: ["apple"] });
 });
+
+const streamsApp = (pidFile: string) => `import { definePlugin, stream, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: {
+    ticks: stream(z.object({ count: z.number() }), async function* ({ count }) {
+      for (let i = 1; i <= count; i++) yield i;
+    }),
+    broken: stream(z.object({}), async function* () {
+      yield "first";
+      throw new Error("source went away");
+    }),
+    sleeper: stream(z.object({}), async function* (_, ctx) {
+      const child = Bun.spawn(["sleep", "30"], { signal: ctx.signal });
+      await Bun.write(${JSON.stringify(pidFile)}, String(child.pid));
+      yield "started";
+      await child.exited;
+    }),
+  },
+});
+`;
+
+/** Resolves once `pid` is gone, or fails after a second. */
+async function exited(pid: number) {
+  for (let i = 0; i < 100; i++) {
+    try { process.kill(pid, 0); } catch { return; }
+    await Bun.sleep(10);
+  }
+  throw new Error(`${pid} still running`);
+}
+
+test("a stream answers empty, then pushes its items and its end", async () => {
+  const { client, socket } = await start();
+  const { dir } = await checkout({ feed: streamsApp(join(socket, "..", "pid")) });
+  const ended = client.nextPush((push) => "done" in push.params);
+  expect(result(await client.request("subscribe", { dir, subscription: "s1", name: "feed.ticks", input: { count: 3 } })))
+    .toEqual({ subscription: "s1", revision: 1, result: [], stream: true });
+  expect((await ended).params).toEqual({ subscription: "s1", revision: 2, items: [1, 2, 3], done: true });
+});
+
+test("a stream that throws ends with its error, after what it sent", async () => {
+  const { client, socket } = await start();
+  const { dir } = await checkout({ feed: streamsApp(join(socket, "..", "pid")) });
+  const ended = client.nextPush((push) => "done" in push.params);
+  result(await client.request("subscribe", { dir, subscription: "s2", name: "feed.broken" }));
+  expect((await ended).params).toMatchObject({ items: ["first"], done: true, error: { message: "source went away" } });
+});
+
+test("unsubscribing aborts a stream, and what it started stops", async () => {
+  const { client, socket } = await start();
+  const pidFile = join(socket, "..", "pid");
+  const { dir } = await checkout({ feed: streamsApp(pidFile) });
+  const started = client.nextPush((push) => "items" in push.params);
+  result(await client.request("subscribe", { dir, subscription: "s3", name: "feed.sleeper" }));
+  await started;
+  const pid = Number(await Bun.file(pidFile).text());
+  result(await client.request("unsubscribe", { subscription: "s3" }));
+  await exited(pid);
+});
+
+test("a reload stops a stream's process and starts it over from empty", async () => {
+  const { client, socket } = await start();
+  const pidFile = join(socket, "..", "pid");
+  const { dir } = await checkout({ feed: streamsApp(pidFile) });
+  const started = client.nextPush((push) => "items" in push.params);
+  result(await client.request("subscribe", { dir, subscription: "s4", name: "feed.sleeper" }));
+  await started;
+  const pid = Number(await Bun.file(pidFile).text());
+  const restarted = client.nextPush((push) => "result" in push.params);
+  result(await client.request("reload", { dir }));
+  expect((await restarted).params).toEqual({ subscription: "s4", revision: 3, result: [] });
+  await exited(pid);
+});

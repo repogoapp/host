@@ -46,6 +46,7 @@ func TestCardsMatchThePhone(t *testing.T) {
 		"cards_data.md":    "public static let data = #\"\"\"\n",
 		"cards_plugins.md": "public static let plugins = #\"\"\"\n",
 		"cards_mcp.md":     "public static let mcp = #\"\"\"\n",
+		"cards_repogo.md":  "public static let repogo = #\"\"\"\n",
 		"apps.md":          "public static let apps = #\"\"\"\n",
 	} {
 		_, body, ok := strings.Cut(string(src), start)
@@ -124,5 +125,23 @@ func TestMCPPromptFollowsTheProjectAndTheClient(t *testing.T) {
 	prompt := clientprompt.For(app, clientprompt.NoPlugins, []string{"neon", "vercel"})
 	if !strings.HasSuffix(prompt, "MCP servers for cards: `neon`, `vercel`.\n") {
 		t.Errorf("the prompt doesn't end naming the servers:\n%s", prompt[len(prompt)-200:])
+	}
+}
+
+// The chats come to a client whose cards reach the host's methods, with the
+// data elements, in any project; the MCP servers' line still ends the prompt.
+func TestRepoGoPromptFollowsTheClient(t *testing.T) {
+	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1, "mcp": 1, "repogo": 1}}
+	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
+	const data, draw = "Data: name, method=", `method="repogo:<method>"`
+	prompt := clientprompt.For(app, clientprompt.NoPlugins, []string{"neon"})
+	if !strings.Contains(prompt, data) || !strings.Contains(prompt, draw) {
+		t.Errorf("the app's prompt lacks the chats")
+	}
+	if !strings.HasSuffix(prompt, "MCP servers for cards: `neon`.\n") {
+		t.Errorf("the prompt doesn't end naming the servers")
+	}
+	if strings.Contains(clientprompt.For(clip, clientprompt.NoPlugins, nil), draw) {
+		t.Errorf("the Clip is taught repogo: cards")
 	}
 }

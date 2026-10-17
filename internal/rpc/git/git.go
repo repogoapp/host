@@ -15,12 +15,15 @@ type Deps struct {
 
 func Register(r *rpc.Router, d Deps) {
 	// status reports on several projects at once — the sidebar's call.
-	rpc.Add(r, "git.status", d.status)
-	rpc.Add(r, "git.changes", d.changes)
+	rpc.Add(r, "git.status", d.status, rpc.Tool("Branch, ahead/behind and changed-file counts for "+
+		"several projects at once."), rpc.Read, rpc.LiveOn("git.changed"))
+	rpc.Add(r, "git.changes", d.changes, rpc.Tool("One project's changed files, staged or not."),
+		rpc.Read, rpc.LiveOn("git.changed"))
 	// branches lists what a chat could fork from.
 	rpc.Add(r, "git.branches", d.branches)
 	// diff is the working tree's change set.
-	rpc.Add(r, "git.diff", d.diff)
+	rpc.Add(r, "git.diff", d.diff, rpc.Tool("One project's uncommitted totals: files changed, lines "+
+		"added and removed. git.changes lists the files."), rpc.Read, rpc.LiveOn("git.changed"))
 	// patch expands one change set: its files, or one file's hunks.
 	rpc.Add(r, "git.patch", d.patch)
 

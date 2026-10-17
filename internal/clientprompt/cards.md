@@ -67,6 +67,7 @@ List: a grouped list like the app's Settings; contains Sections.
 Section: optional label (header) and footer; contains Items.
 Item: one row: label, optional icon (SF Symbol, on a colored tile),
   site="{{p.url}}" draws that site's favicon as the tile instead (icon shows until it loads),
+  file="{{f.path}}" draws that file's type icon instead (a path ending in / is a folder),
   iconColor, subtitle, detail (grey trailing text), action, role="destructive".
   Children replace detail as trailing content (Badge, Toggle, Text, Menu).
   Swipe children (label, icon, color, role="destructive", action, Params)
@@ -144,7 +145,8 @@ Section footers, Section labels, Route titles, Image url and alt, Icon alt,
 set: values, and send:/append:/copy:/open: payloads. No interpolation elsewhere. A filter
 writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
 current), date, time, datetime, number (number:2), currency:USD, percent
-(0.42 is 42%), bytes. Dates are ISO 8601 or Unix seconds or milliseconds.
+(0.42 is 42%), bytes; for a path, name (a.json) and folder (docs/events).
+Dates are ISO 8601 or Unix seconds or milliseconds.
 Use send: only for a button that starts work, such as Deploy or Fix it;
 use Router for details already known. Buttons that offer options or ask
 for a verdict (Yes or No, Good or Bad, which one) use append:, so the user
@@ -159,6 +161,9 @@ Keep every card simple and iOS-like:
   width="fill" that opens with a heading Text and a secondary caption.
   On a tab page or a pushed page, the Route title is in the system bar:
   no heading in the content and no card around a List.
+- On a page each top-level element is its own row: put Tabs, fields
+  and Lists straight in the Route (or its Data), each with its own
+  show=, never wrapped together in a Col.
 - send: and append: buttons in chat are full width (width="fill").
 - One primary Button per card; color only where it means something.
 - An Item's detail is a short value ("42s", "main", "+3"); a phrase such

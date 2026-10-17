@@ -44,3 +44,27 @@ func TestFilledSetsEveryKey(t *testing.T) {
 		t.Fatalf("filled = %s, want %s", b, want)
 	}
 }
+
+type schemaParams struct {
+	Inner
+	ID     string            `json:"id" doc:"Which one"`
+	Count  int               `json:"count"`
+	Flag   *bool             `json:"flag"`
+	Data   []byte            `json:"data"`
+	Rows   []Inner           `json:"rows"`
+	Labels map[string]string `json:"labels"`
+	Raw    json.RawMessage   `json:"raw"`
+}
+
+// Schema reads params as encoding/json does: embedded fields flattened,
+// pointers as their value, bytes as base64, raw JSON as anything.
+func TestSchemaFollowsTheWire(t *testing.T) {
+	got, _ := json.Marshal(Schema(reflect.TypeFor[schemaParams]()))
+	want := `{"properties":{"count":{"type":"integer"},"data":{"contentEncoding":"base64","type":"string"},` +
+		`"deep":{"type":"string"},"flag":{"type":"boolean"},"id":{"description":"Which one","type":"string"},` +
+		`"labels":{"additionalProperties":{"type":"string"},"type":"object"},"raw":{},` +
+		`"rows":{"items":{"properties":{"deep":{"type":"string"}},"type":"object"},"type":"array"}},"type":"object"}`
+	if string(got) != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}

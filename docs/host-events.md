@@ -200,6 +200,8 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `subscription` string
 - `revision` int
 - `result` json (omitted when empty) (nullable)
+- `items` json (omitted when empty) (nullable)
+- `done` bool (omitted when empty)
 - `error` object{Failure} (omitted when empty) (nullable)
 
 ## `projects.changed`

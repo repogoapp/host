@@ -26,20 +26,25 @@ type Answer struct {
 }
 
 // Subscribed is a subscription's first answer. Revision counts its answers, so
-// a device keeps the newest when pushes and a reply cross.
+// a device keeps the newest when pushes and a reply cross. Stream is a stream
+// method's: its result starts empty and each Data adds items.
 type Subscribed struct {
 	Subscription string          `json:"subscription"`
 	Revision     int             `json:"revision"`
 	Result       json.RawMessage `json:"result,omitempty"`
 	Error        *Failure        `json:"error,omitempty"`
+	Stream       bool            `json:"stream,omitempty"`
 }
 
-// Data is a subscription's new answer, sent to the device that subscribed only
-// when it differs from the last one.
+// Data is a subscription's news. A query's Result replaces the last, sent only
+// when it changed. A stream's Items add to what it holds, one revision after the
+// last, until Done (with Error when it failed); its Result means it restarted.
 type Data struct {
 	Subscription string          `json:"subscription"`
 	Revision     int             `json:"revision"`
 	Result       json.RawMessage `json:"result,omitempty"`
+	Items        json.RawMessage `json:"items,omitempty"`
+	Done         bool            `json:"done,omitempty"`
 	Error        *Failure        `json:"error,omitempty"`
 }
 

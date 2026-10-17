@@ -23,7 +23,7 @@ var mcpToolsTool = tool{
 
 // withMCP reports whether a folder's project has servers a card can call.
 func (s *Server) withMCP(cwd string) bool {
-	return len(s.cfg.MCP.Keys(cwd)) > 0
+	return len(s.cfg.MCP().Keys(cwd)) > 0
 }
 
 func mcpTools(service *mcp.Service, turn agent.RunningTurn) toolResult {

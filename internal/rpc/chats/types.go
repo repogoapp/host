@@ -8,7 +8,7 @@ import (
 )
 
 type ChatParams struct {
-	ChatID store.ChatID `json:"chat_id"`
+	ChatID store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
 }
 
 // HandoffResult is the command the terminal window was opened with.
@@ -21,22 +21,22 @@ type HandoffResult struct {
 type Query struct {
 	// Cwd scopes the list to one project; Cwds narrows it to a set. Empty is
 	// every chat on this host.
-	Cwd  string   `json:"cwd"`
-	Cwds []string `json:"cwds"`
+	Cwd  string   `json:"cwd" doc:"A project's folder; empty is every project"`
+	Cwds []string `json:"cwds" doc:"Several projects' folders"`
 
 	// Resolved: true is the done pile, false the live list, null both.
-	Resolved *bool `json:"resolved"`
+	Resolved *bool `json:"resolved" doc:"true: only resolved chats; false: only open ones; omit for both"`
 
 	// Agent narrows to one agent's chats ("claude", "codex"); empty is all.
-	Agent string `json:"agent"`
+	Agent string `json:"agent" doc:"Only this agent's chats: claude, codex; empty is all"`
 
 	// Sort: "activity" (default), "created" or "title". Order: "desc" (default) or "asc".
-	Sort  string `json:"sort"`
-	Order string `json:"order"`
+	Sort  string `json:"sort" doc:"activity (default), created or title"`
+	Order string `json:"order" doc:"desc (default) or asc"`
 
 	// Search keeps the chats whose title, prompts and replies hold every word
 	// of it; each row then carries match, the words around the hit.
-	Search string `json:"search"`
+	Search string `json:"search" doc:"Words a chat's title, prompts or replies must all hold"`
 }
 
 func (q Query) store() store.ChatQuery {
@@ -48,11 +48,11 @@ func (q Query) store() store.ChatQuery {
 
 type ListParams struct {
 	Query
-	Limit   int  `json:"limit"`
-	Refresh bool `json:"refresh"`
+	Limit   int  `json:"limit" doc:"Chats per page"`
+	Refresh bool `json:"refresh" doc:"Re-read the agents' files first; slow, leave false"`
 
 	// Cursor is the previous reply's next_cursor; empty starts over.
-	Cursor string `json:"cursor"`
+	Cursor string `json:"cursor" doc:"The previous page's next_cursor; empty starts over"`
 }
 
 type ListResult struct {
@@ -73,14 +73,14 @@ type NeighborsResult struct {
 }
 
 type MessagesParams struct {
-	ChatID     store.ChatID `json:"chat_id"`
-	SinceIndex int          `json:"since_index"`
-	Limit      int          `json:"limit"`
+	ChatID     store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
+	SinceIndex int          `json:"since_index" doc:"Messages after this index"`
+	Limit      int          `json:"limit" doc:"Messages per page"`
 
 	// A transcript opens at the bottom and pages upward, so the two directions
 	// need separate cursors. Absent both, this is the live push cursor's read.
-	Tail        bool `json:"tail"`
-	BeforeIndex *int `json:"before_index"`
+	Tail        bool `json:"tail" doc:"Read the newest messages"`
+	BeforeIndex *int `json:"before_index" doc:"Messages before this index, to page older"`
 }
 
 type ToolsSubscribeParams struct {
@@ -115,10 +115,10 @@ type SubagentResult struct {
 }
 
 type SendParams struct {
-	ChatID store.ChatID `json:"chat_id"`
-	Turn   chat.Turn    `json:"turn"`
+	ChatID store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
+	Turn   chat.Turn    `json:"turn" doc:"The message"`
 	// Steer adds the turn to the chat's running one where the agent allows it.
-	Steer bool `json:"steer"`
+	Steer bool `json:"steer" doc:"Add it to the running turn instead of queueing it"`
 }
 
 type SendResult struct {
@@ -132,10 +132,10 @@ type SendResult struct {
 // chat's name, written on the phone from the prompt; empty leaves the
 // prompt's opening words.
 type StartParams struct {
-	Turn  chat.Turn `json:"turn"`
-	Cwd   string    `json:"cwd"`
-	Agent string    `json:"agent"`
-	Title string    `json:"title"`
+	Turn  chat.Turn `json:"turn" doc:"The first message"`
+	Cwd   string    `json:"cwd" doc:"The project's folder"`
+	Agent string    `json:"agent" doc:"claude or codex"`
+	Title string    `json:"title" doc:"The chat's name; empty takes the message's opening words"`
 	// ProjectAgent names one of the project's own agents when Agent is acp.
 	ProjectAgent string `json:"project_agent,omitempty"`
 }
@@ -146,8 +146,8 @@ type StartResult struct {
 }
 
 type ResolveParams struct {
-	ChatID   store.ChatID `json:"chat_id"`
-	Resolved bool         `json:"resolved"`
+	ChatID   store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
+	Resolved bool         `json:"resolved" doc:"true resolves; false reopens"`
 }
 
 type ResolveResult struct {
@@ -155,8 +155,8 @@ type ResolveResult struct {
 }
 
 type PinParams struct {
-	ChatID store.ChatID `json:"chat_id"`
-	Pinned bool         `json:"pinned"`
+	ChatID store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
+	Pinned bool         `json:"pinned" doc:"true pins; false unpins"`
 }
 
 type PinResult struct {
@@ -165,7 +165,7 @@ type PinResult struct {
 
 // UpdateParams changes only the fields it sets; see chat.Update.
 type UpdateParams struct {
-	ChatID store.ChatID `json:"chat_id"`
+	ChatID store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
 	chat.Update
 }
 

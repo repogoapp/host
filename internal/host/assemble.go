@@ -41,6 +41,7 @@ import (
 	"github.com/repogoapp/host/internal/push"
 	"github.com/repogoapp/host/internal/repogomcp"
 	devicesrpc "github.com/repogoapp/host/internal/rpc/devices"
+	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/rpc/registry"
 	"github.com/repogoapp/host/internal/schedule"
 	"github.com/repogoapp/host/internal/session"
@@ -100,8 +101,8 @@ func (h *Host) openAgents() error {
 
 	s := &h.Services
 	s.Agents = h.agents.Providers
-	s.AgentUsage = agentusage.New(h.agents.Kinds(), h.agents.Usage...)
 	s.ProjectAgents = h.agents.ProjectAgents
+	s.AgentUsage = agentusage.New(h.agents.Kinds(), h.agents.Usage...)
 	s.AgentCatalog = agentcatalog.New(h.agents.Kinds(), h.agents.Catalogs...)
 	// Its own database: the chat cache is disposable, and this is history the
 	// transcripts may no longer hold.
@@ -137,7 +138,8 @@ func (h *Host) openTools() error {
 	h.tools = repogomcp.New(repogomcp.Config{
 		URL:     func() string { u, _ := h.toolsURL.Load().(string); return u },
 		On:      func(string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID) },
-		Browser: browser, Plugins: h.Services.Plugins, MCP: h.mcps, Log: h.log,
+		Browser: browser, Plugins: h.Services.Plugins, MCP: func() *mcp.Service { return h.mcps },
+		Router: func() *rpc.Router { return h.Router }, Log: h.log,
 	})
 	h.Services.Browser = browser
 	return nil

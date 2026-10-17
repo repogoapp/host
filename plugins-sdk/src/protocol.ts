@@ -22,14 +22,24 @@ export type Request =
   | { id: number; method: "unsubscribe"; params: { subscription: string } }
   | { id: number; method: "reload"; params: Target };
 
-export type Subscribed = { subscription: string; revision: number; result: unknown };
+/** `stream`: the method is a stream; its result starts empty and pushes add `items`. */
+export type Subscribed = { subscription: string; revision: number; result: unknown; stream?: true };
 
 export type Reply = { id: number; result: unknown } | { id: number; error: CallError };
 
-/** A subscription's new result, sent only when it differs from the last one sent. */
+/**
+ * A subscription's news. A query's new result (or error), sent only when it
+ * differs from the last one sent. A stream's new `items`, to add to what it
+ * holds, with `done` once it ends (and `error` when it failed); a stream's
+ * `result` replaces everything held, as when its plugins reload and it starts over.
+ */
 export type DataPush = {
   method: "data";
-  params: { subscription: string; revision: number } & ({ result: unknown } | { error: CallError });
+  params: { subscription: string; revision: number } & (
+    | { result: unknown }
+    | { error: CallError }
+    | { items: unknown[]; done?: true; error?: CallError }
+  );
 };
 
 /** A plugin's alert for the phones, for the host to push. */
@@ -44,16 +54,22 @@ export type ToWorker =
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown; root?: string }
   | { type: "unsubscribe"; subscription: string }
   /** Another Worker wrote these tags. */
-  | { type: "invalidate"; tags: string[] };
+  | { type: "invalidate"; tags: string[] }
+  /** The Worker is about to end: abort its streams, so what they started stops too. */
+  | { type: "stop" };
 
 export type FromWorker =
-  | { type: "reply"; id: number; result: unknown }
+  | { type: "reply"; id: number; result: unknown; stream?: true }
   | { type: "reply"; id: number; error: CallError }
   | { type: "data"; subscription: string; result: unknown }
   | { type: "data"; subscription: string; error: CallError }
   /** This Worker wrote these tags; the other Workers re-run what read them. */
   | { type: "invalidated"; tags: string[] }
   /** A plugin here sent an alert. */
-  | { type: "notified"; notice: SentNotice };
+  | { type: "notified"; notice: SentNotice }
+  /** A stream's items since the last, or its end. */
+  | { type: "items"; subscription: string; items: unknown[]; done?: true; error?: CallError }
+  /** Its streams are aborted, after a `stop`. */
+  | { type: "stopped" };
 
 export type { Manifest };

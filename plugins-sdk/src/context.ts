@@ -19,6 +19,8 @@ export type Context = {
   db: Record<string, Collection<any>>;
   call: (method: string, input?: unknown) => Promise<unknown>;
   emit: (name: string, payload: unknown) => Promise<void>;
+  /** Aborts when a stream's last watcher leaves; a query or mutation's never does. */
+  signal: AbortSignal;
   /** Sends an alert to every phone paired with this environment. */
   notify: (notice: Notice) => void;
   log: (...args: unknown[]) => void;

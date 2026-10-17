@@ -19,7 +19,7 @@ var markdownV1 string
 var cards string
 
 // cards_data.md is the elements cards read and write live data with, and
-// cards_plugins.md and cards_mcp.md its two sources; copied the same way.
+// cards_plugins.md, cards_mcp.md and cards_repogo.md its sources; copied the same way.
 //
 //go:embed cards_data.md
 var cardsData string
@@ -29,6 +29,9 @@ var cardsPlugins string
 
 //go:embed cards_mcp.md
 var cardsMCP string
+
+//go:embed cards_repogo.md
+var cardsRepoGo string
 
 // apps.md is the phone's prompt for building a project's tabs and plugins,
 // copied the same way.
@@ -50,7 +53,7 @@ const (
 
 // For is the prompt for c, or "" when it renders nothing beyond plain markdown.
 // A client whose cards reach plugins learns to build them and draw the project's;
-// one whose cards reach MCP servers, to draw those switched on for it, by key.
+// one whose cards reach MCP servers, to draw those on for it; one with repogo, the chats.
 func For(c device.Client, plugins Plugins, servers []string) string {
 	if c.Features["markdown"] < 1 {
 		return ""
@@ -58,15 +61,20 @@ func For(c device.Client, plugins Plugins, servers []string) string {
 	prompt := markdownV1 + "\n" + cards
 	pluginCards := c.Features["plugins"] >= 1 && plugins != NoPlugins
 	mcpCards := c.Features["mcp"] >= 1 && len(servers) > 0
+	hostCards := c.Features["repogo"] >= 1
 	if pluginCards {
 		prompt += "\n" + apps
 	}
-	if (pluginCards && plugins == HasPlugins) || mcpCards {
+	if (pluginCards && plugins == HasPlugins) || mcpCards || hostCards {
 		prompt += "\n" + cardsData
 	}
 	if pluginCards && plugins == HasPlugins {
 		prompt += "\n" + cardsPlugins
 	}
+	if hostCards {
+		prompt += "\n" + cardsRepoGo
+	}
+	// Last, so the prompt ends naming the servers.
 	if mcpCards {
 		prompt += "\n" + cardsMCP + "MCP servers for cards: `" + strings.Join(servers, "`, `") + "`.\n"
 	}

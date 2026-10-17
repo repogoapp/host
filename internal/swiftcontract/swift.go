@@ -157,6 +157,26 @@ func Methods(specs []rpc.Spec) string {
 	for _, family := range families {
 		fmt.Fprintf(&b, "\nextension HostAPI.%s {\n%s}\n", family, members[family])
 	}
+	b.WriteString(toolList(specs))
+	return b.String()
+}
+
+// toolList is the methods marked rpc.Tool, which cards call as `repogo:<method>`:
+// whether each only reads, and the events after which a read answers differently.
+func toolList(specs []rpc.Spec) string {
+	var b strings.Builder
+	b.WriteString("\nextension HostAPI {\n  public static let tools: [String: HostAPITool] = [\n")
+	for _, s := range specs {
+		if s.Tool == "" {
+			continue
+		}
+		events := make([]string, len(s.LiveOn))
+		for i, ev := range s.LiveOn {
+			events[i] = fmt.Sprintf("%q", ev)
+		}
+		fmt.Fprintf(&b, "    %q: HostAPITool(readOnly: %t, liveOn: [%s]),\n", s.Name, s.Effect == rpc.Reads, strings.Join(events, ", "))
+	}
+	b.WriteString("  ]\n}\n")
 	return b.String()
 }
 
@@ -183,6 +203,13 @@ public protocol HostEventFamily: Sendable {
 public nonisolated struct HostAPIMethod<Params: Encodable & Sendable, Result: Decodable & Sendable>: Sendable {
   public let name: String
   public init(_ name: String) { self.name = name }
+}
+
+/// A method agents and cards may call: a read feeds a card's Data and reloads
+/// on its liveOn events; any other runs only from a tap.
+public nonisolated struct HostAPITool: Sendable {
+  public let readOnly: Bool
+  public let liveOn: [String]
 }
 `
 

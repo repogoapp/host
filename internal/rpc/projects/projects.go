@@ -67,7 +67,8 @@ type PinParams struct {
 
 // Remote-reachable: every project listed is a folder fs.* would already serve.
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "projects.list", d.list)
+	rpc.Add(r, "projects.list", d.list, rpc.Tool("The projects on this environment, with each one's folder "+
+		"(the cwd chats take), name, pin and changed files."), rpc.Read, rpc.LiveOn("projects.changed"))
 	rpc.Add(r, "projects.detect_icon", d.detectIcon)
 	// The user's marks on a listed project. Each answers the project's row and
 	// sends it to every other device as projects.changed.

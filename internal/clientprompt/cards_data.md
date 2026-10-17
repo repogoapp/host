@@ -1,11 +1,14 @@
 Cards read and write live data, from the sources below:
 
-Data: name, method="<source>:<name>" (a query). Children read the answer
-  as {{name}}, and its fields as {{name.field}} (objects to any depth; an
-  array gives {{name.count}}). Optional debug="true" prints the answer;
-  when="stateName" waits until that state is non-empty (any text,
+Data: name, method="<source>:<name>" (a query or a stream). Children read
+  the answer as {{name}}, and its fields as {{name.field}} (objects to any
+  depth; an array gives {{name.count}}). Optional debug="true" prints the
+  answer; when="stateName" waits until that state is non-empty (any text,
   "false" and "0" too); debounce="300" waits that many ms after its
   params change, for a search Input.
+  A stream's answer is the list of its items so far, growing live under
+  a Live badge: an Each over it scrolls like a terminal, stuck to the
+  newest; keep="300" shows that many newest items (default 500).
 Param: name, value, optional type="string|number|boolean|json|null";
   the first children of a Data, or of a Button or Item that calls a
   source, one per input field. A value reads state and the rows and

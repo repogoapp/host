@@ -1,0 +1,491 @@
+[
+  {
+    "name": "actions_list",
+    "method": "actions.list",
+    "description": "A project's actions (the commands its actions.json declares) and their runs.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "path": {
+          "description": "The project's folder",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "actions_run",
+    "method": "actions.run",
+    "description": "Run an action to the end and answer with its output.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "name": {
+          "description": "The action's name, as actions.list gives it",
+          "type": "string"
+        },
+        "path": {
+          "description": "The project's folder",
+          "type": "string"
+        },
+        "secrets": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "description": "Leave empty",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "actions_start",
+    "method": "actions.start",
+    "description": "Start an action that keeps running, such as a dev server; answers with its run.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "name": {
+          "description": "The action's name, as actions.list gives it",
+          "type": "string"
+        },
+        "path": {
+          "description": "The project's folder",
+          "type": "string"
+        },
+        "secrets": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "description": "Leave empty",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "actions_stop",
+    "method": "actions.stop",
+    "description": "Stop an action's run.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "run_id": {
+          "description": "The run's id, as actions.start or actions.list gives it",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_info",
+    "method": "chats.info",
+    "description": "One chat's row: title, project, status, last reply.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_list",
+    "method": "chats.list",
+    "description": "List the chats on this environment, newest activity first, filtered and sorted like the chat drawer. Empty cwd is every project.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "agent": {
+          "description": "Only this agent's chats: claude, codex; empty is all",
+          "type": "string"
+        },
+        "cursor": {
+          "description": "The previous page's next_cursor; empty starts over",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "A project's folder; empty is every project",
+          "type": "string"
+        },
+        "cwds": {
+          "description": "Several projects' folders",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "description": "Chats per page",
+          "type": "integer"
+        },
+        "order": {
+          "description": "desc (default) or asc",
+          "type": "string"
+        },
+        "refresh": {
+          "description": "Re-read the agents' files first; slow, leave false",
+          "type": "boolean"
+        },
+        "resolved": {
+          "description": "true: only resolved chats; false: only open ones; omit for both",
+          "type": "boolean"
+        },
+        "search": {
+          "description": "Words a chat's title, prompts or replies must all hold",
+          "type": "string"
+        },
+        "sort": {
+          "description": "activity (default), created or title",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_messages",
+    "method": "chats.messages",
+    "description": "A page of one chat's messages. tail with a limit reads the newest; before_index pages older.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "before_index": {
+          "description": "Messages before this index, to page older",
+          "type": "integer"
+        },
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Messages per page",
+          "type": "integer"
+        },
+        "since_index": {
+          "description": "Messages after this index",
+          "type": "integer"
+        },
+        "tail": {
+          "description": "Read the newest messages",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_pin",
+    "method": "chats.pin",
+    "description": "Pin a chat to the top of the drawer, or unpin it.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        },
+        "pinned": {
+          "description": "true pins; false unpins",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_resolve",
+    "method": "chats.resolve",
+    "description": "Resolve a chat (moves it to the done pile) or unresolve it.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        },
+        "resolved": {
+          "description": "true resolves; false reopens",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_send",
+    "method": "chats.send",
+    "description": "Send a message to a chat. It starts a turn, or queues behind the running one; steer adds it to the running turn where the agent allows it.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        },
+        "steer": {
+          "description": "Add it to the running turn instead of queueing it",
+          "type": "boolean"
+        },
+        "turn": {
+          "description": "The message",
+          "properties": {
+            "attachments": {
+              "description": "Files sent with it; usually empty",
+              "items": {
+                "properties": {
+                  "data": {
+                    "contentEncoding": "base64",
+                    "type": "string"
+                  },
+                  "mime_type": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "config": {
+              "description": "Model and modes; empty keeps the chat's own",
+              "properties": {
+                "context_window": {
+                  "type": "string"
+                },
+                "fast_mode": {
+                  "type": "boolean"
+                },
+                "mode": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "permission_mode": {
+                  "type": "string"
+                },
+                "reasoning_level": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "prompt": {
+              "description": "The message text",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_start",
+    "method": "chats.start",
+    "description": "Start a new chat in a project with its first message.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "agent": {
+          "description": "claude or codex",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "The project's folder",
+          "type": "string"
+        },
+        "project_agent": {
+          "type": "string"
+        },
+        "title": {
+          "description": "The chat's name; empty takes the message's opening words",
+          "type": "string"
+        },
+        "turn": {
+          "description": "The first message",
+          "properties": {
+            "attachments": {
+              "description": "Files sent with it; usually empty",
+              "items": {
+                "properties": {
+                  "data": {
+                    "contentEncoding": "base64",
+                    "type": "string"
+                  },
+                  "mime_type": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "config": {
+              "description": "Model and modes; empty keeps the chat's own",
+              "properties": {
+                "context_window": {
+                  "type": "string"
+                },
+                "fast_mode": {
+                  "type": "boolean"
+                },
+                "mode": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "permission_mode": {
+                  "type": "string"
+                },
+                "reasoning_level": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "prompt": {
+              "description": "The message text",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_stop",
+    "method": "chats.stop",
+    "description": "Stop a chat's running turn.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_update",
+    "method": "chats.update",
+    "description": "Rename a chat. The title is written to the agent's own files, so its CLI shows it too.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        },
+        "title": {
+          "description": "The new title",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "git_changes",
+    "method": "git.changes",
+    "description": "One project's changed files, staged or not.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "path": {
+          "description": "The project's folder",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "git_diff",
+    "method": "git.diff",
+    "description": "One project's uncommitted totals: files changed, lines added and removed. git.changes lists the files.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "path": {
+          "description": "The project's folder",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "git_status",
+    "method": "git.status",
+    "description": "Branch, ahead/behind and changed-file counts for several projects at once.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "paths": {
+          "description": "Projects' folders",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "projects_list",
+    "method": "projects.list",
+    "description": "The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "schedules_list",
+    "method": "schedules.list",
+    "description": "The scheduled prompts on this environment, with each one's project, agent and next run.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "tunnels_list",
+    "method": "tunnels.list",
+    "description": "The open tunnels: each public URL and the local port it reaches.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    }
+  }
+]

@@ -26,30 +26,38 @@ type Deps struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "chats.list", d.list)
+	rpc.Add(r, "chats.list", d.list, rpc.Tool("List the chats on this environment, newest activity first, "+
+		"filtered and sorted like the chat drawer. Empty cwd is every project."),
+		rpc.Read, rpc.LiveOn("chats.changed", "chats.removed"))
 	// info is one chat's row without its transcript, for refreshing a snapshot
 	// from chats.list without refetching fifty.
-	rpc.Add(r, "chats.info", d.info)
+	rpc.Add(r, "chats.info", d.info, rpc.Tool("One chat's row: title, project, status, last reply."),
+		rpc.Read, rpc.LiveOn("chats.changed", "chats.removed"))
 	// sync keeps the phone's copy of every chat row current from a cursor.
 	rpc.Add(r, "chats.sync", d.sync)
 	rpc.Add(r, "chats.neighbors", d.neighbors)
-	rpc.Add(r, "chats.messages", d.messages)
+	rpc.Add(r, "chats.messages", d.messages, rpc.Tool("A page of one chat's messages. "+
+		"tail with a limit reads the newest; before_index pages older."),
+		rpc.Read, rpc.LiveOn("chats.changed"))
 	// Every prompt's index, so the scrubber reaches prompts not yet paged in.
 	rpc.Add(r, "chats.subagent", d.subagent)
 	// A tool sheet's calls whole, and each again as its rows land while open.
 	rpc.Add(r, "chats.tools_subscribe", d.toolsSubscribe)
 	rpc.Add(r, "chats.tools_unsubscribe", d.toolsUnsubscribe)
-	rpc.Add(r, "chats.send", d.send)
+	rpc.Add(r, "chats.send", d.send, rpc.Tool("Send a message to a chat. It starts a turn, or queues "+
+		"behind the running one; steer adds it to the running turn where the agent allows it."), rpc.Write)
 	// Remote-reachable: the caller names a project the host resolves through
 	// Contain, not an arbitrary directory.
-	rpc.Add(r, "chats.start", d.start, rpc.Detached)
-	rpc.Add(r, "chats.resolve", d.resolve)
-	rpc.Add(r, "chats.pin", d.pin)
-	rpc.Add(r, "chats.update", d.update)
+	rpc.Add(r, "chats.start", d.start, rpc.Detached, rpc.Tool("Start a new chat in a project with "+
+		"its first message."), rpc.Write)
+	rpc.Add(r, "chats.resolve", d.resolve, rpc.Tool("Resolve a chat (moves it to the done pile) or unresolve it."), rpc.Write)
+	rpc.Add(r, "chats.pin", d.pin, rpc.Tool("Pin a chat to the top of the drawer, or unpin it."), rpc.Write)
+	rpc.Add(r, "chats.update", d.update, rpc.Tool("Rename a chat. The title is written to the agent's own "+
+		"files, so its CLI shows it too."), rpc.Write)
 	rpc.Add(r, "chats.delete", d.delete)
 	// stop is Stop on a chat rather than a turn, for a caller that knows the
 	// chat is running but not which turn.
-	rpc.Add(r, "chats.stop", d.stop)
+	rpc.Add(r, "chats.stop", d.stop, rpc.Tool("Stop a chat's running turn."), rpc.Write)
 	rpc.Add(r, "chats.subscribe", d.subscribe)
 	rpc.Add(r, "chats.unsubscribe", d.unsubscribe)
 	// One chat's queued turns, fetched when its row's queue_revision moves: the row

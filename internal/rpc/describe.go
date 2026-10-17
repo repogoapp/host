@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 
@@ -29,6 +30,12 @@ func (r *Router) Describe() string {
 		if s.Detached {
 			b.WriteString("Detached: runs to completion if the caller disconnects.\n\n")
 		}
+		if s.Tool != "" {
+			b.WriteString("Tool (" + s.Effect.String() + "): " + s.Tool + "\n\n")
+		}
+		if len(s.LiveOn) > 0 {
+			b.WriteString("Live on: `" + strings.Join(s.LiveOn, "`, `") + "`\n\n")
+		}
 		b.WriteString("Params:\n\n" + fieldList(s.Params) + "\nResult:\n\n" + fieldList(s.Result))
 	}
 	return b.String()
@@ -50,4 +57,33 @@ func (r *Router) Examples() (map[string][]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+// ToolDef is one Tool method as the repogo MCP offers it to agents.
+type ToolDef struct {
+	Name        string         `json:"name"`
+	Method      string         `json:"method"`
+	Description string         `json:"description"`
+	ReadOnly    bool           `json:"read_only"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// ToolName is a method's tool name: MCP clients take letters, digits, _ and -.
+func ToolName(method string) string { return strings.ReplaceAll(method, ".", "_") }
+
+// Tools renders every Tool method as the file the repogo MCP embeds, so what
+// agents see is reviewed in a diff and stays in step with the handlers.
+func (r *Router) Tools() ([]byte, error) {
+	defs := []ToolDef{}
+	for _, s := range r.Specs() {
+		if s.Tool == "" {
+			continue
+		}
+		defs = append(defs, ToolDef{
+			Name: ToolName(s.Name), Method: s.Name, Description: s.Tool,
+			ReadOnly: s.Effect == Reads, InputSchema: wiredoc.Schema(s.Params),
+		})
+	}
+	b, err := json.MarshalIndent(defs, "", "  ")
+	return append(b, '\n'), err
 }

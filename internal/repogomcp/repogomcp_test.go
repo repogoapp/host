@@ -66,7 +66,7 @@ func newServer(t *testing.T, phone *fakePhone) *Server {
 	t.Helper()
 	return New(Config{
 		URL: func() string { return "http://127.0.0.1:1/mcp/repogo" }, On: func(string) bool { return true },
-		Browser: phone.browser, Plugins: pluginsService(t, ""), MCP: mcpService(t),
+		Browser: phone.browser, Plugins: pluginsService(t, ""), MCP: mcpServiceFunc(t),
 	})
 }
 

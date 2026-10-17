@@ -5,9 +5,13 @@ Fields are additive only: a breaking change is a new method.
 
 ## `actions.list`
 
+Tool (read): A project's actions (the commands its actions.json declares) and their runs.
+
+Live on: `actions.changed`
+
 Params:
 
-- `path` string
+- `path` string: The project's folder
 
 Result:
 
@@ -20,7 +24,7 @@ Result:
 
 Params:
 
-- `run_id` string
+- `run_id` string: The run's id, as actions.start or actions.list gives it
 
 Result:
 
@@ -31,11 +35,13 @@ Result:
 
 Detached: runs to completion if the caller disconnects.
 
+Tool (write): Run an action to the end and answer with its output.
+
 Params:
 
-- `path` string
-- `name` string
-- `secrets` object (omitted when empty) (nullable)
+- `path` string: The project's folder
+- `name` string: The action's name, as actions.list gives it
+- `secrets` object (omitted when empty) (nullable): Leave empty
 
 Result:
 
@@ -46,11 +52,13 @@ Result:
 
 ## `actions.start`
 
+Tool (write): Start an action that keeps running, such as a dev server; answers with its run.
+
 Params:
 
-- `path` string
-- `name` string
-- `secrets` object (omitted when empty) (nullable)
+- `path` string: The project's folder
+- `name` string: The action's name, as actions.list gives it
+- `secrets` object (omitted when empty) (nullable): Leave empty
 
 Result:
 
@@ -58,9 +66,11 @@ Result:
 
 ## `actions.stop`
 
+Tool (write): Stop an action's run.
+
 Params:
 
-- `run_id` string
+- `run_id` string: The run's id, as actions.start or actions.list gives it
 
 Result:
 
@@ -101,7 +111,7 @@ Result:
 
 Params:
 
-- `chat_id` string
+- `chat_id` string: The chat's id, as chats.list gives it
 
 Result:
 
@@ -111,7 +121,7 @@ Result:
 
 Params:
 
-- `chat_id` string
+- `chat_id` string: The chat's id, as chats.list gives it
 
 Result:
 
@@ -119,9 +129,13 @@ Result:
 
 ## `chats.info`
 
+Tool (read): One chat's row: title, project, status, last reply.
+
+Live on: `chats.changed`, `chats.removed`
+
 Params:
 
-- `chat_id` string
+- `chat_id` string: The chat's id, as chats.list gives it
 
 Result:
 
@@ -161,18 +175,22 @@ Result:
 
 ## `chats.list`
 
+Tool (read): List the chats on this environment, newest activity first, filtered and sorted like the chat drawer. Empty cwd is every project.
+
+Live on: `chats.changed`, `chats.removed`
+
 Params:
 
-- `cwd` string
-- `cwds` [string] (nullable)
-- `resolved` bool (nullable)
-- `agent` string
-- `sort` string
-- `order` string
-- `search` string
-- `limit` int
-- `refresh` bool
-- `cursor` string
+- `cwd` string: A project's folder; empty is every project
+- `cwds` [string] (nullable): Several projects' folders
+- `resolved` bool (nullable): true: only resolved chats; false: only open ones; omit for both
+- `agent` string: Only this agent's chats: claude, codex; empty is all
+- `sort` string: activity (default), created or title
+- `order` string: desc (default) or asc
+- `search` string: Words a chat's title, prompts or replies must all hold
+- `limit` int: Chats per page
+- `refresh` bool: Re-read the agents' files first; slow, leave false
+- `cursor` string: The previous page's next_cursor; empty starts over
 
 Result:
 
@@ -182,13 +200,17 @@ Result:
 
 ## `chats.messages`
 
+Tool (read): A page of one chat's messages. tail with a limit reads the newest; before_index pages older.
+
+Live on: `chats.changed`
+
 Params:
 
-- `chat_id` string
-- `since_index` int
-- `limit` int
-- `tail` bool
-- `before_index` int (nullable)
+- `chat_id` string: The chat's id, as chats.list gives it
+- `since_index` int: Messages after this index
+- `limit` int: Messages per page
+- `tail` bool: Read the newest messages
+- `before_index` int (nullable): Messages before this index, to page older
 
 Result:
 
@@ -208,13 +230,13 @@ Result:
 
 Params:
 
-- `cwd` string
-- `cwds` [string] (nullable)
-- `resolved` bool (nullable)
-- `agent` string
-- `sort` string
-- `order` string
-- `search` string
+- `cwd` string: A project's folder; empty is every project
+- `cwds` [string] (nullable): Several projects' folders
+- `resolved` bool (nullable): true: only resolved chats; false: only open ones; omit for both
+- `agent` string: Only this agent's chats: claude, codex; empty is all
+- `sort` string: activity (default), created or title
+- `order` string: desc (default) or asc
+- `search` string: Words a chat's title, prompts or replies must all hold
 - `chat_id` string
 
 Result:
@@ -225,10 +247,12 @@ Result:
 
 ## `chats.pin`
 
+Tool (write): Pin a chat to the top of the drawer, or unpin it.
+
 Params:
 
-- `chat_id` string
-- `pinned` bool
+- `chat_id` string: The chat's id, as chats.list gives it
+- `pinned` bool: true pins; false unpins
 
 Result:
 
@@ -238,7 +262,7 @@ Result:
 
 Params:
 
-- `chat_id` string
+- `chat_id` string: The chat's id, as chats.list gives it
 
 Result:
 
@@ -247,10 +271,12 @@ Result:
 
 ## `chats.resolve`
 
+Tool (write): Resolve a chat (moves it to the done pile) or unresolve it.
+
 Params:
 
-- `chat_id` string
-- `resolved` bool
+- `chat_id` string: The chat's id, as chats.list gives it
+- `resolved` bool: true resolves; false reopens
 
 Result:
 
@@ -258,11 +284,13 @@ Result:
 
 ## `chats.send`
 
+Tool (write): Send a message to a chat. It starts a turn, or queues behind the running one; steer adds it to the running turn where the agent allows it.
+
 Params:
 
-- `chat_id` string
-- `turn` object{Turn}
-- `steer` bool
+- `chat_id` string: The chat's id, as chats.list gives it
+- `turn` object{Turn}: The message
+- `steer` bool: Add it to the running turn instead of queueing it
 
 Result:
 
@@ -274,12 +302,14 @@ Result:
 
 Detached: runs to completion if the caller disconnects.
 
+Tool (write): Start a new chat in a project with its first message.
+
 Params:
 
-- `turn` object{Turn}
-- `cwd` string
-- `agent` string
-- `title` string
+- `turn` object{Turn}: The first message
+- `cwd` string: The project's folder
+- `agent` string: claude or codex
+- `title` string: The chat's name; empty takes the message's opening words
 - `project_agent` string (omitted when empty)
 
 Result:
@@ -289,9 +319,11 @@ Result:
 
 ## `chats.stop`
 
+Tool (write): Stop a chat's running turn.
+
 Params:
 
-- `chat_id` string
+- `chat_id` string: The chat's id, as chats.list gives it
 
 Result:
 
@@ -378,10 +410,12 @@ Result:
 
 ## `chats.update`
 
+Tool (write): Rename a chat. The title is written to the agent's own files, so its CLI shows it too.
+
 Params:
 
-- `chat_id` string
-- `title` string (nullable)
+- `chat_id` string: The chat's id, as chats.list gives it
+- `title` string (nullable): The new title
 
 Result:
 
@@ -678,7 +712,7 @@ Result:
 
 Params:
 
-- `path` string
+- `path` string: The project's folder
 
 Result:
 
@@ -687,9 +721,13 @@ Result:
 
 ## `git.changes`
 
+Tool (read): One project's changed files, staged or not.
+
+Live on: `git.changed`
+
 Params:
 
-- `path` string
+- `path` string: The project's folder
 
 Result:
 
@@ -728,9 +766,13 @@ Result:
 
 ## `git.diff`
 
+Tool (read): One project's uncommitted totals: files changed, lines added and removed. git.changes lists the files.
+
+Live on: `git.changed`
+
 Params:
 
-- `path` string
+- `path` string: The project's folder
 
 Result:
 
@@ -759,7 +801,7 @@ Detached: runs to completion if the caller disconnects.
 
 Params:
 
-- `path` string
+- `path` string: The project's folder
 
 Result:
 
@@ -780,9 +822,13 @@ Result:
 
 ## `git.status`
 
+Tool (read): Branch, ahead/behind and changed-file counts for several projects at once.
+
+Live on: `git.changed`
+
 Params:
 
-- `paths` [string]
+- `paths` [string]: Projects' folders
 
 Result:
 
@@ -1179,6 +1225,7 @@ Result:
 - `revision` int
 - `result` json (omitted when empty) (nullable)
 - `error` object{Failure} (omitted when empty) (nullable)
+- `stream` bool (omitted when empty)
 
 ## `plugins.unsubscribe`
 
@@ -1264,6 +1311,10 @@ Result:
 
 ## `projects.list`
 
+Tool (read): The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.
+
+Live on: `projects.changed`
+
 Params:
 
 - none
@@ -1333,6 +1384,10 @@ Result:
 - `ok` bool
 
 ## `schedules.list`
+
+Tool (read): The scheduled prompts on this environment, with each one's project, agent and next run.
+
+Live on: `schedules.changed`
 
 Params:
 
@@ -1604,6 +1659,10 @@ Result:
 - `ok` bool
 
 ## `tunnels.list`
+
+Tool (read): The open tunnels: each public URL and the local port it reaches.
+
+Live on: `tunnels.changed`
 
 Params:
 

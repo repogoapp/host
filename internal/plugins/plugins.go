@@ -219,9 +219,9 @@ func (s *Service) Call(ctx context.Context, path, name string, input json.RawMes
 	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input), Confirmed: confirmed})
 }
 
-// Subscribe keeps a device's query under the device's id, replacing one
-// already there; each change to its answer sends plugins.data. A plugin's
-// error on the first run subscribes nothing.
+// Subscribe keeps a device's query or stream under the device's id, replacing
+// one already there; a query's changed answer, or a stream's batch of items,
+// sends plugins.data. A plugin's error on the first run subscribes nothing.
 func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name, id string, input json.RawMessage) (Subscribed, error) {
 	if !subscriptionID.MatchString(id) {
 		return Subscribed{}, errkind.ErrInvalid.Errorf("plugins: a subscription id is 1 to 64 letters, digits, - or _")
@@ -259,11 +259,12 @@ func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name, id str
 	}
 	var first struct {
 		Result json.RawMessage `json:"result"`
+		Stream bool            `json:"stream"`
 	}
 	if err := json.Unmarshal(result, &first); err != nil {
 		return Subscribed{}, fmt.Errorf("plugins: unreadable subscribe reply: %w", err)
 	}
-	return Subscribed{Subscription: id, Revision: 1, Result: first.Result}, nil
+	return Subscribed{Subscription: id, Revision: 1, Result: first.Result, Stream: first.Stream}, nil
 }
 
 // Unsubscribe ends one of a device's subscriptions.
@@ -420,7 +421,7 @@ func (s *Service) running(ctx context.Context) (*server, error) {
 	return srv, nil
 }
 
-// pushed passes a subscription's new answer to its device.
+// pushed passes a subscription's news to its device.
 func (s *Service) pushed(p push) {
 	s.mu.Lock()
 	sub, ok := s.subs[p.Subscription]
@@ -429,7 +430,7 @@ func (s *Service) pushed(p push) {
 		return
 	}
 	sub.revision++
-	data := Data{Subscription: sub.id, Revision: sub.revision, Result: p.Result, Error: p.Error.toError()}
+	data := Data{Subscription: sub.id, Revision: sub.revision, Result: p.Result, Items: p.Items, Done: p.Done, Error: p.Error.toError()}
 	d := sub.device
 	s.mu.Unlock()
 	if err := s.cfg.Emit(d, data); err != nil {
@@ -473,7 +474,8 @@ func (s *Service) lost(srv *server) {
 }
 
 // resubscribe takes every subscription up on a new server, under the same
-// ids, and sends each device its answer as a push.
+// ids, and sends each device its answer as a push: a stream's is empty, so
+// the device drops what it held as the stream starts over.
 func (s *Service) resubscribe() {
 	srv, err := s.running(s.ctx)
 	if err != nil {

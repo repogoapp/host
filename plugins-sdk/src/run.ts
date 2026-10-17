@@ -49,8 +49,8 @@ if (import.meta.main && process.argv[2] === "serve") {
     socket: resolve(process.env.REPOGO_PLUGINS_SOCKET ?? join(home, "plugins.sock")),
     dataDir: resolve(process.env.REPOGO_DATA_DIR ?? join(home, "plugin-data")),
   });
-  const stop = () => {
-    server.stop();
+  const stop = async () => {
+    await server.stop();
     process.exit(0);
   };
   process.on("SIGTERM", stop);

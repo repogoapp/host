@@ -55,10 +55,13 @@ type reply struct {
 	err    *wireError
 }
 
-// push is a subscription's new answer as the server sends it.
+// push is a subscription's news as the server sends it: a query's new answer,
+// or a stream's new items and its end.
 type push struct {
 	Subscription string          `json:"subscription"`
 	Result       json.RawMessage `json:"result"`
+	Items        json.RawMessage `json:"items"`
+	Done         bool            `json:"done"`
 	Error        *wireError      `json:"error"`
 }
 

@@ -8,7 +8,7 @@ import type { DataPush, FromWorker, NotifyPush, Reply, Request, ToWorker } from 
 // The plugins server: one process for every project on this machine, listening on
 // a Unix socket the host connects to. Each project checkout's plugins run in their
 // own Worker; this thread routes requests to them and keeps the subscriptions,
-// sending a subscription's result only when it changed.
+// sending a query's result only when it changed, and a stream's items as they come.
 
 export type ServeOptions = {
   /** The socket's path; created with mode 0600. */
@@ -38,6 +38,8 @@ type Subscription = {
   input: unknown;
   root?: string;
   revision: number;
+  /** A stream's pushes add items, so each one goes out; a query's go only when changed. */
+  stream: boolean;
   /** Of the last result or error sent, so an unchanged re-run sends nothing. */
   hash: string;
   /** The Worker's id for it: new on each subscribe and restart, so an answer
@@ -48,7 +50,10 @@ type Subscription = {
 /** A subscribe waiting on its first answer. */
 type Pending = { connection: Connection; checkout: string; key: string };
 
-type Answer = { result: unknown } | { error: CallError };
+type Answer = { result: unknown; stream?: true } | { error: CallError };
+
+/** How long a stopping Worker gets to abort its streams before it is ended. */
+const stopGraceMs = 1000;
 
 /** One checkout's plugins in a Worker: requests out, replies and pushes back. */
 class Checkout {
@@ -56,6 +61,7 @@ class Checkout {
   private waiting = new Map<number, (answer: Answer) => void>();
   private nextID = 0;
   private stopping = false;
+  private stopped: (() => void) | null = null;
 
   constructor(
     readonly dir: string,
@@ -71,10 +77,11 @@ class Checkout {
     this.worker = new Worker(new URL(import.meta.url.endsWith(".ts") ? "./worker.ts" : "./worker.js", import.meta.url));
     this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
       const message = event.data;
+      if (message.type === "stopped") return this.stopped?.();
       if (message.type !== "reply") return this.onMessage(this, message);
       const resolve = this.waiting.get(message.id);
       this.waiting.delete(message.id);
-      resolve?.("error" in message ? { error: message.error } : { result: message.result });
+      resolve?.("error" in message ? { error: message.error } : { result: message.result, ...(message.stream ? { stream: true as const } : {}) });
     };
     this.worker.addEventListener("close", () => {
       this.failWaiting("The project's plugins stopped.");
@@ -96,9 +103,16 @@ class Checkout {
     this.worker.postMessage(message);
   }
 
-  stop() {
+  /** Ends the Worker once its streams have aborted, so a process one started
+   *  doesn't outlive it; one that doesn't answer is ended anyway. */
+  async stop() {
     this.stopping = true;
     this.failWaiting("The project's plugins reloaded.");
+    await new Promise<void>((resolve) => {
+      this.stopped = resolve;
+      setTimeout(resolve, stopGraceMs);
+      this.post({ type: "stop" });
+    });
     this.worker.terminate();
   }
 
@@ -134,6 +148,18 @@ export async function serve(options: ServeOptions) {
       if (id) deliver(id, "error" in message ? { error: message.error } : { result: message.result });
       return;
     }
+    if (message.type === "items") {
+      const id = byKey.get(message.subscription);
+      const subscription = id ? subscriptions.get(id) : undefined;
+      if (!id || !subscription) return;
+      subscription.revision += 1;
+      const { items, done, error } = message;
+      send(subscription.connection, {
+        method: "data",
+        params: { subscription: id, revision: subscription.revision, items, ...(done ? { done } : {}), ...(error ? { error } : {}) },
+      });
+      return;
+    }
     if (message.type === "invalidated") {
       // Any other Worker may read the same database: a shared db, or a worktree.
       for (const checkout of checkouts.values()) {
@@ -151,18 +177,20 @@ export async function serve(options: ServeOptions) {
     const subscription = subscriptions.get(id);
     if (!subscription) return;
     const hash = hashOf(answer);
-    if (hash === subscription.hash) return;
+    if (!subscription.stream && hash === subscription.hash) return;
     subscription.hash = hash;
     subscription.revision += 1;
-    const push: DataPush = { method: "data", params: { subscription: id, revision: subscription.revision, ...answer } };
+    const news = "error" in answer ? { error: answer.error } : { result: answer.result };
+    const push: DataPush = { method: "data", params: { subscription: id, revision: subscription.revision, ...news } };
     send(subscription.connection, push);
   }
 
   // A new Worker for the checkout, with its subscriptions taken up again: their
-  // results go out as pushes if the new code answers differently.
+  // results go out as pushes if the new code answers differently. A stream
+  // starts over, and its empty result tells the device to drop what it held.
   function restart(old: Checkout) {
     if (checkouts.get(old.dir) !== old) return;
-    old.stop();
+    void old.stop();
     const checkout = new Checkout(old.dir, options.dataDir, fromWorker, restart);
     checkouts.set(old.dir, checkout);
     for (const [id, subscription] of subscriptions) {
@@ -210,9 +238,10 @@ export async function serve(options: ServeOptions) {
         }
         pending.delete(subscription);
         if ("error" in answer) return { id, ...answer };
-        subscriptions.set(subscription, { connection, checkout: checkout.dir, name, input, root, revision: 1, hash: hashOf(answer), key });
+        const stream = "stream" in answer && answer.stream === true;
+        subscriptions.set(subscription, { connection, checkout: checkout.dir, name, input, root, revision: 1, stream, hash: hashOf(answer), key });
         byKey.set(key, subscription);
-        return { id, result: { subscription, revision: 1, result: answer.result } };
+        return { id, result: { subscription, revision: 1, result: answer.result, ...(stream ? { stream } : {}) } };
       }
       case "unsubscribe": {
         unsubscribe(request.params.subscription);
@@ -292,10 +321,11 @@ export async function serve(options: ServeOptions) {
   await chmod(options.socket, 0o600);
 
   return {
-    stop() {
+    async stop() {
       listener.stop(true);
-      for (const checkout of checkouts.values()) checkout.stop();
+      const stopping = [...checkouts.values()].map((checkout) => checkout.stop());
       checkouts.clear();
+      await Promise.all(stopping);
       subscriptions.clear();
       void rm(options.socket, { force: true });
     },

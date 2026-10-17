@@ -20,6 +20,7 @@ import (
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/plugins"
+	"github.com/repogoapp/host/internal/rpc"
 )
 
 // Path is where the host's loopback server mounts the handler.
@@ -42,9 +43,13 @@ type Config struct {
 	Browser *Browser
 	// Plugins runs project plugins; a host without the SDK offers no plugin tools.
 	Plugins *plugins.Service
-	// MCP is the servers the user connected; a project with some switched on gets mcp_tools.
-	MCP *mcp.Service
-	Log *slog.Logger
+	// MCP is the servers the user connected, opened after this server; a project
+	// with some switched on gets mcp_tools.
+	MCP func() *mcp.Service
+	// Router serves the host's own methods marked rpc.Tool; it is built after
+	// this server, and nil leaves those tools out.
+	Router func() *rpc.Router
+	Log    *slog.Logger
 }
 
 type Server struct {
@@ -169,6 +174,9 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 		if s.withMCP(session.cwd) {
 			tools = append(tools, mcpToolsTool)
 		}
+		if s.router() != nil {
+			tools = append(tools, hostToolList()...)
+		}
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":
 		var p struct {
@@ -190,6 +198,9 @@ func (s *Server) instructions(cwd string) string {
 	}
 	if s.withMCP(cwd) {
 		out += mcpToolsInstructions
+	}
+	if s.router() != nil {
+		out += hostToolsInstructions
 	}
 	return out
 }
@@ -222,15 +233,31 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 			return pluginsTools(s.cfg.Plugins, turn, name, args)
 		}
 	case mcpToolsTool.Name:
-		return mcpTools(s.cfg.MCP, turn)
+		return mcpTools(s.cfg.MCP(), turn)
+	}
+	if def, ok := hostTool(name); ok && s.router() != nil {
+		return callHost(s.router(), turn, def, args)
 	}
 	return failed("unknown tool: " + name)
+}
+
+func (s *Server) router() *rpc.Router {
+	if s.cfg.Router == nil {
+		return nil
+	}
+	return s.cfg.Router()
 }
 
 type tool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Annotations *annotations   `json:"annotations,omitempty"`
+}
+
+// annotations are MCP's hints about a tool; a client may skip asking before a read.
+type annotations struct {
+	ReadOnlyHint bool `json:"readOnlyHint,omitempty"`
 }
 
 // toolResult is MCP's CallToolResult.

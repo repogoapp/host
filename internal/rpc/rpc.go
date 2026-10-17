@@ -88,7 +88,35 @@ type Spec struct {
 	// Unpaired lets a device the host has not paired call it; the pairing code guards it instead.
 	Unpaired bool
 
+	// Tool is what an agent or a card is told the method does; empty keeps it
+	// from both. Effect and LiveOn only mean something on a Tool method.
+	Tool   string
+	Effect Effect
+	// LiveOn is the events after which a Read may answer differently, so a
+	// card showing it reloads.
+	LiveOn []string
+
 	Params, Result reflect.Type
+}
+
+// Effect is whether a Tool method only reads, which decides where a card may
+// call it: a Read feeds a card's Data, a Write runs only from a tap.
+type Effect uint8
+
+const (
+	NoEffect Effect = iota
+	Reads
+	Writes
+)
+
+func (e Effect) String() string {
+	switch e {
+	case Reads:
+		return "read"
+	case Writes:
+		return "write"
+	}
+	return "none"
 }
 
 type Option func(*Spec)
@@ -98,7 +126,32 @@ var (
 	Paired   Option = func(s *Spec) { s.Access = PairedOnly }
 	Detached Option = func(s *Spec) { s.Detached = true }
 	Unpaired Option = func(s *Spec) { s.Unpaired = true }
+
+	Read  Option = func(s *Spec) { s.Effect = Reads }
+	Write Option = func(s *Spec) { s.Effect = Writes }
 )
+
+// Tool offers a method to agents (the repogo MCP) and cards (`repogo:`).
+func Tool(description string) Option { return func(s *Spec) { s.Tool = description } }
+
+// LiveOn names the events that change a Read's answer.
+func LiveOn(events ...string) Option { return func(s *Spec) { s.LiveOn = events } }
+
+// check refuses a Tool the agents and cards could not call safely. Agents and
+// cards act for the user at the machine and on the phone at once, so a method
+// limited to one of them is not a Tool.
+func (s Spec) check() {
+	switch {
+	case s.Tool == "" && (s.Effect != NoEffect || len(s.LiveOn) > 0):
+		panic("rpc: " + s.Name + " has Read, Write or LiveOn without Tool")
+	case s.Tool != "" && s.Effect == NoEffect:
+		panic("rpc: Tool " + s.Name + " needs Read or Write")
+	case s.Tool != "" && s.Access != Anyone:
+		panic("rpc: Tool " + s.Name + " is limited to local or paired callers")
+	case len(s.LiveOn) > 0 && s.Effect != Reads:
+		panic("rpc: " + s.Name + " is LiveOn but not a Read")
+	}
+}
 
 type handler func(context.Context, Caller, json.RawMessage) (any, error)
 
@@ -124,6 +177,7 @@ func Add[P, R any](r *Router, name string, fn func(context.Context, Caller, P) (
 	for _, opt := range opts {
 		opt(&spec)
 	}
+	spec.check()
 	r.methods[name] = method{Spec: spec, fn: func(ctx context.Context, c Caller, raw json.RawMessage) (any, error) {
 		var p P
 		if err := jsonrpc.Into(raw, &p); err != nil {

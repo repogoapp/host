@@ -5,12 +5,25 @@ import { Runtime } from "./runtime";
 
 // One project checkout's plugins, in a Worker of the plugins server: its own module
 // cache, so reloading the code is ending this Worker and starting another.
-// It keeps the subscriptions' queries and re-runs those a write touched.
+// It keeps the subscriptions' queries and re-runs those a write touched, and
+// runs the subscriptions' streams, sending their items in batches.
 
 declare var self: Worker;
 
 /** How long writes gather before the queries they touched re-run, so a burst is one re-run. */
 const settleMs = Number(process.env.REPOGO_PLUGINS_SETTLE_MS ?? 100);
+
+/** The most items one batch carries; a faster stream loses its oldest. */
+const batchLimit = 500;
+
+type Stream = {
+  abort: AbortController;
+  /** Settles once the plugin's code has returned, after what it started has exited. */
+  ended: Promise<unknown>;
+  /** Items since the last batch went out. */
+  items: unknown[];
+  sending: Timer | null;
+};
 
 type Subscription = {
   name: string;
@@ -30,6 +43,7 @@ const subscriptions = new Map<string, Subscription>();
 /** Subscribes whose first run is still out; an unsubscribe meanwhile removes
  *  the key, and the run then registers nothing. */
 const starting = new Set<string>();
+const streams = new Map<string, Stream>();
 const touched = new Set<string>();
 let settling: Timer | null = null;
 
@@ -48,14 +62,27 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   if (message.type === "unsubscribe") {
     starting.delete(message.subscription);
     subscriptions.delete(message.subscription);
+    endStream(message.subscription);
     return;
+  }
+  if (message.type === "stop") {
+    const ending = [...streams.values()].map((stream) => stream.ended);
+    for (const key of [...streams.keys()]) endStream(key);
+    // The plugins' code gets to see its children exit, so none is left unreaped.
+    await Promise.allSettled(ending);
+    return post({ type: "stopped" });
   }
   if (!runtime || loadError) {
     return post({ type: "reply", id: message.id, error: loadError ?? { code: "INTERNAL", message: "The plugins did not open." } });
   }
   if (message.type === "list") return post({ type: "reply", id: message.id, result: runtime.manifest() });
   if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.root);
-  if (message.type === "subscribe") return subscribe(message.id, message.subscription, message.name, message.input, message.root);
+  if (message.type === "subscribe") {
+    if (runtime.methods.get(message.name)?.kind === "stream") {
+      return subscribeStream(message.id, message.subscription, message.name, message.input, message.root);
+    }
+    return subscribe(message.id, message.subscription, message.name, message.input, message.root);
+  }
 };
 
 async function open(dir: string, dataDir: string, root: string) {
@@ -119,4 +146,46 @@ async function refresh(key: string, subscription: Subscription) {
   if ("error" in answer) return post({ type: "data", subscription: key, error: answer.error });
   subscription.reads = new Set(answer.reads);
   post({ type: "data", subscription: key, result: answer.result });
+}
+
+// A stream starts empty and answers at once; its items follow as batches, one
+// per settle window, so a chatty source is a push every 100 ms, not per line.
+function subscribeStream(id: number, key: string, name: string, input: unknown, root?: string) {
+  const stream: Stream = { abort: new AbortController(), ended: Promise.resolve(), items: [], sending: null };
+  try {
+    stream.ended = runtime!.stream(name, input, { root, signal: stream.abort.signal }, (item) => {
+      stream.items.push(item);
+      if (stream.items.length > batchLimit) stream.items.shift();
+      stream.sending ??= setTimeout(() => send(key, stream), settleMs);
+    });
+  } catch (error) {
+    return post({ type: "reply", id, error: toCallError(error) });
+  }
+  streams.set(key, stream);
+  post({ type: "reply", id, result: [], stream: true });
+  stream.ended.then(
+    () => send(key, stream, {}),
+    (error) => send(key, stream, { error: toCallError(error) }),
+  );
+}
+
+/** Sends what the stream gathered; `end` also says it's over, and why when it failed. */
+function send(key: string, stream: Stream, end?: { error?: CallError }) {
+  if (stream.sending) clearTimeout(stream.sending);
+  stream.sending = null;
+  // Ended by an unsubscribe or a stop: nobody is listening.
+  if (streams.get(key) !== stream) return;
+  const items = stream.items;
+  stream.items = [];
+  if (!end) return post({ type: "items", subscription: key, items });
+  streams.delete(key);
+  post({ type: "items", subscription: key, items, done: true, ...(end.error ? { error: end.error } : {}) });
+}
+
+function endStream(key: string) {
+  const stream = streams.get(key);
+  if (!stream) return;
+  streams.delete(key);
+  if (stream.sending) clearTimeout(stream.sending);
+  stream.abort.abort();
 }

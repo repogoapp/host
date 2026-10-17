@@ -19,6 +19,12 @@ plugin of the same name wins. Write one with definePlugin from
 method(input, run, { kind: "query" }); a method that can't be undone
 takes confirm: "Delete every item?"). A method gets ctx.root, the
 project's folder, and may read its files, run its CLIs or call APIs.
+For what keeps coming (log tails, build output, progress), write
+stream(input, async function* (input, ctx) { … yield item }): it runs
+while a card shows it, sends each yield as it happens, and ctx.signal
+aborts when the card goes, so pass it on (Bun.spawn(cmd, { signal:
+ctx.signal })). Give items an id. Like a query it may not write;
+plugin_call on one returns what arrives within 5 s, at most 200 items.
 The `plugins` tool lists them and `plugin_call` runs one; call a new
 method once before a card names it.
 

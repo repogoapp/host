@@ -45,6 +45,13 @@ type InvalidationListener = (tags: string[]) => void;
 export type SentNotice = Notice & { plugin: string; root: string };
 type NoticeListener = (notice: SentNotice) => void;
 
+/** What an agent's call to a stream gets: the items within this long, or this many. */
+const sampleMs = Number(process.env.REPOGO_PLUGINS_SAMPLE_MS ?? 5000);
+const sampleLimit = 200;
+
+/** A call that isn't a stream has a signal that never aborts. */
+const never = new AbortController().signal;
+
 const pluginName = /^[a-z][a-z0-9-]*$/;
 const dbName = /^[a-z][a-z0-9.-]*$/;
 
@@ -67,6 +74,8 @@ export class Runtime {
 
   /** The caller's project while a call runs, for plugins that serve every project. */
   private callRoot = new AsyncLocalStorage<string>();
+  /** A running stream's signal, `ctx.signal` to the code it runs. */
+  private callSignal = new AsyncLocalStorage<AbortSignal>();
 
   /** `root` is the project's checkout, `ctx.root` to its plugins; the working directory when left out. */
   static async open(options: { dataDir: string; root?: string }) {
@@ -104,6 +113,7 @@ export class Runtime {
     const ctx: Context = {
       plugin: name,
       get root() { return runtime.callRoot.getStore() ?? runtime.root; },
+      get signal() { return runtime.callSignal.getStore() ?? never; },
       db,
       call: async (method, input) => (await this.call(method.includes(".") ? method : `${name}.${method}`, input)).result,
       emit: (event, payload) => this.events.emit(`${name}.${event}`, payload),
@@ -153,9 +163,10 @@ export class Runtime {
     const method = this.methods.get(name);
     if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
     if (method.confirm && options.confirmed === false) throw new MethodError("CONFIRM", method.confirm);
-    if ((options.expect === "query" || currentAccess()?.readOnly) && method.kind !== "query") {
+    if ((options.expect === "query" || currentAccess()?.readOnly) && method.kind === "mutation") {
       throw new MethodError("FORBIDDEN", `${name} changes data, so it only runs when the user acts.`);
     }
+    if (method.kind === "stream") return { result: await this.sample(name, input), reads: [], invalidates: [] };
     const raw = input ?? {};
     const parsed = method.input.parse(raw);
     // A query is read-only however it's called, and so is everything it calls.
@@ -169,6 +180,51 @@ export class Runtime {
     if (invalidates.length > 0) this.notifyInvalidated(invalidates);
     if (!run.ok) throw run.error;
     return { result: run.value ?? null, reads: [...run.access.reads], invalidates };
+  }
+
+  /**
+   * Runs a stream method, passing each item it yields to `onItem` until it
+   * returns, throws or `signal` aborts. Bad input throws here, before it starts.
+   */
+  stream(name: string, input: unknown, options: { root?: string; signal: AbortSignal }, onItem: (item: unknown) => void): Promise<void> {
+    const method = this.methods.get(name);
+    if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
+    if (method.kind !== "stream") throw new MethodError("VALIDATION", `${name} is a ${method.kind}, not a stream.`);
+    const raw = input ?? {};
+    const parsed = method.input.parse(raw);
+    const root = options.root ?? this.callRoot.getStore() ?? this.root;
+    return this.callRoot.run(root, () => this.callSignal.run(options.signal, async () => {
+      // Read-only like a query: a stream a card starts on its own may not write.
+      const run = await tracked(true, (tags) => this.notifyInvalidated(tags), async () => {
+        const items = await method.run(parsed, raw);
+        if (!isAsyncIterable(items)) throw new MethodError("INTERNAL", `${name} is a stream but returned no async iterable.`);
+        for await (const item of items) {
+          if (options.signal.aborted) break;
+          onItem(item);
+        }
+      });
+      if (!run.ok && !options.signal.aborted) throw run.error;
+    }));
+  }
+
+  /** A stream called once, by an agent or by code: what arrives within `sampleMs`, at most `sampleLimit` items. */
+  private async sample(name: string, input: unknown) {
+    const items: unknown[] = [];
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), sampleMs);
+    try {
+      const stopped = new Promise<void>((resolve) => stop.signal.addEventListener("abort", () => resolve()));
+      const ended = this.stream(name, input, { signal: stop.signal }, (item) => {
+        items.push(item);
+        if (items.length >= sampleLimit) stop.abort();
+      });
+      await Promise.race([ended, stopped]);
+      // Done is the stream ending on its own, not being cut off here.
+      return { items, done: !stop.signal.aborted };
+    } finally {
+      clearTimeout(timer);
+      stop.abort();
+    }
   }
 
   /** Notices plugins send, for the host to push to the phones. */
@@ -259,4 +315,8 @@ export class Runtime {
       return null;
     }, "Delete this record?");
   }
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return typeof (value as AsyncIterable<unknown> | null)?.[Symbol.asyncIterator] === "function";
 }

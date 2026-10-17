@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { definePlugin, method, MethodError, toCallError, z } from "../src";
+import { definePlugin, method, MethodError, stream, toCallError, z } from "../src";
 import { Runtime } from "../src/runtime";
 
 const notes = definePlugin({
@@ -282,4 +282,62 @@ test("a null filter matches stored nulls", async () => {
   await runtime.call("nulls.items.create", { n: null });
   await runtime.call("nulls.items.create", { n: 1 });
   expect((await runtime.call("nulls.empty")).result).toBe(1);
+});
+
+const ticker = definePlugin({
+  collections: { marks: z.object({ at: z.number() }) },
+  methods: {
+    ticks: stream(z.object({ count: z.number() }), async function* ({ count }, ctx) {
+      for (let i = 1; i <= count && !ctx.signal.aborted; i++) {
+        yield i;
+        await Bun.sleep(1);
+      }
+    }),
+    forever: stream(z.object({}), async function* () {
+      for (let i = 1; ; i++) {
+        yield i;
+        await Bun.sleep(1);
+      }
+    }),
+    writes: stream(z.object({}), async function* (_, ctx) {
+      yield await ctx.db.marks.create({ at: 1 });
+    }),
+  },
+});
+
+test("a stream passes each item on, and its signal aborts it", async () => {
+  await open();
+  await runtime.add("ticker", ticker);
+  const seen: unknown[] = [];
+  await runtime.stream("ticker.ticks", { count: 3 }, { signal: new AbortController().signal }, (item) => seen.push(item));
+  expect(seen).toEqual([1, 2, 3]);
+
+  const stop = new AbortController();
+  const cut: unknown[] = [];
+  await runtime.stream("ticker.forever", {}, { signal: stop.signal }, (item) => {
+    cut.push(item);
+    if (cut.length === 2) stop.abort();
+  });
+  expect(cut).toEqual([1, 2]);
+});
+
+test("a stream refuses bad input before it starts, and may not write", async () => {
+  await open();
+  await runtime.add("ticker", ticker);
+  const signal = new AbortController().signal;
+  expect(() => runtime.stream("ticker.ticks", { count: "x" }, { signal }, () => {})).toThrow();
+  expect(() => runtime.stream("notes.count", {}, { signal }, () => {})).toThrow("not a stream");
+  const failed = await runtime.stream("ticker.writes", {}, { signal }, () => {}).catch(toCallError);
+  expect(failed).toMatchObject({ code: "FORBIDDEN" });
+});
+
+test("calling a stream returns what it sent, and whether it ended", async () => {
+  await open();
+  await runtime.add("ticker", ticker);
+  expect((await runtime.call("ticker.ticks", { count: 2 })).result).toEqual({ items: [1, 2], done: true });
+  const capped = (await runtime.call("ticker.forever", {})).result as { items: unknown[]; done: boolean };
+  expect(capped.items).toHaveLength(200);
+  expect(capped.done).toBe(false);
+  const methods = runtime.manifest().plugins.find((p) => p.name === "ticker")!.methods;
+  expect(methods.find((m) => m.name === "ticker.ticks")?.kind).toBe("stream");
 });

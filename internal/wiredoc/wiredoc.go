@@ -19,6 +19,9 @@ func List(t reflect.Type) string {
 		if f.Nullable {
 			b.WriteString(" (nullable)")
 		}
+		if f.Doc != "" {
+			b.WriteString(": " + f.Doc)
+		}
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -120,13 +123,14 @@ func field(v reflect.Value, index []int) reflect.Value {
 }
 
 // Field is one JSON key: its name, its Go type, a readable type, and whether
-// it may be omitted or nullable; wire:"array" requires a non-null slice.
+// it may be omitted or nullable; wire:"array" requires a non-null slice. Doc
+// is its doc:"…" tag, what an agent calling the method is told about it.
 type Field struct {
-	Name, Kind string
-	Type       reflect.Type
-	Index      []int
-	Omitted    bool
-	Nullable   bool
+	Name, Kind, Doc string
+	Type            reflect.Type
+	Index           []int
+	Omitted         bool
+	Nullable        bool
 }
 
 // Fields walks the struct the way encoding/json will, flattening embedded
@@ -165,7 +169,7 @@ func Fields(t reflect.Type) []Field {
 		omitted := strings.Contains(opts, "omitempty")
 		nullable := k == reflect.Pointer || k == reflect.Map || k == reflect.Interface ||
 			(k == reflect.Slice && f.Tag.Get("wire") != "array")
-		out = append(out, Field{Name: name, Kind: kindOf(f.Type), Type: f.Type,
+		out = append(out, Field{Name: name, Kind: kindOf(f.Type), Doc: f.Tag.Get("doc"), Type: f.Type,
 			Index: []int{i}, Omitted: omitted, Nullable: nullable})
 	}
 	return out

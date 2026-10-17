@@ -22,6 +22,22 @@ export default definePlugin({
 });
 ```
 
+A `stream` sends items as they happen, for as long as a card shows it. Each
+`yield` is one item; `ctx.signal` aborts when the card goes, so hand it to what
+you start:
+
+```ts
+tail: stream(z.object({ file: z.string() }), async function* ({ file }, ctx) {
+  const tail = Bun.spawn(["tail", "-f", file], { signal: ctx.signal });
+  let partial = "";
+  for await (const chunk of tail.stdout.pipeThrough(new TextDecoderStream())) {
+    const lines = (partial + chunk).split("\n");
+    partial = lines.pop()!;
+    for (const line of lines) yield { id: crypto.randomUUID(), text: line };
+  }
+}),
+```
+
 `db` names the SQLite file the collections live in, `~/.repogo/plugin-data/<db>.db`
 on the environment; left out, it is the plugin's folder name. Name a project's own
 data `<project>.<name>`. A bare name (`todos`) is shared by every plugin that

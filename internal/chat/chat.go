@@ -181,9 +181,9 @@ func (s *Service) Subagent(id store.ChatID, callID string) (session.Subagent, er
 // turn keeps: its prompt, its settings and its files. Per-turn, not stored;
 // an empty setting is the agent's default.
 type Turn struct {
-	Prompt      string           `json:"prompt"`
-	Config      agent.TurnConfig `json:"config"`
-	Attachments []agent.Upload   `json:"attachments"`
+	Prompt      string           `json:"prompt" doc:"The message text"`
+	Config      agent.TurnConfig `json:"config" doc:"Model and modes; empty keeps the chat's own"`
+	Attachments []agent.Upload   `json:"attachments" doc:"Files sent with it; usually empty"`
 
 	// Device is the caller, set from its connection; see agent.TurnRequest.
 	Device device.ID `json:"-"`
@@ -331,7 +331,7 @@ func (s *Service) Pin(id store.ChatID, pinned bool) (store.Chat, error) {
 
 // Update is what a user changes on a chat; a nil field is left as it is.
 type Update struct {
-	Title *string `json:"title"`
+	Title *string `json:"title" doc:"The new title"`
 }
 
 // titleMaxRunes keeps a title to what a list row and the CLI's picker show.

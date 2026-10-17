@@ -4,6 +4,10 @@
   "result": {
     "result": "result"
   },
+  "items": {
+    "items": "items"
+  },
+  "done": true,
   "error": {
     "code": "code",
     "message": "message",

@@ -15,15 +15,15 @@ type Deps struct {
 }
 
 type ActionParams struct {
-	Path string `json:"path"`
-	Name string `json:"name"`
+	Path string `json:"path" doc:"The project's folder"`
+	Name string `json:"name" doc:"The action's name, as actions.list gives it"`
 	// Secrets is the variables of the action's envFrom handles that this
 	// host does not bind, read by the phone, keyed by handle.
-	Secrets map[string]map[string]string `json:"secrets,omitempty"`
+	Secrets map[string]map[string]string `json:"secrets,omitempty" doc:"Leave empty"`
 }
 
 type ListParams struct {
-	Path string `json:"path"`
+	Path string `json:"path" doc:"The project's folder"`
 }
 
 type StartResult struct {
@@ -31,17 +31,20 @@ type StartResult struct {
 }
 
 type RunParams struct {
-	RunID string `json:"run_id"`
+	RunID string `json:"run_id" doc:"The run's id, as actions.start or actions.list gives it"`
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "actions.list", d.list)
+	rpc.Add(r, "actions.list", d.list, rpc.Tool("A project's actions (the commands its actions.json declares) and "+
+		"their runs."), rpc.Read, rpc.LiveOn("actions.changed"))
 	// run blocks until the command finishes and answers with its output. The
 	// client sets its call timeout from the action's own timeoutMs, so a slow
 	// action is the caller's informed choice; it runs to the end regardless.
-	rpc.Add(r, "actions.run", d.run, rpc.Detached)
-	rpc.Add(r, "actions.start", d.start)
-	rpc.Add(r, "actions.stop", d.stop)
+	rpc.Add(r, "actions.run", d.run, rpc.Detached, rpc.Tool("Run an action to the end and answer "+
+		"with its output."), rpc.Write)
+	rpc.Add(r, "actions.start", d.start, rpc.Tool("Start an action that keeps running, such as a dev "+
+		"server; answers with its run."), rpc.Write)
+	rpc.Add(r, "actions.stop", d.stop, rpc.Tool("Stop an action's run."), rpc.Write)
 	rpc.Add(r, "actions.output", d.output)
 }
 
