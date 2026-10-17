@@ -72,7 +72,7 @@ Item: one row: label, optional icon (SF Symbol, on a colored tile),
   Swipe children (label, icon, color, role="destructive", action, Params)
   are its swipe actions, a long-press menu where it can't swipe.
   The row lays itself out (no Spacer); a chevron shows for push:,
-  present:, page:, open: and browse:. Prefer a List of Items over Rows
+  present:, page: and open:. Prefer a List of Items over Rows
   inside Buttons for lists and settings.
 
 Prefer Radio for 2–5 choices visible at once, Select for longer lists,
@@ -124,9 +124,8 @@ send:<text> — send the user's next message to the agent.
 append:<text> — add text to the user's prompt bar after what they typed,
   unsent, for them to finish or send.
 copy:<text> — copy text.
-open:<url> — open an absolute https or http link in a Safari sheet over the app.
-browse:<url> — the same, for a link that may read {{…}} (browse:{{p.url}});
-  a hold offers the project's browser tab.
+open:<url> — open an absolute https or http link in a Safari sheet over
+  the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
 page:<project path> — open one of the project's pages, from a tab page or
@@ -142,7 +141,7 @@ then="push:detail" after set: or toggle: runs a second, local action:
 {{name}} reads the current state value in Text, Badge, Markdown, the labels of
 Buttons, Menus, Items, Toggles and fields, Item subtitle and detail, field and
 Section footers, Section labels, Route titles, Image url and alt, Icon alt,
-set: values, and send:/append:/copy:/browse: payloads. No interpolation elsewhere. A filter
+set: values, and send:/append:/copy:/open: payloads. No interpolation elsewhere. A filter
 writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
 current), date, time, datetime, number (number:2), currency:USD, percent
 (0.42 is 42%), bytes. Dates are ISO 8601 or Unix seconds or milliseconds.
@@ -225,7 +224,7 @@ Example:
     <Item icon="bell.badge.fill" iconColor="red" label="Alerts">
       <Toggle name="alerts" label="Alerts" value="true"/>
     </Item>
-    <Item icon="book.fill" label="Docs" action="browse:https://repogo.app/docs"/>
+    <Item icon="book.fill" label="Docs" action="open:https://repogo.app/docs"/>
   </Section>
 </List>
 ```
