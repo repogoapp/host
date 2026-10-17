@@ -1,5 +1,5 @@
 import type { CallError } from "./errors";
-import type { Manifest } from "./runtime";
+import type { Manifest, SentNotice } from "./runtime";
 
 // What the host and the plugins server say to each other over the socket: one JSON
 // object per line. A request carries an `id` and gets one reply with that `id`;
@@ -32,6 +32,9 @@ export type DataPush = {
   params: { subscription: string; revision: number } & ({ result: unknown } | { error: CallError });
 };
 
+/** A plugin's alert for the phones, for the host to push. */
+export type NotifyPush = { method: "notify"; params: SentNotice };
+
 // Between the server and a project's Worker.
 
 export type ToWorker =
@@ -49,6 +52,8 @@ export type FromWorker =
   | { type: "data"; subscription: string; result: unknown }
   | { type: "data"; subscription: string; error: CallError }
   /** This Worker wrote these tags; the other Workers re-run what read them. */
-  | { type: "invalidated"; tags: string[] };
+  | { type: "invalidated"; tags: string[] }
+  /** A plugin here sent an alert. */
+  | { type: "notified"; notice: SentNotice };
 
 export type { Manifest };

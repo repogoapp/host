@@ -164,6 +164,32 @@ func (n *Notifier) deliver(ctx context.Context, notice notify.Notice, a alert) {
 	n.push(ctx, chatID, payload)
 }
 
+// PluginNotice is a plugin's alert: `plugins.Notice` as this package takes it.
+type PluginNotice struct {
+	Plugin, Root, Title, Body, Page, Collapse string
+}
+
+// Plugin pushes a plugin's alert to every paired phone. A tap opens the
+// project's page the notice names, with its parameters.
+func (n *Notifier) Plugin(ctx context.Context, notice PluginNotice) {
+	payload, _ := json.Marshal(map[string]any{
+		"aps": map[string]any{
+			"alert":     map[string]string{"title": notice.Title, "body": notice.Body},
+			"sound":     "default",
+			"thread-id": "plugin:" + notice.Plugin,
+		},
+		"host_id": n.store.Identity().ID,
+		"project": notice.Root,
+		"plugin":  notice.Plugin,
+		"page":    notice.Page,
+	})
+	collapse := notice.Collapse
+	if collapse == "" {
+		collapse = notice.Plugin + ":" + notice.Title
+	}
+	n.push(ctx, collapse, payload)
+}
+
 // push sends one APNs payload to every paired phone with a token.
 func (n *Notifier) push(ctx context.Context, collapseID string, payload []byte) {
 	for _, peer := range n.store.Peers() {

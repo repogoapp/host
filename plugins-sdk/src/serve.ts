@@ -3,7 +3,7 @@ import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import { toCallError, type CallError } from "./errors";
-import type { DataPush, FromWorker, Reply, Request, ToWorker } from "./protocol";
+import type { DataPush, FromWorker, NotifyPush, Reply, Request, ToWorker } from "./protocol";
 
 // The plugins server: one process for every project on this machine, listening on
 // a Unix socket the host connects to. Each project checkout's plugins run in their
@@ -112,6 +112,8 @@ export async function serve(options: ServeOptions) {
   const checkouts = new Map<string, Checkout>();
   const subscriptions = new Map<string, Subscription>();
   const pending = new Map<string, Pending>();
+  /** The hosts connected, for pushes no subscription addresses. */
+  const connections = new Set<Connection>();
   /** Worker key → subscription id, for the Worker's pushes. */
   const byKey = new Map<string, string>();
   let lastKey = 0;
@@ -137,6 +139,11 @@ export async function serve(options: ServeOptions) {
       for (const checkout of checkouts.values()) {
         if (checkout !== from) checkout.post({ type: "invalidate", tags: message.tags });
       }
+      return;
+    }
+    if (message.type === "notified") {
+      const push: NotifyPush = { method: "notify", params: message.notice };
+      for (const connection of connections) send(connection, push);
     }
   }
 
@@ -256,6 +263,7 @@ export async function serve(options: ServeOptions) {
     socket: {
       open(connection) {
         connection.data = { inbox: "", outbox: [] };
+        connections.add(connection);
       },
       data(connection, chunk) {
         connection.data.inbox += chunk.toString();
@@ -270,6 +278,7 @@ export async function serve(options: ServeOptions) {
         flush(connection);
       },
       close(connection) {
+        connections.delete(connection);
         // A host that goes away takes its subscriptions with it.
         for (const [id, subscription] of subscriptions) {
           if (subscription.connection === connection) unsubscribe(id);
@@ -300,7 +309,7 @@ function hashOf(answer: Answer) {
 const encoder = new TextEncoder();
 
 // A write the socket can't take at once waits in the outbox for `drain`.
-function send(connection: Connection, message: Reply | DataPush) {
+function send(connection: Connection, message: Reply | DataPush | NotifyPush) {
   connection.data.outbox.push(encoder.encode(JSON.stringify(message) + "\n"));
   flush(connection);
 }

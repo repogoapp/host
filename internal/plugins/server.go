@@ -62,6 +62,17 @@ type push struct {
 	Error        *wireError      `json:"error"`
 }
 
+// Notice is a plugin's alert for the phones: which plugin sent it, from which
+// project, what it says, and the page a tap opens.
+type Notice struct {
+	Plugin   string `json:"plugin"`
+	Root     string `json:"root"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Page     string `json:"page"`
+	Collapse string `json:"collapse"`
+}
+
 // server is one running plugins server and the connection to it.
 type server struct {
 	conn net.Conn
@@ -79,7 +90,7 @@ type server struct {
 
 // startServer runs the plugins server (runtime's `serve`) under ctx and connects
 // to it. onPush gets every subscription answer; onGone runs once when it ends.
-func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log *slog.Logger, onPush func(push), onGone func(*server)) (*server, error) {
+func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log *slog.Logger, onPush func(push), onNotice func(Notice), onGone func(*server)) (*server, error) {
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return nil, err
 	}
@@ -112,7 +123,7 @@ func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log 
 		return nil, err
 	}
 	s := &server{conn: conn, stdin: stdin, log: log, pending: map[int]chan reply{}, gone: make(chan struct{})}
-	go s.read(onPush, onGone)
+	go s.read(onPush, onNotice, onGone)
 	return s, nil
 }
 
@@ -136,7 +147,7 @@ func dialWhenUp(ctx context.Context, socket string, exited <-chan struct{}) (net
 	}
 }
 
-func (s *server) read(onPush func(push), onGone func(*server)) {
+func (s *server) read(onPush func(push), onNotice func(Notice), onGone func(*server)) {
 	scanner := bufio.NewScanner(s.conn)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
@@ -149,6 +160,13 @@ func (s *server) read(onPush func(push), onGone func(*server)) {
 			var p push
 			if err := json.Unmarshal(l.Params, &p); err == nil {
 				onPush(p)
+			}
+			continue
+		}
+		if l.Method == "notify" {
+			var n Notice
+			if err := json.Unmarshal(l.Params, &n); err == nil {
+				onNotice(n)
 			}
 			continue
 		}

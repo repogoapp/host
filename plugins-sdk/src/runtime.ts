@@ -4,7 +4,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { Collection } from "./collections";
-import type { Context } from "./context";
+import type { Context, Notice } from "./context";
 import type { PluginDefinition, MethodKind } from "./define";
 import { MethodError } from "./errors";
 import { EventBus } from "./events";
@@ -41,6 +41,10 @@ export type CallResult = { result: unknown; reads: string[]; invalidates: string
 
 type InvalidationListener = (tags: string[]) => void;
 
+/** A notice as the host hears it: which plugin, from which project. */
+export type SentNotice = Notice & { plugin: string; root: string };
+type NoticeListener = (notice: SentNotice) => void;
+
 const pluginName = /^[a-z][a-z0-9-]*$/;
 const dbName = /^[a-z][a-z0-9.-]*$/;
 
@@ -53,6 +57,7 @@ export class Runtime {
   readonly plugins = new Map<string, PluginDefinition>();
   private databases = new Map<string, SQL>();
   private invalidationListeners = new Set<InvalidationListener>();
+  private noticeListeners = new Set<NoticeListener>();
   pluginsDir: string | null = null;
 
   private constructor(
@@ -102,6 +107,10 @@ export class Runtime {
       db,
       call: async (method, input) => (await this.call(method.includes(".") ? method : `${name}.${method}`, input)).result,
       emit: (event, payload) => this.events.emit(`${name}.${event}`, payload),
+      notify: (notice) => {
+        const sent = { ...notice, plugin: name, root: runtime.callRoot.getStore() ?? runtime.root };
+        for (const listener of runtime.noticeListeners) listener(sent);
+      },
       log: (...args) => console.error(`[${name}]`, ...args),
     };
 
@@ -160,6 +169,12 @@ export class Runtime {
     if (invalidates.length > 0) this.notifyInvalidated(invalidates);
     if (!run.ok) throw run.error;
     return { result: run.value ?? null, reads: [...run.access.reads], invalidates };
+  }
+
+  /** Notices plugins send, for the host to push to the phones. */
+  onNotify(listener: NoticeListener) {
+    this.noticeListeners.add(listener);
+    return () => this.noticeListeners.delete(listener);
   }
 
   /** Tags written by any call, as they commit; cards refetch the queries that read them. */

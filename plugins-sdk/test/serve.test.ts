@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { DataPush, Reply } from "../src/protocol";
+import type { DataPush, NotifyPush, Reply } from "../src/protocol";
 import { serve } from "../src/serve";
 
 // Re-runs settle fast here; the server's default is 100 ms.
@@ -44,9 +44,9 @@ async function checkout(plugins: Record<string, string>) {
 
 type Client = {
   request: (method: string, params: unknown) => Promise<Reply>;
-  pushes: DataPush[];
+  pushes: (DataPush | NotifyPush)[];
   /** Resolves with the next push that matches, or fails after a second. */
-  nextPush: (match: (push: DataPush) => boolean) => Promise<DataPush>;
+  nextPush: (match: (push: DataPush | NotifyPush) => boolean) => Promise<DataPush | NotifyPush>;
   close: () => void;
 };
 
@@ -54,7 +54,7 @@ async function connect(socket: string): Promise<Client> {
   let nextID = 0;
   let inbox = "";
   const waiting = new Map<number, (reply: Reply) => void>();
-  const pushes: DataPush[] = [];
+  const pushes: (DataPush | NotifyPush)[] = [];
   const watchers: (() => void)[] = [];
   const connection = await Bun.connect({
     unix: socket,
@@ -191,6 +191,16 @@ test("a call's root is the caller's project; the folder's own checkout when left
   expect(result(await client.request("call", { dir, root: "/tmp/elsewhere", name: "notes.root" }))).toBe("/tmp/elsewhere");
   const subscribed = result(await client.request("subscribe", { dir, root: "/tmp/elsewhere", subscription: "r1", name: "notes.root" }));
   expect(subscribed.result).toBe("/tmp/elsewhere");
+});
+
+test("a plugin's notify reaches the host as a push, naming the plugin and the project", async () => {
+  const { client } = await start();
+  const alerting = notesApp.replace("methods: {", `methods: {
+    alert: method(z.object({}), (_, ctx) => { ctx.notify({ title: "Build failed", body: "see logs", page: "x.md?a=1" }); return null; }),`);
+  const { root, dir } = await checkout({ notes: alerting });
+  const pushed = client.nextPush((push) => push.method === "notify");
+  result(await client.request("call", { dir, name: "notes.alert" }));
+  expect((await pushed).params).toEqual({ title: "Build failed", body: "see logs", page: "x.md?a=1", plugin: "notes", root });
 });
 
 test("a reload runs the new code and pushes what changed", async () => {

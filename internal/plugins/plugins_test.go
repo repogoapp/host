@@ -416,3 +416,28 @@ export default definePlugin({
 		t.Fatalf("vercel.root from a bare project = %s %v", got.Result, err)
 	}
 }
+
+
+// A plugin's ctx.notify reaches the host's Notify hook, naming the plugin and the project.
+func TestAPluginsNoticeReachesTheHost(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	got := make(chan Notice, 1)
+	s.cfg.Notify = func(n Notice) { got <- n }
+	root := project(t, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: { alert: method(z.object({}), (_, ctx) => { ctx.notify({ title: "Build failed", body: "see logs", page: "x.md?a=1" }); return null; }) },
+});
+`})
+	if _, err := s.Call(t.Context(), root, "notes.alert", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case n := <-got:
+		if n.Plugin != "notes" || n.Root != root || n.Title != "Build failed" || n.Page != "x.md?a=1" {
+			t.Fatalf("notice = %+v", n)
+		}
+	case <-t.Context().Done():
+		t.Fatal("no notice reached the host")
+	}
+}

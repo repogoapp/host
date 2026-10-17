@@ -35,6 +35,10 @@ beside it (`pages/*.md`) are reachable from any project as
 `~/.repogo/plugins/<name>/pages/<page>.md`, and `~/.repogo/plugins/tab.json`
 lists the pages every project's tab shows.
 
+A method may alert the user's phones: `ctx.notify({ title, body, page })`, where
+`page` is a page target a tap opens (`".repogo/tabs/vercel.md?project=a"`), and
+`collapse` lets a repeated alert replace itself.
+
 Add it to `.repogo/plugins/package.json` (`bun add @repogo/plugins`) for types
 and editor help. The RepoGo host runs plugins with its own copy of this
 package, the version it shipped with, so a plugin always matches the host.

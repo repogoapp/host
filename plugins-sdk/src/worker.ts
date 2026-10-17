@@ -66,6 +66,7 @@ async function open(dir: string, dataDir: string, root: string) {
       post({ type: "invalidated", tags });
       settle(tags);
     });
+    runtime.onNotify((notice) => post({ type: "notified", notice }));
     await runtime.loadDir(dir);
   } catch (error) {
     loadError = { code: "INTERNAL", message: `The plugins in ${dir} failed to load: ${toCallError(error).message}` };

@@ -129,6 +129,7 @@ func (h *Host) openTools() error {
 	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
 		Global: h.state("plugins"),
+		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
 		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
 		Log:    h.log,
 	})

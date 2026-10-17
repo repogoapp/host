@@ -57,7 +57,9 @@ type Config struct {
 	Global string
 	// Emit sends a subscription's new answer to the device that made it.
 	Emit func(device.ID, emit.Event) error
-	Log  *slog.Logger
+	// Notify pushes a plugin's alert to the phones; nil drops it.
+	Notify func(Notice)
+	Log    *slog.Logger
 }
 
 type Service struct {
@@ -401,7 +403,7 @@ func (s *Service) running(ctx context.Context) (*server, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	srv, err = startServer(s.ctx, bun, s.cfg.Runtime, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.lost)
+	srv, err = startServer(s.ctx, bun, s.cfg.Runtime, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.notified, s.lost)
 	if err != nil {
 		return nil, err
 	}
@@ -429,6 +431,14 @@ func (s *Service) pushed(p push) {
 	if err := s.cfg.Emit(d, data); err != nil {
 		s.cfg.Log.Debug("plugins: data push failed", "device", d, "err", err)
 	}
+}
+
+// notified passes a plugin's alert on to the phones.
+func (s *Service) notified(n Notice) {
+	if s.cfg.Notify == nil || n.Title == "" {
+		return
+	}
+	s.cfg.Notify(n)
 }
 
 // lost is the server's connection ending. Subscriptions are taken up again on
