@@ -124,8 +124,9 @@ send:<text> — send the user's next message to the agent.
 append:<text> — add text to the user's prompt bar after what they typed,
   unsent, for them to finish or send.
 copy:<text> — copy text.
-open:<url> — open an absolute https or http link.
-browse:<url> — open it in the project's browser, reusing the tab on that site.
+open:<url> — open an absolute https or http link in a Safari sheet over the app.
+browse:<url> — the same, for a link that may read {{…}} (browse:{{p.url}});
+  a hold offers the project's browser tab.
 push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
 page:<project path> — open one of the project's pages, from a tab page or
