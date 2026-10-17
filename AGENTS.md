@@ -45,7 +45,8 @@ them; comments explain why, in one line, only where it isn't obvious.
 | Package | Role | Smell |
 | --- | --- | --- |
 | `jsonrpc`, `handshake`, `tunnelwire` | Wire structs and codes, no behaviour; `tunnelwire` is public so the tunnel gateway shares it | any import |
-| `wsserver`, `relay/`, `internal/relay`, `hostlink`, `hostclient`, `securechan` | Move bytes: server, dumb router, host dial, Go test client, end-to-end seal/open | knows what a chat is |
+| `chatwire`, `wirejson` | What leaves the host: a chat's transcript as the phone receives it, and required arrays at JSON boundaries | parsing transcripts |
+| `wsserver`, `wsconn`, `relay/`, `internal/relay`, `hostlink`, `redial`, `hostclient`, `securechan`, `api` | Move bytes: server, shared WebSocket connection, dumb router, host dial and its one reconnect loop, Go test client, end-to-end seal/open, loopback HTTP onto `rpc` | knows what a chat is |
 | `appattest` | Verify Apple app attestation and assertions for push authorization | app or host state |
 | `rpc`, `rpc/<family>` | One method → one core call; typed params and result, access and lifetime on the `rpc.Add` line. Thin | logic a second transport would copy |
 | `rpc/registry` | Wiring table only; every service required | needs helper funcs |
@@ -53,17 +54,22 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `testhost` | `host.New` on temporary dirs with process-level integrations stubbed | wiring of its own |
 | `chat` | Chat workflows: send, start, resolve, delete, ship | a transport type |
 | `repogo` | Flags, runtime file, production `host.Config`, update/restart, start | over ~200 lines |
+| `hostinfo`, `hostsetup`, `hostupdate`, `release`, `service` | The host itself: health, whether the machine is ready, verified releases, self-update with rollback, the background service | chat or project state |
 | `agent` | Turn lifecycle and shared CLI mechanics | provider registry or provider dispatch |
 | `claudecode`, `codexappserver` | One CLI's own protocol, typed; no RepoGo types | anything the adapter converts |
 | `stdiorpc` | Own a child process and newline-delimited JSON-RPC framing | provider methods or chat semantics |
 | `agents`, `agents/<provider>` | Construct fresh providers; own each provider's protocol/configuration and home resolution | a shared service importing a provider |
+| `clitool`, `clilogin`, `binfetch`, `nodejs`, `agentcatalog`, `agentusage` | The CLIs on this machine: find, install, update and sign in; what each offers (models, modes) and how much of its limits is spent | running a turn |
+| `clientprompt`, `toollabel`, `ai` | What a chat shows: the system prompt for the client's renderer, tool-call labels, titles and summaries from the local model | a transport type |
 | `session` | Shared transcript reading, tailing, and caching; provider interfaces | provider-specific parsing or kind dispatch |
 | `store` | `cache.db`, the disposable SQLite cache of what `session` parsed (drop and reparse, never migrate), and `state.db`, what the user made (added to, never wiped; one writer per table) | a version ledger; state in the cache |
 | `schedule` | The user's schedules: validates them, computes each next run, and on a minute ticker starts every due one as a new chat; rows in `state.db` through `store` | writing SQL itself |
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
-| `git`, `github`, `ship` | Git reporting, `gh` wrapper, PR glue. One git runner in `git` | a second `exec.Command("git"` |
-| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, …) | One resource each | |
+| `git`, `github` | Git reporting and shipping, `gh` wrapper and PRs. One git runner in `git` | a second `exec.Command("git"` |
+| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`) | One resource each | |
 | `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing, Rust mirrors it in `session/native` | resolving provider homes itself |
+| `emit`, `errkind`, `par`, `sqlitedb`, `syscmd`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, fan-out, SQLite pragmas, short system tools, `~/.repogo`, dev log copies | a second way to do the same |
+| `wiredoc`, `swiftcontract`, `lint`, `testwait` | Development only: the generated wire docs and Swift contract, the code standards as tests, polling in tests | imported by production code |
 
 Errors: a core sentinel says its kind with `errkind.New` (invalid, not found,
 denied, unavailable); `rpc.Code` maps the four kinds onto the wire, so the router
