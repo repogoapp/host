@@ -19,8 +19,9 @@ var pluginsTool = tool{
 	Name: "plugins",
 	Description: "List the plugins this project can use: its own in .repogo/plugins and the environment's in " +
 		"~/.repogo/plugins (each plugin's `dir` says which), with each plugin's methods, " +
-		"whether a method is a query (reads) or a mutation (writes), and the JSON Schema of its input. " +
-		"Call this before plugin_call, and again after writing or changing a plugin.",
+		"whether a method is a query (reads) or a mutation (writes), and the JSON Schema of its input; " +
+		"and `pages`, where a project or plugin page already shows a query: its `target` to open with page:, " +
+		"and the `params` to add to it. Call this before plugin_call, and again after writing or changing a plugin.",
 	InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 }
 

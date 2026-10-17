@@ -5,6 +5,7 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -163,9 +164,9 @@ func isDir(path string) bool {
 	return path != "" && err == nil && info.IsDir()
 }
 
-// List is the manifest of a folder's plugins: each plugin, its folder (`dir`),
-// its methods and their input schemas. A project plugin hides an environment
-// plugin of the same name.
+// List is the manifest of a folder's plugins (each one's `dir`, methods and input
+// schemas; a project plugin hides an environment one of its name) and the pages
+// that show their queries.
 func (s *Service) List(ctx context.Context, path string) (Answer, error) {
 	targets, err := s.targets(path)
 	if err != nil {
@@ -198,11 +199,14 @@ func (s *Service) List(ctx context.Context, path string) (Answer, error) {
 			plugins = append(plugins, entry)
 		}
 	}
-	result, err := json.Marshal(map[string]any{"plugins": plugins})
-	if err != nil {
+	// Unescaped, so a page's target reads as the agent writes it: `?a=1&b=2`.
+	var result bytes.Buffer
+	encoder := json.NewEncoder(&result)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(map[string]any{"plugins": plugins, "pages": pages(checkout(path), s.cfg.Global)}); err != nil {
 		return Answer{}, err
 	}
-	return Answer{Result: result}, nil
+	return Answer{Result: bytes.TrimSpace(result.Bytes())}, nil
 }
 
 // Call runs one method, a query or a mutation. A method with a confirm
