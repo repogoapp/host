@@ -47,7 +47,14 @@ Toolbar: Buttons and Menus for the bar of the page or sheet the card is
   on (an Add button, a "…" Menu); where there's no bar, a row of them.
 Divider, Spacer: separator and flexible space along the parent layout.
 State: a local string value; declare it at the top (anywhere but inside Each).
-Router: optional id and initial route path; contains Route elements.
+  A page's State is also its parameters: page:x.md?name=value and a
+  Page's Params set a declared name's starting value (the user's edits win).
+Page: path (a project page, or ~/.repogo/plugins/<name>/pages/<page>.md,
+  with an optional ?name=value query); Param children set the page's
+  state, reading {{…}}. Draws that page's card here, live, so a page
+  written once serves a tab, a link and a card. Not inside a Page.
+Router: optional id and initial route path (may read {{state}}, so a
+  link can land on a route: ?route=detail); contains Route elements.
 Route: required path, optional title (may read {{state}}),
   sheet="medium|large" for the heights it rests at when presented;
   contains visual children.
@@ -122,7 +129,10 @@ push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
 page:<project path> — open one of the project's pages, from a tab page or
   from chat (page:.repogo/tabs/vercel.md, page:~/.repogo/plugins/notes/pages/index.md);
-  sheet="large" on the Button or Item opens it in a sheet instead.
+  a query sets the page's state and may read {{…}}
+  (page:.repogo/tabs/vercel.md?project={{p.name}}&route=project);
+  sheet="large" on the Button or Item opens it in a sheet instead. When a
+  page shows what the user asked for, link it rather than redraw it.
 back — return to the previous route, page or sheet.
 then="push:detail" after set: or toggle: runs a second, local action:
   action="set:item={{row.id}}" then="push:detail" picks a row and opens it.
