@@ -66,16 +66,6 @@ Result:
 
 - `ok` bool
 
-## `browser.pending`
-
-Params:
-
-- none
-
-Result:
-
-- `requests` [object{Request}]
-
 ## `agents.list`
 
 Params:
@@ -85,6 +75,16 @@ Params:
 Result:
 
 - `agents` [object{ProjectAgent}]
+
+## `browser.pending`
+
+Params:
+
+- none
+
+Result:
+
+- `requests` [object{Request}]
 
 ## `browser.respond`
 

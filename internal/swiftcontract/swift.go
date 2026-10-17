@@ -379,6 +379,8 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/github":      "github",
 	"github.com/repogoapp/host/internal/rpc/turns":   "agents",
 	"github.com/repogoapp/host/internal/agent":       "agents",
+	"github.com/repogoapp/host/internal/rpc/agents":  "agents",
+	"github.com/repogoapp/host/internal/projectagent": "agents",
 	"github.com/repogoapp/host/internal/clilogin":    "tools",
 	"github.com/repogoapp/host/internal/clitool":     "tools",
 	"github.com/repogoapp/host/internal/rpc/tools":   "tools",
@@ -406,8 +408,6 @@ func (g *swiftGen) assignNames() {
 		}
 		if t.PkgPath() == "github.com/repogoapp/host/internal/store" {
 			switch t.Name() {
-	"github.com/repogoapp/host/internal/rpc/agents":  "agents",
-	"github.com/repogoapp/host/internal/projectagent": "agents",
 			case "Chat", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
 				family = "chats"
 			case "Schedule":
