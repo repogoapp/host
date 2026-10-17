@@ -120,9 +120,9 @@ open:<url> — open an absolute https or http link.
 browse:<url> — open it in the project's browser, reusing the tab on that site.
 push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
-page:<project path> — on a project's tab pages, open another of its pages
-  (page:.repogo/tabs/vercel.md); sheet="large" on the Button or Item opens
-  it in a sheet instead.
+page:<project path> — open one of the project's pages, from a tab page or
+  from chat (page:.repogo/tabs/vercel.md, page:~/.repogo/plugins/notes/pages/index.md);
+  sheet="large" on the Button or Item opens it in a sheet instead.
 back — return to the previous route, page or sheet.
 then="push:detail" after set: or toggle: runs a second, local action:
   action="set:item={{row.id}}" then="push:detail" picks a row and opens it.
