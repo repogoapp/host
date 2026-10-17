@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	// MaxFileBytes bounds a read. Source files are kilobytes; something far
-	// past this is a build artifact or a database, and the honest answer is an
-	// error rather than a multi-megabyte round trip to a phone.
-	MaxFileBytes = 2 << 20
+	// MaxFileBytes bounds a read: room for a phone photo, which the Files tab
+	// saves and must show again. Far past this is a build artifact or a database.
+	// Base64 of it still fits jsonrpc.MaxMessageBytes.
+	MaxFileBytes = 4 << 20
 
 	// MaxEntries bounds one directory listing. `node_modules` has tens of
 	// thousands of entries and nobody scrolls them.
