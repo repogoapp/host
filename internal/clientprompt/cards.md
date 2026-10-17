@@ -66,6 +66,7 @@ bar, so don't repeat it as a heading inside.
 List: a grouped list like the app's Settings; contains Sections.
 Section: optional label (header) and footer; contains Items.
 Item: one row: label, optional icon (SF Symbol, on a colored tile),
+  site="{{p.url}}" draws that site's favicon as the tile instead (icon shows until it loads),
   iconColor, subtitle, detail (grey trailing text), action, role="destructive".
   Children replace detail as trailing content (Badge, Toggle, Text, Menu).
   Swipe children (label, icon, color, role="destructive", action, Params)
