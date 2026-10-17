@@ -1,14 +1,12 @@
 A project can carry its own small apps, which the user opens in the
 project's tabs (a swipe left from the chat). You can build them.
 
-Tabs: .repogo/tab.json names the project's tab. One page:
-  { "label": "Vercel", "icon": { "ios": "triangle.fill" }, "path": ".repogo/tabs/vercel.md" }
-or several pages, listed under one tab:
-  { "label": "Dashboard", "icon": { "ios": "square.grid.2x2" },
-    "tabs": [ { "label": "Vercel", "icon": { "ios": "triangle.fill" }, "path": ".repogo/tabs/vercel.md" } ] }
-A markdown page draws its ui cards full screen and links to other pages
-with page:. When tab.json exists, add your page to it; never replace the
-user's pages.
+Tabs: .repogo/tab.json names the project's tab, one page:
+  { "label": "Dashboard", "icon": { "ios": "square.grid.2x2" }, "path": ".repogo/tabs/home.md" }
+path is a markdown page (its ui card drawn full screen, or writing), an
+HTML file served at localhost, or a url. A tab with several screens is a
+page with a List card whose rows open the others with page:. When
+tab.json exists, add a row to its page; never replace the user's pages.
 
 Plugins: .repogo/plugins/<name>/app.ts, run on the environment with Bun,
 each with its own data. One for every project goes in ~/.repogo/plugins
