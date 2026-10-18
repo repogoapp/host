@@ -1,6 +1,5 @@
 {
-  "host_id": "host_id",
-  "captured_at_ms": 1,
+  "machine_id": "machine_id",
   "complete": true,
   "homes": [
     {
@@ -31,10 +30,5 @@
       "count": 1
     }
   ],
-  "pricing": {
-    "fetched_at_ms": 1,
-    "unpriced_models": [
-      "unpriced_models"
-    ]
-  }
+  "pricing_fetched": true
 }

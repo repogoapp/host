@@ -107,13 +107,6 @@ func TestLedgerPricesFastMode(t *testing.T) {
 	if len(h.Buckets) != 1 || h.Buckets[0].CostUSDMicros != 3*1010 {
 		t.Fatalf("buckets: %+v", h.Buckets)
 	}
-	report, err := l.report(t.Context(), time.UnixMilli(1_000).UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(report.Buckets) != 1 || report.Buckets[0].CostUSDMicros != 3*1010 {
-		t.Fatalf("report: %+v", report.Buckets)
-	}
 }
 
 // Only litellm publishes fast tiers; its multiplier holds when models.dev

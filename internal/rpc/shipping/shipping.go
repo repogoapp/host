@@ -1,6 +1,5 @@
-// Package shipping is the `usage.daily` and `usage.history` methods:
-// what this machine's agents spent, for the phone's usage screen and the
-// leaderboard it reports to. Only counts and costs, never content.
+// Package shipping is the `usage.history` method: what this machine's agents
+// spent, for the phone's usage screen. Only counts and costs, never content.
 package shipping
 
 import (
@@ -18,8 +17,6 @@ type Deps struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	// Remote: a paired phone uploads it; only counts and costs, never content.
-	rpc.Add(r, "usage.daily", d.usage)
 	// Remote: the phone adds every environment's answer into one screen.
 	rpc.Add(r, "usage.history", d.history)
 }
@@ -28,10 +25,6 @@ func Register(r *rpc.Router, d Deps) {
 type HistoryParams struct {
 	SinceMs int64 `json:"since_ms"`
 	UntilMs int64 `json:"until_ms"`
-}
-
-func (d Deps) usage(ctx context.Context, _ rpc.Caller, _ rpc.None) (shippingcore.Report, error) {
-	return d.Usage.Report(ctx)
 }
 
 func (d Deps) history(ctx context.Context, _ rpc.Caller, p HistoryParams) (shippingcore.History, error) {

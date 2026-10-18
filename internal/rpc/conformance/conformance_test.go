@@ -157,7 +157,6 @@ var unchecked = map[string]string{
 	"github.pr_create": "shells out to gh against a real repository with a remote, and opens a pull request",
 	"github.publish":   "same, and it creates a repository on GitHub; covered with a fake gh in internal/github",
 
-	"usage.daily":   "scans the user's agent transcripts; covered with temporary homes in internal/agents (shipping_test.go)",
 	"usage.history": "scans the user's agent transcripts; covered with temporary homes in internal/agents (shipping_test.go)",
 
 	"forward.fetch":        "driven against a real dev server by TestForwardFetchOverEveryTransport",

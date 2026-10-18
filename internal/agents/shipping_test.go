@@ -15,8 +15,9 @@ import (
 	"github.com/repogoapp/host/internal/shipping"
 )
 
-func TestUsageSumsEachProviderDayAndPricesIt(t *testing.T) {
-	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+// Each provider's transcripts are read once per response and priced, a
+// provider-reported cost winning over the rate table.
+func TestUsageSumsEachProviderAndPricesIt(t *testing.T) {
 	base := t.TempDir()
 	claude, codex, cache := filepath.Join(base, "claude"), filepath.Join(base, "codex"), filepath.Join(t.TempDir(), "rates.json")
 
@@ -26,8 +27,7 @@ func TestUsageSumsEachProviderDayAndPricesIt(t *testing.T) {
 		`{"type":"assistant","timestamp":"2026-03-10T12:00:01Z","requestId":"r1","message":{"id":"m1","model":"claude-test","usage":{"input_tokens":100,"cache_read_input_tokens":50,"cache_creation_input_tokens":25,"output_tokens":10}}}`,
 		// A provider-reported cost wins over the rate table.
 		`{"type":"assistant","timestamp":"2026-03-10T13:00:00Z","requestId":"r2","costUSD":0.5,"message":{"id":"m2","model":"claude-test","usage":{"input_tokens":10,"output_tokens":1}}}`,
-		// Last year and the future are outside the board's year.
-		`{"type":"assistant","timestamp":"2025-12-31T12:00:00Z","requestId":"r3","message":{"id":"m3","model":"claude-test","usage":{"input_tokens":7,"output_tokens":7}}}`,
+		// Outside the asked range.
 		`{"type":"assistant","timestamp":"2026-07-01T12:00:00Z","requestId":"r4","message":{"id":"m4","model":"claude-test","usage":{"input_tokens":7,"output_tokens":7}}}`,
 		`{"type":"user","message":{"content":"the word \"usage\" in a prompt"}}`,
 	)
@@ -39,65 +39,47 @@ func TestUsageSumsEachProviderDayAndPricesIt(t *testing.T) {
 		`{"type":"event_msg","timestamp":"2026-03-10T15:00:05Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":100,"reasoning_output_tokens":20}}}}`,
 		`{"type":"event_msg","timestamp":"2026-03-11T01:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"output_tokens":50}}}}`,
 	)
-	writeLines(t, cache, `{"version":2,"fetchedAtMs":`+jsonInt(now.UnixMilli())+`,"rates":{`+
+	writeLines(t, cache, `{"version":2,"fetchedAtMs":`+jsonInt(time.Now().UnixMilli())+`,"rates":{`+
 		`"claude-test":{"inputCostPerToken":0.000001,"outputCostPerToken":0.000002,"cacheReadCostPerToken":0.0000001,"cacheCreationCostPerToken":0.00000125},`+
 		`"gpt-test":{"inputCostPerToken":0.000002,"outputCostPerToken":0.000008,"cacheReadCostPerToken":0.0000005,"cacheCreationCostPerToken":0.000002}}}`)
 
-	report, err := openLedger(t, cache, claudeprovider.New(agent.Dependencies{Root: base}), codexprovider.New(agent.Dependencies{Root: base})).Scan(t.Context(), now)
+	l := openLedger(t, filepath.Join(t.TempDir(), "usage.db"), cache, claudeprovider.New(agent.Dependencies{Root: base}), codexprovider.New(agent.Dependencies{Root: base}))
+	since := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	h, err := l.History(t.Context(), since.UnixMilli(), since.Add(48*time.Hour).UnixMilli())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []shipping.Bucket{
-		// 100+50+25 + 10 in; 156.25 micros at rates plus the reported $0.50.
-		{Day: "2026-03-10", Provider: "claude", InputTokens: 185, OutputTokens: 11, CostUSDMicros: 500_156},
-		// 600 uncached + 400 cached in: 1200 + 200 + 800 micros.
-		{Day: "2026-03-10", Provider: "codex", InputTokens: 1000, OutputTokens: 100, CostUSDMicros: 2_200},
-		{Day: "2026-03-11", Provider: "codex", InputTokens: 200, OutputTokens: 50, CostUSDMicros: 800},
+	type row struct {
+		hour                         string
+		agent                        string
+		input, cache, output, micros int64
 	}
-	if !reflect.DeepEqual(report.Buckets, want) {
-		t.Fatalf("buckets:\n got %+v\nwant %+v", report.Buckets, want)
+	var got []row
+	for _, b := range h.Buckets {
+		hour := time.UnixMilli(b.HourMs).UTC().Format("01-02T15")
+		got = append(got, row{hour, b.Agent, b.InputTokens, b.CacheReadTokens + b.CacheWriteTokens, b.OutputTokens, b.CostUSDMicros})
 	}
-	if len(report.HostID) != 16 || report.TimeZone != "UTC" || report.CapturedAtMs != now.UnixMilli() {
-		t.Fatalf("envelope: %+v", report)
+	want := []row{
+		// 100 in + 50 cache read + 25 cache write + 10 out at rates: 156.25 micros.
+		{"03-10T12", "claude", 100, 75, 10, 156},
+		{"03-10T13", "claude", 10, 0, 1, 500_000},
+		// 600 uncached + 400 cached in, 100 out: 1200 + 200 + 800 micros.
+		{"03-10T15", "codex", 600, 400, 100, 2_200},
+		{"03-11T01", "codex", 200, 0, 50, 800},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buckets:\n got %+v\nwant %+v", got, want)
 	}
 
-	b, _ := json.Marshal(report)
-	for _, key := range []string{`"host_id"`, `"captured_at_ms"`, `"time_zone"`, `"buckets"`, `"day"`, `"provider"`, `"input_tokens"`, `"output_tokens"`, `"cost_usd_micros"`} {
-		if !strings.Contains(string(b), key) {
-			t.Fatalf("missing %s in %s", key, b)
-		}
-	}
-	if strings.Contains(string(b), "not counted") || strings.Contains(string(b), "claude-test") {
-		t.Fatalf("content or model leaked: %s", b)
+	b, _ := json.Marshal(h)
+	if strings.Contains(string(b), "not counted") || strings.Contains(string(b), "in a prompt") {
+		t.Fatalf("content leaked: %s", b)
 	}
 }
 
-func TestUsageDaysAreLocal(t *testing.T) {
-	zone := time.FixedZone("UTC-5", -5*60*60)
-	now := time.Date(2026, 6, 15, 12, 0, 0, 0, zone)
-	base := t.TempDir()
-	claude := filepath.Join(base, "claude")
-	// 03:00 UTC on Mar 11 is still Mar 10 five hours west.
-	writeLines(t, filepath.Join(claude, "projects", "p", "s.jsonl"),
-		`{"type":"assistant","timestamp":"2026-03-11T03:00:00Z","requestId":"r1","message":{"id":"m1","model":"unpriced","usage":{"input_tokens":1,"output_tokens":1}}}`,
-		// Jan 1 01:00 UTC is Dec 31 locally: last year.
-		`{"type":"assistant","timestamp":"2026-01-01T01:00:00Z","requestId":"r2","message":{"id":"m2","model":"unpriced","usage":{"input_tokens":1,"output_tokens":1}}}`,
-	)
-	cache := filepath.Join(t.TempDir(), "rates.json")
-	writeLines(t, cache, `{"version":2,"fetchedAtMs":`+jsonInt(now.UnixMilli())+`,"rates":{}}`)
-	report, err := openLedger(t, cache, claudeprovider.New(agent.Dependencies{Root: base})).Scan(t.Context(), now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []shipping.Bucket{{Day: "2026-03-10", Provider: "claude", InputTokens: 1, OutputTokens: 1}}
-	if !reflect.DeepEqual(report.Buckets, want) {
-		t.Fatalf("buckets: %+v", report.Buckets)
-	}
-}
-
-func openLedger(t *testing.T, rates string, providers ...shipping.Provider) *shipping.Ledger {
+func openLedger(t *testing.T, db, rates string, providers ...shipping.Provider) *shipping.Ledger {
 	t.Helper()
-	l, err := shipping.Open(t.Context(), filepath.Join(t.TempDir(), "usage.db"), rates, providers...)
+	l, err := shipping.Open(t.Context(), db, rates, providers...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +104,7 @@ func TestUsageHistoryCountsCopiesOnceByModel(t *testing.T) {
 
 	usageFixtures(t, base)
 
-	l := openLedger(t, cache, claudeprovider.New(agent.Dependencies{Root: base}), codexprovider.New(agent.Dependencies{Root: base}))
+	l := openLedger(t, filepath.Join(t.TempDir(), "usage.db"), cache, claudeprovider.New(agent.Dependencies{Root: base}), codexprovider.New(agent.Dependencies{Root: base}))
 	since := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli())
 	if err != nil {
@@ -161,7 +143,7 @@ func TestUsageHistoryCountsCopiesOnceByModel(t *testing.T) {
 				t.Fatalf("%s should be unpriced: %+v", b.Model, b)
 			}
 		}
-		if b.Hour%time.Hour.Milliseconds() != 0 {
+		if b.HourMs%time.Hour.Milliseconds() != 0 {
 			t.Fatalf("hour not on the hour: %+v", b)
 		}
 	}
@@ -169,11 +151,11 @@ func TestUsageHistoryCountsCopiesOnceByModel(t *testing.T) {
 	if want := []shipping.AgentCount{{Agent: "claude", Count: 2}, {Agent: "codex", Count: 2}}; !reflect.DeepEqual(h.Sessions, want) {
 		t.Fatalf("sessions: %+v", h.Sessions)
 	}
-	if !h.Complete || len(h.HostID) != 16 || len(h.Homes) != 2 || h.Homes[0].Path != claude || h.Homes[1].Path != codex {
+	if !h.Complete || len(h.MachineID) != 16 || len(h.Homes) != 2 || h.Homes[0].Path != claude || h.Homes[1].Path != codex {
 		t.Fatalf("envelope: %+v", h)
 	}
-	if want := []string{"claude-sonnet-x", "gpt-a", "gpt-b", "gpt-c"}; !reflect.DeepEqual(h.Pricing.UnpricedModels, want) {
-		t.Fatalf("unpriced: %v", h.Pricing.UnpricedModels)
+	if !h.PricingFetched {
+		t.Fatalf("pricing not fetched: %+v", h)
 	}
 }
 
@@ -192,22 +174,27 @@ func TestUsageHistoryOutlivesTranscripts(t *testing.T) {
 	writeLines(t, gone, line("a"))
 	writeLines(t, kept, line("b"))
 
-	l := openLedger(t, cache, claudeprovider.New(agent.Dependencies{Root: base}))
-	now := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
-	if _, err := l.Scan(t.Context(), now); err != nil {
-		t.Fatal(err)
+	// A restarted host opens the same ledger and sweeps again.
+	db := filepath.Join(t.TempDir(), "usage.db")
+	since := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	history := func() shipping.History {
+		t.Helper()
+		l := openLedger(t, db, cache, claudeprovider.New(agent.Dependencies{Root: base}))
+		defer l.Close()
+		h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
 	}
+	history()
 	if err := os.Remove(gone); err != nil {
 		t.Fatal(err)
 	}
 	writeLines(t, kept, line("b"), line("c"))
-	report, err := l.Scan(t.Context(), now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []shipping.Bucket{{Day: "2026-09-01", Provider: "claude", InputTokens: 3, OutputTokens: 3}}
-	if !reflect.DeepEqual(report.Buckets, want) {
-		t.Fatalf("buckets: %+v", report.Buckets)
+	h := history()
+	if len(h.Buckets) != 1 || h.Buckets[0].Requests != 3 || h.Buckets[0].InputTokens != 3 || h.Buckets[0].OutputTokens != 3 {
+		t.Fatalf("buckets: %+v", h.Buckets)
 	}
 }
 

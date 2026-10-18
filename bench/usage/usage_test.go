@@ -86,12 +86,14 @@ func open(b *testing.B, path, rates string, providers []shipping.Provider) *ship
 func checkYear(b *testing.B, h shipping.History) {
 	b.Helper()
 	var requests, input, output int64
+	priced := h.PricingFetched
 	for _, bucket := range h.Buckets {
+		priced = priced && bucket.Priced
 		requests += bucket.Requests
 		input += bucket.InputTokens + bucket.CacheReadTokens + bucket.CacheWriteTokens
 		output += bucket.OutputTokens
 	}
-	if !h.Complete || requests != sessions*requestsPerSession || input != requests*4150 || output != requests*500 || len(h.Pricing.UnpricedModels) != 0 {
+	if !h.Complete || requests != sessions*requestsPerSession || input != requests*4150 || output != requests*500 || !priced {
 		b.Fatalf("incorrect aggregate: complete=%v requests=%d input=%d output=%d", h.Complete, requests, input, output)
 	}
 }

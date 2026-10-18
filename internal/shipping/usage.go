@@ -1,8 +1,7 @@
 // Package shipping keeps a ledger of what this machine's agents spent, one row
 // per API request, in its own database that outlives the transcripts, and
-// answers from it: the usage history the phone merges across environments,
-// and the leaderboard's yearly report. Only counts and costs leave the host;
-// transcript content and prompts never do.
+// answers from it the usage history the phone merges across environments.
+// Only counts and costs leave the host; transcript content and prompts never do.
 package shipping
 
 import (
@@ -11,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 )
@@ -78,29 +76,13 @@ func micros(usd float64) int64 {
 	return int64(usd*1_000_000 + 0.5)
 }
 
-// hostID fingerprints the machine, not the host process, the same way v1
+// machineID fingerprints the machine, not the host process, the same way v1
 // did, so rows for one Mac keep their key and two hosts never double count.
-func hostID() string {
+func machineID() string {
 	hostname, _ := os.Hostname()
 	home, _ := os.UserHomeDir()
 	sum := sha256.Sum256([]byte(hostname + "\x00" + home))
 	return hex.EncodeToString(sum[:8])
-}
-
-// zoneName is the IANA name the board's days are in; time.Local only calls itself "Local".
-func zoneName(loc *time.Location) string {
-	if loc != time.Local {
-		return loc.String()
-	}
-	if tz := strings.TrimPrefix(os.Getenv("TZ"), ":"); tz != "" {
-		return tz
-	}
-	if target, err := os.Readlink("/etc/localtime"); err == nil {
-		if _, name, ok := strings.Cut(target, "zoneinfo/"); ok {
-			return name
-		}
-	}
-	return loc.String()
 }
 
 type transcript struct {
