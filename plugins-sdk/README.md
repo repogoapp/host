@@ -14,6 +14,7 @@ phone draw its data live and run its methods when you tap.
 - [Events](#events)
 - [How cards and agents reach a plugin](#how-cards-and-agents-reach-a-plugin)
 - [Errors and confirmations](#errors-and-confirmations)
+- [Testing](#testing)
 
 ## Quick start
 
@@ -146,10 +147,14 @@ await ctx.collections.tasks.get(task.id);                                // or n
 await ctx.collections.tasks.update(task.id, { status: "done" });         // only the fields given change
 await ctx.collections.tasks.list({ where: { status: "open" }, orderBy: "updatedAt", order: "desc", limit: 50 });
 await ctx.collections.tasks.delete(task.id);
+await ctx.collections.tasks.deleteMany({ where: { status: "done" }, offset: 100, limit: 500 }); // done ones past the newest 100, 500 at a time
 ```
 
 `list` is newest first by default, at most 100 unless `limit` says (up to 500).
 `where` matches top-level fields exactly; `null` matches a missing one.
+`orderBy` is `id`, `createdAt`, `updatedAt` or one of the record's own fields, and
+`offset` passes over that many first. `deleteMany` takes the same options and
+deletes exactly what `list` would return, in one transaction, returning how many.
 
 ### Kv
 
@@ -266,6 +271,11 @@ A bucket's `put` takes `text`, or `from`, an absolute path on the environment to
 copy: bytes never travel in a call. A method of your own with the same name as a
 generated one fails the plugin's load.
 
+Data named in `private` gets none of these, so cards and agents reach it only
+through the plugin's own methods: `private: ["actions", "lines"]` for an audit
+log no tap can edit. It hides methods; it isn't a lock. Another plugin naming
+the same namespace and store can still read and write it.
+
 ## Crons
 
 ```ts
@@ -287,7 +297,13 @@ A job still running isn't started again, a time the environment slept through
 is skipped, and nothing is retried. A cron naming a missing method, a stream, a
 method that needs input or asks first, or a schedule never due fails the
 plugin's load. The manifest shows each cron's `nextRunAt`, `lastRunAt`,
-`lastError` and `runs`.
+`lastError`, `lastDurationMs` and `runs`, and a query that reads them through
+`ctx.plugins()` re-runs as each run starts and ends.
+
+A cron's `ctx.root` is its folder's project, or the home folder for a plugin in
+`~/.repogo/plugins`. Every plugin in a folder shares one thread: code that blocks
+it (a synchronous walk of a big folder, a busy loop) holds up every other cron
+there, and the host's log names the crons that were running when it happened.
 
 ## The context
 
@@ -296,6 +312,7 @@ Every method, handler and cron gets `ctx`:
 | Field | What |
 | --- | --- |
 | `plugin` | The plugin's name |
+| `caller` | Who started the call: `card`, `agent`, `cron`, or `code` |
 | `root` | The calling project's checkout |
 | `collections`, `kv`, `streams`, `buckets` | The plugin's data |
 | `call(method, input)` | Runs a method of a plugin in the same folder; `"open"` is this plugin's own |
@@ -360,4 +377,23 @@ schema answers `VALIDATION` with a message per field. Anything else thrown is
 A method's `confirm` is asked before a card's tap runs it. An agent's
 `plugin_call` gets it back as a `CONFIRM` error until it calls again with
 `confirmed: true`, once the user agrees. Only `ctx.call` from plugin code skips
-it. Give one to anything that can't be undone.
+it. Give one to anything that can't be undone. `{{field}}` in the question is
+filled from the call's input, so it can say what it acts on:
+`confirm: "Restart {{machine}}?"`.
+
+## Testing
+
+`@repogo/plugins/testing` runs plugins as the host does, with real data in a
+temporary folder:
+
+```ts
+import { testRuntime } from "@repogo/plugins/testing";
+import notes from "./app";
+
+const app = await testRuntime({ notes });
+await app.call("notes.add", { text: "hi" });
+await app.call("notes.clear", {}, { confirmed: false }); // throws CONFIRM, as an unanswered tap
+await app.tickCrons(Date.now());                         // runs whatever is due
+app.notices;                                             // every ctx.notify so far
+await app.close();
+```

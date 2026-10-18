@@ -1,3 +1,4 @@
+import type { Caller } from "./context";
 import type { CallError } from "./errors";
 import type { Manifest, SentNotice } from "./runtime";
 
@@ -15,7 +16,7 @@ export type Target = { dir: string; root?: string };
 export type Request =
   | { id: number; method: "list"; params: Target }
   /** `confirmed`: the user has answered the method's `confirm`, or the caller isn't a tap. */
-  | { id: number; method: "call"; params: Target & { name: string; input?: unknown; confirmed?: boolean } }
+  | { id: number; method: "call"; params: Target & { name: string; input?: unknown; confirmed?: boolean; caller?: Caller } }
   /** `subscription` is the caller's id, so a push can't arrive before the caller
    *  knows it; subscribing again under an id replaces it. */
   | { id: number; method: "subscribe"; params: Target & { subscription: string; name: string; input?: unknown } }
@@ -56,7 +57,7 @@ export type HostCall = { id: number; method: "host"; params: { plugin: string; m
 export type ToWorker =
   | { type: "open"; dir: string; dataDir: string; root: string }
   | { type: "list"; id: number }
-  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean; root?: string }
+  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string }
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown; root?: string }
   | { type: "unsubscribe"; subscription: string }
   /** Another Worker wrote these tags. */

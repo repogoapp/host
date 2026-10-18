@@ -211,14 +211,22 @@ func (s *Service) List(ctx context.Context, path string) (Answer, error) {
 	return Answer{Result: bytes.TrimSpace(result.Bytes())}, nil
 }
 
+// Caller is who asked for a call, the plugin's ctx.caller.
+type Caller string
+
+const (
+	CallerCard  Caller = "card"
+	CallerAgent Caller = "agent"
+)
+
 // Call runs one method, a query or a mutation. A method with a confirm
 // answers CONFIRM instead of running until confirmed says the user agreed.
-func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, confirmed bool) (Answer, error) {
+func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, confirmed bool, caller Caller) (Answer, error) {
 	t, err := s.targetOf(path, name)
 	if err != nil {
 		return Answer{}, err
 	}
-	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input), Confirmed: confirmed})
+	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input), Confirmed: confirmed, Caller: caller})
 }
 
 // Subscribe keeps a device's query or stream under the device's id, replacing
@@ -333,6 +341,7 @@ type callParams struct {
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
 	Confirmed bool            `json:"confirmed,omitempty"`
+	Caller    Caller          `json:"caller,omitempty"`
 }
 
 type subscribeParams struct {

@@ -58,6 +58,11 @@ export type PluginDefinition = {
   methods?: Record<string, Method<any, any>>;
   on?: Record<string, Handler>;
   crons?: Cron[];
+  /**
+   * Data named here gets no generated methods (list, create, delete…), so cards
+   * and agents reach it only through the plugin's own: an audit log, say.
+   */
+  private?: string[];
 };
 
 export function definePlugin<T extends PluginDefinition>(plugin: T): T {

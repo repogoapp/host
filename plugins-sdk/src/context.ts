@@ -35,6 +35,8 @@ export type ManifestCron = {
   nextRunAt: number | null;
   lastRunAt: number | null;
   lastError: string | null;
+  /** How long its last run took: a run far past its interval blocked or waited on something. */
+  lastDurationMs: number | null;
   running: boolean;
   runs: number;
 };
@@ -58,8 +60,13 @@ export type Manifest = {
 
 // What every method and handler receives. Kept small on purpose: it is the
 // whole surface an agent has to learn.
+/** Who started a call: a tap or a card's query, an agent's `plugin_call`, a cron, or plugin code with none of those behind it. */
+export type Caller = "card" | "agent" | "cron" | "code";
+
 export type Context = {
   plugin: string;
+  /** Who started the outermost call; `ctx.call` passes it on. */
+  caller: Caller;
   /** The project's checkout, for a plugin that reads the project's files. */
   root: string;
   collections: Record<string, Collection<any>>;

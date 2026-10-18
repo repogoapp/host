@@ -30,7 +30,7 @@ func TestKeepRunsAProjectsCronsWithNoOneCalling(t *testing.T) {
 	s.keep(t.Context(), []string{root, other})
 
 	testwait.For(t, "the cron to run twice", func() bool {
-		got, err := s.Call(t.Context(), root, "ticker.count", nil, false)
+		got, err := s.Call(t.Context(), root, "ticker.count", nil, false, CallerCard)
 		var n int
 		return err == nil && got.Error == nil && json.Unmarshal(got.Result, &n) == nil && n >= 2
 	})
@@ -49,5 +49,20 @@ func TestABadCronFailsTheLoad(t *testing.T) {
 	list, err := s.List(t.Context(), root)
 	if err != nil || list.Error == nil || !strings.Contains(list.Error.Message, "has 2 fields") {
 		t.Fatalf("list = %s %+v %v", list.Result, list.Error, err)
+	}
+}
+
+// A plugin sees who asked: the host names the phone's taps and the agent's calls.
+func TestCallsCarryTheirCaller(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	root := project(t, dir, map[string]string{"who": `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({ methods: { caller: method(z.object({}), (_, ctx) => ctx.caller) } });
+`})
+	for _, caller := range []Caller{CallerCard, CallerAgent} {
+		got, err := s.Call(t.Context(), root, "who.caller", nil, true, caller)
+		if err != nil || got.Error != nil || string(got.Result) != `"`+string(caller)+`"` {
+			t.Fatalf("caller %s: %s %+v %v", caller, got.Result, got.Error, err)
+		}
 	}
 }

@@ -1,4 +1,5 @@
 import "./self";
+import type { Caller } from "./context";
 import { MethodError, toCallError, type CallError } from "./errors";
 import type { FromWorker, ToWorker } from "./protocol";
 import { Runtime } from "./runtime";
@@ -106,7 +107,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     return post({ type: "reply", id: message.id, error: loadError ?? { code: "INTERNAL", message: "The plugins did not open." } });
   }
   if (message.type === "list") return post({ type: "reply", id: message.id, result: runtime.manifest() });
-  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.root);
+  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.caller, message.root);
   if (message.type === "subscribe") {
     if (runtime.methods.get(message.name)?.kind === "stream") {
       return subscribeStream(message.id, message.subscription, message.name, message.input, message.root);
@@ -115,12 +116,23 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   }
 };
 
+/** A tick this late was held up: code blocking the Worker's thread, or the machine asleep. */
+const delayedMs = 5000;
+
 // Each tick lands just after a whole second, the finest a cron names, so a run starts within milliseconds of its time.
 function tickOnTheSecond() {
+  const wait = 1000 - (Date.now() % 1000) + 2;
+  // Monotonic, so a clock change isn't taken for a delay.
+  const due = performance.now() + wait;
   cronTicker = setTimeout(() => {
+    const late = performance.now() - due;
+    if (late > delayedMs) {
+      const running = runtime?.runningCrons ?? [];
+      console.error(`crons: the tick was ${Math.round(late / 1000)} s late; running now: ${running.join(", ") || "no cron"}`);
+    }
     runtime?.tickCrons();
     tickOnTheSecond();
-  }, 1000 - (Date.now() % 1000) + 2);
+  }, wait);
 }
 
 async function open(dir: string, dataDir: string, root: string) {
@@ -140,9 +152,9 @@ async function open(dir: string, dataDir: string, root: string) {
   }
 }
 
-async function call(id: number, name: string, input: unknown, confirmed: boolean, root?: string) {
+async function call(id: number, name: string, input: unknown, confirmed: boolean, caller: Caller, root?: string) {
   try {
-    const { result } = await runtime!.call(name, input, { confirmed, root });
+    const { result } = await runtime!.call(name, input, { confirmed, caller, root });
     post({ type: "reply", id, result });
   } catch (error) {
     post({ type: "reply", id, error: toCallError(error) });
@@ -153,7 +165,7 @@ async function call(id: number, name: string, input: unknown, confirmed: boolean
 async function subscribe(id: number, key: string, name: string, input: unknown, root?: string) {
   starting.add(key);
   try {
-    const { result, reads } = await runtime!.call(name, input, { expect: "query", root });
+    const { result, reads } = await runtime!.call(name, input, { expect: "query", caller: "card", root });
     if (starting.delete(key)) subscriptions.set(key, { name, input, root, reads: new Set(reads), run: 0 });
     post({ type: "reply", id, result });
   } catch (error) {
@@ -179,7 +191,7 @@ function rerun() {
 async function refresh(key: string, subscription: Subscription) {
   const run = ++subscription.run;
   const answer = await runtime!
-    .call(subscription.name, subscription.input, { expect: "query", root: subscription.root })
+    .call(subscription.name, subscription.input, { expect: "query", caller: "card", root: subscription.root })
     .then(({ result, reads }) => ({ result, reads }), (error) => ({ error: toCallError(error) }));
   // Unsubscribed meanwhile, or a newer run started: this answer is stale.
   if (subscriptions.get(key) !== subscription || subscription.run !== run) return;
@@ -193,7 +205,7 @@ async function refresh(key: string, subscription: Subscription) {
 function subscribeStream(id: number, key: string, name: string, input: unknown, root?: string) {
   const stream: Stream = { abort: new AbortController(), ended: Promise.resolve(), items: [], sending: null };
   try {
-    stream.ended = runtime!.stream(name, input, { root, signal: stream.abort.signal }, (item) => {
+    stream.ended = runtime!.stream(name, input, { root, caller: "card", signal: stream.abort.signal }, (item) => {
       stream.items.push(item);
       if (stream.items.length > batchLimit) stream.items.shift();
       stream.sending ??= setTimeout(() => send(key, stream), settleMs);

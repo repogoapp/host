@@ -20,7 +20,8 @@ export class EventBus {
   async emit(name: string, payload: unknown) {
     const event = { name, payload, at: new Date().toISOString() };
     const listeners = [...(this.listeners.get(name) ?? []), ...this.all];
-    const results = await Promise.allSettled(listeners.map((listener) => listener(event)));
+    // Each in its own promise, so one that throws at once doesn't stop the others.
+    const results = await Promise.allSettled(listeners.map(async (listener) => listener(event)));
     for (const result of results) {
       if (result.status === "rejected") console.error(`[events] ${name}:`, result.reason);
     }

@@ -48,7 +48,7 @@ func (d Deps) call(ctx context.Context, _ rpc.Caller, p CallParams) (pluginscore
 	if p.Method == "" {
 		return pluginscore.Answer{}, rpc.ErrInvalidParams
 	}
-	return d.Plugins.Call(ctx, p.Project, p.Method, p.Input, p.Confirmed)
+	return d.Plugins.Call(ctx, p.Project, p.Method, p.Input, p.Confirmed, pluginscore.CallerCard)
 }
 
 // subscribe runs a query now and again whenever a write changes its answer,

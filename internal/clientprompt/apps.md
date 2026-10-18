@@ -33,7 +33,7 @@ either, ask.
 Write one with definePlugin from "@repogo/plugins" (collections as zod
 objects, methods via
 method(input, run, { kind: "query" }); a method that can't be undone
-takes confirm: "Delete every item?"). A method gets ctx.root, the
+takes confirm: "Restart {{machine}}?", filled from its input). A method gets ctx.root, the
 project's folder, and may read its files, run its CLIs or call APIs.
 For what keeps coming (log tails, build output, progress), write
 stream(input, async function* (input, ctx) { … yield item }): it runs
@@ -45,7 +45,10 @@ For what should happen with no one looking (a check every 5 minutes, a
 morning summary), add crons: [{ method: "watch", schedule: "*/5 * * * *" }]
 to definePlugin: the host calls that method with {} on time, and it may
 write and ctx.notify the phones. A schedule is a cron, five fields or six
-with seconds first; timezone defaults to the environment's.
+with seconds first; timezone defaults to the environment's. A cron of a
+plugin in ~/.repogo/plugins runs with ctx.root at the home folder, and
+every plugin in a folder shares one thread, so never block it (no
+synchronous walk of a big folder).
 A plugin's data, in ~/.repogo/plugin-data/<namespace>/ (namespace is
 required, shared by every plugin naming it), comes in four kinds:
 collections of records (ctx.collections.tasks), kv with optional ttl
@@ -53,7 +56,8 @@ collections of records (ctx.collections.tasks), kv with optional ttl
 lines (ctx.streams.runs), and buckets of files, one folder per file with a
 meta.json you may write yourself (ctx.buckets.photos). Each gets methods
 cards call: <plugin>.tasks.list, <plugin>.state.get, <plugin>.runs.tail (a
-stream), <plugin>.photos.search.
+stream), <plugin>.photos.search; name it in private: [...] for none, as
+for an audit log only the plugin's code may write.
 The SDK's README is the full reference, every option, ctx field, event and
 generated method: read it before writing or changing a plugin, from
 https://raw.githubusercontent.com/repogoapp/host/main/plugins-sdk/README.md

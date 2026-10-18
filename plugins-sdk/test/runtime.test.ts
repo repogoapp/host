@@ -380,7 +380,7 @@ test("calling a stream returns what it sent, and whether it ended", async () => 
 test("a cron that could never run fails the load with its reason", async () => {
   await open();
   const job = method(z.object({}), () => null);
-  const cases: [Record<string, unknown>, unknown, string][] = [
+  const cases: [Record<string, any>, unknown, string][] = [
     [{ job }, { method: "missing", schedule: "* * * * *" }, "isn't one of"],
     [{ job }, { method: "job", schedule: "* * *" }, "has 3 fields"],
     [{ job }, { method: "job", schedule: "* * * * *", timezone: "Mars/Olympus" }, "isn't a time zone"],
@@ -443,4 +443,141 @@ test("a cron still running isn't started again, and a time slept through is skip
   expect(runtime.tickCrons(late)).toHaveLength(0);
   expect(job.nextRunAt!).toBeGreaterThan(late);
   expect(started).toBe(1);
+});
+
+test("private data gets no generated methods, and naming one that isn't there fails the load", async () => {
+  await open();
+  await runtime.add("audit", definePlugin({
+    namespace: "audit",
+    collections: { entries: z.object({ text: z.string() }), drafts: z.object({ text: z.string() }) },
+    kv: { last: z.string() },
+    private: ["entries", "last"],
+  }));
+  const names = [...runtime.methods.keys()].filter((m) => m.startsWith("audit."));
+  expect(names.some((m) => m.startsWith("audit.entries.") || m.startsWith("audit.last."))).toBe(false);
+  expect(names).toContain("audit.drafts.create");
+  await expect(runtime.add("audit2", definePlugin({ namespace: "audit2", collections: { a: z.object({}) }, private: ["b"] })))
+    .rejects.toThrow("keeps no collection, kv, stream or bucket by that name");
+});
+
+test("a confirm question names what it acts on, and a bad input fails before it's asked", async () => {
+  await open();
+  await runtime.add("fleet", definePlugin({
+    methods: {
+      restart: method(z.object({ machine: z.string().regex(/^[a-z0-9]+$/) }), () => "done", { confirm: "Restart {{machine}}? {{missing}}It drops its connections." }),
+    },
+  }));
+  await expect(runtime.call("fleet.restart", { machine: "m42" }, { confirmed: false })).rejects.toThrow("Restart m42? It drops its connections.");
+  const bad = await runtime.call("fleet.restart", { machine: "--all" }, { confirmed: false }).catch((error) => toCallError(error));
+  expect(bad).toMatchObject({ code: "VALIDATION" });
+  expect((await runtime.call("fleet.restart", { machine: "m42" }, { confirmed: true })).result).toBe("done");
+  // The manifest keeps the question as written.
+  expect(runtime.manifest().plugins.find((p) => p.name === "fleet")!.methods[0].confirm).toBe("Restart {{machine}}? {{missing}}It drops its connections.");
+});
+
+test("deleteMany removes what list would return, offset and field order included", async () => {
+  await open();
+  await runtime.add("bench", definePlugin({
+    namespace: "bench",
+    collections: { runs: z.object({ job: z.string(), n: z.number() }) },
+    methods: {
+      fill: method(z.object({}), async (_, ctx) => {
+        for (let n = 1; n <= 5; n++) await ctx.collections.runs.create({ job: "a", n });
+        await ctx.collections.runs.create({ job: "b", n: 9 });
+      }),
+      keepNewest: method(z.object({ keep: z.number() }), (input, ctx) =>
+        ctx.collections.runs.deleteMany({ where: { job: "a" }, orderBy: "n", order: "desc", offset: input.keep, limit: 1000 })),
+      left: method(z.object({}), async (_, ctx) => (await ctx.collections.runs.list({ orderBy: "n", order: "asc" })).map((r) => `${r.job}${r.n}`), { kind: "query" }),
+    },
+  }));
+  await runtime.call("bench.fill");
+  expect((await runtime.call("bench.keepNewest", { keep: 2 })).result).toBe(3);
+  expect((await runtime.call("bench.left")).result).toEqual(["a4", "a5", "b9"]);
+});
+
+test("ctx.caller is who started the call, and code it calls inherits it", async () => {
+  await open();
+  await runtime.add("who", definePlugin({
+    methods: {
+      caller: method(z.object({}), (_, ctx) => ctx.caller, { kind: "query" }),
+      relay: method(z.object({}), (_, ctx) => ctx.call("caller"), { kind: "query" }),
+    },
+    crons: [{ method: "caller", schedule: "* * * * * *" }],
+  }));
+  expect((await runtime.call("who.caller")).result).toBe("code");
+  expect((await runtime.call("who.caller", {}, { caller: "agent" })).result).toBe("agent");
+  expect((await runtime.call("who.relay", {}, { caller: "card" })).result).toBe("card");
+});
+
+test("a cron run reports how long it took, and pages showing crons re-run around it", async () => {
+  await open();
+  const tags: string[] = [];
+  runtime.onInvalidate((written) => tags.push(...written));
+  await runtime.add("timed", definePlugin({
+    methods: {
+      work: method(z.object({}), () => new Promise((resolve) => setTimeout(resolve, 20))),
+      crons: method(z.object({}), (_, ctx) => ctx.plugins().find((p) => p.name === "timed")!.crons[0].runs, { kind: "query" }),
+    },
+    crons: [{ method: "work", schedule: "* * * * * *" }],
+  }));
+  const { reads } = await runtime.call("timed.crons");
+  const [job] = runtime.crons.filter((c) => c.plugin === "timed");
+  await Promise.all(runtime.tickCrons(job.nextRunAt!));
+  expect(job.lastDurationMs).toBeGreaterThanOrEqual(15);
+  // What read the crons is told twice: as the run starts, and as it ends.
+  expect(tags.filter((tag) => reads.includes(tag))).toHaveLength(2);
+});
+
+test("a stream with a confirm asks too, and a stream knows who watches it", async () => {
+  await open();
+  await runtime.add("tails", definePlugin({
+    methods: {
+      risky: { ...stream(z.object({}), async function* () { yield 1; }), confirm: "Tail it?" },
+      who: stream(z.object({}), async function* (_, ctx) { yield ctx.caller; }),
+    },
+  }));
+  await expect(runtime.call("tails.risky", {}, { confirmed: false })).rejects.toThrow("Tail it?");
+  const seen: unknown[] = [];
+  await runtime.stream("tails.who", {}, { caller: "card", signal: new AbortController().signal }, (item) => seen.push(item));
+  expect(seen).toEqual(["card"]);
+});
+
+test("one handler that throws doesn't keep a bulk delete's other events from firing", async () => {
+  await open();
+  const deleted: string[] = [];
+  await runtime.add("bulk", definePlugin({
+    namespace: "bulk",
+    collections: { rows: z.object({ n: z.number() }) },
+    methods: {
+      fill: method(z.object({}), async (_, ctx) => { for (const n of [1, 2, 3]) await ctx.collections.rows.create({ n }); }),
+      wipe: method(z.object({}), (_, ctx) => ctx.collections.rows.deleteMany({ limit: 10 })),
+    },
+    on: {
+      "rows.deleted": (row: { n: number }) => {
+        deleted.push(String(row.n));
+        if (row.n === 2) throw new Error("handler bug");
+      },
+    },
+  }));
+  await runtime.call("bulk.fill");
+  expect((await runtime.call("bulk.wipe")).result).toBe(3);
+  expect(deleted.sort()).toEqual(["1", "2", "3"]);
+});
+
+test("records sort by any field, by id, and through the generated list", async () => {
+  await open();
+  await runtime.add("people", definePlugin({
+    namespace: "people",
+    collections: { people: z.object({ "display-name": z.string() }) },
+    methods: {
+      names: method(z.object({}), async (_, ctx) => (await ctx.collections.people.list({ orderBy: "display-name", order: "asc" })).map((p) => p["display-name"]), { kind: "query" }),
+      byID: method(z.object({}), async (_, ctx) => (await ctx.collections.people.list({ orderBy: "id", order: "asc" })).map((p) => p.id), { kind: "query" }),
+    },
+  }));
+  for (const name of ["Cleo", "Ada", "Bea"]) await runtime.call("people.people.create", { "display-name": name });
+  expect((await runtime.call("people.names")).result).toEqual(["Ada", "Bea", "Cleo"]);
+  const ids = (await runtime.call("people.byID")).result as string[];
+  expect(ids).toEqual([...ids].sort());
+  const page = (await runtime.call("people.people.list", { orderBy: "display-name", order: "asc", offset: 1, limit: 1 })).result as any[];
+  expect(page.map((p) => p["display-name"])).toEqual(["Bea"]);
 });

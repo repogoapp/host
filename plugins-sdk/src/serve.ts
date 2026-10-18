@@ -2,6 +2,7 @@ import type { Socket } from "bun";
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
+import type { Caller } from "./context";
 import { toCallError, type CallError } from "./errors";
 import type { DataPush, FromWorker, HostCall, NotifyPush, Reply, Request, ToWorker } from "./protocol";
 
@@ -23,7 +24,7 @@ const named = target.extend({ name: z.string().min(1), input: z.unknown().option
 
 const requestSchema = z.discriminatedUnion("method", [
   z.object({ id: z.number(), method: z.literal("list"), params: target }),
-  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ confirmed: z.boolean().optional() }) }),
+  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ confirmed: z.boolean().optional(), caller: z.enum(["card", "agent", "cron", "code"]).optional() }) }),
   z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
   z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
   z.object({ id: z.number(), method: z.literal("reload"), params: target }),
@@ -94,7 +95,7 @@ class Checkout {
     this.post({ type: "open", dir: this.dir, dataDir: this.dataDir, root: resolve(this.dir, "..", "..") });
   }
 
-  request(message: { type: "list" } | { type: "call"; name: string; input: unknown; confirmed: boolean; root?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
+  request(message: { type: "list" } | { type: "call"; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
     const id = ++this.nextID;
     return new Promise((resolve) => {
       this.waiting.set(id, resolve);
@@ -245,7 +246,7 @@ export async function serve(options: ServeOptions) {
             ? await checkout.request({ type: "list" })
             : await checkout.request({
               type: "call", name: request.params.name, input: request.params.input ?? {},
-              confirmed: request.params.confirmed ?? false, root: request.params.root,
+              confirmed: request.params.confirmed ?? false, caller: request.params.caller ?? "code", root: request.params.root,
             });
         return { id, ...answer };
       }

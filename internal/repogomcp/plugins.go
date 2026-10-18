@@ -58,7 +58,7 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 	}
 	// A confirm guards what can't be undone from agents as from taps: an agent's
 	// permissions may let every tool call through, so the user's yes is its own step.
-	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, p.Confirmed)
+	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, p.Confirmed, plugins.CallerAgent)
 	return pluginResult(answer, err)
 }
 

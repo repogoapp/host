@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -16,7 +20,7 @@
     "LICENSE.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.ts --target=bun --outdir dist --external zod && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && bun build src/index.ts src/testing.ts --target=bun --outdir dist --splitting --external zod && tsc -p tsconfig.build.json",
     "build:runtime": "bun build src/run.ts src/worker.ts --target=bun --outdir ../internal/plugins/runtime",
     "prepack": "cp ../LICENSE.md LICENSE.md && bun run build",
     "test": "bun test",

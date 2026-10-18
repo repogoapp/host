@@ -6,7 +6,7 @@ import { Bucket } from "./buckets";
 import { Collection } from "./collections";
 import { checkTimezone, nextDue, parseSchedule, type Schedule } from "./cron";
 import { Database } from "./database";
-import type { Context, Manifest, ManifestCron, Notice } from "./context";
+import type { Caller, Context, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
 import type { PluginDefinition, MethodKind } from "./define";
@@ -16,7 +16,7 @@ import { bucketMethods, kvMethods, streamMethods, type Generated } from "./gener
 import { Kv } from "./kv";
 import type { Store, StoreKind, StoreOptions } from "./store";
 import { defaultRetain, Stream } from "./streams";
-import { currentAccess, tracked } from "./tracking";
+import { currentAccess, recordRead, tracked } from "./tracking";
 
 export type RegisteredMethod = {
   name: string;
@@ -56,6 +56,7 @@ type CronJob = {
   parsed: Schedule;
   nextRunAt: number | null;
   lastRunAt: number | null;
+  lastDurationMs: number | null;
   lastError: string | null;
   running: boolean;
   runs: number;
@@ -95,6 +96,10 @@ export class Runtime {
   private callRoot = new AsyncLocalStorage<string>();
   /** A running stream's signal, `ctx.signal` to the code it runs. */
   private callSignal = new AsyncLocalStorage<AbortSignal>();
+  /** Who started the outermost call, `ctx.caller` to the code it runs. */
+  private callCaller = new AsyncLocalStorage<Caller>();
+  /** Read through `ctx.plugins()` and written as each cron run starts and ends; this runtime's own, so other Workers aren't stirred. */
+  private cronsTag = `crons.${crypto.randomUUID()}`;
 
   /**
    * `root` is the project's checkout, `ctx.root` to its plugins; the working
@@ -122,6 +127,11 @@ export class Runtime {
     const kv: Context["kv"] = {};
     const streams: Context["streams"] = {};
     const declared = Object.entries(plugin.collections ?? {});
+    const stores = [...declared.map(([n]) => n), ...[plugin.kv, plugin.streams, plugin.buckets].flatMap((group) => Object.keys(group ?? {}))];
+    const hidden = new Set(plugin.private ?? []);
+    for (const store of hidden) {
+      if (!stores.includes(store)) throw new Error(`plugin ${name} lists ${store} as private, but keeps no collection, kv, stream or bucket by that name`);
+    }
     // Only data needs a file; plugins naming the same namespace share it on purpose.
     const hasData = declared.length > 0 || [plugin.buckets, plugin.kv, plugin.streams].some((stores) => Object.keys(stores ?? {}).length > 0);
     // Named by hand, so where data goes is never a folder name's accident.
@@ -133,7 +143,7 @@ export class Runtime {
       const collection = new Collection(file!, this.events, name, namespace, collectionName, schema);
       await collection.setup();
       collections[collectionName] = collection;
-      this.registerCrud(name, collectionName, collection, schema);
+      if (!hidden.has(collectionName)) this.registerCrud(name, collectionName, collection, schema);
     }
     const options: StoreOptions = {
       database: file!, events: this.events, namespace, dir: join(this.dataDir, namespace),
@@ -142,23 +152,24 @@ export class Runtime {
     for (const [storeName, schema] of Object.entries(plugin.kv ?? {})) {
       const store = await this.store(name, "kv", storeName, schema, () => new Kv(options, storeName, schema));
       kv[storeName] = store;
-      this.registerGenerated(name, storeName, kvMethods(storeName, store, schema));
+      if (!hidden.has(storeName)) this.registerGenerated(name, storeName, kvMethods(storeName, store, schema));
     }
     for (const [storeName, definition] of Object.entries(plugin.streams ?? {})) {
       const { item, retain } = "item" in definition ? definition : { item: definition, retain: defaultRetain };
       const store = await this.store(name, "streams", storeName, item, () => new Stream(options, storeName, item, retain), retain);
       streams[storeName] = store;
-      this.registerGenerated(name, storeName, streamMethods(storeName, store, item));
+      if (!hidden.has(storeName)) this.registerGenerated(name, storeName, streamMethods(storeName, store, item));
     }
     for (const [storeName, schema] of Object.entries(plugin.buckets ?? {})) {
       const store = await this.store(name, "buckets", storeName, schema, () => new Bucket(options, storeName, schema));
       buckets[storeName] = store;
-      this.registerGenerated(name, storeName, bucketMethods(storeName, store, schema));
+      if (!hidden.has(storeName)) this.registerGenerated(name, storeName, bucketMethods(storeName, store, schema));
     }
 
     const runtime = this;
     const ctx: Context = {
       plugin: name,
+      get caller() { return runtime.callCaller.getStore() ?? "code"; },
       get root() { return runtime.callRoot.getStore() ?? runtime.root; },
       get signal() { return runtime.callSignal.getStore() ?? never; },
       collections,
@@ -171,7 +182,10 @@ export class Runtime {
         if (!runtime.host) throw new MethodError("INTERNAL", "ctx.host runs only under the RepoGo host.");
         return runtime.host(name, method, params ?? {});
       },
-      plugins: () => this.manifest().plugins,
+      plugins: () => {
+        recordRead(this.cronsTag);
+        return this.manifest().plugins;
+      },
       notify: (notice) => {
         const sent = { ...notice, plugin: name, root: runtime.callRoot.getStore() ?? runtime.root };
         for (const listener of runtime.noticeListeners) listener(sent);
@@ -209,7 +223,7 @@ export class Runtime {
       if (nextRunAt === null) throw new Error(`${where}: "${cron.schedule}" is never due`);
       this.crons.push({
         plugin: name, method: method.name, schedule: cron.schedule, timezone, parsed,
-        nextRunAt, lastRunAt: null, lastError: null, running: false, runs: 0,
+        nextRunAt, lastRunAt: null, lastDurationMs: null, lastError: null, running: false, runs: 0,
       });
     }
 
@@ -226,25 +240,29 @@ export class Runtime {
    * so does everything the query calls.
    */
   /**
-   * `confirmed` is for a call from a tap: false until the user has answered
-   * the method's `confirm`. Code calling code (`ctx.call`) leaves it out.
-   * `root` is the caller's project, for plugins loaded from the environment's
-   * own folder; code calling code inherits it.
+   * `confirmed` is false for a tap the user hasn't answered; `ctx.call` leaves it out.
+   * `root` (the caller's project, for the environment's own plugins) and `caller`
+   * pass on to the code the method calls.
    */
-  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string } = {}): Promise<CallResult> {
+  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string; caller?: Caller } = {}): Promise<CallResult> {
     if (options.root && options.root !== this.callRoot.getStore()) {
       const { root, ...rest } = options;
       return this.callRoot.run(root, () => this.call(name, input, rest));
     }
+    if (options.caller && options.caller !== this.callCaller.getStore()) {
+      const { caller, ...rest } = options;
+      return this.callCaller.run(caller, () => this.call(name, input, rest));
+    }
     const method = this.methods.get(name);
     if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
-    if (method.confirm && options.confirmed === false) throw new MethodError("CONFIRM", method.confirm);
     if ((options.expect === "query" || currentAccess()?.readOnly) && method.kind === "mutation") {
       throw new MethodError("FORBIDDEN", `${name} changes data, so it only runs when the user acts.`);
     }
-    if (method.kind === "stream") return { result: await this.sample(name, input), reads: [], invalidates: [] };
     const raw = input ?? {};
     const parsed = method.input.parse(raw);
+    // Asked after the input is read, so the question can name what it acts on.
+    if (method.confirm && options.confirmed === false) throw new MethodError("CONFIRM", fillConfirm(method.confirm, parsed));
+    if (method.kind === "stream") return { result: await this.sample(name, input), reads: [], invalidates: [] };
     // A query is read-only however it's called, and so is everything it calls.
     const run = await tracked(method.kind === "query", (tags) => this.notifyInvalidated(tags), async () => {
       const result = await method.run(parsed, raw);
@@ -262,14 +280,15 @@ export class Runtime {
    * Runs a stream method, passing each item it yields to `onItem` until it
    * returns, throws or `signal` aborts. Bad input throws here, before it starts.
    */
-  stream(name: string, input: unknown, options: { root?: string; signal: AbortSignal }, onItem: (item: unknown) => void): Promise<void> {
+  stream(name: string, input: unknown, options: { root?: string; caller?: Caller; signal: AbortSignal }, onItem: (item: unknown) => void): Promise<void> {
     const method = this.methods.get(name);
     if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
     if (method.kind !== "stream") throw new MethodError("VALIDATION", `${name} is a ${method.kind}, not a stream.`);
     const raw = input ?? {};
     const parsed = method.input.parse(raw);
     const root = options.root ?? this.callRoot.getStore() ?? this.root;
-    return this.callRoot.run(root, () => this.callSignal.run(options.signal, async () => {
+    const caller = options.caller ?? this.callCaller.getStore() ?? "code";
+    return this.callRoot.run(root, () => this.callCaller.run(caller, () => this.callSignal.run(options.signal, async () => {
       // Read-only like a query: a stream a card starts on its own may not write.
       const run = await tracked(true, (tags) => this.notifyInvalidated(tags), async () => {
         const items = await method.run(parsed, raw);
@@ -280,7 +299,7 @@ export class Runtime {
         }
       });
       if (!run.ok && !options.signal.aborted) throw run.error;
-    }));
+    })));
   }
 
   /** A stream called once, by an agent or by code: what arrives within `sampleMs`, at most `sampleLimit` items. */
@@ -330,7 +349,8 @@ export class Runtime {
       if (job.running || now - due > cronLateMs) continue;
       job.running = true;
       job.lastRunAt = now;
-      started.push(this.call(job.method, {}).then(
+      const startedAt = Date.now();
+      started.push(this.call(job.method, {}, { caller: "cron" }).then(
         () => { job.lastError = null; },
         (error) => {
           job.lastError = toCallError(error).message;
@@ -339,8 +359,11 @@ export class Runtime {
       ).finally(() => {
         job.running = false;
         job.runs += 1;
+        job.lastDurationMs = Date.now() - startedAt;
+        this.notifyInvalidated([this.cronsTag]);
       }));
     }
+    if (started.length) this.notifyInvalidated([this.cronsTag]);
     return started;
   }
 
@@ -360,7 +383,8 @@ export class Runtime {
         })),
       crons: this.crons.filter((job) => job.plugin === name).map((job): ManifestCron => ({
         method: job.method, schedule: job.schedule, timezone: job.timezone,
-        nextRunAt: job.nextRunAt, lastRunAt: job.lastRunAt, lastError: job.lastError, running: job.running, runs: job.runs,
+        nextRunAt: job.nextRunAt, lastRunAt: job.lastRunAt, lastError: job.lastError, lastDurationMs: job.lastDurationMs,
+        running: job.running, runs: job.runs,
       })),
       storage: {
         buckets: this.storesOf(name, "buckets").map((store) => ({ name: store.name, path: (store as Bucket<any>).path })),
@@ -369,6 +393,11 @@ export class Runtime {
       },
     }));
     return { plugins };
+  }
+
+  /** The crons running now, to name in a warning when something has blocked the Worker. */
+  get runningCrons() {
+    return this.crons.filter((job) => job.running).map((job) => job.method);
   }
 
   /** Whether any plugin keeps kv, streams or buckets, which `tickStorage` looks after. */
@@ -459,8 +488,12 @@ export class Runtime {
       run: async (value, raw) => run(value, raw),
     });
 
-    crud("list", "query", z.object({ limit: z.number().int().positive().max(500).optional() }), z.array(record),
-      `List ${name} records, newest first`, (input) => collection.list(input));
+    crud("list", "query", z.object({
+      limit: z.number().int().positive().max(500).optional(),
+      offset: z.number().int().min(0).optional(),
+      orderBy: z.string().optional(),
+      order: z.enum(["asc", "desc"]).optional(),
+    }), z.array(record), `List ${name} records, newest first unless orderBy says`, (input) => collection.list(input));
     crud("get", "query", id, record.nullable(), `Get one ${name} record by id, or null`, (input) => collection.get(input.id));
     crud("create", "mutation", schema, record, `Create a ${name} record`, (input) => collection.create(input));
     // Only the fields the caller sent change: a default never overwrites a field left out.
@@ -474,6 +507,15 @@ export class Runtime {
       return null;
     }, "Delete this record?");
   }
+}
+
+/** A confirm question with `{{field}}` filled from the call's input: "Restart {{machine}}?". */
+function fillConfirm(question: string, input: unknown) {
+  const fields = (input ?? {}) as Record<string, unknown>;
+  return question.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, field) => {
+    const value = Object.hasOwn(fields, field) ? fields[field] : undefined;
+    return value === undefined || value === null ? "" : String(value);
+  });
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
