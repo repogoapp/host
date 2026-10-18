@@ -62,7 +62,6 @@ type ListParams struct {
 type ListResult struct {
 	Chats      []store.Chat `json:"chats" wire:"array"`
 	NextCursor string       `json:"next_cursor"`
-	HostID     string       `json:"host_id"`
 }
 
 type NeighborsParams struct {

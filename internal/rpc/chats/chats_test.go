@@ -62,8 +62,7 @@ func TestListStampsTheHostOnEveryRow(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 	var got struct {
-		HostID string `json:"host_id"`
-		Chats  []struct {
+		Chats []struct {
 			HostID string `json:"host_id"`
 		} `json:"chats"`
 	}
@@ -73,8 +72,8 @@ func TestListStampsTheHostOnEveryRow(t *testing.T) {
 	if len(got.Chats) != 1 {
 		t.Fatalf("got %d chats, want 1", len(got.Chats))
 	}
-	if got.HostID != host || got.Chats[0].HostID != host {
-		t.Errorf("host id = %q / row %q, want %s on both", got.HostID, got.Chats[0].HostID, host)
+	if got.Chats[0].HostID != host {
+		t.Errorf("row host id = %q, want %s", got.Chats[0].HostID, host)
 	}
 }
 

@@ -72,8 +72,6 @@ type Chat struct {
 	CreatedAt          int64            `json:"created_at"`
 	UpdatedAt          int64            `json:"updated_at"`
 	ActivityAt         int64            `json:"activity_at"` // see sessions.activity_at in schema.go
-	EventCount         int              `json:"event_count"`
-	Generation         int64            `json:"generation"`
 	Status             agent.ChatStatus `json:"status"`
 	StatusAt           int64            `json:"status_at"`
 	LastTurnStartedAt  *int64           `json:"last_turn_started_at"`
@@ -110,8 +108,8 @@ type Chat struct {
 	// What a phone shows for Model; see Stamp.
 	ModelLabel string `json:"model_label,omitempty"`
 
-	// Which of the project's own agents the chat runs; omitted for every other
-	// agent. With Agent it is what a new turn there would start.
+	// Which of the project's own agents the chat runs, for agents and cards
+	// reading the list; omitted for every other agent.
 	ProjectAgent string `json:"project_agent,omitempty"`
 
 	// What the newest turn ran with, read from the transcript; omitted when
@@ -254,7 +252,7 @@ type ChatPage struct {
 // numbers, the queue's count and version), for queryChats.
 const chatSelect = `
 SELECT s.agent, s.session_id, s.title, s.last_reply,
-  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.event_count, s.generation, s.context_used, s.context_size, s.model, s.model_label, s.project_agent, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, COALESCE(m.parent_id, ''), s.rev, COALESCE(v.number, 0),
+  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.context_used, s.context_size, s.model, s.model_label, s.project_agent, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, COALESCE(m.parent_id, ''), s.rev, COALESCE(v.number, 0),
   (SELECT COUNT(*) FROM state.queued_turns t WHERE t.chat_id = s.agent || ':' || s.session_id), COALESCE(q.rev, 0)
 FROM sessions s LEFT JOIN state.chat_marks m ON m.agent = s.agent AND m.session_id = s.session_id
 LEFT JOIN state.voice_numbers v ON v.agent = s.agent AND v.session_id = s.session_id
@@ -277,7 +275,7 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 		var c Chat
 		var agent, sessionID string
 		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.LastReply, &c.LastUserMessagePreview, &c.CWD,
-			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.EventCount, &c.Generation, &c.ContextUsed, &c.ContextSize, &c.Model, &c.ModelLabel, &c.ProjectAgent, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
+			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.ContextUsed, &c.ContextSize, &c.Model, &c.ModelLabel, &c.ProjectAgent, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
 			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.ParentID, &c.Revision, &c.VoiceNumber,
 			&c.QueuedCount, &c.QueueRevision); err != nil {
 			return nil, err

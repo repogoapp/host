@@ -75,7 +75,7 @@ func (d Deps) list(ctx context.Context, _ rpc.Caller, a ListParams) (ListResult,
 	q := a.store()
 	q.Limit, q.Cursor = a.Limit, a.Cursor
 	page, err := d.Chats.List(ctx, q, a.Refresh)
-	return ListResult{Chats: page.Chats, NextCursor: page.NextCursor, HostID: string(d.Chats.Self())}, err
+	return ListResult{Chats: page.Chats, NextCursor: page.NextCursor}, err
 }
 
 func (d Deps) sync(ctx context.Context, _ rpc.Caller, a store.SyncParams) (store.SyncResult, error) {

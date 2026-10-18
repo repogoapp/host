@@ -54,9 +54,10 @@ func TestDumpPages(t *testing.T) {
 		}
 		stats := New(session.NewStore(provider), db, logger).once(context.Background(), 64)
 		chats := allChats(t, db)
+		counts := eventCounts(t, db, chats)
 		t.Logf("synced %d of %d sessions, %d rows", stats.synced, stats.total, stats.events)
-		for _, chat := range sample(chats) {
-			name := fmt.Sprintf("%s-%05d-%s.jsonl", chat.Agent, chat.EventCount, shortID(chat.ID))
+		for _, chat := range sample(chats, counts) {
+			name := fmt.Sprintf("%s-%05d-%s.jsonl", chat.Agent, counts[chat.ID], shortID(chat.ID))
 			pages, rows := writePages(t, db, wire, chat.ID, filepath.Join(*dumpPages, name))
 			t.Logf("%s: %d pages, %d rows", name, pages, rows)
 		}
@@ -80,18 +81,31 @@ func allChats(t *testing.T, db *store.Store) []store.Chat {
 	}
 }
 
+// eventCounts is each chat's transcript length, which list rows don't carry.
+func eventCounts(t *testing.T, db *store.Store, chats []store.Chat) map[store.ChatID]int {
+	counts := make(map[store.ChatID]int, len(chats))
+	for _, chat := range chats {
+		page, err := db.Messages(chat.ID, 0, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		counts[chat.ID] = page.EventCount
+	}
+	return counts
+}
+
 // sample is the largest chats, then the most recent ordinary ones not already
 // taken; `chats` arrives most recent first.
-func sample(chats []store.Chat) []store.Chat {
+func sample(chats []store.Chat, counts map[store.ChatID]int) []store.Chat {
 	bySize := slices.Clone(chats)
-	slices.SortFunc(bySize, func(a, b store.Chat) int { return cmp.Compare(b.EventCount, a.EventCount) })
+	slices.SortFunc(bySize, func(a, b store.Chat) int { return cmp.Compare(counts[b.ID], counts[a.ID]) })
 	picked := bySize[:min(*dumpLarge, len(bySize))]
 	typical := 0
 	for _, chat := range chats {
 		if typical == *dumpTypical {
 			break
 		}
-		if chat.EventCount >= 50 && !slices.ContainsFunc(picked, func(c store.Chat) bool { return c.ID == chat.ID }) {
+		if counts[chat.ID] >= 50 && !slices.ContainsFunc(picked, func(c store.Chat) bool { return c.ID == chat.ID }) {
 			picked = append(picked, chat)
 			typical++
 		}
