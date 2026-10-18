@@ -33,10 +33,11 @@ Example:
 ```
 
 Methods are named <plugin>.<method>; a collection adds
-<plugin>.<collection>.list/get/create/update/delete. A plugin's `db` names
-its data file: `<project>.<name>` for the project's own data, a bare name
-to share it across projects. A plugin in `~/.repogo/plugins` serves every
-project; its pages are linked as `page:~/.repogo/plugins/<name>/pages/<page>.md`.
+<plugin>.<collection>.list/get/create/update/delete. A plugin's `namespace`
+names its data, and one that keeps data must set it: `<project>.<name>`
+for the project's own data, a bare name to share it across projects. A plugin
+in `~/.repogo/plugins` serves every project; its pages are linked as
+`page:~/.repogo/plugins/<name>/pages/<page>.ui`.
 Check a method with the plugins tool before a card names it. Plugins send data as it is
 (dates as ISO or milliseconds); cards format it with filters.
 The plugins tool's `pages` say where a page already shows a method: link

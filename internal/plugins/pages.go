@@ -25,11 +25,11 @@ type Page struct {
 
 // pages is every plugin Data a link can reach in a project's pages (.repogo,
 // .repogo/tabs, each plugin's pages folder), then in the environment plugins'
-// pages, except a plugin the project shadows.
+// pages, except a plugin the project shadows. A page is a .ui or .md file.
 func pages(root, global string) []Page {
 	var out []Page
 	_ = filepath.WalkDir(filepath.Join(root, ".repogo"), func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
+		if err != nil || d.IsDir() || !isPageFile(path) {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
@@ -46,8 +46,11 @@ func pages(root, global string) []Page {
 		if !e.IsDir() || isFile(filepath.Join(root, filepath.FromSlash(Folder), e.Name(), "app.ts")) {
 			continue
 		}
-		files, _ := filepath.Glob(filepath.Join(global, e.Name(), "pages", "*.md"))
+		files, _ := filepath.Glob(filepath.Join(global, e.Name(), "pages", "*"))
 		for _, file := range files {
+			if !isPageFile(file) {
+				continue
+			}
 			out = append(out, pageData(file, "~/.repogo/plugins/"+e.Name()+"/pages/"+filepath.Base(file))...)
 		}
 	}
@@ -60,16 +63,27 @@ func isPagesDir(dir string) bool {
 	return dir == ".repogo" || dir == ".repogo/tabs" || strings.HasPrefix(dir, ".repogo/tabs/") || pluginPages.MatchString(dir)
 }
 
+// isPageFile is a page whose cards can show a plugin's Data: card markup
+// (.ui) or Markdown with ui fences (.md).
+func isPageFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".ui" || ext == ".md"
+}
+
 func isFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
 }
 
-// pageData reads one page file's ui fences; a file it can't read has none.
+// pageData reads one page file's cards: all of a .ui file, or each ui fence
+// of a .md file; a file it can't read has none.
 func pageData(file, target string) []Page {
 	text, err := os.ReadFile(file)
 	if err != nil {
 		return nil
+	}
+	if strings.ToLower(filepath.Ext(file)) == ".ui" {
+		return fenceData(string(text), target)
 	}
 	var out []Page
 	for _, fence := range uiFences(string(text)) {

@@ -29,6 +29,10 @@ Image: url (http or https, may read {{…}}); size="sm|md|lg|xl" (or points)
   for a square, else width and aspect="16:9"; fit="fill|fit" (fill crops,
   the default; fit shows it all); with neither size nor aspect it keeps its
   own shape uncropped; radius (pill for a circle); alt for VoiceOver.
+File: path (as file: takes it, may read {{…}}); draws that file of the
+  environment in the card with the app's viewer: a PDF, an image, a video
+  or audio, a CSV or SQLite table, JSON, Markdown, a Mermaid diagram;
+  height (default regular).
 Icon: name="SF Symbol"; size="sm|md|lg", default md; alt names it for
   VoiceOver (without one it's decorative).
 Progress: value="0..1" plain decimal bar; self-closing; color tints it, default primary.
@@ -47,12 +51,12 @@ Toolbar: Buttons and Menus for the bar of the page or sheet the card is
   on (an Add button, a "…" Menu); where there's no bar, a row of them.
 Divider, Spacer: separator and flexible space along the parent layout.
 State: a local string value; declare it at the top (anywhere but inside Each).
-  A page's State is also its parameters: page:x.md?name=value and a
+  A page's State is also its parameters: page:x.ui?name=value and a
   Page's Params set a declared name's starting value (the user's edits win).
-Page: path (a project page, or ~/.repogo/plugins/<name>/pages/<page>.md,
+Page: path (a project page, or ~/.repogo/plugins/<name>/pages/<page>.ui,
   with an optional ?name=value query); Param children set the page's
   state, reading {{…}}. Draws that page's card here, live, so a page
-  written once serves a tab, a link and a card. Not inside a Page.
+  written once serves a link and a card. Not inside a Page.
 Router: optional id and initial route path (may read {{state}}, so a
   link can land on a route: ?route=detail); contains Route elements.
 Route: required path, optional title (may read {{state}}),
@@ -65,7 +69,7 @@ opens one as a sheet with its own stack and a close button. Give each
 Route a short title; a pushed or presented Route shows it in the system
 bar, so don't repeat it as a heading inside.
 TabBar: name, optional value; the system's bottom tab bar when it is a
-  page's only element (a tab page or a page: link), else a segmented
+  page's only element (a page opened with page:), else a segmented
   control. Contains Tab elements and an optional Accessory; picking a tab
   sets the state to its label (set:tab=Logs switches tabs).
   minimize="onScrollDown|onScrollUp|never|automatic" (default automatic)
@@ -81,6 +85,7 @@ Accessory: visual children in the bar above the tabs (now playing,
 List: a grouped list like the app's Settings; contains Sections.
 Section: optional label (header) and footer; contains Items.
 Item: one row: label, optional icon (SF Symbol, on a colored tile),
+  image="{{a.icon}}" draws that picture (http or https) as the tile instead: an app icon, an avatar,
   site="{{p.url}}" draws that site's favicon as the tile instead (icon shows until it loads),
   file="{{f.path}}" draws that file's type icon instead (a path ending in / is a folder),
   iconColor, subtitle, detail (grey trailing text), action, role="destructive".
@@ -145,13 +150,18 @@ open:<url> — open an absolute https or http link in a Safari sheet over
   the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
-page:<project path> — open one of the project's pages, from a tab page or
-  from chat (page:.repogo/tabs/vercel.md, page:~/.repogo/plugins/notes/pages/index.md);
+page:<project path> — open one of the project's pages, from chat or
+  another page (page:.repogo/tabs/vercel.ui, page:~/.repogo/plugins/notes/pages/index.ui);
   a query sets the page's state and may read {{…}}
-  (page:.repogo/tabs/vercel.md?project={{p.name}}&route=project);
+  (page:.repogo/tabs/vercel.ui?project={{p.name}}&route=project);
   sheet="large" on the Button or Item opens it in a sheet instead,
   sheet="full" over the whole screen. When a
   page shows what the user asked for, link it rather than redraw it.
+file:<path> — open a file of the environment in the app's viewer
+  (images, PDF, video, CSV, SQLite, code): relative to the project's
+  folder, absolute, or under ~/; it may read {{…}} (file:{{f.path}}).
+  line="42" on the Button or Item opens a text file at that line. Pair
+  it with file="{{f.path}}" on an Item for the file's icon.
 back — return to the previous route, page or sheet.
 then="push:detail" after set: or toggle: runs a second, local action:
   action="set:item={{row.id}}" then="push:detail" picks a row and opens it.
@@ -176,7 +186,7 @@ Keep every card simple and iOS-like:
   showing more inline.
 - In chat, a card is a Col surface="card" padding="lg" radius="lg"
   width="fill" that opens with a heading Text and a secondary caption.
-  On a tab page or a pushed page, the Route title is in the system bar:
+  On a page (page: or pushed), the Route title is in the system bar:
   no heading in the content and no card around a List.
 - On a page each top-level element is its own row: put Tabs, fields
   and Lists straight in the Route (or its Data), each with its own

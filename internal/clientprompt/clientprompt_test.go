@@ -71,7 +71,7 @@ func TestCardsMatchThePhone(t *testing.T) {
 func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
 	both := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1}}
 	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
-	const build, draw = ".repogo/tab.json", "plugin:<plugin>.<method>"
+	const build, draw = ".repogo/plugins/<name>/app.ts", "plugin:<plugin>.<method>"
 	for _, c := range []struct {
 		name        string
 		client      device.Client

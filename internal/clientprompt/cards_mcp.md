@@ -13,8 +13,8 @@ The answer is the tool's structured content, else its text: parsed when
   the text is JSON, else a string ({{name}}). Call the tool yourself
   once to see its shape before a card names its fields.
 For data the user will check again (a status, a list), write it as a
-page in .repogo/tabs and link it from the page .repogo/tab.json names,
-rather than drawing the card in chat each time.
+page in .repogo/tabs and open it from chat with page:, rather than
+drawing the card in chat each time.
 
 Example:
 ```ui

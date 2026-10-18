@@ -62,9 +62,9 @@ project plugin hides an environment one of the same name. Each folder's plugins
 run together in one Worker, so a plugin's blocking code stalls the others in its
 folder: use async APIs.
 
-Pages beside an environment plugin (`pages/*.md`) open from any project as
-`~/.repogo/plugins/<name>/pages/<page>.md`, and `~/.repogo/plugins/tab.json`
-names the tab of a project without its own.
+Pages beside an environment plugin (`pages/*.ui`, or `pages/*.md`) open from
+any project as `~/.repogo/plugins/<name>/pages/<page>.ui`. A
+`.ui` page is card markup with no fence; a `.md` page is writing with cards.
 
 ## Methods
 
@@ -125,8 +125,9 @@ plugin, another plugin, or another project.
 
 `namespace` names where a plugin's data lives: the folder
 `~/.repogo/plugin-data/<namespace>/`, holding `data.db` and its streams' and
-buckets' files. Left out, it's the plugin's name. Plugins naming the same
-namespace share its data, in any project, so they must declare the same schemas.
+buckets' files. A plugin that keeps data (any collection, kv, stream or bucket)
+must name one, or it fails to load. Plugins naming the same namespace share its
+data, in any project, so they must declare the same schemas.
 
 By convention a project's own data is `<project>.<name>` (`myproject.notes`),
 and data meant for every project a bare name (`todos`). That's only a
