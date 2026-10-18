@@ -110,7 +110,7 @@ func (d Deps) marked(row store.Project, err error) (store.Project, error) {
 	return row, nil
 }
 
-func (d Deps) detectIcon(ctx context.Context, _ rpc.Caller, a DetectIconParams) (projectcore.Result, error) {
+func (d Deps) detectIcon(ctx context.Context, _ rpc.Caller, a DetectIconParams) (projectcore.Icon, error) {
 	return d.Projects.DetectIcon(ctx, a.Path, a.IfNoneMatch)
 }
 

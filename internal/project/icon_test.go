@@ -41,8 +41,8 @@ func TestDetectIconPrefersAppleTouchAndHonoursIfNoneMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Path != "public/apple-touch-icon.png" || got.ContentType != "image/png" || string(got.Bytes) != "png" {
-		t.Fatalf("icon = %+v, want the apple touch icon with its bytes", got)
+	if string(got.Bytes) != "png" {
+		t.Fatalf("icon = %+v, want the apple touch icon's bytes", got)
 	}
 	if got.Remote != "octocat/hello" || got.ContentHash == "" {
 		t.Errorf("remote/hash = %q/%q", got.Remote, got.ContentHash)
@@ -66,7 +66,7 @@ func TestDetectIconWithoutOneStillReportsTheRemote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Path != "" || got.Remote != "octocat/hello" {
+	if got.ContentHash != "" || got.Remote != "octocat/hello" {
 		t.Errorf("result = %+v, want no icon and the remote", got)
 	}
 }
@@ -97,8 +97,8 @@ func TestDetectIconPrefersALargeRepogoIconOverEveryOther(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Path != ".repogo/icon.png" || got.Source != ".repogo/icon.png" || len(got.Bytes) != len(large) {
-		t.Fatalf("icon = %s (%d bytes), want .repogo/icon.png with its bytes", got.Path, len(got.Bytes))
+	if len(got.Bytes) != len(large) {
+		t.Fatalf("icon = %d bytes, want .repogo/icon.png's %d", len(got.Bytes), len(large))
 	}
 }
 
@@ -126,15 +126,15 @@ func TestDetectIconRanksTheManifestsLargestIcon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Path != "public/big.png" || got.Source != "manifest.json→big.png" {
-		t.Fatalf("icon = %s from %s, want public/big.png from the manifest", got.Path, got.Source)
+	if string(got.Bytes) != "b" {
+		t.Fatalf("icon = %q, want public/big.png from the manifest", got.Bytes)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "apple-touch-icon.png"), []byte("a"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := service(dir, repo{}).DetectIcon(context.Background(), dir, ""); got.Path != "apple-touch-icon.png" {
-		t.Fatalf("icon = %s, want the apple touch icon over the manifest", got.Path)
+	if got, _ := service(dir, repo{}).DetectIcon(context.Background(), dir, ""); string(got.Bytes) != "a" {
+		t.Fatalf("icon = %q, want the apple touch icon over the manifest", got.Bytes)
 	}
 }
 

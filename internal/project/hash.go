@@ -27,11 +27,11 @@ func (s *Service) IconHash(root string) string {
 		return cached.hash
 	}
 
-	hit, read := detect(root)
+	found, read := detect(root)
 	next := iconHash{print: fingerprint(root, read), read: read}
-	if hit != nil {
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(hit.path)))
-		if err == nil && len(data) <= maxBytes(hit.path) {
+	if found != "" {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(found)))
+		if err == nil && len(data) <= maxBytes(found) {
 			sum := sha256.Sum256(data)
 			next.hash = hex.EncodeToString(sum[:])
 		}

@@ -59,11 +59,10 @@ var iconNames = []string{
 
 const manifestTurn = ""
 
-type Result struct {
-	Path        string `json:"path"`
-	Source      string `json:"source"`
+// Icon is a project's detected icon: its bytes, or not_modified when the
+// caller already holds content_hash.
+type Icon struct {
 	ContentHash string `json:"content_hash"`
-	ContentType string `json:"content_type"`
 	Bytes       []byte `json:"bytes,omitempty"`
 	NotModified bool   `json:"not_modified,omitempty"`
 
@@ -92,37 +91,34 @@ func New(files *files.Service, repos Repos) *Service {
 
 // DetectIcon returns the best conventional project icon without walking the
 // repository. The path is contained before any directory is inspected.
-func (s *Service) DetectIcon(ctx context.Context, path, ifNoneMatch string) (Result, error) {
+func (s *Service) DetectIcon(ctx context.Context, path, ifNoneMatch string) (Icon, error) {
 	root, err := s.files.Contain(path)
 	if err != nil {
-		return Result{}, err
+		return Icon{}, err
 	}
 
 	// Read before the early return: a project with no icon still has a
 	// repository, and without it cannot group with its other checkouts.
 	owner, name, err := s.repos.Repo(path)
 	if err != nil {
-		return Result{}, err
+		return Icon{}, err
 	}
 	var remote string
 	if owner != "" {
 		remote = owner + "/" + name
 	}
 
-	hit, _ := detect(root)
-	if hit == nil {
-		return Result{Remote: remote}, nil
+	result := Icon{Remote: remote}
+	found, _ := detect(root)
+	if found == "" {
+		return result, nil
 	}
-	result := Result{
-		Path: hit.path, Source: hit.source,
-		ContentType: contentType(hit.path), Remote: remote,
-	}
-	iconPath, err := s.files.Contain(filepath.Join(root, filepath.FromSlash(hit.path)))
+	iconPath, err := s.files.Contain(filepath.Join(root, filepath.FromSlash(found)))
 	if err != nil {
-		return Result{}, err
+		return Icon{}, err
 	}
 	data, err := os.ReadFile(iconPath)
-	if err != nil || len(data) > maxBytes(hit.path) {
+	if err != nil || len(data) > maxBytes(found) {
 		return result, nil
 	}
 	sum := sha256.Sum256(data)
@@ -135,12 +131,10 @@ func (s *Service) DetectIcon(ctx context.Context, path, ifNoneMatch string) (Res
 	return result, nil
 }
 
-type hit struct{ path, source string }
-
-// detect picks the project's icon, and reports every file it looked at, as
-// paths under root: the icon's content and every candidate's size can change
-// the answer, so IconHash fingerprints them.
-func detect(root string) (*hit, []string) {
+// detect picks the project's icon, "" for none, and reports every file it
+// looked at, as paths under root: the icon's content and every candidate's
+// size can change the answer, so IconHash fingerprints them.
+func detect(root string) (string, []string) {
 	var read []string
 	// Each map is a file name to its shortest path under root.
 	icons := map[string]string{}
@@ -233,22 +227,22 @@ func relPath(dir, name string) string {
 	return dir + "/" + name
 }
 
-func choose(icons map[string]string, manifests map[string][]manifestIcon) *hit {
+func choose(icons map[string]string, manifests map[string][]manifestIcon) string {
 	if path, ok := icons[repogoIcon]; ok {
-		return &hit{path: path, source: repogoIcon}
+		return path
 	}
 	for _, name := range iconNames {
 		if name == manifestTurn {
-			if found := chooseManifest(icons, manifests); found != nil {
+			if found := chooseManifest(icons, manifests); found != "" {
 				return found
 			}
 			continue
 		}
 		if path, ok := icons[name]; ok {
-			return &hit{path: path, source: name}
+			return path
 		}
 	}
-	return nil
+	return ""
 }
 
 type manifestIcon struct {
@@ -273,7 +267,7 @@ func readManifest(root, path string) []manifestIcon {
 
 // chooseManifest is the largest raster icon the first manifest names that
 // is also on disk.
-func chooseManifest(icons map[string]string, manifests map[string][]manifestIcon) *hit {
+func chooseManifest(icons map[string]string, manifests map[string][]manifestIcon) string {
 	for _, manifestName := range manifestNames {
 		type candidate struct {
 			filename string
@@ -290,11 +284,11 @@ func chooseManifest(icons map[string]string, manifests map[string][]manifestIcon
 		sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].area > candidates[j].area })
 		for _, candidate := range candidates {
 			if path, ok := icons[candidate.filename]; ok {
-				return &hit{path: path, source: manifestName + "→" + candidate.filename}
+				return path
 			}
 		}
 	}
-	return nil
+	return ""
 }
 
 // largestArea is the biggest WxH in a manifest's sizes, 0 when none parses.
@@ -347,15 +341,3 @@ func fileFits(path string, limit int) bool {
 	return err == nil && info.Mode().IsRegular() && info.Size() <= int64(limit)
 }
 
-func contentType(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".png":
-		return "image/png"
-	case ".ico":
-		return "image/x-icon"
-	case ".webp":
-		return "image/webp"
-	default:
-		return "application/octet-stream"
-	}
-}
