@@ -29,7 +29,7 @@ func (d Deps) list(context.Context, rpc.Caller, rpc.None) (schedule.Changed, err
 	return d.Schedules.List()
 }
 
-func (d Deps) save(_ context.Context, _ rpc.Caller, a store.Schedule) (schedule.Row, error) {
+func (d Deps) save(_ context.Context, _ rpc.Caller, a store.Schedule) (schedule.Schedule, error) {
 	return d.Schedules.Save(a)
 }
 

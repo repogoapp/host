@@ -73,21 +73,21 @@ func (s *Scheduler) List() (Changed, error) {
 		return Changed{}, err
 	}
 	now := s.now()
-	out := Changed{Schedules: make([]Row, 0, len(saved))}
+	out := Changed{Schedules: make([]Schedule, 0, len(saved))}
 	for _, sc := range saved {
-		out.Schedules = append(out.Schedules, s.row(sc, now))
+		out.Schedules = append(out.Schedules, s.listed(sc, now))
 	}
 	return out, nil
 }
 
 // Save checks and keeps a schedule, making it when its id is empty.
-func (s *Scheduler) Save(sc store.Schedule) (Row, error) {
+func (s *Scheduler) Save(sc store.Schedule) (Schedule, error) {
 	if err := check(sc, s.d.Agents); err != nil {
-		return Row{}, err
+		return Schedule{}, err
 	}
 	path, err := s.d.Files.Contain(sc.Path)
 	if err != nil {
-		return Row{}, err
+		return Schedule{}, err
 	}
 	sc.Path = path
 
@@ -96,10 +96,10 @@ func (s *Scheduler) Save(sc store.Schedule) (Row, error) {
 	now := s.now()
 	saved, err := s.d.Store.SaveSchedule(sc, now)
 	if err != nil {
-		return Row{}, err
+		return Schedule{}, err
 	}
 	s.announce()
-	return s.row(store.SavedSchedule{Schedule: saved, SavedAt: now}, now), nil
+	return s.listed(store.SavedSchedule{Schedule: saved, SavedAt: now}, now), nil
 }
 
 // Delete removes a schedule; a run it already started goes on as a chat.
@@ -171,8 +171,8 @@ func (s *Scheduler) announce() {
 	s.d.Changed(list)
 }
 
-func (s *Scheduler) row(sc store.SavedSchedule, now time.Time) Row {
-	out := Row{Schedule: sc.Schedule, HostID: string(s.d.Self)}
+func (s *Scheduler) listed(sc store.SavedSchedule, now time.Time) Schedule {
+	out := Schedule{Schedule: sc.Schedule, HostID: string(s.d.Self)}
 	if sc.Enabled {
 		if due := next(sc.Schedule, latest(sc.SavedAt, sc.LastDueAt, now)); !due.IsZero() {
 			out.NextRunAt = due.UnixMilli()
