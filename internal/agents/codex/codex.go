@@ -26,7 +26,6 @@ func definition() agent.Provider {
 		Tool: clitool.Tool{
 			Kind:     string(agent.KindCodex),
 			Name:     "Codex",
-			Icon:     "agent-codex",
 			Category: clitool.CategoryAgent,
 			Spec: clitool.Spec{
 				Command:   "codex",
@@ -75,22 +74,22 @@ func codexRelease(_ context.Context, goos, goarch string) (string, string, error
 
 // codexAccount reads the email and account claims of the ChatGPT id_token in auth.json.
 // Decoded, not verified: it names the account on a screen and grants nothing.
-func codexAccount(path string) *clitool.Account {
+func codexAccount(path string) (*clitool.Account, string) {
 	var file struct {
 		Tokens struct {
 			IDToken string `json:"id_token"`
 		} `json:"tokens"`
 	}
 	if !clitool.ReadJSON(path, &file) {
-		return nil
+		return nil, ""
 	}
 	parts := strings.Split(file.Tokens.IDToken, ".")
 	if len(parts) != 3 {
-		return nil
+		return nil, ""
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	var claims struct {
 		Email string `json:"email"`
@@ -102,10 +101,10 @@ func codexAccount(path string) *clitool.Account {
 		} `json:"https://api.openai.com/auth"`
 	}
 	if json.Unmarshal(payload, &claims) != nil || claims.Email == "" {
-		return nil
+		return nil, ""
 	}
-	return &clitool.Account{Email: claims.Email, Name: claims.Name,
-		Key: clitool.AccountKey(string(agent.KindCodex), claims.Auth.User, claims.Auth.Account)}
+	return &clitool.Account{Email: claims.Email, Name: claims.Name},
+		clitool.AccountKey(string(agent.KindCodex), claims.Auth.User, claims.Auth.Account)
 }
 
 // Provider owns this host's runner and provider-specific capabilities.

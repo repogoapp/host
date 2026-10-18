@@ -50,6 +50,7 @@ type Sources struct {
 	}
 	Tools interface {
 		List(ctx context.Context) []clitool.Install
+		AccountKey(kind string) string
 	}
 	Catalog interface {
 		One(ctx context.Context, kind agent.Kind, install agentcatalog.Install, refresh bool) agentcatalog.Catalog
@@ -87,16 +88,17 @@ func agents(ctx context.Context, src Sources, tools []clitool.Install, refresh b
 			out.Agent, out.Name = install.Kind, install.Name
 			return out
 		}
-		return src.Catalog.One(ctx, agent.Kind(install.Kind), catalogInstall(install), refresh)
+		return src.Catalog.One(ctx, agent.Kind(install.Kind), catalogInstall(install, src.Tools.AccountKey(install.Kind)), refresh)
 	})
 }
 
 // catalogInstall is what an agent's model list is read from: the CLI's version
-// and its account, either of which changes what it offers.
-func catalogInstall(install clitool.Install) agentcatalog.Install {
+// and its account, either of which changes what it offers. key is the
+// account's seat, which names it best.
+func catalogInstall(install clitool.Install, key string) agentcatalog.Install {
 	out := agentcatalog.Install{Version: install.Version}
 	if install.Account != nil {
-		out.Account = cmp.Or(install.Account.Key, install.Account.Email)
+		out.Account = cmp.Or(key, install.Account.Email)
 	}
 	return out
 }

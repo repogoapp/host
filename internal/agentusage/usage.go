@@ -52,12 +52,13 @@ type Account struct {
 	Key   string `json:"key,omitempty"`
 }
 
-// AccountOf is the CLI's sign-in as a reading's account; nil when signed out.
-func AccountOf(a *clitool.Account) *Account {
+// AccountOf is the CLI's sign-in and its seat's key as a reading's account;
+// nil when signed out.
+func AccountOf(a *clitool.Account, key string) *Account {
 	if a == nil {
 		return nil
 	}
-	return &Account{Email: a.Email, Key: a.Key}
+	return &Account{Email: a.Email, Key: key}
 }
 
 // Balance is prepaid credit left on the account.

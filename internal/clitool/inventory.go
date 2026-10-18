@@ -38,13 +38,14 @@ type Inventory struct {
 	// Sign-ins waiting on a person at the provider's page, by kind.
 	logins   clilogin.Logins
 	onChange func()
+	log      *slog.Logger
 }
 
 // NewInventory is an empty inventory; the host adds each tool. changed is
 // told when a sign-in ends, however it ended, and when an install or update
 // finishes.
 func NewInventory(changed func(), log *slog.Logger) *Inventory {
-	return &Inventory{latest: map[string]latestEntry{}, versions: map[string]versionEntry{}, onChange: changed, logins: clilogin.Logins{Log: log}}
+	return &Inventory{latest: map[string]latestEntry{}, versions: map[string]versionEntry{}, onChange: changed, logins: clilogin.Logins{Log: log}, log: log}
 }
 
 // changed tells the host what a CLI has or offers moved; nil in tests.
@@ -73,28 +74,25 @@ const (
 	updateTimeout = 5 * time.Minute
 )
 
-// Install is one CLI as it exists on this machine.
+// Install is one CLI as the phone shows it: whether it is here, how old,
+// whether it updates, and who it is signed in as.
 type Install struct {
 	Kind string `json:"kind"`
 	Name string `json:"name"`
 
-	// Asset name, the Environment section it shows in, and what the host can
-	// do with it; see Tool.
-	Icon         string   `json:"icon"`
+	// The Environment section it shows in, and what the host can do with it;
+	// see Tool.
 	Category     string   `json:"category"`
 	Capabilities []string `json:"capabilities" wire:"array"`
 
-	// The binary looked for on PATH. Reported so a client can say "we looked
-	// for `claude`" rather than only "not found".
+	// The binary looked for on PATH, which an uninstall names.
 	Command   string `json:"command"`
 	Installed bool   `json:"installed"`
-	Path      string `json:"path,omitempty"`
 	Version   string `json:"version,omitempty"`
 
 	// Whether the CLI has credentials. Installed-but-signed-out is the failure
 	// that presents as "it does nothing", and it is invisible without this.
-	Authed     bool   `json:"authed"`
-	AuthSource string `json:"auth_source,omitempty"`
+	Authed bool `json:"authed"`
 
 	// Who it is signed in as; nil when signed in with an API key or unknown.
 	Account *Account `json:"account,omitempty"`
@@ -110,13 +108,20 @@ type Install struct {
 	// either: show the version it has and offer no update.
 	Status string `json:"status"`
 
-	// npm | bun | pnpm | homebrew | native | unknown. How it was installed decides
-	// how it updates.
-	Manager       string `json:"manager"`
-	UpdateCommand string `json:"update_command,omitempty"`
-	CanUpdate     bool   `json:"can_update"`
+	CanUpdate bool `json:"can_update"`
+}
 
-	CheckedAt time.Time `json:"checked_at"`
+// found is one probe: the Install the phone gets, and what updating,
+// uninstalling and signing out read from the binary on disk.
+type found struct {
+	Install
+	path string
+	// npm | bun | pnpm | homebrew | native | unknown. How it was installed
+	// decides how it updates.
+	manager       string
+	updateCommand string
+	// Where the credentials were found, for a sign-out that left some behind.
+	authSource string
 }
 
 // Account is the person a CLI is signed in as. Never a token.
@@ -124,14 +129,8 @@ type Account struct {
 	Email string `json:"email,omitempty"`
 	Name  string `json:"name,omitempty"`
 
-	// Login and AvatarURL are the account's handle and picture where the
-	// provider has them, as GitHub does.
-	Login     string `json:"login,omitempty"`
-	AvatarURL string `json:"avatar_url,omitempty"`
-
-	// Key is the same on every host signed in to one subscription seat, so the
-	// phone can group their limits; empty when the CLI's files name no ids.
-	Key string `json:"key,omitempty"`
+	// Login is the account's handle where the provider has one, as GitHub does.
+	Login string `json:"login,omitempty"`
 }
 
 // AccountKey hashes a provider's user and organization ids, so the ids never
@@ -145,30 +144,44 @@ func AccountKey(kind, user, org string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// UpdateResult is one attempted update or install.
+// UpdateResult is one attempted install, update, uninstall or sign-out. What
+// ran and its output go to the host's log.
 type UpdateResult struct {
-	Kind    string `json:"kind"`
-	Ran     string `json:"ran,omitempty"`
-	OK      bool   `json:"ok"`
-	Error   string `json:"error,omitempty"`
-	Output  string `json:"output,omitempty"`
-	Version string `json:"version,omitempty"`
+	Kind  string `json:"kind"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // List probes every known CLI. Probes run concurrently: each one is a `which`,
 // a `--version` subprocess and possibly an HTTPS round trip, and doing two of
 // them in series is twice the wait for no reason.
 func (in *Inventory) List(ctx context.Context) []Install {
-	return par.Map(in.Tools, 0, func(t Tool) Install { return in.probe(ctx, t) })
+	return par.Map(in.Tools, 0, func(t Tool) Install { return in.probe(ctx, t).Install })
 }
 
 // Get probes one CLI.
 func (in *Inventory) Get(ctx context.Context, kind string) (Install, bool) {
+	f, ok := in.find(ctx, kind)
+	return f.Install, ok
+}
+
+func (in *Inventory) find(ctx context.Context, kind string) (found, bool) {
 	t, ok := in.Lookup(kind)
 	if !ok {
-		return Install{}, false
+		return found{}, false
 	}
 	return in.probe(ctx, t), true
+}
+
+// AccountKey is the key of the seat a CLI's files say it is signed in to, ""
+// when they name none; it never leaves the host.
+func (in *Inventory) AccountKey(kind string) string {
+	t, ok := in.Lookup(kind)
+	if !ok || t.Spec.Account == nil || t.AccountPath == "" {
+		return ""
+	}
+	_, key := t.Spec.Account(t.AccountPath)
+	return key
 }
 
 // Ready is whether a CLI is installed and signed in, so its account can be read.
@@ -187,31 +200,29 @@ func (in *Inventory) Lookup(kind string) (Tool, bool) {
 	return Tool{}, false
 }
 
-func (in *Inventory) probe(ctx context.Context, t Tool) Install {
+func (in *Inventory) probe(ctx context.Context, t Tool) found {
 	home, _ := os.UserHomeDir()
 	s := t.Spec
 
-	i := Install{
+	f := found{manager: "unknown", Install: Install{
 		Kind:         t.Kind,
 		Name:         t.Name,
-		Icon:         t.Icon,
 		Category:     t.Category,
 		Capabilities: append([]string{}, t.Capabilities...),
 		Command:      s.Command,
 		Status:       "unknown",
-		Manager:      "unknown",
-		CheckedAt:    time.Now(),
-	}
+	}}
+	i := &f.Install
 
 	i.LoginPending = in.logins.Pending(t.Kind)
 	path := FindBinary(s, home)
 	if path == "" {
 		// Not installed is a complete answer: there is no version to read, no
 		// credentials that would matter, and the only useful action is an install.
-		return i
+		return f
 	}
 	i.Installed = true
-	i.Path = path
+	f.path = path
 	// The version, the sign-in and the registry's latest are separate
 	// subprocesses and a round trip, so they run together.
 	var latest string
@@ -220,22 +231,22 @@ func (in *Inventory) probe(ctx context.Context, t Tool) Install {
 	go func() { defer wg.Done(); i.Version = in.version(ctx, path) }()
 	go func() { defer wg.Done(); latest = in.latestVersion(ctx, s) }()
 	if s.AuthProbe != nil {
-		i.Authed, i.AuthSource, i.Account = s.AuthProbe(ctx, path)
+		i.Authed, f.authSource, i.Account = s.AuthProbe(ctx, path)
 	} else {
-		i.Authed, i.AuthSource = probeAuth(ctx, s, t.Home)
+		i.Authed, f.authSource = probeAuth(ctx, s, t.Home)
 	}
 	wg.Wait()
 	if i.Authed && s.Account != nil && t.AccountPath != "" {
-		i.Account = s.Account(t.AccountPath)
+		i.Account, _ = s.Account(t.AccountPath)
 	}
 
-	i.Manager = managerOf(path, s, home)
-	i.UpdateCommand = updateCommandOf(i.Manager, s)
-	i.CanUpdate = i.UpdateCommand != "" || (i.Manager == "native" && s.Release != nil)
+	f.manager = managerOf(path, s, home)
+	f.updateCommand = updateCommandOf(f.manager, s)
+	i.CanUpdate = f.updateCommand != "" || (f.manager == "native" && s.Release != nil)
 	if i.Authed && s.LogoutArgs != nil {
 		i.Capabilities = append(i.Capabilities, CapabilityLogout)
 	}
-	if canUninstall(i.Manager, s) {
+	if canUninstall(f.manager, s) {
 		i.Capabilities = append(i.Capabilities, CapabilityUninstall)
 	}
 
@@ -250,7 +261,7 @@ func (in *Inventory) probe(ctx context.Context, t Tool) Install {
 			i.Status = "current"
 		}
 	}
-	return i
+	return f
 }
 
 // FindBinary is the CLI on PATH, else where its own installer puts it: the
@@ -361,7 +372,7 @@ func updateCommandOf(manager string, s Spec) string {
 func (in *Inventory) Update(ctx context.Context, kind string) UpdateResult {
 	res := UpdateResult{Kind: kind}
 
-	current, known := in.Get(ctx, kind)
+	current, known := in.find(ctx, kind)
 	if !known {
 		res.Error = "unknown tool " + kind
 		return res
@@ -371,40 +382,29 @@ func (in *Inventory) Update(ctx context.Context, kind string) UpdateResult {
 		return res
 	}
 	if !current.CanUpdate {
-		res.Error = "nothing here knows how to update a " + current.Manager + " install of " + kind
+		res.Error = "nothing here knows how to update a " + current.manager + " install of " + kind
 		return res
 	}
 	// Told even when it failed: a half-run package manager may have moved the CLI.
 	defer in.changed()
 	t, _ := in.Lookup(kind)
-	if current.UpdateCommand == "" {
+	if current.updateCommand == "" {
 		return in.fetchRelease(ctx, t, res)
 	}
 	// npm can't replace a package in a folder this user can't write (a sudo
 	// install); it fails with only an exit code, so say what to run instead.
-	if dir := npmGlobalDir(current.Path); current.Manager == "npm" && dir != "" && !writable(dir) {
+	if dir := npmGlobalDir(current.path); current.manager == "npm" && dir != "" && !writable(dir) {
 		npm := filepath.Join(dir, "..", "..", "bin", "npm")
 		res.Error = current.Name + " is installed in " + dir + ", which only sudo can change. Update it in Terminal: sudo " +
 			filepath.Clean(npm) + " install -g " + t.Spec.Pkg + "@latest"
 		return res
 	}
-	res.Ran = current.UpdateCommand
-
-	fields := strings.Fields(current.UpdateCommand)
+	fields := strings.Fields(current.updateCommand)
 	// A self-updating CLI may be off the host's PATH (see FindBinary).
 	if fields[0] == current.Command {
-		fields[0] = current.Path
+		fields[0] = current.path
 	}
-	if !in.runLocked(ctx, &res, fields[0], fields[1:]...) {
-		return res
-	}
-
-	res.OK = true
-	// Re-probe rather than trusting the registry: what matters is the version
-	// on PATH now, which is not always what the package manager just installed.
-	if after, ok := in.Get(ctx, kind); ok {
-		res.Version = after.Version
-	}
+	res.OK = in.runLocked(ctx, &res, fields[0], fields[1:]...)
 	return res
 }
 
@@ -419,49 +419,53 @@ func (in *Inventory) Install(ctx context.Context, kind string) (UpdateResult, er
 		return res, fmt.Errorf("%w %q", ErrUnknownTool, kind)
 	}
 	if current.Installed {
-		res.OK, res.Version = true, current.Version
+		res.OK = true
 		return res, nil
 	}
 	defer in.changed()
 	t, _ := in.Lookup(kind)
-	res.Ran = InstallCommandOf(t.Spec, lookPath)
-	if res.Ran == "" && t.Spec.Release != nil {
+	command := InstallCommandOf(t.Spec, lookPath)
+	if command == "" && t.Spec.Release != nil {
 		return in.fetchRelease(ctx, t, res), nil
 	}
-	if res.Ran == "" {
+	if command == "" {
 		res.Error = "installing " + current.Name + " needs Node (npm) or Homebrew on this environment"
 		return res, nil
 	}
 
-	if !in.runLocked(ctx, &res, "/bin/sh", "-c", res.Ran) {
+	if !in.runLocked(ctx, &res, "/bin/sh", "-c", command) {
 		return res, nil
 	}
-	after, _ := in.Get(ctx, kind)
-	if !after.Installed {
+	if after, _ := in.Get(ctx, kind); !after.Installed {
 		res.Error = "the installer finished but " + current.Command + " is still not on this environment"
 		return res, nil
 	}
-	res.OK, res.Version = true, after.Version
+	res.OK = true
 	return res, nil
 }
 
-// runLocked runs a package manager under the update lock, recording its output
-// tail and any failure in res; false when it failed.
+// runLocked runs a package manager under the update lock, recording any
+// failure in res and its output tail in the log; false when it failed.
 func (in *Inventory) runLocked(ctx context.Context, res *UpdateResult, name string, args ...string) bool {
 	in.updateMu.Lock()
 	defer in.updateMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
-	res.Output = tail(string(out), 40)
 	if err != nil {
 		res.Error = err.Error()
 		if line := failureLine(string(out)); line != "" {
 			res.Error += ": " + line
 		}
+		in.ranFailed(res.Kind, append([]string{name}, args...), out, err)
 		return false
 	}
 	return true
+}
+
+// ranFailed logs a failed command and the end of its output, where the error is.
+func (in *Inventory) ranFailed(kind string, command []string, out []byte, err error) {
+	in.log.Warn("clitool: command failed", "kind", kind, "ran", strings.Join(command, " "), "err", err, "output", tail(string(out), 40))
 }
 
 // failureLine is the line of a failed command's output that says why: the
@@ -509,20 +513,18 @@ func (in *Inventory) fetchRelease(ctx context.Context, t Tool, res UpdateResult)
 		res.Error = err.Error()
 		return res
 	}
-	res.Ran = "download " + url
-
 	in.updateMu.Lock()
 	defer in.updateMu.Unlock()
 	if _, err := binfetch.Install(ctx, url, member, t.Spec.Command); err != nil {
 		res.Error = err.Error()
+		in.log.Warn("clitool: download failed", "kind", t.Kind, "url", url, "err", err)
 		return res
 	}
-	after, _ := in.Get(ctx, t.Kind)
-	if !after.Installed {
+	if after, _ := in.Get(ctx, t.Kind); !after.Installed {
 		res.Error = "downloaded " + t.Spec.Command + " but it is still not on this environment"
 		return res
 	}
-	res.OK, res.Version = true, after.Version
+	res.OK = true
 	return res
 }
 

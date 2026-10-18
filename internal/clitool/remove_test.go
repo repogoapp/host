@@ -93,9 +93,9 @@ func TestUninstallRemovesTheNativeBinaryAndKeepsConfig(t *testing.T) {
 		Command: "fakecli", NativePaths: []string{".local/bin/fakecli"},
 	}})
 
-	before, _ := in.Get(t.Context(), "fake")
-	if before.Manager != "native" || !slices.Contains(before.Capabilities, CapabilityUninstall) {
-		t.Fatalf("before: manager %q, capabilities %v", before.Manager, before.Capabilities)
+	before, _ := in.find(t.Context(), "fake")
+	if before.manager != "native" || !slices.Contains(before.Capabilities, CapabilityUninstall) {
+		t.Fatalf("before: manager %q, capabilities %v", before.manager, before.Capabilities)
 	}
 	res, err := in.Uninstall(t.Context(), "fake")
 	if err != nil || !res.OK {
@@ -119,11 +119,11 @@ func TestUninstallRunsTheManagersRemove(t *testing.T) {
 	in := inventoryOf(Tool{Kind: "fake", Name: "Fake", Spec: Spec{Command: "fakecli", Formula: "fakecli"}})
 
 	res, err := in.Uninstall(t.Context(), "fake")
-	if err != nil || !res.OK || res.Ran != "brew uninstall fakecli" {
+	if err != nil || !res.OK {
 		t.Fatalf("Uninstall = %+v, %v", res, err)
 	}
-	if after, _ := in.Get(t.Context(), "fake"); after.Installed {
-		t.Fatalf("still installed at %s", after.Path)
+	if after, _ := in.find(t.Context(), "fake"); after.Installed {
+		t.Fatalf("still installed at %s", after.path)
 	}
 }
 

@@ -11,23 +11,18 @@
     {
       "kind": "kind",
       "name": "name",
-      "icon": "icon",
       "category": "category",
       "capabilities": [
         "capabilities"
       ],
       "command": "command",
       "installed": true,
-      "path": "path",
       "version": "version",
       "authed": true,
-      "auth_source": "auth_source",
       "account": {
         "email": "email",
         "name": "name",
-        "login": "login",
-        "avatar_url": "avatar_url",
-        "key": "key"
+        "login": "login"
       },
       "login_pending": {
         "url": "url",
@@ -37,10 +32,7 @@
       },
       "latest": "latest",
       "status": "status",
-      "manager": "manager",
-      "update_command": "update_command",
-      "can_update": true,
-      "checked_at": "0001-01-01T00:00:00Z"
+      "can_update": true
     }
   ],
   "agents": [

@@ -40,9 +40,6 @@ type Tool struct {
 	// Human name on every screen: "Claude", not "claude".
 	Name string
 
-	// Asset name the app draws for this tool.
-	Icon string
-
 	// Category is one of the Category constants.
 	Category string
 
@@ -98,8 +95,9 @@ type Spec struct {
 	// there is no installer, npm or brew; it updates the same way.
 	Release func(ctx context.Context, goos, goarch string) (url, member string, err error)
 
-	// Reads the account out of the file Tool.AccountPath names.
-	Account func(path string) *Account
+	// Reads the account out of the file Tool.AccountPath names, and the key
+	// of its seat (see AccountKey), "" when the file names no ids.
+	Account func(path string) (account *Account, key string)
 
 	// The CLI's browser sign-in, and how to read its link out of the output.
 	LoginArgs []string

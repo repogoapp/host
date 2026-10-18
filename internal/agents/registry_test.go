@@ -37,7 +37,7 @@ func TestRegistryConstructsIsolatedProviders(t *testing.T) {
 		t.Fatalf("incomplete registry: %+v", a)
 	}
 	for i, p := range a.Tools() {
-		if agent.Kind(p.Kind) != a.Agents[i].Kind() || p.Name == "" || p.Icon == "" || p.Category != clitool.CategoryAgent {
+		if agent.Kind(p.Kind) != a.Agents[i].Kind() || p.Name == "" || p.Category != clitool.CategoryAgent {
 			t.Fatalf("bad identity: %+v", p)
 		}
 		if !slices.Contains(p.Capabilities, agent.CapabilityRun) || !slices.Contains(p.Capabilities, clitool.CapabilityLogin) {

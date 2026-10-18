@@ -24,7 +24,6 @@ func definition() agent.Provider {
 		Tool: clitool.Tool{
 			Kind:     string(agent.KindClaude),
 			Name:     "Claude",
-			Icon:     "agent-claude",
 			Category: clitool.CategoryAgent,
 			Spec: clitool.Spec{
 				Command:   "claude",
@@ -50,7 +49,7 @@ func definition() agent.Provider {
 }
 
 // claudeAccount reads oauthAccount from Claude Code's .claude.json.
-func claudeAccount(path string) *clitool.Account {
+func claudeAccount(path string) (*clitool.Account, string) {
 	var file struct {
 		OAuthAccount struct {
 			Email string `json:"emailAddress"`
@@ -60,10 +59,10 @@ func claudeAccount(path string) *clitool.Account {
 		} `json:"oauthAccount"`
 	}
 	if !clitool.ReadJSON(path, &file) || file.OAuthAccount.Email == "" {
-		return nil
+		return nil, ""
 	}
 	a := file.OAuthAccount
-	return &clitool.Account{Email: a.Email, Name: a.Name, Key: clitool.AccountKey(string(agent.KindClaude), a.User, a.Org)}
+	return &clitool.Account{Email: a.Email, Name: a.Name}, clitool.AccountKey(string(agent.KindClaude), a.User, a.Org)
 }
 
 // Provider owns this host's runner and provider-specific capabilities.

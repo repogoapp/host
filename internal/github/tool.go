@@ -27,7 +27,6 @@ func (s *Service) Tool() clitool.Tool {
 	return clitool.Tool{
 		Kind:         "github",
 		Name:         "GitHub",
-		Icon:         "github",
 		Category:     clitool.CategorySourceControl,
 		Capabilities: []string{clitool.CapabilityInstall, clitool.CapabilityUpdate, clitool.CapabilityLogin},
 		Spec: clitool.Spec{
@@ -46,22 +45,28 @@ func (s *Service) Tool() clitool.Tool {
 	}
 }
 
-// signedIn asks GitHub who gh is signed in as; `gh api user` rather than
-// `gh auth status`, whose output is prose.
+// signedIn asks GitHub who gh is signed in as.
 func signedIn(ctx context.Context, path string) (bool, string, *clitool.Account) {
+	login, _ := ghUser(ctx, path)
+	if login == "" {
+		return false, "", nil
+	}
+	return true, "gh api user", &clitool.Account{Name: login, Login: login}
+}
+
+// ghUser is the signed-in account's handle and picture; "" when signed out.
+// `gh api user` rather than `gh auth status`, whose output is prose.
+func ghUser(ctx context.Context, path string) (login, avatarURL string) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "api", "user", "--jq", `[.login, .avatar_url] | @tsv`)
 	cmd.Env = append(cmd.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1")
 	out, err := cmd.Output()
 	if err != nil {
-		return false, "", nil
+		return "", ""
 	}
-	login, avatar, _ := strings.Cut(strings.TrimSpace(string(out)), "\t")
-	if login == "" {
-		return false, "", nil
-	}
-	return true, "gh api user", &clitool.Account{Name: login, Login: login, AvatarURL: avatar}
+	login, avatarURL, _ = strings.Cut(strings.TrimSpace(string(out)), "\t")
+	return login, avatarURL
 }
 
 // setupGit points git at gh's token, which is what makes HTTPS pushes work.

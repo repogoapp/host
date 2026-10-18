@@ -22,6 +22,7 @@ func (f fakeGitHub) CloneFolder() ghcore.CloneFolder { return f.folder }
 type fakeTools struct{ installs []clitool.Install }
 
 func (f fakeTools) List(context.Context) []clitool.Install { return f.installs }
+func (f fakeTools) AccountKey(string) string               { return "" }
 
 // fakeCatalog answers every kind and records what it was asked.
 type fakeCatalog struct{ asked chan agent.Kind }

@@ -36,7 +36,7 @@ func TestUpdateOfASudoNPMInstallSaysWhatToRun(t *testing.T) {
 
 	res := in.Update(t.Context(), "fake")
 	want := "sudo " + filepath.Join(prefix, "bin/npm") + " install -g fakecli@latest"
-	if res.OK || res.Ran != "" || !strings.Contains(res.Error, modules) || !strings.HasSuffix(res.Error, want) {
+	if res.OK || !strings.Contains(res.Error, modules) || !strings.HasSuffix(res.Error, want) {
 		t.Fatalf("Update = %+v, want an error naming %s and ending %q", res, modules, want)
 	}
 }

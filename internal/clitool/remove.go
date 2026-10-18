@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -23,7 +22,7 @@ func (in *Inventory) Logout(ctx context.Context, kind string) (UpdateResult, err
 	if !ok || t.Spec.LogoutArgs == nil {
 		return res, fmt.Errorf("%w %q", ErrUnknownTool, kind)
 	}
-	current, _ := in.Get(ctx, kind)
+	current, _ := in.find(ctx, kind)
 	if !current.Installed {
 		res.Error = current.Name + " is not installed"
 		return res, nil
@@ -33,24 +32,22 @@ func (in *Inventory) Logout(ctx context.Context, kind string) (UpdateResult, err
 		return res, nil
 	}
 	defer in.changed()
-	res.Ran = strings.Join(append([]string{current.Command}, t.Spec.LogoutArgs...), " ")
-
 	ctx, cancel := context.WithTimeout(ctx, logoutTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, current.Path, t.Spec.LogoutArgs...)
+	cmd := exec.CommandContext(ctx, current.path, t.Spec.LogoutArgs...)
 	// The sign-in's environment keeps the CLI off prompts and browsers here too.
 	cmd.Env = append(cmd.Environ(), t.Spec.LoginEnv...)
 	cmd.Dir = os.TempDir()
 	out, err := cmd.CombinedOutput()
-	res.Output = tail(string(out), 40)
 	if err != nil {
 		res.Error = err.Error()
+		in.ranFailed(kind, append([]string{current.Command}, t.Spec.LogoutArgs...), out, err)
 		return res, nil
 	}
 
-	after, _ := in.Get(ctx, kind)
+	after, _ := in.find(ctx, kind)
 	if after.Authed {
-		res.Error = current.Name + " signed out but still has credentials (" + after.AuthSource + ")"
+		res.Error = current.Name + " signed out but still has credentials (" + after.authSource + ")"
 		return res, nil
 	}
 	res.OK = true
@@ -62,7 +59,7 @@ func (in *Inventory) Logout(ctx context.Context, kind string) (UpdateResult, err
 func (in *Inventory) Uninstall(ctx context.Context, kind string) (UpdateResult, error) {
 	res := UpdateResult{Kind: kind}
 
-	current, known := in.Get(ctx, kind)
+	current, known := in.find(ctx, kind)
 	if !known {
 		return res, fmt.Errorf("%w %q", ErrUnknownTool, kind)
 	}
@@ -71,20 +68,19 @@ func (in *Inventory) Uninstall(ctx context.Context, kind string) (UpdateResult, 
 		return res, nil
 	}
 	t, _ := in.Lookup(kind)
-	if !canUninstall(current.Manager, t.Spec) {
-		res.Error = "nothing here knows how to remove a " + current.Manager + " install of " + current.Name
+	if !canUninstall(current.manager, t.Spec) {
+		res.Error = "nothing here knows how to remove a " + current.manager + " install of " + current.Name
 		return res, nil
 	}
 	defer in.changed()
 
-	if current.Manager == "native" {
+	if current.manager == "native" {
 		home, _ := os.UserHomeDir()
-		target := nativeTarget(current.Path, t.Spec, home)
+		target := nativeTarget(current.path, t.Spec, home)
 		if target == "" {
-			res.Error = current.Path + " is not where " + current.Name + "'s installer puts it"
+			res.Error = current.path + " is not where " + current.Name + "'s installer puts it"
 			return res, nil
 		}
-		res.Ran = "rm " + target
 		in.updateMu.Lock()
 		err := os.Remove(target)
 		in.updateMu.Unlock()
@@ -93,15 +89,14 @@ func (in *Inventory) Uninstall(ctx context.Context, kind string) (UpdateResult, 
 			return res, nil
 		}
 	} else {
-		args := uninstallCommandOf(current.Manager, t.Spec)
-		res.Ran = strings.Join(args, " ")
+		args := uninstallCommandOf(current.manager, t.Spec)
 		if !in.runLocked(ctx, &res, args[0], args[1:]...) {
 			return res, nil
 		}
 	}
 
-	if after, _ := in.Get(ctx, kind); after.Installed {
-		res.Error = "removed " + current.Path + " but another " + current.Command + " is at " + after.Path
+	if after, _ := in.find(ctx, kind); after.Installed {
+		res.Error = "removed " + current.path + " but another " + current.Command + " is at " + after.path
 		return res, nil
 	}
 	res.OK = true

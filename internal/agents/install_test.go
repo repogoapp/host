@@ -46,14 +46,14 @@ func TestClaudeAccount(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, filepath.Join(dir, ".claude.json"),
 		`{"oauthAccount":{"emailAddress":"me@example.com","displayName":"Me","organizationType":"max"}}`)
-	if got := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(path); got == nil || got.Email != "me@example.com" || got.Name != "Me" || got.Key != "" {
-		t.Fatalf("claudeAccount = %+v", got)
+	if got, key := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(path); got == nil || got.Email != "me@example.com" || got.Name != "Me" || key != "" {
+		t.Fatalf("claudeAccount = %+v, %q", got, key)
 	}
 	// An API-key login has no oauthAccount.
-	if got := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, "k.json"), `{"primaryApiKey":"x"}`)); got != nil {
+	if got, _ := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, "k.json"), `{"primaryApiKey":"x"}`)); got != nil {
 		t.Fatalf("API key login = %+v, want nil", got)
 	}
-	if got := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(filepath.Join(dir, "missing.json")); got != nil {
+	if got, _ := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(filepath.Join(dir, "missing.json")); got != nil {
 		t.Fatalf("missing file = %+v", got)
 	}
 }
@@ -63,10 +63,10 @@ func TestCodexAccount(t *testing.T) {
 	claims := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"me@example.com","name":"Me"}`))
 	path := writeFile(t, filepath.Join(dir, "auth.json"),
 		`{"OPENAI_API_KEY":null,"tokens":{"id_token":"eyJhbGciOiJub25lIn0.`+claims+`.sig","access_token":"secret"}}`)
-	if got := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Account(path); got == nil || got.Email != "me@example.com" || got.Name != "Me" {
+	if got, _ := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Account(path); got == nil || got.Email != "me@example.com" || got.Name != "Me" {
 		t.Fatalf("codexAccount = %+v", got)
 	}
-	if got := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, "key.json"), `{"OPENAI_API_KEY":"sk-x"}`)); got != nil {
+	if got, _ := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, "key.json"), `{"OPENAI_API_KEY":"sk-x"}`)); got != nil {
 		t.Fatalf("API key login = %+v, want nil", got)
 	}
 }
@@ -77,11 +77,11 @@ func TestAccountKeys(t *testing.T) {
 	dir := t.TempDir()
 	claudeKey := func(name, user, org string) string {
 		body := `{"oauthAccount":{"emailAddress":"me@example.com","accountUuid":"` + user + `","organizationUuid":"` + org + `"}}`
-		a := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, name), body))
+		a, key := claude.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, name), body))
 		if a == nil {
 			t.Fatalf("%s: no account", name)
 		}
-		return a.Key
+		return key
 	}
 	mac, container := claudeKey("mac.json", "u1", "o1"), claudeKey("container.json", "u1", "o1")
 	if mac == "" || mac != container {
@@ -93,12 +93,12 @@ func TestAccountKeys(t *testing.T) {
 
 	codexKey := func(name, auth string) string {
 		claims := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"me@example.com","https://api.openai.com/auth":` + auth + `}`))
-		a := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, name),
+		a, key := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Account(writeFile(t, filepath.Join(dir, name),
 			`{"tokens":{"id_token":"eyJhbGciOiJub25lIn0.`+claims+`.sig"}}`))
 		if a == nil {
 			t.Fatalf("%s: no account", name)
 		}
-		return a.Key
+		return key
 	}
 	seat := `{"chatgpt_user_id":"user-1","chatgpt_account_id":"acct-1"}`
 	codex1, codex2 := codexKey("a.json", seat), codexKey("b.json", seat)

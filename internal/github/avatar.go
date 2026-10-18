@@ -14,12 +14,12 @@ import (
 // GitHub identity. Content-addressed so `ifNoneMatch` makes every later check
 // a reply with no bytes.
 func (s *Service) Avatar(ctx context.Context, ifNoneMatch string) (Avatar, error) {
-	ok, _, account := signedIn(ctx, "gh")
-	if !ok || account.AvatarURL == "" {
+	login, avatarURL := ghUser(ctx, "gh")
+	if login == "" || avatarURL == "" {
 		return Avatar{}, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, account.AvatarURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, avatarURL, nil)
 	if err != nil {
 		return Avatar{}, err
 	}
@@ -40,16 +40,9 @@ func (s *Service) Avatar(ctx context.Context, ifNoneMatch string) (Avatar, error
 	}
 
 	sum := sha256.Sum256(body)
-	out := Avatar{
-		Login:       account.Login,
-		URL:         account.AvatarURL,
-		ContentHash: hex.EncodeToString(sum[:]),
-		// Reported by the server rather than guessed from the URL: GitHub serves JPEG
-		// from paths ending `.png`.
-		ContentType: res.Header.Get("Content-Type"),
-	}
+	out := Avatar{Login: login, ContentHash: hex.EncodeToString(sum[:])}
+	// No bytes when the client already holds this picture.
 	if ifNoneMatch != "" && ifNoneMatch == out.ContentHash {
-		out.NotModified = true
 		return out, nil
 	}
 	out.Bytes = body
@@ -59,11 +52,8 @@ func (s *Service) Avatar(ctx context.Context, ifNoneMatch string) (Avatar, error
 // Avatar is the signed-in account's picture, addressed by its content.
 type Avatar struct {
 	Login       string `json:"login,omitempty"`
-	URL         string `json:"url,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
 	Bytes       []byte `json:"bytes,omitempty"`
-	NotModified bool   `json:"not_modified,omitempty"`
 }
 
 const maxAvatarBytes = 1 << 20
