@@ -56,20 +56,36 @@ Page: path (a project page, or ~/.repogo/plugins/<name>/pages/<page>.md,
 Router: optional id and initial route path (may read {{state}}, so a
   link can land on a route: ?route=detail); contains Route elements.
 Route: required path, optional title (may read {{state}}),
-  sheet="medium|large" for the heights it rests at when presented;
+  sheet="medium|large" for the heights it rests at when presented,
+  or sheet="full" for a full-screen cover;
   contains visual children.
 A Router's first route draws in the card. push: opens a route as a page
 on the screen's navigation stack (system bar, back, swipe back); present:
 opens one as a sheet with its own stack and a close button. Give each
 Route a short title; a pushed or presented Route shows it in the system
 bar, so don't repeat it as a heading inside.
+TabBar: name, optional value; the system's bottom tab bar when it is a
+  page's only element (a tab page or a page: link), else a segmented
+  control. Contains Tab elements and an optional Accessory; picking a tab
+  sets the state to its label (set:tab=Logs switches tabs).
+  minimize="onScrollDown|onScrollUp|never|automatic" (default automatic)
+  shrinks the bar to its picked tab as the page scrolls.
+Tab: label (unique), optional icon (SF Symbol), badge (a count or short
+  text, may read {{…}}; empty or 0 shows none), show=; its visual
+  children are that tab's page, as a page's are (Lists, a Router, a Toolbar).
+  role="search" is the system's search tab at the bar's end (label
+  defaults to Search); search="query" names the state its search field
+  writes, for the tab's Data to read.
+Accessory: visual children in the bar above the tabs (now playing,
+  a build's status), optional show=; keep it one short row.
 List: a grouped list like the app's Settings; contains Sections.
 Section: optional label (header) and footer; contains Items.
 Item: one row: label, optional icon (SF Symbol, on a colored tile),
   site="{{p.url}}" draws that site's favicon as the tile instead (icon shows until it loads),
   file="{{f.path}}" draws that file's type icon instead (a path ending in / is a folder),
   iconColor, subtitle, detail (grey trailing text), action, role="destructive".
-  Children replace detail as trailing content (Badge, Toggle, Text, Menu).
+  Children replace detail as trailing content (Badge, Toggle, Text, Menu);
+  when they don't fit beside the label they move under it.
   Swipe children (label, icon, color, role="destructive", action, Params)
   are its swipe actions, a long-press menu where it can't swipe.
   The row lays itself out (no Spacer); a chevron shows for push:,
@@ -133,7 +149,8 @@ page:<project path> — open one of the project's pages, from a tab page or
   from chat (page:.repogo/tabs/vercel.md, page:~/.repogo/plugins/notes/pages/index.md);
   a query sets the page's state and may read {{…}}
   (page:.repogo/tabs/vercel.md?project={{p.name}}&route=project);
-  sheet="large" on the Button or Item opens it in a sheet instead. When a
+  sheet="large" on the Button or Item opens it in a sheet instead,
+  sheet="full" over the whole screen. When a
   page shows what the user asked for, link it rather than redraw it.
 back — return to the previous route, page or sheet.
 then="push:detail" after set: or toggle: runs a second, local action:
