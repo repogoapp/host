@@ -62,7 +62,7 @@ type Meta struct {
 	// itself; empty leaves it to the agent's catalog.
 	ModelLabel string `json:"model_label,omitempty"`
 
-	// ProjectAgent is which of the project's own agents (.repogo/agents) the
+	// ProjectAgent is which of the project's agents (its own or global) the
 	// session ran; empty for every other agent.
 	ProjectAgent string `json:"project_agent,omitempty"`
 

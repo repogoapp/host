@@ -1,5 +1,6 @@
-// Package acp runs a project's own agents: any program that speaks the Agent
-// Client Protocol over stdio, named by `.repogo/agents/<name>/agent.json`.
+// Package acp runs a project's agents: any program that speaks the Agent
+// Client Protocol over stdio, named by an agent.json in the project's
+// `.repogo/agents` or the environment's global agents folder.
 // The host keeps each chat's transcript itself, so history never depends on
 // what the agent remembers.
 package acp
@@ -27,25 +28,30 @@ const home = "acp"
 // Provider is this host's ACP runner and the transcripts it writes.
 type Provider struct {
 	deps agent.Dependencies
-	// pool is each agent's process by its folder; starting holds one start
-	// per folder at a time, since a second instance would refuse to run.
+	// pool is each agent's process by its manifest's Key; starting holds one
+	// start per Key at a time, since a second instance would refuse to run.
 	pool     agent.SessionPool[*agentProcess]
 	starting sync.Map
 	sessions *Sessions
 	reported *reported
+	// global is the environment's agents folder, offered in every project.
+	global string
 }
 
 // New builds this host's provider. A Root in deps (tests, the hermetic test
 // host) keeps its transcripts and reported models under it.
 func New(deps agent.Dependencies) *Provider {
 	dir := filepath.Join(deps.Root, home)
+	global := filepath.Join(deps.Root, projectagent.GlobalFolder)
 	if deps.Root == "" {
 		dir, _ = apphome.Path(home)
+		global, _ = apphome.Path(projectagent.GlobalFolder)
 	}
 	return &Provider{
 		deps:     deps,
 		sessions: newSessions(filepath.Join(dir, "chats")),
 		reported: &reported{path: filepath.Join(dir, "models.json")},
+		global:   global,
 	}
 }
 
@@ -145,7 +151,7 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 		if err != nil {
 			return chat{}, fmt.Errorf("open chat: %w", err)
 		}
-		m, err := projectagent.Find(info.Cwd, info.Agent)
+		m, err := projectagent.Find(info.Cwd, p.global, info.Agent)
 		if err != nil {
 			return chat{}, err
 		}
@@ -158,7 +164,7 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 	if req.ProjectAgent == "" {
 		return chat{}, errors.New("choose one of the project's agents")
 	}
-	m, err := projectagent.Find(req.Cwd, req.ProjectAgent)
+	m, err := projectagent.Find(req.Cwd, p.global, req.ProjectAgent)
 	if err != nil {
 		return chat{}, err
 	}
@@ -177,20 +183,21 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 // the turn, so each chat's session keeps its context between messages. A
 // manifest model is the whole process's, so another one restarts it.
 func (p *Provider) acquire(ctx context.Context, m projectagent.Manifest, model string, io agent.TurnIO) (*agentProcess, error) {
-	lock, _ := p.starting.LoadOrStore(m.Dir, &sync.Mutex{})
+	key := m.Key()
+	lock, _ := p.starting.LoadOrStore(key, &sync.Mutex{})
 	lock.(*sync.Mutex).Lock()
 	defer lock.(*sync.Mutex).Unlock()
 	epoch := p.pool.Epoch()
-	if proc, ok := p.pool.Get(m.Dir); ok {
+	if proc, ok := p.pool.Get(key); ok {
 		if !proc.exited() && proc.fingerprint == m.Fingerprint && proc.model == model {
 			return proc, nil
 		}
 		if !proc.exited() && proc.model != model && proc.busy() {
-			p.pool.Release(m.Dir, proc)
+			p.pool.Release(key, proc)
 			return nil, fmt.Errorf("%s is answering another chat with %s; send again when it's done", m.Name, proc.model)
 		}
-		p.pool.Release(m.Dir, proc)
-		p.pool.Retire(m.Dir, proc)
+		p.pool.Release(key, proc)
+		p.pool.Retire(key, proc)
 	}
 	proc, err := p.start(ctx, m, model)
 	if err != nil {
@@ -218,7 +225,7 @@ func lastLine(s string) string {
 // ProjectAgents is the project's agents for the picker, each with the models
 // its manifest lists, else the ones it reported when it last ran.
 func (p *Provider) ProjectAgents(path string) ([]projectagent.ProjectAgent, error) {
-	agents, err := projectagent.List(path)
+	agents, err := projectagent.List(path, p.global)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +233,7 @@ func (p *Provider) ProjectAgents(path string) ([]projectagent.ProjectAgent, erro
 		if a.Error != "" || len(a.Models) > 0 {
 			continue
 		}
-		m, err := projectagent.Find(path, a.ID)
+		m, err := projectagent.Find(path, p.global, a.ID)
 		if err != nil {
 			continue
 		}
@@ -235,4 +242,14 @@ func (p *Provider) ProjectAgents(path string) ([]projectagent.ProjectAgent, erro
 		}
 	}
 	return agents, nil
+}
+
+// ProjectAgentIcon is the icon in the agent's agent.json; "" when it has none
+// or can't be read.
+func (p *Provider) ProjectAgentIcon(path, name string) string {
+	m, err := projectagent.Find(path, p.global, name)
+	if err != nil {
+		return ""
+	}
+	return m.Icon
 }

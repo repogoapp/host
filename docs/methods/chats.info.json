@@ -22,6 +22,7 @@
   "model": "model",
   "model_label": "model_label",
   "project_agent": "project_agent",
+  "project_agent_icon": "project_agent_icon",
   "permission_mode": "permission_mode",
   "mode": "mode",
   "reasoning_level": "reasoning_level",

@@ -4,11 +4,13 @@
       "agent": "agent",
       "project_agent": "project_agent",
       "name": "name",
+      "icon": "icon",
       "error": "error",
       "models": [
         {
           "id": "id",
           "name": "name",
+          "icon": "icon",
           "efforts": [
             "efforts"
           ],

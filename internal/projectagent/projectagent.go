@@ -1,6 +1,6 @@
-// Package projectagent finds the agents a project brings with it: one folder
-// each under `.repogo/agents`, whose agent.json names a program that speaks
-// the Agent Client Protocol over stdio.
+// Package projectagent finds the agents a project can run: one folder each
+// under its `.repogo/agents` or the environment's global agents folder, whose
+// agent.json names a program that speaks the Agent Client Protocol over stdio.
 package projectagent
 
 import (
@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,6 +21,10 @@ import (
 
 // Folder holds a project's agents, from its checkout's top.
 const Folder = ".repogo/agents"
+
+// GlobalFolder holds the environment's own agents, under the host's home;
+// every project lists them, and a project's agent of the same name wins.
+const GlobalFolder = "agents"
 
 // ManifestFile is what makes a folder under Folder an agent.
 const ManifestFile = "agent.json"
@@ -37,6 +42,9 @@ var ErrNotFound = errkind.New(errkind.NotFound, "project agent not found")
 // id is a folder name an agent can have: it lands in paths and chat rows.
 var id = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
+// logo is an icon that names a logo the app ships, such as "claude".
+var logo = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
 // Manifest is one agent.json, with where it was found.
 type Manifest struct {
 	// ID is the agent's folder name, unique within its project.
@@ -46,6 +54,8 @@ type Manifest struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
 	Cwd     string   `json:"cwd"`
+	// Icon is what the picker draws for the agent; "" draws the default.
+	Icon string `json:"icon"`
 
 	// Models is what the picker offers, the first the default, for an agent
 	// that can't list its own over ACP (eve); the pick reaches it as the
@@ -53,11 +63,12 @@ type Manifest struct {
 	Models   []ProjectAgentModel `json:"models"`
 	ModelEnv string              `json:"modelEnv"`
 
-	// Dir is the agent's folder and Project the checkout holding it.
+	// Dir is the agent's folder and Project the checkout it works for, which
+	// holds Dir unless the agent is global.
 	Dir     string `json:"-"`
 	Project string `json:"-"`
-	// Fingerprint changes when the manifest or its project does, so a trust
-	// given to one command never covers another.
+	// Fingerprint changes when the manifest or its Key does, so a process
+	// started from one never serves another.
 	Fingerprint string `json:"-"`
 }
 
@@ -69,11 +80,22 @@ func (m Manifest) Workdir() string {
 	return m.Project
 }
 
+// Key names the agent's process. One that runs in its own folder serves
+// every project, as a second there may refuse to start; a global one that
+// runs in the project's folder needs a process per project.
+func (m Manifest) Key() string {
+	if m.Cwd == CwdAgent {
+		return m.Dir
+	}
+	return m.Dir + "\x00" + m.Project
+}
+
 // ProjectAgentModel is one model an agent offers: ID is what reaches the
-// agent, Name what the picker shows.
+// agent, Name and Icon what the picker shows.
 type ProjectAgentModel struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Icon string `json:"icon,omitempty"`
 }
 
 // ProjectAgent is one agent as the picker lists it; Error is set when its
@@ -82,15 +104,18 @@ type ProjectAgentModel struct {
 type ProjectAgent struct {
 	ID     string              `json:"id"`
 	Name   string              `json:"name"`
+	Icon   string              `json:"icon,omitempty"`
 	Error  string              `json:"error,omitempty"`
 	Models []ProjectAgentModel `json:"models,omitempty"`
 	Model  string              `json:"model,omitempty"`
 }
 
 // Lister is what lists a project's agents for the picker: the agents'
-// runner, which adds the models an agent reported once it ran.
+// runner, which adds the models an agent reported once it ran. Its
+// ProjectAgentIcon is one agent's icon for its chats' rows.
 type Lister interface {
 	ProjectAgents(path string) ([]ProjectAgent, error)
+	ProjectAgentIcon(path, name string) string
 }
 
 // DefaultModel is the model a turn runs when it names none, or one the
@@ -116,45 +141,78 @@ func Root(path string) string {
 	return filepath.Clean(path)
 }
 
-// List is every agent in the project holding path, by ID; nil without a Folder.
-func List(path string) ([]ProjectAgent, error) {
+// List is every agent the project holding path can run, by ID: its own and
+// those in global, the project's winning a name both have. global "" is none.
+func List(path, global string) ([]ProjectAgent, error) {
 	project := Root(path)
-	dirs, err := os.ReadDir(filepath.Join(project, Folder))
+	byID := map[string]ProjectAgent{}
+	for _, folder := range []string{global, filepath.Join(project, Folder)} {
+		ids, err := agentIDs(folder)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range ids {
+			m, err := read(project, folder, name)
+			entry := ProjectAgent{ID: name, Name: m.Name, Icon: m.Icon, Models: m.Models, Model: m.DefaultModel("")}
+			if err != nil {
+				entry = ProjectAgent{ID: name, Name: name, Error: err.Error()}
+			}
+			byID[name] = entry
+		}
+	}
+	if len(byID) == 0 {
+		return nil, nil
+	}
+	out := make([]ProjectAgent, 0, len(byID))
+	for _, a := range byID {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// agentIDs is each folder in folder holding a manifest; none when folder is
+// "" or missing.
+func agentIDs(folder string) ([]string, error) {
+	if folder == "" {
+		return nil, nil
+	}
+	dirs, err := os.ReadDir(folder)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var out []ProjectAgent
+	var out []string
 	for _, d := range dirs {
 		if !d.IsDir() || !id.MatchString(d.Name()) {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(project, Folder, d.Name(), ManifestFile)); err != nil {
-			continue
+		if _, err := os.Stat(filepath.Join(folder, d.Name(), ManifestFile)); err == nil {
+			out = append(out, d.Name())
 		}
-		m, err := read(project, d.Name())
-		entry := ProjectAgent{ID: d.Name(), Name: m.Name, Models: m.Models, Model: m.DefaultModel("")}
-		if err != nil {
-			entry = ProjectAgent{ID: d.Name(), Name: d.Name(), Error: err.Error()}
-		}
-		out = append(out, entry)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
 
-// Find reads one agent of the project holding path.
-func Find(path, name string) (Manifest, error) {
+// Find reads one agent the project holding path can run: its own, else the
+// one in global.
+func Find(path, global, name string) (Manifest, error) {
 	if !id.MatchString(name) {
 		return Manifest{}, fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
-	return read(Root(path), name)
+	project := Root(path)
+	m, err := read(project, filepath.Join(project, Folder), name)
+	if errors.Is(err, ErrNotFound) && global != "" {
+		return read(project, global, name)
+	}
+	return m, err
 }
 
-func read(project, name string) (Manifest, error) {
-	dir := filepath.Join(project, Folder, name)
+// read is folder's agent name, working for project.
+func read(project, folder, name string) (Manifest, error) {
+	dir := filepath.Join(folder, name)
 	raw, err := os.ReadFile(filepath.Join(dir, ManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return Manifest{}, fmt.Errorf("%w: %s", ErrNotFound, name)
@@ -178,10 +236,13 @@ func read(project, name string) (Manifest, error) {
 	case m.Cwd != CwdProject && m.Cwd != CwdAgent:
 		return m, fmt.Errorf("%s: cwd is %q, not %q or %q", ManifestFile, m.Cwd, CwdProject, CwdAgent)
 	}
+	if err := checkIcon(m.Icon); err != nil {
+		return m, fmt.Errorf("%s: %w", ManifestFile, err)
+	}
 	if err := checkModels(m); err != nil {
 		return m, fmt.Errorf("%s: %w", ManifestFile, err)
 	}
-	sum := sha256.Sum256(append([]byte(project+"\x00"), raw...))
+	sum := sha256.Sum256(append([]byte(m.Key()+"\x00"), raw...))
 	m.Fingerprint = hex.EncodeToString(sum[:])
 	return m, nil
 }
@@ -204,9 +265,25 @@ func checkModels(m Manifest) error {
 			return fmt.Errorf("model %q is listed twice", model.ID)
 		}
 		seen[model.ID] = true
+		if err := checkIcon(model.Icon); err != nil {
+			return fmt.Errorf("model %q: %w", model.ID, err)
+		}
 		if model.Name == "" {
 			m.Models[i].Name = model.ID
 		}
+	}
+	return nil
+}
+
+// checkIcon is an icon the app can draw: "" for the default, an https image
+// or the name of a logo it ships. An unknown name draws the default.
+func checkIcon(icon string) error {
+	if icon == "" || logo.MatchString(icon) {
+		return nil
+	}
+	u, err := url.Parse(icon)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("icon %q is not an https URL or a logo name", icon)
 	}
 	return nil
 }

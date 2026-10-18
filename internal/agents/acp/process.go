@@ -74,7 +74,7 @@ type chatSession struct {
 // model is the manifest model it runs, handed over in its modelEnv.
 func (p *Provider) start(ctx context.Context, m projectagent.Manifest, model string) (*agentProcess, error) {
 	proc := &agentProcess{
-		key: m.Dir, fingerprint: m.Fingerprint, name: m.Name, workdir: m.Workdir(), model: model,
+		key: m.Key(), fingerprint: m.Fingerprint, name: m.Name, workdir: m.Workdir(), model: model,
 		chats: map[string]*chatSession{}, bySession: map[string]*chatSession{}, lastUsed: time.Now(),
 		report: func(models agentModels) { _ = p.reported.put(m.Fingerprint, models) },
 	}

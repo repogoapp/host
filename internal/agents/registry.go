@@ -140,6 +140,15 @@ func (r *Registry) Kinds() []agent.Kind {
 	return out
 }
 
+// ProjectAgentIcon is the icon of a project's agent; "" when it has none or
+// this host runs no project agents.
+func (r *Registry) ProjectAgentIcon(cwd, projectAgent string) string {
+	if r.ProjectAgents == nil {
+		return ""
+	}
+	return r.ProjectAgents.ProjectAgentIcon(cwd, projectAgent)
+}
+
 // Close releases every provider that holds resources, such as a running agent process.
 func (r *Registry) Close() {
 	for _, p := range r.Agents {

@@ -111,6 +111,9 @@ type Chat struct {
 	// Which of the project's own agents the chat runs, for agents and cards
 	// reading the list; omitted for every other agent.
 	ProjectAgent string `json:"project_agent,omitempty"`
+	// ProjectAgentIcon is that agent's icon from its agent.json, as
+	// agents.list sends it; see Stamp.
+	ProjectAgentIcon string `json:"project_agent_icon,omitempty"`
 
 	// What the newest turn ran with, read from the transcript; omitted when
 	// unknown. The same names and values chats.send takes.
@@ -138,11 +141,14 @@ type Chat struct {
 }
 
 // Stamp adds what the cache does not store, for a row leaving this host: the
-// host it lives on, and what a phone shows for its model when the agent did
-// not name it.
-func (c *Chat) Stamp(host string, modelLabel func(agent.Kind, string) string) {
+// host it lives on, what a phone shows for its model when the agent did not
+// name it, and a project agent's icon, read now so an edit shows at once.
+func (c *Chat) Stamp(host string, modelLabel func(agent.Kind, string) string, agentIcon func(cwd, projectAgent string) string) {
 	c.HostID = host
 	c.ModelLabel = cmp.Or(c.ModelLabel, modelLabel(agent.Kind(c.Agent), c.Model))
+	if c.ProjectAgent != "" {
+		c.ProjectAgentIcon = agentIcon(c.CWD, c.ProjectAgent)
+	}
 }
 
 // Message is one normalized event.

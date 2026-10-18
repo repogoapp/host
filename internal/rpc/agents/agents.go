@@ -36,11 +36,12 @@ type ListResult struct {
 
 // AgentChoice is one agent the picker offers, as chats.start takes it: Model
 // is the default of Models; Modes and PermissionModes are the values its
-// config's mode and permission_mode accept.
+// config's mode and permission_mode accept. Icon is an https image or a logo name.
 type AgentChoice struct {
 	Agent           string       `json:"agent"`
 	ProjectAgent    string       `json:"project_agent,omitempty"`
 	Name            string       `json:"name"`
+	Icon            string       `json:"icon,omitempty"`
 	Error           string       `json:"error,omitempty"`
 	Models          []AgentModel `json:"models,omitempty"`
 	Model           string       `json:"model,omitempty"`
@@ -50,9 +51,11 @@ type AgentChoice struct {
 
 // AgentModel is one model: ID as chats.start's config takes it, and the
 // efforts its reasoning_level accepts, DefaultEffort when none is set.
+// Icon is as AgentChoice's.
 type AgentModel struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`
+	Icon          string   `json:"icon,omitempty"`
 	Efforts       []string `json:"efforts,omitempty"`
 	DefaultEffort string   `json:"default_effort,omitempty"`
 }
@@ -87,7 +90,7 @@ func (d Deps) list(_ context.Context, _ rpc.Caller, p ListParams) (ListResult, e
 	}
 	for _, a := range project {
 		out = append(out, AgentChoice{
-			Agent: string(agent.KindProject), ProjectAgent: a.ID, Name: a.Name,
+			Agent: string(agent.KindProject), ProjectAgent: a.ID, Name: a.Name, Icon: a.Icon,
 			Error: a.Error, Models: projectModels(a.Models), Model: a.Model,
 		})
 	}
@@ -118,7 +121,7 @@ func catalogModels(models []agentcatalog.Model) []AgentModel {
 func projectModels(models []projectagent.ProjectAgentModel) []AgentModel {
 	var out []AgentModel
 	for _, m := range models {
-		out = append(out, AgentModel{ID: m.ID, Name: m.Name})
+		out = append(out, AgentModel{ID: m.ID, Name: m.Name, Icon: m.Icon})
 	}
 	return out
 }

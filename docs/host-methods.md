@@ -164,6 +164,7 @@ Result:
 - `model` string (omitted when empty)
 - `model_label` string (omitted when empty)
 - `project_agent` string (omitted when empty)
+- `project_agent_icon` string (omitted when empty)
 - `permission_mode` string (omitted when empty)
 - `mode` string (omitted when empty)
 - `reasoning_level` string (omitted when empty)

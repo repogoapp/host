@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/session"
 )
 
@@ -511,6 +512,44 @@ func TestChatsWithOneAgentShareItsProcess(t *testing.T) {
 	again := send(t, p, agent.TurnRequest{Cwd: dir, SessionID: first.chat, Prompt: "hello"}, allowAll)
 	if again.err != nil || again.text != "Hello" {
 		t.Fatalf("first chat again: %v %q", again.err, again.text)
+	}
+}
+
+// A global agent is offered in every project. Working on the project's code,
+// it runs once per project; from its own folder, once for all of them.
+func TestGlobalAgentRunsPerProjectUnlessInItsOwnFolder(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	for name, cwd := range map[string]string{"coder": "project", "app": "agent"} {
+		dir := filepath.Join(root, projectagent.GlobalFolder, name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		manifest, _ := json.Marshal(map[string]any{"command": executable, "cwd": cwd})
+		if err := os.WriteFile(filepath.Join(dir, projectagent.ManifestFile), manifest, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := provider(t, root)
+	first, second := t.TempDir(), t.TempDir()
+	if agents, err := p.ProjectAgents(first); err != nil || len(agents) != 2 {
+		t.Fatalf("listed %+v %v", agents, err)
+	}
+	pid := func(project, name string) string {
+		got := send(t, p, agent.TurnRequest{Cwd: project, ProjectAgent: name, Prompt: "pid"}, allowAll)
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		return got.text
+	}
+	if a, b := pid(first, "coder"), pid(second, "coder"); a == b {
+		t.Fatalf("coder served both projects from process %s", a)
+	}
+	if a, b := pid(first, "app"), pid(second, "app"); a != b {
+		t.Fatalf("app ran twice: %s and %s", a, b)
 	}
 }
 

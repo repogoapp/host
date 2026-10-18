@@ -96,8 +96,8 @@ type TurnRequest struct {
 	// Empty leaves the chat to the prompt's opening words.
 	Title string `json:"title,omitempty"`
 
-	// ProjectAgent is the folder under `.repogo/agents` a new ACP chat runs;
-	// a chat that exists already knows its own.
+	// ProjectAgent is the agent folder a new ACP chat runs, the project's
+	// `.repogo/agents` first, then the global one; an existing chat knows its own.
 	ProjectAgent string `json:"project_agent,omitempty"`
 
 	// Provider-side conversation to continue. Empty starts fresh. This is the

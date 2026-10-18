@@ -16,6 +16,8 @@ type listed []projectagent.ProjectAgent
 
 func (l listed) ProjectAgents(string) ([]projectagent.ProjectAgent, error) { return l, nil }
 
+func (l listed) ProjectAgentIcon(string, string) string { return "" }
+
 type catalogs map[agent.Kind]agentcatalog.Catalog
 
 func (c catalogs) Last(kind agent.Kind) (agentcatalog.Catalog, bool) {

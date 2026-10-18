@@ -243,7 +243,7 @@ func (h *Host) openChats() error {
 		h.log.Info("settled orphaned turns", "chats", n)
 	}
 
-	h.announcer = chatlive.NewAnnouncer(h.devices, h.emitter, h.db, h.Services.AgentCatalog.ModelLabel, h.log)
+	h.announcer = chatlive.NewAnnouncer(h.devices, h.emitter, h.db, h.Services.AgentCatalog.ModelLabel, h.agents.ProjectAgentIcon, h.log)
 	h.syncer = chatsync.New(h.sessions, h.db, h.log)
 	// h.live streams the manager's turns, so it comes after; no turn runs before New returns.
 	h.mgr = agent.NewManager(h.log, agent.Hooks{
@@ -324,7 +324,7 @@ func (h *Host) openProjects() error {
 	h.Services.GitHub = gh
 
 	h.ChatDeps = chat.Deps{
-		Self: h.devices.Identity().ID, ModelLabel: h.Services.AgentCatalog.ModelLabel, Cache: h.db, Sender: h.mgr, Sync: h.syncer,
+		Self: h.devices.Identity().ID, ModelLabel: h.Services.AgentCatalog.ModelLabel, AgentIcon: h.agents.ProjectAgentIcon, Cache: h.db, Sender: h.mgr, Sync: h.syncer,
 		Transcripts: h.sessions, Files: projectFiles,
 	}
 	chats, err := chat.New(h.ChatDeps)

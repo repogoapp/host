@@ -43,6 +43,8 @@ type Deps struct {
 
 	// ModelLabel names a row's model for the phone, from the agent's catalog.
 	ModelLabel func(agent.Kind, string) string
+	// AgentIcon is a project agent's icon for its chats' rows.
+	AgentIcon func(cwd, projectAgent string) string
 
 	// Cache is not the copy of record, the provider files are, so every
 	// method here tolerates it being stale.
@@ -117,7 +119,7 @@ func (s *Service) Sync(ctx context.Context, req store.SyncParams) (store.SyncRes
 	return result, err
 }
 
-func (s *Service) stamp(c *store.Chat) { c.Stamp(string(s.d.Self), s.d.ModelLabel) }
+func (s *Service) stamp(c *store.Chat) { c.Stamp(string(s.d.Self), s.d.ModelLabel, s.d.AgentIcon) }
 
 // Queue is one chat's queued turns, read from state.db, where the Manager
 // saves every change to them.

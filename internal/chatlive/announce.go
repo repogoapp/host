@@ -22,11 +22,13 @@ type Announcer struct {
 	emit       *emit.Emitter
 	db         *store.Store
 	modelLabel func(agent.Kind, string) string
+	agentIcon  func(cwd, projectAgent string) string
 	log        *slog.Logger
 }
 
-func NewAnnouncer(peers Peers, em *emit.Emitter, db *store.Store, modelLabel func(agent.Kind, string) string, log *slog.Logger) *Announcer {
-	return &Announcer{peers: peers, emit: em, db: db, modelLabel: modelLabel, log: log}
+func NewAnnouncer(peers Peers, em *emit.Emitter, db *store.Store, modelLabel func(agent.Kind, string) string,
+	agentIcon func(cwd, projectAgent string) string, log *slog.Logger) *Announcer {
+	return &Announcer{peers: peers, emit: em, db: db, modelLabel: modelLabel, agentIcon: agentIcon, log: log}
 }
 
 // Announce sends each changed row as it reads after the commit, and each
@@ -38,7 +40,7 @@ func (a *Announcer) Announce(c store.Change) {
 			a.log.Debug("chat row not announced", "chat", id, "err", err)
 			continue
 		}
-		chat.Stamp(string(a.peers.Identity().ID), a.modelLabel)
+		chat.Stamp(string(a.peers.Identity().ID), a.modelLabel, a.agentIcon)
 		a.send(Changed{Chat: chat})
 	}
 	for _, id := range c.Removed {
