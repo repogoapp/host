@@ -33,6 +33,9 @@ File: path (as file: takes it, may read {{…}}); draws that file of the
   environment in the card with the app's viewer: a PDF, an image, a video
   or audio, a CSV or SQLite table, JSON, Markdown, a Mermaid diagram;
   height (default regular).
+Tree: path of a folder (as File takes it); draws it as the app's live
+  file tree, with git changes; a tapped file opens in the editor;
+  height (default regular).
 Icon: name="SF Symbol"; size="sm|md|lg", default md; alt names it for
   VoiceOver (without one it's decorative).
 Progress: value="0..1" plain decimal bar; self-closing; color tints it, default primary.
@@ -47,6 +50,12 @@ Button: label, optional icon, action; variant="primary|secondary|plain",
 Menu: label and/or icon, variant like Button; contains Buttons and
   Dividers, shown as the system's menu; a Button with role="destructive"
   is its red, destructive item.
+ContextMenu: a child of a Button, Item, Image or any visual element:
+  what a long-press shows, its tap unchanged. Contains Buttons, Menus
+  and Dividers as a Menu does, and an optional Preview first, lifted
+  above the menu: url="…" a live web page, file="…" a file, page="…"
+  a project page (Params set its state), or children drawn as a card.
+  On an Item that can't swipe, its Swipes join the menu.
 Toolbar: Buttons and Menus for the bar of the page or sheet the card is
   on (an Add button, a "…" Menu); where there's no bar, a row of them.
 Divider, Spacer: separator and flexible space along the parent layout.
@@ -146,6 +155,7 @@ send:<text> — send the user's next message to the agent.
 append:<text> — add text to the user's prompt bar after what they typed,
   unsent, for them to finish or send.
 copy:<text> — copy text.
+share:<text> — the system share sheet; a web address is shared as a link.
 open:<url> — open an absolute https or http link in a Safari sheet over
   the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
@@ -169,7 +179,7 @@ then="push:detail" after set: or toggle: runs a second, local action:
 {{name}} reads the current state value in Text, Badge, Markdown, the labels of
 Buttons, Menus, Items, Toggles and fields, Item subtitle and detail, field and
 Section footers, Section labels, Route titles, Image url and alt, Icon alt,
-set: values, and send:/append:/copy:/open: payloads. No interpolation elsewhere. A filter
+set: values, and send:/append:/copy:/share:/open: payloads. No interpolation elsewhere. A filter
 writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
 current), date, time, datetime, number (number:2), currency:USD, percent
 (0.42 is 42%), bytes; for a path, name (a.json) and folder (docs/events).
