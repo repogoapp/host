@@ -16,39 +16,36 @@ import (
 // process and, when portless is serving it, its `.localhost` name.
 type Port struct {
 	Port     int    `json:"port"`
-	PID      int    `json:"pid"`
 	Command  string `json:"command"`
 	Cwd      string `json:"cwd"`
 	Portless string `json:"portless"`
 }
 
+// listener is one socket as the platform reports it; the pid stays here.
+type listener struct {
+	port    int
+	pid     int
+	command string
+	cwd     string
+}
+
 // ListPorts enumerates listening sockets (see ports_*.go), filtered to servers
-// started inside dir when given, leaving out the host's own listener, which
-// isn't a dev server. Failure yields an empty list.
+// started inside dir when given. Failure yields an empty list.
 func ListPorts(ctx context.Context, dir string) []Port {
-	ports := listPlatformPorts(ctx)
-	routes := portlessRoutes()
-	self := os.Getpid()
-	kept := make([]Port, 0, len(ports))
-	for _, p := range ports {
-		if p.PID == self {
+	return ports(listPlatformPorts(ctx), os.Getpid(), portlessRoutes(), dir)
+}
+
+// ports leaves out self, the host's own listener, which isn't a dev server.
+func ports(listeners []listener, self int, routes map[int]string, dir string) []Port {
+	kept := make([]Port, 0, len(listeners))
+	for _, l := range listeners {
+		if l.pid == self || (dir != "" && !files.Within(dir, l.cwd)) {
 			continue
 		}
-		p.Portless = routes[p.Port]
-		if dir == "" || files.Within(dir, p.Cwd) {
-			kept = append(kept, p)
-		}
+		kept = append(kept, Port{Port: l.port, Command: l.command, Cwd: l.cwd, Portless: routes[l.port]})
 	}
 	sort.Slice(kept, func(i, j int) bool { return kept[i].Port < kept[j].Port })
 	return kept
-}
-
-// Killed is what KillPort stopped.
-type Killed struct {
-	// Empty when nothing was listening, or every listener refused the signal.
-	PIDs []int `json:"killed_pids" wire:"array"`
-	// Owning process name, for the client's confirmation copy.
-	Command string `json:"command,omitempty"`
 }
 
 // ErrSelf refuses the host's own listener: a phone clearing a stuck dev
@@ -56,28 +53,25 @@ type Killed struct {
 var ErrSelf = errkind.New(errkind.Invalid, "ports: that port is the host's own")
 
 // KillPort signals every listener on port, resolved now because a caller's scan
-// may be stale. IPv4 and IPv6 rows of one server are separate listeners; PIDs
-// reports only the signals the OS accepted.
-func KillPort(ctx context.Context, port int, force bool) (Killed, error) {
-	out := Killed{PIDs: []int{}}
+// may be stale, and counts the signals the OS accepted: none when nothing was
+// listening or every listener refused. IPv4 and IPv6 rows are separate listeners.
+func KillPort(ctx context.Context, port int, force bool) (int, error) {
 	if port <= 0 {
-		return out, nil
+		return 0, nil
 	}
-	for _, p := range listPlatformPorts(ctx) {
-		if p.Port != port || p.PID <= 0 {
+	killed := 0
+	for _, l := range listPlatformPorts(ctx) {
+		if l.port != port || l.pid <= 0 {
 			continue
 		}
-		if p.PID == os.Getpid() {
-			return Killed{PIDs: []int{}}, ErrSelf
+		if l.pid == os.Getpid() {
+			return 0, ErrSelf
 		}
-		if out.Command == "" {
-			out.Command = p.Command
-		}
-		if signalProcess(p.PID, force) == nil {
-			out.PIDs = append(out.PIDs, p.PID)
+		if signalProcess(l.pid, force) == nil {
+			killed++
 		}
 	}
-	return out, nil
+	return killed, nil
 }
 
 // signalProcess asks a pid to stop, through os.Process rather than

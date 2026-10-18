@@ -1,6 +1,3 @@
 {
-  "killed_pids": [
-    1
-  ],
-  "command": "command"
+  "processes": 1
 }

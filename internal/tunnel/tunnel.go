@@ -41,12 +41,18 @@ var slugPattern = regexp.MustCompile(`^[0-9a-z]{10,32}$`)
 
 // Tunnel is one public URL this host serves.
 type Tunnel struct {
-	Slug      string    `json:"slug"`
-	URL       string    `json:"url"`
-	Port      int       `json:"port"`
-	ExpiresAt int64     `json:"expires_at"` // Unix ms, as repogo.app granted it
-	OpenedBy  device.ID `json:"opened_by"`
-	OpenedAt  int64     `json:"opened_at"`
+	Slug      string `json:"slug"`
+	URL       string `json:"url"`
+	Port      int    `json:"port"`
+	ExpiresAt int64  `json:"expires_at"` // Unix ms, as repogo.app granted it
+	OpenedAt  int64  `json:"opened_at"`
+}
+
+// entry is a tunnel as saved: with the device that opened it, which only
+// this host needs, to end the tunnel when that device is unpaired.
+type entry struct {
+	Tunnel
+	OpenedBy device.ID `json:"opened_by"`
 }
 
 // Peers is the paired devices; a tunnel lasts only while its opener is paired.
@@ -72,7 +78,7 @@ type Config struct {
 }
 
 type file struct {
-	Tunnels []Tunnel `json:"tunnels"`
+	Tunnels []entry `json:"tunnels"`
 }
 
 type Service struct {
@@ -81,7 +87,7 @@ type Service struct {
 	wake chan struct{}
 
 	mu        sync.Mutex
-	tunnels   map[string]Tunnel
+	tunnels   map[string]entry
 	connected bool
 	running   bool          // Run is dialing the gateway
 	attempt   chan struct{} // closed and replaced as each gateway attempt connects or ends
@@ -89,13 +95,13 @@ type Service struct {
 }
 
 func Open(cfg Config) (*Service, error) {
-	s := &Service{cfg: cfg, now: time.Now, wake: make(chan struct{}, 1), attempt: make(chan struct{}), tunnels: map[string]Tunnel{}}
+	s := &Service{cfg: cfg, now: time.Now, wake: make(chan struct{}, 1), attempt: make(chan struct{}), tunnels: map[string]entry{}}
 	var f file
 	if _, err := apphome.ReadJSON(cfg.Path, &f); err != nil {
 		return nil, err
 	}
-	for _, t := range f.Tunnels {
-		s.tunnels[t.Slug] = t
+	for _, e := range f.Tunnels {
+		s.tunnels[e.Slug] = e
 	}
 	return s, nil
 }
@@ -114,9 +120,9 @@ func (s *Service) Open(by device.ID, slug string, port int, expiresAt int64) (Tu
 	case expiresAt <= now.UnixMilli() || expiresAt > now.Add(MaxDuration).UnixMilli():
 		return Tunnel{}, fmt.Errorf("%w: expires_at must be within seven days from now", ErrInvalid)
 	}
-	t := Tunnel{Slug: slug, URL: "https://" + slug + "." + Domain, Port: port, ExpiresAt: expiresAt, OpenedBy: by, OpenedAt: now.UnixMilli()}
+	t := Tunnel{Slug: slug, URL: "https://" + slug + "." + Domain, Port: port, ExpiresAt: expiresAt, OpenedAt: now.UnixMilli()}
 	s.mu.Lock()
-	s.tunnels[slug] = t
+	s.tunnels[slug] = entry{Tunnel: t, OpenedBy: by}
 	err := s.saveLocked()
 	s.mu.Unlock()
 	if err != nil {
@@ -189,8 +195,8 @@ func (s *Service) Status() Changed {
 
 func (s *Service) listLocked() []Tunnel {
 	out := make([]Tunnel, 0, len(s.tunnels))
-	for _, t := range s.tunnels {
-		out = append(out, t)
+	for _, e := range s.tunnels {
+		out = append(out, e.Tunnel)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].ExpiresAt != out[j].ExpiresAt {
@@ -205,19 +211,19 @@ func (s *Service) listLocked() []Tunnel {
 // opener is still paired.
 func (s *Service) allowed(slug string) (int, bool) {
 	s.mu.Lock()
-	t, ok := s.tunnels[slug]
+	e, ok := s.tunnels[slug]
 	s.mu.Unlock()
-	if !ok || !s.live(t) {
+	if !ok || !s.live(e) {
 		return 0, false
 	}
-	return t.Port, true
+	return e.Port, true
 }
 
-func (s *Service) live(t Tunnel) bool {
-	if t.ExpiresAt <= s.now().UnixMilli() {
+func (s *Service) live(e entry) bool {
+	if e.ExpiresAt <= s.now().UnixMilli() {
 		return false
 	}
-	_, err := s.cfg.Peers.Peer(t.OpenedBy)
+	_, err := s.cfg.Peers.Peer(e.OpenedBy)
 	return err == nil
 }
 
@@ -225,8 +231,8 @@ func (s *Service) live(t Tunnel) bool {
 func (s *Service) prune() {
 	s.mu.Lock()
 	var dropped bool
-	for slug, t := range s.tunnels {
-		if !s.live(t) {
+	for slug, e := range s.tunnels {
+		if !s.live(e) {
 			delete(s.tunnels, slug)
 			dropped = true
 		}
@@ -292,7 +298,11 @@ func (s *Service) changed() {
 }
 
 func (s *Service) saveLocked() error {
-	return apphome.WriteJSON(s.cfg.Path, file{Tunnels: s.listLocked()}, 0o600)
+	saved := make([]entry, 0, len(s.tunnels))
+	for _, t := range s.listLocked() {
+		saved = append(saved, s.tunnels[t.Slug])
+	}
+	return apphome.WriteJSON(s.cfg.Path, file{Tunnels: saved}, 0o600)
 }
 
 // pruneEvery is how often an idle or connected host re-checks expiry.

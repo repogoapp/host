@@ -22,6 +22,12 @@ type KillParams struct {
 	Force bool `json:"force"` // SIGKILL instead of SIGTERM
 }
 
+// Killed counts the processes that took the signal; none when nothing was
+// listening or every listener refused.
+type Killed struct {
+	Processes int `json:"processes"`
+}
+
 func Register(r *rpc.Router) {
 	// list is every listening socket on this machine, or only those started
 	// under dir.
@@ -35,6 +41,7 @@ func list(ctx context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {
 	return ListResult{Ports: portscore.ListPorts(ctx, a.Dir)}, nil
 }
 
-func kill(ctx context.Context, _ rpc.Caller, a KillParams) (portscore.Killed, error) {
-	return portscore.KillPort(ctx, a.Port, a.Force)
+func kill(ctx context.Context, _ rpc.Caller, a KillParams) (Killed, error) {
+	processes, err := portscore.KillPort(ctx, a.Port, a.Force)
+	return Killed{Processes: processes}, err
 }

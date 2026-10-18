@@ -249,6 +249,6 @@ func (p *Pipes) closePipe(pi *pipe, reason string) {
 		if conn != nil {
 			conn.Close()
 		}
-		_ = p.emit.To(pi.caller, Closed{PipeID: pi.id, Reason: reason})
+		_ = p.emit.To(pi.caller, Closed{PipeID: pi.id})
 	})
 }

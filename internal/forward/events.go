@@ -18,10 +18,9 @@ type Data struct {
 
 func (Data) Method() string { return "forward.pipe_data" }
 
-// Closed is the pipe ending, from either side, and why.
+// Closed is the pipe ending, from either side; why stays in the host's log.
 type Closed struct {
 	PipeID string `json:"pipe_id"`
-	Reason string `json:"reason"`
 }
 
 func (Closed) Method() string { return "forward.pipe_closed" }

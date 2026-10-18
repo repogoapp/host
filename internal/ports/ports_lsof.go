@@ -16,8 +16,8 @@ import (
 // listPlatformPorts reads lsof field output: `p<pid>` and `c<command>` head
 // each process block, `n<addr>` repeats per socket (`*:3000`,
 // `127.0.0.1:8080`, `[::1]:3000`). -n -P skip DNS and port-name lookups.
-func listPlatformPorts(ctx context.Context) []Port {
-	var ports []Port
+func listPlatformPorts(ctx context.Context) []listener {
+	var ports []listener
 	seen := map[[2]int]bool{} // one row per pid:port — IPv4 and IPv6 both report it
 	pid, command := 0, ""
 	for _, line := range strings.Split(lsof(ctx, "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"), "\n") {
@@ -36,18 +36,18 @@ func listPlatformPorts(ctx context.Context) []Port {
 				continue
 			}
 			seen[[2]int{pid, port}] = true
-			ports = append(ports, Port{Port: port, PID: pid, Command: command})
+			ports = append(ports, listener{port: port, pid: pid, command: command})
 		}
 	}
 	pids := make([]int, 0, len(ports))
 	for _, p := range ports {
-		if p.PID > 0 {
-			pids = append(pids, p.PID)
+		if p.pid > 0 {
+			pids = append(pids, p.pid)
 		}
 	}
 	cwds := procscan.Cwds(ctx, pids)
 	for i := range ports {
-		ports[i].Cwd = cwds[ports[i].PID]
+		ports[i].cwd = cwds[ports[i].pid]
 	}
 	return ports
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -42,79 +41,35 @@ func portOf(t *testing.T, rawURL string) int {
 	return n
 }
 
-func TestFetchReturnsStatusHeadersAndBody(t *testing.T) {
+func TestFetchGetsThePathAndReturnsTheStatus(t *testing.T) {
 	port := devServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		// Two values under one name: Set-Cookie is the case that breaks every
-		// proxy that models headers as map[string]string.
-		w.Header().Add("Set-Cookie", "a=1")
-		w.Header().Add("Set-Cookie", "b=2")
-		w.WriteHeader(201)
-		fmt.Fprintf(w, "path=%s ua=%s", r.URL.RequestURI(), r.Header.Get("User-Agent"))
+		if r.Method != http.MethodGet || r.URL.RequestURI() != "/callback?code=1" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
 	})
-
-	resp, err := forward.NewFetcher(slog.Default()).Fetch(context.Background(), forward.Request{
-		Port: port, Method: "GET", Path: "/hello?x=1",
-		Headers: map[string][]string{"User-Agent": {"RepoGo"}},
-	})
+	resp, err := forward.NewFetcher(slog.Default()).Fetch(context.Background(),
+		forward.Request{Port: port, Path: "/callback?code=1"})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if resp.Status != 201 {
-		t.Errorf("status = %d, want 201", resp.Status)
-	}
-	if got := string(resp.Body); got != "path=/hello?x=1 ua=RepoGo" {
-		t.Errorf("body = %q — the query string and request headers must survive the hop", got)
-	}
-	if cookies := resp.Headers["Set-Cookie"]; len(cookies) != 2 {
-		t.Errorf("Set-Cookie = %v, want both values", cookies)
-	}
-	if _, leaked := resp.Headers["Content-Length"]; leaked {
-		t.Error("Content-Length was forwarded; it describes the hop, not the message")
+	if resp.Status != http.StatusAccepted {
+		t.Errorf("status = %d, want 202", resp.Status)
 	}
 }
 
-// A redirect belongs to the caller: it owns the address bar, and following one
-// here would hand back a body from a URL nobody asked for.
 func TestFetchDoesNotFollowRedirects(t *testing.T) {
 	port := devServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/elsewhere", http.StatusFound)
-			return
-		}
-		fmt.Fprint(w, "arrived")
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
 	})
-
 	resp, err := forward.NewFetcher(slog.Default()).Fetch(context.Background(),
 		forward.Request{Port: port, Path: "/"})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
 	if resp.Status != http.StatusFound {
-		t.Fatalf("status = %d, want 302", resp.Status)
-	}
-	if got := resp.Headers["Location"]; len(got) != 1 || got[0] != "/elsewhere" {
-		t.Errorf("Location = %v", got)
-	}
-}
-
-func TestFetchTruncatesAnOversizedBody(t *testing.T) {
-	port := devServer(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Write(make([]byte, forward.MaxBodyBytes+4096))
-	})
-
-	resp, err := forward.NewFetcher(slog.Default()).Fetch(context.Background(),
-		forward.Request{Port: port, Path: "/big"})
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	// Reported, not silently cut: a half-delivered asset that claims success is
-	// worse than an error, because the failure surfaces somewhere else entirely.
-	if !resp.Truncated {
-		t.Error("an oversized body was not reported as truncated")
-	}
-	if len(resp.Body) != forward.MaxBodyBytes {
-		t.Errorf("body = %d bytes, want the cap %d", len(resp.Body), forward.MaxBodyBytes)
+		t.Errorf("status = %d, want the redirect itself", resp.Status)
 	}
 }
 
@@ -149,7 +104,7 @@ func (c *collector) Send(_ device.ID, method string, payload []byte) error {
 	case "forward.pipe_closed":
 		var ev forward.Closed
 		_ = json.Unmarshal(payload, &ev)
-		c.closed = ev.Reason
+		c.closed = ev.PipeID
 	}
 	return nil
 }

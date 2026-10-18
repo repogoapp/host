@@ -417,7 +417,7 @@ func TestAllowlistPersistsPrivately(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := again.List()
-	if len(got) != 1 || got[0].Port != 3000 || got[0].URL != "https://abcdefghij12.repogo.dev" || got[0].OpenedBy != phone {
+	if len(got) != 1 || got[0].Port != 3000 || got[0].URL != "https://abcdefghij12.repogo.dev" || again.tunnels["abcdefghij12"].OpenedBy != phone {
 		t.Fatalf("reloaded %v", got)
 	}
 }

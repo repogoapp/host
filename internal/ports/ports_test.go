@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestListPortsFindsAListenerWithItsCwdAndPortlessName(t *testing.T) {
+func TestListPlatformPortsFindsAListenerWithItsCwd(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no port enumeration on Windows")
 	}
@@ -21,48 +21,57 @@ func TestListPortsFindsAListenerWithItsCwdAndPortlessName(t *testing.T) {
 	}
 	defer ln.Close()
 	port := ln.Addr().(*net.TCPAddr).Port
-
-	state := t.TempDir()
-	t.Setenv("PORTLESS_STATE_DIR", state)
-	routes := `[{"hostname":"web.localhost","port":` + strconv.Itoa(port) + `}]`
-	if err := os.WriteFile(filepath.Join(state, "routes.json"), []byte(routes), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	cwd, _ := os.Getwd()
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
 		cwd = resolved
 	}
 
-	find := func(dir string) *Port {
-		for _, p := range ListPorts(context.Background(), dir) {
-			if p.Port == port && p.PID == os.Getpid() {
-				return &p
+	for _, l := range listPlatformPorts(context.Background()) {
+		if l.port == port && l.pid == os.Getpid() {
+			if l.cwd != cwd {
+				t.Errorf("cwd = %q, want %q", l.cwd, cwd)
 			}
+			return
 		}
-		return nil
 	}
-	got := find("")
-	if got == nil {
-		t.Skipf("port %d not enumerated (no lsof on this machine?)", port)
+	t.Skipf("port %d not enumerated (no lsof on this machine?)", port)
+}
+
+func TestPortsNamesPortlessFiltersByDirAndLeavesOutTheHost(t *testing.T) {
+	dir := t.TempDir()
+	listeners := []listener{
+		{port: 5000, pid: 1, command: "node", cwd: filepath.Join(dir, "web")},
+		{port: 3000, pid: 2, command: "vite", cwd: dir},
+		{port: 4000, pid: 9, command: "repogo", cwd: dir},
+		{port: 8080, pid: 3, command: "nginx", cwd: "/"},
 	}
-	if got.Portless != "web.localhost" {
-		t.Errorf("portless = %q, want web.localhost", got.Portless)
+	routes := map[int]string{3000: "web.localhost"}
+
+	all := ports(listeners, 9, routes, "")
+	if len(all) != 3 || all[0].Port != 3000 || all[0].Portless != "web.localhost" || all[2].Port != 8080 {
+		t.Fatalf("ports = %+v, want 3000 (named), 5000 and 8080 without the host's 4000", all)
 	}
-	if got.Cwd != cwd {
-		t.Errorf("cwd = %q, want %q", got.Cwd, cwd)
+	mine := ports(listeners, 9, routes, dir)
+	if len(mine) != 2 || mine[0].Port != 3000 || mine[1].Port != 5000 {
+		t.Fatalf("ports in %s = %+v, want 3000 and 5000", dir, mine)
 	}
-	if find(cwd) == nil {
-		t.Errorf("a dir query for the process's own cwd dropped it")
+}
+
+func TestPortlessRoutesReadsTheStateDir(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("PORTLESS_STATE_DIR", state)
+	routes := `[{"hostname":"web.localhost","port":` + strconv.Itoa(3000) + `}]`
+	if err := os.WriteFile(filepath.Join(state, "routes.json"), []byte(routes), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if find(filepath.Join(cwd, "elsewhere")) != nil {
-		t.Errorf("a dir query for another directory kept it")
+	if got := portlessRoutes()[3000]; got != "web.localhost" {
+		t.Fatalf("portlessRoutes()[3000] = %q, want web.localhost", got)
 	}
 }
 
 func TestKillPortIgnoresAnImpossiblePort(t *testing.T) {
-	got, _ := KillPort(context.Background(), 0, false)
-	if len(got.PIDs) != 0 || got.Command != "" {
-		t.Fatalf("KillPort(0) = %+v, want nothing", got)
+	if got, _ := KillPort(context.Background(), 0, false); got != 0 {
+		t.Fatalf("KillPort(0) = %d, want nothing", got)
 	}
 }
 
@@ -76,9 +85,9 @@ func TestKillPortRefusesTheHost(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	got, err := KillPort(context.Background(), port, false)
 	if !errors.Is(err, ErrSelf) {
-		t.Fatalf("KillPort(own %d) = %+v, %v; want ErrSelf", port, got, err)
+		t.Fatalf("KillPort(own %d) = %d, %v; want ErrSelf", port, got, err)
 	}
-	if len(got.PIDs) != 0 {
-		t.Fatalf("signalled %v", got.PIDs)
+	if got != 0 {
+		t.Fatalf("signalled %d", got)
 	}
 }

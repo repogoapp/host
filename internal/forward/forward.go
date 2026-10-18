@@ -1,6 +1,6 @@
 // Package forward carries a client to dev servers on this host's loopback over
 // the connection the host already holds. Pipes relay raw bytes, so pages,
-// upgrades and streams all ride them; Fetch is one buffered request and reply.
+// upgrades and streams all ride them; Fetch is one GET and its status.
 package forward
 
 import (

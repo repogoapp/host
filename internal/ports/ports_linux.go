@@ -15,7 +15,7 @@ import (
 // listPlatformPorts reads /proc/net/tcp{,6} for LISTEN sockets, which sees
 // listeners lsof drops, then finds each socket's owner through /proc/<pid>/fd.
 // A socket whose owner we cannot read is still reported, with pid 0.
-func listPlatformPorts(ctx context.Context) []Port {
+func listPlatformPorts(ctx context.Context) []listener {
 	inodeToPort := map[string]int{}
 	for _, file := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
 		raw, err := os.ReadFile(file)
@@ -80,7 +80,7 @@ func listPlatformPorts(ctx context.Context) []Port {
 	}
 	cwds := procscan.Cwds(ctx, pids)
 
-	ports := make([]Port, 0, len(inodeToPort))
+	ports := make([]listener, 0, len(inodeToPort))
 	seen := map[[2]int]bool{} // one row per pid:port — IPv4 and IPv6 both report it
 	commByPid := map[int]string{}
 	for inode, port := range inodeToPort {
@@ -93,7 +93,7 @@ func listPlatformPorts(ctx context.Context) []Port {
 			raw, _ := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 			commByPid[pid] = strings.TrimSpace(string(raw))
 		}
-		ports = append(ports, Port{Port: port, PID: pid, Command: commByPid[pid], Cwd: cwds[pid]})
+		ports = append(ports, listener{port: port, pid: pid, command: commByPid[pid], cwd: cwds[pid]})
 	}
 	return ports
 }
