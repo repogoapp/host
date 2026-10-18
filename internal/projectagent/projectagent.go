@@ -1,6 +1,6 @@
-// Package projectagent finds the agents a project can run: one folder each
-// under its `.repogo/agents` or the environment's global agents folder, whose
-// agent.json names a program that speaks the Agent Client Protocol over stdio.
+// Package projectagent finds the agents a project can run: each a folder with
+// an agent.json naming a program that speaks the Agent Client Protocol over
+// stdio, in the project's or the environment's agents or plugins folder.
 package projectagent
 
 import (
@@ -19,12 +19,19 @@ import (
 	"github.com/repogoapp/host/internal/git"
 )
 
-// Folder holds a project's agents, from its checkout's top.
-const Folder = ".repogo/agents"
+// Folder holds a project's agents, from its checkout's top, and PluginFolder
+// its plugins, any of which may bring an agent.json too.
+const (
+	Folder       = ".repogo/agents"
+	PluginFolder = ".repogo/plugins"
+)
 
-// GlobalFolder holds the environment's own agents, under the host's home;
-// every project lists them, and a project's agent of the same name wins.
-const GlobalFolder = "agents"
+// GlobalFolder and GlobalPluginFolder are the environment's, under the host's
+// home: every project lists their agents, and its own of the same name win.
+const (
+	GlobalFolder       = "agents"
+	GlobalPluginFolder = "plugins"
+)
 
 // ManifestFile is what makes a folder under Folder an agent.
 const ManifestFile = "agent.json"
@@ -141,12 +148,19 @@ func Root(path string) string {
 	return filepath.Clean(path)
 }
 
-// List is every agent the project holding path can run, by ID: its own and
-// those in global, the project's winning a name both have. global "" is none.
-func List(path, global string) ([]ProjectAgent, error) {
+// folders is where the project's agents are found, the lowest first: the
+// environment's folders in global, then the project's plugins and agents.
+func folders(project string, global []string) []string {
+	return append(append([]string{}, global...), filepath.Join(project, PluginFolder), filepath.Join(project, Folder))
+}
+
+// List is every agent the project holding path can run, by ID, from its own
+// folders and the environment's in global, lowest first; a later folder wins
+// a name two share.
+func List(path string, global []string) ([]ProjectAgent, error) {
 	project := Root(path)
 	byID := map[string]ProjectAgent{}
-	for _, folder := range []string{global, filepath.Join(project, Folder)} {
+	for _, folder := range folders(project, global) {
 		ids, err := agentIDs(folder)
 		if err != nil {
 			return nil, err
@@ -171,12 +185,8 @@ func List(path, global string) ([]ProjectAgent, error) {
 	return out, nil
 }
 
-// agentIDs is each folder in folder holding a manifest; none when folder is
-// "" or missing.
+// agentIDs is each folder in folder holding a manifest; none when it's missing.
 func agentIDs(folder string) ([]string, error) {
-	if folder == "" {
-		return nil, nil
-	}
 	dirs, err := os.ReadDir(folder)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -196,18 +206,21 @@ func agentIDs(folder string) ([]string, error) {
 	return out, nil
 }
 
-// Find reads one agent the project holding path can run: its own, else the
-// one in global.
-func Find(path, global, name string) (Manifest, error) {
+// Find reads one agent the project holding path can run, from the highest of
+// the folders List reads that has it.
+func Find(path string, global []string, name string) (Manifest, error) {
 	if !id.MatchString(name) {
 		return Manifest{}, fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
 	project := Root(path)
-	m, err := read(project, filepath.Join(project, Folder), name)
-	if errors.Is(err, ErrNotFound) && global != "" {
-		return read(project, global, name)
+	all := folders(project, global)
+	for i := len(all) - 1; i >= 0; i-- {
+		m, err := read(project, all[i], name)
+		if !errors.Is(err, ErrNotFound) {
+			return m, err
+		}
 	}
-	return m, err
+	return Manifest{}, fmt.Errorf("%w: %s", ErrNotFound, name)
 }
 
 // read is folder's agent name, working for project.

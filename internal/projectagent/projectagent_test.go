@@ -43,7 +43,7 @@ func TestListShowsEachAgentAndWhyABrokenOneCantRun(t *testing.T) {
 	if err := os.Mkdir(sub, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	got, err := List(sub, "")
+	got, err := List(sub, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,14 +66,14 @@ func TestFindResolvesWhereTheAgentRuns(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "helper", `{"command":"npx","cwd":"agent"}`)
 	write(t, dir, "coder", `{"command":"gemini"}`)
-	helper, err := Find(dir, "", "helper")
+	helper, err := Find(dir, nil, "helper")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if helper.Workdir() != filepath.Join(dir, Folder, "helper") || helper.Name != "helper" || helper.Fingerprint == "" {
 		t.Fatalf("helper %+v", helper)
 	}
-	coder, err := Find(dir, "", "coder")
+	coder, err := Find(dir, nil, "coder")
 	if err != nil || coder.Workdir() != dir || coder.Cwd != CwdProject {
 		t.Fatalf("coder %+v %v", coder, err)
 	}
@@ -81,18 +81,18 @@ func TestFindResolvesWhereTheAgentRuns(t *testing.T) {
 		t.Fatal("two manifests share a fingerprint")
 	}
 	for _, name := range []string{"missing", "../escape", ""} {
-		if _, err := Find(dir, "", name); !errors.Is(err, ErrNotFound) {
+		if _, err := Find(dir, nil, name); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%q: %v", name, err)
 		}
 	}
 	write(t, dir, "odd", `{"command":"x","cwd":"home"}`)
-	if _, err := Find(dir, "", "odd"); err == nil {
+	if _, err := Find(dir, nil, "odd"); err == nil {
 		t.Fatal("unknown cwd accepted")
 	}
 }
 
 func TestListWithoutAgentsIsEmpty(t *testing.T) {
-	got, err := List(t.TempDir(), "")
+	got, err := List(t.TempDir(), nil)
 	if err != nil || got != nil {
 		t.Fatalf("got %+v %v", got, err)
 	}
@@ -103,7 +103,7 @@ func TestModelsListTheirDefaultAndNeedTheirVariable(t *testing.T) {
 	write(t, dir, "helper", `{"command":"npx","modelEnv":"HELPER_MODEL","models":[{"id":"claude-sonnet-5-5","name":"Sonnet"},{"id":"claude-haiku-5-5"}]}`)
 	write(t, dir, "novar", `{"command":"npx","models":[{"id":"x"}]}`)
 	write(t, dir, "twice", `{"command":"npx","modelEnv":"M","models":[{"id":"x"},{"id":"x"}]}`)
-	got, err := List(dir, "")
+	got, err := List(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestModelsListTheirDefaultAndNeedTheirVariable(t *testing.T) {
 	if got[1].ID != "novar" || got[1].Error == "" || got[2].ID != "twice" || got[2].Error == "" {
 		t.Fatalf("bad manifests %+v", got[1:])
 	}
-	m, err := Find(dir, "", "helper")
+	m, err := Find(dir, nil, "helper")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestGlobalAgentsJoinEachProjectAndTheProjectsWin(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "helper", `{"name":"Helper","command":"npx"}`)
 
-	got, err := List(dir, global)
+	got, err := List(dir, []string{global})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,18 +143,18 @@ func TestGlobalAgentsJoinEachProjectAndTheProjectsWin(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
-	helper, err := Find(dir, global, "helper")
+	helper, err := Find(dir, []string{global}, "helper")
 	if err != nil || helper.Dir != filepath.Join(dir, Folder, "helper") {
 		t.Fatalf("helper %+v %v", helper, err)
 	}
-	muse, err := Find(dir, global, "muse")
+	muse, err := Find(dir, []string{global}, "muse")
 	if err != nil || muse.Dir != filepath.Join(global, "muse") || muse.Project != dir || muse.Workdir() != dir {
 		t.Fatalf("muse %+v %v", muse, err)
 	}
-	if _, err := Find(dir, "", "muse"); !errors.Is(err, ErrNotFound) {
+	if _, err := Find(dir, nil, "muse"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("muse without a global folder: %v", err)
 	}
-	if got, err := List(dir, filepath.Join(global, "missing")); err != nil || len(got) != 1 {
+	if got, err := List(dir, []string{filepath.Join(global, "missing")}); err != nil || len(got) != 1 {
 		t.Fatalf("missing global folder: %+v %v", got, err)
 	}
 }
@@ -167,7 +167,7 @@ func TestGlobalAgentKeyFollowsWhereItRuns(t *testing.T) {
 	writeIn(t, global, "app", `{"command":"npx","cwd":"agent"}`)
 	first, second := t.TempDir(), t.TempDir()
 	key := func(project, name string) Manifest {
-		m, err := Find(project, global, name)
+		m, err := Find(project, []string{global}, name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -189,7 +189,7 @@ func TestIconsAreAnHTTPSImageOrALogoName(t *testing.T) {
 	write(t, dir, "http", `{"command":"x","icon":"http://example.com/a.png"}`)
 	write(t, dir, "file", `{"command":"x","icon":"./icon.png"}`)
 	write(t, dir, "badmodel", `{"command":"x","modelEnv":"M","models":[{"id":"a","icon":"Not A Logo"}]}`)
-	got, err := List(dir, "")
+	got, err := List(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +205,42 @@ func TestIconsAreAnHTTPSImageOrALogoName(t *testing.T) {
 	for _, name := range []string{"http", "file", "badmodel"} {
 		if byID[name].Error == "" || byID[name].Icon != "" {
 			t.Fatalf("%s accepted: %+v", name, byID[name])
+		}
+	}
+}
+
+// A plugin folder may bring an agent: the environment's plugins sit below its
+// agents, and the project's plugins below its agents, which win any name.
+func TestPluginsBringAgentsBelowTheAgentsFolders(t *testing.T) {
+	home := t.TempDir()
+	plugins, agents := filepath.Join(home, "plugins"), filepath.Join(home, "agents")
+	writeIn(t, plugins, "muse", `{"name":"Muse plugin","command":"./bridge.ts"}`)
+	writeIn(t, plugins, "shared", `{"name":"Plugin","command":"x"}`)
+	writeIn(t, agents, "shared", `{"name":"Agent","command":"x"}`)
+	dir := t.TempDir()
+	writeIn(t, filepath.Join(dir, PluginFolder), "local", `{"name":"Local plugin","command":"x"}`)
+	writeIn(t, filepath.Join(dir, PluginFolder), "both", `{"name":"Project plugin","command":"x"}`)
+	write(t, dir, "both", `{"name":"Project agent","command":"x"}`)
+	global := []string{plugins, agents}
+
+	got, err := List(dir, global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ProjectAgent{
+		{ID: "both", Name: "Project agent"}, {ID: "local", Name: "Local plugin"},
+		{ID: "muse", Name: "Muse plugin"}, {ID: "shared", Name: "Agent"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	muse, err := Find(dir, global, "muse")
+	if err != nil || muse.Dir != filepath.Join(plugins, "muse") || muse.Workdir() != dir {
+		t.Fatalf("muse %+v %v", muse, err)
+	}
+	for name, want := range map[string]string{"shared": "Agent", "both": "Project agent", "local": "Local plugin"} {
+		if m, err := Find(dir, global, name); err != nil || m.Name != want {
+			t.Fatalf("%s: %+v %v", name, m, err)
 		}
 	}
 }

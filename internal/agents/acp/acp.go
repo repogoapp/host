@@ -34,24 +34,27 @@ type Provider struct {
 	starting sync.Map
 	sessions *Sessions
 	reported *reported
-	// global is the environment's agents folder, offered in every project.
-	global string
+	// global is the environment's agents and plugins folders, lowest first,
+	// whose agents every project is offered.
+	global []string
 }
 
 // New builds this host's provider. A Root in deps (tests, the hermetic test
 // host) keeps its transcripts and reported models under it.
 func New(deps agent.Dependencies) *Provider {
 	dir := filepath.Join(deps.Root, home)
-	global := filepath.Join(deps.Root, projectagent.GlobalFolder)
+	plugins := filepath.Join(deps.Root, projectagent.GlobalPluginFolder)
+	agents := filepath.Join(deps.Root, projectagent.GlobalFolder)
 	if deps.Root == "" {
 		dir, _ = apphome.Path(home)
-		global, _ = apphome.Path(projectagent.GlobalFolder)
+		plugins, _ = apphome.Path(projectagent.GlobalPluginFolder)
+		agents, _ = apphome.Path(projectagent.GlobalFolder)
 	}
 	return &Provider{
 		deps:     deps,
 		sessions: newSessions(filepath.Join(dir, "chats")),
 		reported: &reported{path: filepath.Join(dir, "models.json")},
-		global:   global,
+		global:   []string{plugins, agents},
 	}
 }
 
