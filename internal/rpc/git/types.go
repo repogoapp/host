@@ -15,12 +15,10 @@ type StatusResult struct {
 }
 
 type ChangesResult struct {
-	Path  string               `json:"path"`
 	Files []gitcore.FileChange `json:"files" wire:"array"`
 }
 
 type BranchesResult struct {
-	Path     string           `json:"path"`
 	Branches []gitcore.Branch `json:"branches" wire:"array"`
 }
 

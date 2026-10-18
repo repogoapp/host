@@ -58,7 +58,7 @@ func TestMutationWireArgumentsAndErrors(t *testing.T) {
 	}
 }
 
-func TestCommitPushResultCarriesShipped(t *testing.T) {
+func TestCommitPushAnswersTheCommitAndBranch(t *testing.T) {
 	dir, bare := t.TempDir(), t.TempDir()
 	for _, args := range [][]string{
 		{"-C", bare, "init", "-q", "--bare", "-b", "main"},
@@ -81,23 +81,12 @@ func TestCommitPushResultCarriesShipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(result)
-	var wire struct {
-		Shipped struct {
-			EventID string `json:"event_id"`
-			Branch  string `json:"branch"`
-			Commits []struct {
-				SHA         string `json:"sha"`
-				LinesAdded  int64  `json:"lines_added"`
-				FileChanges int64  `json:"file_changes"`
-			} `json:"commits"`
-		} `json:"shipped"`
-	}
+	var wire gitcore.CommitPushResult
 	if err := json.Unmarshal(b, &wire); err != nil {
 		t.Fatal(err)
 	}
-	s := wire.Shipped
-	if s.EventID == "" || s.Branch != "main" || len(s.Commits) != 1 || s.Commits[0].LinesAdded != 1 || s.Commits[0].FileChanges != 1 {
-		t.Fatalf("shipped: %s", b)
+	if wire.Commit == "" || wire.Branch != "main" || !wire.Pushed {
+		t.Fatalf("commit_push: %s", b)
 	}
 	if strings.Contains(string(b), `"first"`) {
 		t.Fatalf("commit message on the wire: %s", b)

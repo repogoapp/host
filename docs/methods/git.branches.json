@@ -1,13 +1,11 @@
 {
-  "path": "path",
   "branches": [
     {
       "name": "name",
       "remote": true,
       "current": true,
       "default": true,
-      "sha": "sha",
-      "updated_at": 1
+      "sha": "sha"
     }
   ]
 }

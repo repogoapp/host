@@ -43,15 +43,15 @@ func (d Deps) status(ctx context.Context, _ rpc.Caller, a StatusParams) (StatusR
 
 func (d Deps) changes(ctx context.Context, _ rpc.Caller, a PathParams) (ChangesResult, error) {
 	changes, err := d.Git.Changes(ctx, a.Path)
-	return ChangesResult{Path: a.Path, Files: changes}, err
+	return ChangesResult{Files: changes}, err
 }
 
 func (d Deps) branches(ctx context.Context, _ rpc.Caller, a PathParams) (BranchesResult, error) {
 	branches, err := d.Git.Branches(ctx, a.Path)
-	return BranchesResult{Path: a.Path, Branches: branches}, err
+	return BranchesResult{Branches: branches}, err
 }
 
-func (d Deps) diff(ctx context.Context, _ rpc.Caller, a PathParams) (gitcore.History, error) {
+func (d Deps) diff(ctx context.Context, _ rpc.Caller, a PathParams) (gitcore.ChangeSet, error) {
 	return d.Git.Diff(ctx, a.Path)
 }
 

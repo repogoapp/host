@@ -14,8 +14,6 @@
       "untracked": 1,
       "error": "error",
       "working": {
-        "kind": "kind",
-        "base": "base",
         "files_changed": 1,
         "additions": 1,
         "deletions": 1

@@ -104,9 +104,9 @@ type FileChange struct {
 	// and an invented one would need its own legend.
 	Code string `json:"code"`
 
-	Added   int  `json:"added"`
-	Removed int  `json:"removed"`
-	Binary  bool `json:"binary,omitempty"`
+	Additions int  `json:"additions"`
+	Deletions int  `json:"deletions"`
+	Binary    bool `json:"binary,omitempty"`
 }
 
 // Branch is one branch a chat could fork from. Local and remote in one type: a
@@ -126,10 +126,6 @@ type Branch struct {
 	Default bool `json:"default"`
 
 	SHA string `json:"sha"`
-
-	// UpdatedAt is the tip commit's date, in unix milliseconds — the sort key,
-	// and the only thing that makes a list of two hundred branches readable.
-	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 type Service struct {
@@ -297,7 +293,7 @@ func (s *Service) Branches(ctx context.Context, path string) ([]Branch, error) {
 	// Tab-separated because a branch name may contain almost anything else. The
 	// full refname rather than the short one: `origin/main` and `main` are only
 	// tellable apart by which tree they came out of.
-	const format = "%(refname)\t%(objectname:short)\t%(committerdate:unix)\t%(HEAD)\t%(symref:short)"
+	const format = "%(refname)\t%(objectname:short)\t%(HEAD)\t%(symref:short)"
 	out, err := run(ctx, dir, "for-each-ref",
 		"--sort=-committerdate", "--format="+format, "refs/heads", "refs/remotes")
 	if err != nil {
@@ -310,19 +306,19 @@ func (s *Service) Branches(ctx context.Context, path string) ([]Branch, error) {
 
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Split(line, "\t")
-		if len(fields) < 5 {
+		if len(fields) < 4 {
 			continue
 		}
 		// `origin/HEAD` is a symbolic ref rather than a branch — it is how the
 		// repository states its own default, which is the one thing a picker
 		// has to know and cannot guess.
-		if target := fields[4]; target != "" {
+		if target := fields[3]; target != "" {
 			defaultRef = target
 			continue
 		}
 
 		full := fields[0]
-		branch := Branch{SHA: fields[1], Current: fields[3] == "*"}
+		branch := Branch{SHA: fields[1], Current: fields[2] == "*"}
 		switch {
 		case strings.HasPrefix(full, "refs/heads/"):
 			branch.Name = strings.TrimPrefix(full, "refs/heads/")
@@ -331,9 +327,6 @@ func (s *Service) Branches(ctx context.Context, path string) ([]Branch, error) {
 			branch.Name, branch.Remote = strings.TrimPrefix(full, "refs/remotes/"), true
 		default:
 			continue // a tag or a note that wandered in
-		}
-		if seconds, err := strconv.ParseInt(fields[2], 10, 64); err == nil {
-			branch.UpdatedAt = seconds * 1000
 		}
 		branches = append(branches, branch)
 	}
@@ -419,6 +412,6 @@ func applyNumstat(stats string, changes map[string]*FileChange) {
 		if !ok {
 			continue
 		}
-		change.Added, change.Removed, change.Binary = stat.Added, stat.Removed, stat.Binary
+		change.Additions, change.Deletions, change.Binary = stat.Additions, stat.Deletions, stat.Binary
 	}
 }

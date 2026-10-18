@@ -104,7 +104,7 @@ func (s *Service) Clone(ctx context.Context, nameWithOwner string) (Clone, error
 	// A second clone of a repository already here is a double tap.
 	dest := filepath.Join(s.CloneFolder().Dir, owner, name)
 	if isCheckout(dest) {
-		return Clone{NameWithOwner: nameWithOwner, Path: dest, Existed: true}, nil
+		return Clone{Path: dest, Existed: true}, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return Clone{}, fmt.Errorf("github: create clone dir: %w", err)
@@ -120,7 +120,7 @@ func (s *Service) Clone(ctx context.Context, nameWithOwner string) (Clone, error
 		os.Remove(dest) // only if empty: git clears what it wrote
 		return Clone{}, err
 	}
-	return Clone{NameWithOwner: nameWithOwner, Path: dest}, nil
+	return Clone{Path: dest}, nil
 }
 
 // NewFolder makes an empty project directly under the clone directory: the one

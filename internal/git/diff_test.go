@@ -86,17 +86,17 @@ func TestWorkingSetCountsTrackedAndUntracked(t *testing.T) {
 	write(t, dir, "kept.txt", "one\ntwo\nthree\nfour\n")
 	write(t, dir, "new.txt", "alpha\nbeta\n")
 
-	history, err := service.Diff(context.Background(), dir)
+	working, err := service.Diff(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.Working.FilesChanged != 2 {
+	if working.FilesChanged != 2 {
 		t.Errorf("files changed = %d, want 2 (one edited, one new)",
-			history.Working.FilesChanged)
+			working.FilesChanged)
 	}
 	// One added line in the tracked file, two in the new one.
-	if history.Working.Additions != 3 {
-		t.Errorf("additions = %d, want 3", history.Working.Additions)
+	if working.Additions != 3 {
+		t.Errorf("additions = %d, want 3", working.Additions)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestPatchListsARenameAtItsNewPath(t *testing.T) {
 		t.Fatalf("files = %+v, want the one moved file", files.Files)
 	}
 	got := files.Files[0]
-	if got.Path != "cmd/new/main.go" || got.Added != 1 || got.Removed != 1 {
+	if got.Path != "cmd/new/main.go" || got.Additions != 1 || got.Deletions != 1 {
 		t.Errorf("file = %+v, want cmd/new/main.go +1 -1", got)
 	}
 }

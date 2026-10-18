@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/repogoapp/host/internal/errkind"
@@ -23,34 +22,11 @@ var (
 	// safeRef guards the one user-chosen string that reaches `gh` as an argument:
 	// a leading dash would be read as a flag and `..` reaches for a non-branch.
 	safeRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
-
-	// mergeMethods is the closed set `gh pr merge` accepts. A caller names one
-	// of three, never a flag.
-	mergeMethods = map[string]string{
-		"squash": "--squash",
-		"merge":  "--merge",
-		"rebase": "--rebase",
-	}
 )
 
-// PullRequest is one PR, trimmed to what a phone shows and what a follow-up
-// call needs.
+// PullRequest is the page a client opens once the pull request exists.
 type PullRequest struct {
-	Number int    `json:"number"`
-	URL    string `json:"url"`
-	State  string `json:"state"`
-	Title  string `json:"title"`
-	Base   string `json:"base"`
-	Head   string `json:"head"`
-	Merged bool   `json:"merged,omitempty"`
-
-	// Existed reports that the branch already had an open PR and nothing was
-	// created. Opening one twice from a phone is a double tap, the same as
-	// cloning twice.
-	Existed bool `json:"existed,omitempty"`
-
-	// Shipped is what CreatePR's push sent, existing PR or not.
-	Shipped *git.Shipped `json:"shipped,omitempty"`
+	URL string `json:"url"`
 }
 
 // NewPR is what opening one needs. Base empty means the repository's default
@@ -80,15 +56,14 @@ func (s *Service) CreatePR(ctx context.Context, path string, pr NewPR) (PullRequ
 		return PullRequest{}, fmt.Errorf("%w: %q", ErrBadRef, pr.Base)
 	}
 
-	_, shipped, err := s.git.Push(ctx, dir, branch)
-	if err != nil {
+	if err := s.git.Push(ctx, dir, branch); err != nil {
 		return PullRequest{}, err
 	}
 
-	// An open PR for this branch is the answer to "open a PR for this branch".
-	if existing, err := s.pullRequest(ctx, dir, 0); err == nil && !existing.Merged {
-		existing.Existed, existing.Shipped = true, shipped
-		return existing, nil
+	// An open PR for this branch is the answer to "open a PR for this branch":
+	// opening one twice from a phone is a double tap.
+	if url, merged, err := s.pullRequest(ctx, dir); err == nil && !merged {
+		return PullRequest{URL: url}, nil
 	}
 
 	// `--flag=value`, so no client text is ever read as a flag of its own.
@@ -103,53 +78,34 @@ func (s *Service) CreatePR(ctx context.Context, path string, pr NewPR) (PullRequ
 		return PullRequest{}, err
 	}
 
-	// Read it back rather than parsing the URL `gh` prints. The number is what
-	// every later call takes, and a second cheap command beats a regex over
-	// output that is meant for a terminal.
-	created, err := s.pullRequest(ctx, dir, 0)
-	created.Shipped = shipped
-	return created, err
+	// Read it back rather than parsing the URL `gh` prints: a second cheap
+	// command beats a regex over output that is meant for a terminal.
+	url, _, err := s.pullRequest(ctx, dir)
+	return PullRequest{URL: url}, err
 }
 
-func (s *Service) pullRequest(ctx context.Context, dir string, number int) (PullRequest, error) {
-	args := []string{"pr", "view"}
-	if number > 0 {
-		args = append(args, strconv.Itoa(number))
-	}
-	args = append(args, "--json", "number,url,state,title,baseRefName,headRefName,mergedAt")
-
-	out, err := s.runIn(ctx, dir, commandTimeout, args...)
+// pullRequest is the checked-out branch's pull request: its page, and whether
+// it is merged.
+func (s *Service) pullRequest(ctx context.Context, dir string) (url string, merged bool, err error) {
+	out, err := s.runIn(ctx, dir, commandTimeout, "pr", "view", "--json", "url,mergedAt")
 	if err != nil {
 		// gh says this when the branch has no PR, which is an ordinary answer
 		// and not a failure — every chat has this state until it ships.
 		if strings.Contains(err.Error(), "no pull requests found") ||
 			strings.Contains(err.Error(), "no open pull requests") {
-			return PullRequest{}, ErrNoPullRequest
+			return "", false, ErrNoPullRequest
 		}
-		return PullRequest{}, err
+		return "", false, err
 	}
 
 	var raw struct {
-		Number      int    `json:"number"`
-		URL         string `json:"url"`
-		State       string `json:"state"`
-		Title       string `json:"title"`
-		BaseRefName string `json:"baseRefName"`
-		HeadRefName string `json:"headRefName"`
-		MergedAt    string `json:"mergedAt"`
+		URL      string `json:"url"`
+		MergedAt string `json:"mergedAt"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
-		return PullRequest{}, fmt.Errorf("github: unreadable pull request: %w", err)
+		return "", false, fmt.Errorf("github: unreadable pull request: %w", err)
 	}
-	return PullRequest{
-		Number: raw.Number,
-		URL:    raw.URL,
-		State:  raw.State,
-		Title:  raw.Title,
-		Base:   raw.BaseRefName,
-		Head:   raw.HeadRefName,
-		Merged: raw.MergedAt != "",
-	}, nil
+	return raw.URL, raw.MergedAt != "", nil
 }
 
 // currentBranch is the checkout's branch, refused unless it is safe to hand `gh`.

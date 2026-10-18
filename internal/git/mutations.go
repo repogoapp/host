@@ -20,10 +20,9 @@ var (
 const networkTimeout = 110 * time.Second
 
 type CommitPushResult struct {
-	Commit  string   `json:"commit"`
-	Branch  string   `json:"branch"`
-	Pushed  bool     `json:"pushed"`
-	Shipped *Shipped `json:"shipped,omitempty"`
+	Commit string `json:"commit"`
+	Branch string `json:"branch"`
+	Pushed bool   `json:"pushed"`
 }
 
 // Resolve the repository root again: git invoked from a contained subfolder can affect its ancestor.
@@ -171,7 +170,7 @@ func (s *Service) CommitPush(ctx context.Context, path, message string) (CommitP
 		return result, err
 	}
 	result.Commit = head
-	if _, result.Shipped, err = s.Push(ctx, dir, result.Branch); err != nil {
+	if err = s.Push(ctx, dir, result.Branch); err != nil {
 		return result, fmt.Errorf("commit %s is saved locally, but push failed: %w", head, err)
 	}
 	result.Pushed = true
@@ -223,20 +222,8 @@ func CurrentBranch(ctx context.Context, dir string) (string, error) {
 	return "", ErrDetached
 }
 
-// Push sends HEAD to origin as branch and tracks it, reporting whether origin
-// already had it and, when not, what it shipped. `--porcelain` because
-// "Everything up-to-date" goes to stderr.
-func (s *Service) Push(ctx context.Context, dir, branch string) (upToDate bool, shipped *Shipped, err error) {
-	// Read before pushing: afterwards the tracking ref no longer says where origin was.
-	before, _ := resolve(ctx, dir, "refs/remotes/origin/"+branch)
-	out, err := RunTimeout(ctx, dir, networkTimeout, "push", "--porcelain", "--set-upstream", "origin", "HEAD:refs/heads/"+branch)
-	if err != nil {
-		return false, nil, err
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "=\t") {
-			return true, nil, nil
-		}
-	}
-	return false, s.measureShipped(ctx, dir, branch, before), nil
+// Push sends HEAD to origin as branch and tracks it.
+func (s *Service) Push(ctx context.Context, dir, branch string) error {
+	_, err := RunTimeout(ctx, dir, networkTimeout, "push", "--porcelain", "--set-upstream", "origin", "HEAD:refs/heads/"+branch)
+	return err
 }

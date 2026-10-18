@@ -9,9 +9,6 @@ import (
 
 // Patch is one change-set's contents: its files, or one file's hunks.
 type Patch struct {
-	Base string `json:"base"`
-	Head string `json:"head,omitempty"`
-
 	// Files is set when no single file was asked for.
 	Files []FileChange `json:"files,omitempty"`
 
@@ -44,7 +41,7 @@ func (s *Service) Patch(ctx context.Context, path, base, head, file string) (Pat
 			return Patch{}, err
 		}
 	}
-	out := Patch{Base: base, Head: head}
+	var out Patch
 
 	args := []string{"diff"}
 	if file == "" {
@@ -129,8 +126,8 @@ func numstatFiles(stats string) []FileChange {
 		if fields[0] == "-" || fields[1] == "-" {
 			change.Binary = true
 		} else {
-			change.Added = atoi(fields[0])
-			change.Removed = atoi(fields[1])
+			change.Additions = atoi(fields[0])
+			change.Deletions = atoi(fields[1])
 		}
 		out = append(out, change)
 	}

@@ -372,7 +372,7 @@ func (fakeTotals) UpdateProjectDiff(string, bool, int, int, int) (bool, error) {
 // The change chip reads its numbers off the push, as v1's git.diff_stats did,
 // so editing an already-changed file must push even though no file count moved.
 func TestPushCarriesTheTotalsAndMovesWithThem(t *testing.T) {
-	g := &fakeGit{status: git.Status{Repo: true, Unstaged: 1}, diff: git.ChangeSet{Kind: "working", FilesChanged: 1, Additions: 3}}
+	g := &fakeGit{status: git.Status{Repo: true, Unstaged: 1}, diff: git.ChangeSet{FilesChanged: 1, Additions: 3}}
 	m := newManager(g)
 	pub := m.pub.(*fakePub)
 	m.mu.Lock()

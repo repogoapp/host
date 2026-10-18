@@ -10,32 +10,23 @@ import (
 	"strings"
 )
 
-// ChangeSet is the working tree's uncommitted edits, totalled.
+// ChangeSet is the working tree's uncommitted edits against HEAD, totalled.
 type ChangeSet struct {
-	Kind string `json:"kind"` // always "working"; the client keys on it
-	Base string `json:"base,omitempty"`
-
 	FilesChanged int `json:"files_changed"`
 	Additions    int `json:"additions"`
 	Deletions    int `json:"deletions"`
 }
 
-// History is the `git.diff` reply for one project.
-type History struct {
-	Working ChangeSet `json:"working"`
-}
-
 // Diff answers what is uncommitted in a project.
-func (s *Service) Diff(ctx context.Context, path string) (History, error) {
+func (s *Service) Diff(ctx context.Context, path string) (ChangeSet, error) {
 	dir, err := s.paths.Contain(path)
 	if err != nil {
-		return History{}, err
+		return ChangeSet{}, err
 	}
 	if _, err := run(ctx, dir, "rev-parse", "--is-inside-work-tree"); err != nil {
-		return History{}, nil // A plain folder has no diff, and that is not an error.
+		return ChangeSet{}, nil // A plain folder has no diff, and that is not an error.
 	}
-	working, err := workingSet(ctx, dir)
-	return History{Working: working}, err
+	return workingSet(ctx, dir)
 }
 
 // WorkingDiff reads totals for the whole checkout, including when path is a subfolder.
@@ -59,16 +50,17 @@ func (s *Service) WorkingDiff(ctx context.Context, path string) (*ChangeSet, err
 // together; untracked files are counted separately because `git diff` cannot
 // see them.
 func workingSet(ctx context.Context, dir string) (ChangeSet, error) {
-	set := ChangeSet{Kind: "working", Base: "HEAD"}
+	var set ChangeSet
+	base := "HEAD"
 	if _, err := resolve(ctx, dir, "HEAD"); err != nil {
 		// An unborn branch compares staged files against an empty tree.
 		empty, err := run(ctx, dir, "hash-object", "-w", "-t", "tree", "--stdin")
 		if err != nil {
 			return set, err
 		}
-		set.Base = strings.TrimSpace(empty)
+		base = strings.TrimSpace(empty)
 	}
-	stats, err := run(ctx, dir, "diff", "--no-ext-diff", "--numstat", "-z", set.Base, "--")
+	stats, err := run(ctx, dir, "diff", "--no-ext-diff", "--numstat", "-z", base, "--")
 	if err != nil {
 		return set, err
 	}
@@ -78,8 +70,8 @@ func workingSet(ctx context.Context, dir string) (ChangeSet, error) {
 	}
 	for _, change := range append(numstatFiles(stats), untracked...) {
 		set.FilesChanged++
-		set.Additions += change.Added
-		set.Deletions += change.Removed
+		set.Additions += change.Additions
+		set.Deletions += change.Deletions
 	}
 	return set, nil
 }
@@ -100,7 +92,7 @@ func untrackedFiles(ctx context.Context, dir string) ([]FileChange, error) {
 			return nil, err
 		}
 		lines, _ := countLines(filepath.Join(dir, name))
-		out = append(out, FileChange{Path: name, Code: "??", Added: lines})
+		out = append(out, FileChange{Path: name, Code: "??", Additions: lines})
 	}
 	return out, nil
 }

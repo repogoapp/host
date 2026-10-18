@@ -191,7 +191,7 @@ func TestChangesCountsLinesForStagedAndUnstagedAlike(t *testing.T) {
 	}
 	byPath := map[string]int{}
 	for _, c := range changes {
-		byPath[c.Path] = c.Added
+		byPath[c.Path] = c.Additions
 	}
 	if byPath["README.md"] != 2 {
 		t.Errorf("README.md added = %d, want 2", byPath["README.md"])
@@ -218,7 +218,7 @@ func TestChangesCountsLinesForAStagedRename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("changes: %v", err)
 	}
-	if len(changes) != 1 || changes[0].Path != "new.txt" || changes[0].Added != 1 {
+	if len(changes) != 1 || changes[0].Path != "new.txt" || changes[0].Additions != 1 {
 		t.Errorf("changes = %+v, want new.txt +1", changes)
 	}
 }
@@ -246,7 +246,7 @@ func TestChangesCountsLinesForAQuotedPath(t *testing.T) {
 		byPath[c.Path] = c
 	}
 	for _, name := range names {
-		if got := byPath[name]; got.Code != " M" || got.Added != 2 {
+		if got := byPath[name]; got.Code != " M" || got.Additions != 2 {
 			t.Errorf("%q = %+v, want \" M\" +2 (all: %+v)", name, got, changes)
 		}
 	}
@@ -316,8 +316,8 @@ func TestBranchesListsLocalAndRemoteNewestFirst(t *testing.T) {
 	if byName["main"].Remote {
 		t.Error("main is local, want Remote false")
 	}
-	if byName["fix-the-drawer"].SHA == "" || byName["fix-the-drawer"].UpdatedAt == 0 {
-		t.Errorf("fix-the-drawer = %+v, want a sha and a date", byName["fix-the-drawer"])
+	if byName["fix-the-drawer"].SHA == "" {
+		t.Errorf("fix-the-drawer = %+v, want a sha", byName["fix-the-drawer"])
 	}
 
 	// The current branch is hoisted, and the rest stay in commit order — the

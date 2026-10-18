@@ -65,9 +65,6 @@ type Repo struct {
 	Owner         string `json:"owner"`
 	Description   string `json:"description,omitempty"`
 	Private       bool   `json:"private,omitempty"`
-	Fork          bool   `json:"fork,omitempty"`
-	Language      string `json:"language,omitempty"`
-	PushedAt      string `json:"pushed_at,omitempty"`
 
 	// Path is set when this repo is already cloned here, which turns the picker
 	// into a project list: the rows you have and the rows you could have, in
@@ -77,8 +74,7 @@ type Repo struct {
 
 // Clone is where a repository ended up.
 type Clone struct {
-	NameWithOwner string `json:"name_with_owner"`
-	Path          string `json:"path"`
+	Path string `json:"path"`
 
 	// Existed reports that the folder was already there and nothing was
 	// downloaded. Cloning twice from a phone is a double tap, not an error.
@@ -119,7 +115,7 @@ func (s *Service) Repos(ctx context.Context, owner, query string, limit int) ([]
 	// the call (about 2 s to 5 s for 130 repos). A checkout reads its own
 	// default from `origin/HEAD` (git.DefaultBranch) in milliseconds.
 	args = append(args, "--limit", fmt.Sprint(limit), "--json",
-		"nameWithOwner,name,owner,description,isPrivate,isFork,primaryLanguage,pushedAt")
+		"nameWithOwner,name,owner,description,isPrivate,pushedAt")
 
 	out, err := s.run(ctx, commandTimeout, args...)
 	if err != nil {
@@ -132,17 +128,16 @@ func (s *Service) Repos(ctx context.Context, owner, query string, limit int) ([]
 		Owner         struct {
 			Login string `json:"login"`
 		} `json:"owner"`
-		Description     string `json:"description"`
-		IsPrivate       bool   `json:"isPrivate"`
-		IsFork          bool   `json:"isFork"`
-		PrimaryLanguage struct {
-			Name string `json:"name"`
-		} `json:"primaryLanguage"`
-		PushedAt string `json:"pushedAt"`
+		Description string `json:"description"`
+		IsPrivate   bool   `json:"isPrivate"`
+		PushedAt    string `json:"pushedAt"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
 		return nil, fmt.Errorf("github: unreadable repo list: %w", err)
 	}
+	// gh's own ordering is by name; recently pushed is the one that puts what
+	// you are working on at the top.
+	sort.SliceStable(raw, func(i, j int) bool { return raw[i].PushedAt > raw[j].PushedAt })
 
 	cloned := s.clonedPaths()
 	needle := strings.ToLower(strings.TrimSpace(query))
@@ -159,18 +154,12 @@ func (s *Service) Repos(ctx context.Context, owner, query string, limit int) ([]
 			Owner:         r.Owner.Login,
 			Description:   r.Description,
 			Private:       r.IsPrivate,
-			Fork:          r.IsFork,
-			Language:      r.PrimaryLanguage.Name,
-			PushedAt:      r.PushedAt,
 			// `owner/name` first, and only then the bare name: a folder the
 			// user put in the clone directory by hand has no owner to check
 			// against, so it can only be matched on the name it has.
 			Path: clonedPath(cloned, r.NameWithOwner, r.Name),
 		})
 	}
-	// gh's own ordering is by name; recently pushed is the one that puts what
-	// you are working on at the top.
-	sort.SliceStable(repos, func(i, j int) bool { return repos[i].PushedAt > repos[j].PushedAt })
 	return repos, nil
 }
 
