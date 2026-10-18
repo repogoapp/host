@@ -511,6 +511,67 @@
     }
   },
   {
+    "name": "reminders_create",
+    "method": "reminders.create",
+    "description": "Notify the user's phones at a set time; a tap opens this chat. Set one only when the user asks for it or agrees to it.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat a tap on the notification opens; this chat when left out",
+          "type": "string"
+        },
+        "due_at": {
+          "description": "When, in Unix milliseconds; or give in",
+          "type": "integer"
+        },
+        "in": {
+          "description": "How long from now, such as 45m, 2h or 3d; or give due_at",
+          "type": "string"
+        },
+        "path": {
+          "description": "The project's folder",
+          "type": "string"
+        },
+        "text": {
+          "description": "What the notification says, up to 200 characters",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "reminders_delete",
+    "method": "reminders.delete",
+    "description": "Cancel a pending reminder.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "id": {
+          "description": "The reminder's id, as reminders_list gives it",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "reminders_list",
+    "method": "reminders.list",
+    "description": "The pending reminders on this environment, soonest first.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "path": {
+          "description": "Only this project's; every reminder when left out",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "schedules_list",
     "method": "schedules.list",
     "description": "The scheduled prompts on this environment, with each one's project, agent and next run.",

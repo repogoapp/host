@@ -1396,6 +1396,52 @@ Result:
 - `pinned_at` int (omitted when empty) (nullable)
 - `host_id` string
 
+## `reminders.create`
+
+Tool (write): Notify the user's phones at a set time; a tap opens this chat. Set one only when the user asks for it or agrees to it.
+
+Params:
+
+- `text` string: What the notification says, up to 200 characters
+- `in` string (omitted when empty): How long from now, such as 45m, 2h or 3d; or give due_at
+- `due_at` int (omitted when empty): When, in Unix milliseconds; or give in
+- `chat_id` string (omitted when empty): The chat a tap on the notification opens; this chat when left out
+- `path` string (omitted when empty): The project's folder
+
+Result:
+
+- `id` string
+- `text` string
+- `due_at` int
+- `chat_id` string
+- `path` string
+- `set_by` string
+- `created_at` int
+
+## `reminders.delete`
+
+Tool (write): Cancel a pending reminder.
+
+Params:
+
+- `id` string: The reminder's id, as reminders_list gives it
+
+Result:
+
+- `ok` bool
+
+## `reminders.list`
+
+Tool (read): The pending reminders on this environment, soonest first.
+
+Params:
+
+- `path` string (omitted when empty): Only this project's; every reminder when left out
+
+Result:
+
+- `reminders` [object{Reminder}] (nullable)
+
 ## `schedules.delete`
 
 Params:

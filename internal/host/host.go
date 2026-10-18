@@ -35,6 +35,7 @@ import (
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/projectwatch"
 	"github.com/repogoapp/host/internal/push"
+	"github.com/repogoapp/host/internal/reminder"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/rpc/registry"
@@ -234,7 +235,9 @@ func (h *Host) Start() {
 	h.spawn(h.syncer.Run)
 	h.spawn(h.Services.ProjectSync.Run)
 	h.spawn(h.Services.Usage.Run)
-	h.spawn(h.Services.Schedules.Run)
+	h.spawn(func(ctx context.Context) {
+		everyMinute(ctx, h.Services.Schedules.Tick, h.Services.Reminders.Tick)
+	})
 	h.spawn(func(ctx context.Context) { h.Services.Plugins.Keep(ctx, h.projectPaths) })
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
@@ -251,6 +254,35 @@ func (h *Host) Start() {
 	if h.activities != nil {
 		h.spawn(func(ctx context.Context) { h.activities.Run(ctx) })
 	}
+}
+
+// everyMinute calls each tick at start and then on every minute boundary
+// until ctx ends: schedules and reminders are due on the minute, and share
+// this one clock.
+func everyMinute(ctx context.Context, ticks ...func(context.Context, time.Time)) {
+	for {
+		now := time.Now()
+		for _, tick := range ticks {
+			tick(ctx, now)
+		}
+		now = time.Now()
+		timer := time.NewTimer(now.Truncate(time.Minute).Add(time.Minute).Sub(now))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+// remind pushes a reminder come due to the phones, where there's a relay
+// to push through.
+func (h *Host) remind(ctx context.Context, a reminder.Alert) {
+	if h.alerts == nil {
+		return
+	}
+	h.alerts.Reminder(ctx, push.ReminderAlert{ID: a.ID, Text: a.Text, ChatID: a.ChatID, Late: a.Late})
 }
 
 // shutdownGrace bounds how long Close waits for loopback requests in flight.

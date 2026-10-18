@@ -113,24 +113,9 @@ func (s *Scheduler) Delete(id string) error {
 	return nil
 }
 
-// Run ticks at start and then on every minute, the only times a schedule is
-// due, until ctx ends.
-func (s *Scheduler) Run(ctx context.Context) {
-	for {
-		s.tick(ctx, s.now())
-		now := s.now()
-		timer := time.NewTimer(now.Truncate(time.Minute).Add(time.Minute).Sub(now))
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-	}
-}
-
-// tick starts every schedule due within the last two minutes, once.
-func (s *Scheduler) tick(ctx context.Context, now time.Time) {
+// Tick starts every schedule due within the last two minutes, once. The
+// host calls it at start and on every minute, the only times one is due.
+func (s *Scheduler) Tick(ctx context.Context, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	saved, err := s.d.Store.Schedules()

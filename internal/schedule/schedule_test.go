@@ -69,7 +69,7 @@ func (f *fixture) at(t *testing.T, at string) time.Time {
 
 func (f *fixture) tick(t *testing.T, at string) {
 	t.Helper()
-	f.scheduler.tick(t.Context(), f.at(t, at))
+	f.scheduler.Tick(t.Context(), f.at(t, at))
 }
 
 func dailyAtNine() store.Schedule {

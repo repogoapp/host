@@ -40,9 +40,10 @@ import (
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/projectwatch"
 	"github.com/repogoapp/host/internal/push"
+	"github.com/repogoapp/host/internal/reminder"
 	"github.com/repogoapp/host/internal/repogomcp"
-	devicesrpc "github.com/repogoapp/host/internal/rpc/devices"
 	"github.com/repogoapp/host/internal/rpc"
+	devicesrpc "github.com/repogoapp/host/internal/rpc/devices"
 	"github.com/repogoapp/host/internal/rpc/registry"
 	"github.com/repogoapp/host/internal/schedule"
 	"github.com/repogoapp/host/internal/session"
@@ -342,9 +343,17 @@ func (h *Host) openProjects() error {
 		return err
 	}
 
+	reminders, err := reminder.Open(reminder.Deps{
+		Store: h.db, Alert: h.remind, Log: h.log,
+	})
+	if err != nil {
+		return err
+	}
+
 	s := &h.Services
 	s.Chats = chats
 	s.Schedules = schedules
+	s.Reminders = reminders
 	s.Files = projectFiles
 	// Every CLI in one inventory, in the order the Environment screen shows
 	// them: source control, then agents. Phones hear when a sign-in ends or

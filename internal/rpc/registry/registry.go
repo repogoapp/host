@@ -30,6 +30,7 @@ import (
 	projectcore "github.com/repogoapp/host/internal/project"
 	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/projectsync"
+	"github.com/repogoapp/host/internal/reminder"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	actionsrpc "github.com/repogoapp/host/internal/rpc/actions"
@@ -48,6 +49,7 @@ import (
 	pluginsrpc "github.com/repogoapp/host/internal/rpc/plugins"
 	portsrpc "github.com/repogoapp/host/internal/rpc/ports"
 	projectsrpc "github.com/repogoapp/host/internal/rpc/projects"
+	remindersrpc "github.com/repogoapp/host/internal/rpc/reminders"
 	schedulesrpc "github.com/repogoapp/host/internal/rpc/schedules"
 	shippingrpc "github.com/repogoapp/host/internal/rpc/shipping"
 	terminalsrpc "github.com/repogoapp/host/internal/rpc/terminals"
@@ -138,6 +140,9 @@ type Config struct {
 	// Schedules is the prompts this host starts as new chats at set times.
 	Schedules *schedule.Scheduler
 
+	// Reminders is the one-shot alerts agents set for the user.
+	Reminders *reminder.Reminders
+
 	Log *slog.Logger
 }
 
@@ -177,6 +182,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
+	remindersrpc.Register(r, remindersrpc.Deps{Reminders: cfg.Reminders})
 	chats.Register(r, chats.Deps{Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire})
 	return r, nil
 }

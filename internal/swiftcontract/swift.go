@@ -59,7 +59,7 @@ var methodExports = map[string]bool{
 	// Env sources and folder browsing.
 	"env.sources.list": true, "env.sources.set": true, "env.sources.remove": true,
 	"env.read": true,
-	"fs.list": true,
+	"fs.list":  true,
 	// Browser requests.
 	"browser.pending": true, "browser.respond": true,
 	// MCP.
@@ -387,8 +387,8 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/store":         "projects",
 	"github.com/repogoapp/host/internal/rpc/actions":   "actions",
 	"github.com/repogoapp/host/internal/actions":       "actions",
-	"github.com/repogoapp/host/internal/rpc/plugins":      "plugins",
-	"github.com/repogoapp/host/internal/plugins":          "plugins",
+	"github.com/repogoapp/host/internal/rpc/plugins":   "plugins",
+	"github.com/repogoapp/host/internal/plugins":       "plugins",
 	"github.com/repogoapp/host/internal/agentcatalog":  "agents",
 	"github.com/repogoapp/host/internal/rpc/terminals": "terminals",
 	"github.com/repogoapp/host/internal/terminal":      "terminals",
@@ -397,34 +397,37 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/rpc/forward":   "forward",
 	"github.com/repogoapp/host/internal/forward":       "forward",
 
-	"github.com/repogoapp/host/internal/rpc/host":    "host",
-	"github.com/repogoapp/host/internal/hostinfo":    "host",
-	"github.com/repogoapp/host/internal/hostsetup":   "host",
-	"github.com/repogoapp/host/internal/hostupdate":  "host",
-	"github.com/repogoapp/host/internal/power":       "host",
-	"github.com/repogoapp/host/internal/rpc/github":  "github",
-	"github.com/repogoapp/host/internal/github":      "github",
-	"github.com/repogoapp/host/internal/rpc/turns":   "agents",
-	"github.com/repogoapp/host/internal/agent":       "agents",
-	"github.com/repogoapp/host/internal/rpc/agents":  "agents",
+	"github.com/repogoapp/host/internal/rpc/host":     "host",
+	"github.com/repogoapp/host/internal/hostinfo":     "host",
+	"github.com/repogoapp/host/internal/hostsetup":    "host",
+	"github.com/repogoapp/host/internal/hostupdate":   "host",
+	"github.com/repogoapp/host/internal/power":        "host",
+	"github.com/repogoapp/host/internal/rpc/github":   "github",
+	"github.com/repogoapp/host/internal/github":       "github",
+	"github.com/repogoapp/host/internal/rpc/turns":    "agents",
+	"github.com/repogoapp/host/internal/agent":        "agents",
+	"github.com/repogoapp/host/internal/rpc/agents":   "agents",
 	"github.com/repogoapp/host/internal/projectagent": "agents",
-	"github.com/repogoapp/host/internal/clilogin":    "tools",
-	"github.com/repogoapp/host/internal/clitool":     "tools",
-	"github.com/repogoapp/host/internal/rpc/tools":   "tools",
-	"github.com/repogoapp/host/internal/rpc/browser": "browser",
-	"github.com/repogoapp/host/internal/repogomcp":   "browser",
-	"github.com/repogoapp/host/internal/rpc/env":     "env",
-	"github.com/repogoapp/host/internal/envsource":   "env",
-	"github.com/repogoapp/host/internal/files":       "fs",
-	"github.com/repogoapp/host/internal/rpc":         "shared",
-	"github.com/repogoapp/host/internal/rpc/mcp":     "mcp",
-	"github.com/repogoapp/host/internal/mcp":         "mcp",
-	"github.com/repogoapp/host/internal/rpc/tunnels": "tunnels",
-	"github.com/repogoapp/host/internal/tunnel":      "tunnels",
-	"github.com/repogoapp/host/internal/rpc/fs":      "fs",
+	"github.com/repogoapp/host/internal/clilogin":     "tools",
+	"github.com/repogoapp/host/internal/clitool":      "tools",
+	"github.com/repogoapp/host/internal/rpc/tools":    "tools",
+	"github.com/repogoapp/host/internal/rpc/browser":  "browser",
+	"github.com/repogoapp/host/internal/repogomcp":    "browser",
+	"github.com/repogoapp/host/internal/rpc/env":      "env",
+	"github.com/repogoapp/host/internal/envsource":    "env",
+	"github.com/repogoapp/host/internal/files":        "fs",
+	"github.com/repogoapp/host/internal/rpc":          "shared",
+	"github.com/repogoapp/host/internal/rpc/mcp":      "mcp",
+	"github.com/repogoapp/host/internal/mcp":          "mcp",
+	"github.com/repogoapp/host/internal/rpc/tunnels":  "tunnels",
+	"github.com/repogoapp/host/internal/tunnel":       "tunnels",
+	"github.com/repogoapp/host/internal/rpc/fs":       "fs",
 
 	"github.com/repogoapp/host/internal/rpc/schedules": "schedules",
 	"github.com/repogoapp/host/internal/schedule":      "schedules",
+
+	"github.com/repogoapp/host/internal/rpc/reminders": "reminders",
+	"github.com/repogoapp/host/internal/reminder":      "reminders",
 }
 
 func (g *swiftGen) assignNames() {
@@ -439,6 +442,8 @@ func (g *swiftGen) assignNames() {
 				family = "chats"
 			case "Schedule":
 				family = "schedules"
+			case "Reminder":
+				family = "reminders"
 			case "ActionRun":
 				family = "actions"
 			}
@@ -746,7 +751,7 @@ var EventExports = map[string]string{
 	"projects.changed":    "Projects.Changed",
 	"schedules.changed":   "Schedules.Changed",
 	"actions.changed":     "Actions.Changed",
-	"plugins.data":           "Plugins.Data",
+	"plugins.data":        "Plugins.Data",
 }
 
 func eventGenerator(catalog []hostemit.Event) *swiftGen {

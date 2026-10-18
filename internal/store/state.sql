@@ -101,3 +101,17 @@ CREATE TABLE IF NOT EXISTS action_runs (
   exit_code   INTEGER            -- NULL unless it exited and the host saw the code
 );
 CREATE INDEX IF NOT EXISTS idx_action_runs ON action_runs(path, action, started_at);
+
+-- A one-shot alert to the phones at a set time, set by the user or by an
+-- agent through RepoGo's MCP. A fired row is deleted. One writer:
+-- reminders.go.
+CREATE TABLE IF NOT EXISTS reminders (
+  id         TEXT    PRIMARY KEY,
+  text       TEXT    NOT NULL,
+  due_at     INTEGER NOT NULL,
+  chat_id    TEXT    NOT NULL,  -- the chat a tap opens, else ''
+  path       TEXT    NOT NULL,  -- the project, else ''
+  set_by     TEXT    NOT NULL,  -- 'user', or the chat whose agent set it
+  created_at INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(due_at);

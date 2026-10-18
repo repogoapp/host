@@ -1,0 +1,9 @@
+{
+  "id": "id",
+  "text": "text",
+  "due_at": 1,
+  "chat_id": "chat_id",
+  "path": "path",
+  "set_by": "set_by",
+  "created_at": 1
+}

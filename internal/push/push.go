@@ -190,6 +190,36 @@ func (n *Notifier) Plugin(ctx context.Context, notice PluginNotice) {
 	n.push(ctx, collapse, payload)
 }
 
+// ReminderAlert is a reminder come due: its text, and the chat a tap opens.
+type ReminderAlert struct {
+	ID, Text, ChatID string
+	// How far past its time it fired; zero when on time.
+	Late time.Duration
+}
+
+// Reminder pushes a reminder to every paired phone. A tap opens its chat,
+// as a turn's alert does; one fired late says by how much.
+func (n *Notifier) Reminder(ctx context.Context, r ReminderAlert) {
+	body := r.Text
+	if r.Late >= time.Minute {
+		body += fmt.Sprintf(" (%d min late)", int(r.Late.Minutes()))
+	}
+	thread := r.ChatID
+	if thread == "" {
+		thread = "reminders"
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"aps": map[string]any{
+			"alert":     map[string]string{"title": "Reminder", "body": body},
+			"sound":     "default",
+			"thread-id": thread,
+		},
+		"host_id": n.store.Identity().ID,
+		"chat_id": r.ChatID,
+	})
+	n.push(ctx, "reminder:"+r.ID, payload)
+}
+
 // push sends one APNs payload to every paired phone with a token.
 func (n *Notifier) push(ctx context.Context, collapseID string, payload []byte) {
 	for _, peer := range n.store.Peers() {
