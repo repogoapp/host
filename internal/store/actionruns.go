@@ -14,23 +14,24 @@ const (
 	RunLost     = "lost"
 )
 
-// ActionRun is one run of a project's action, as kept and as sent.
+// ActionRun is one run of a project's action, as kept. The phone gets
+// actions.Run, the part of it it shows.
 type ActionRun struct {
-	ID        string `json:"id"`
-	Path      string `json:"-"`
-	Action    string `json:"action"`
-	Cmd       string `json:"cmd"`
-	Mode      string `json:"mode"` // blocking | detached | terminal
-	DeviceID  string `json:"device_id"`
-	PID       int    `json:"pid"`
-	SessionID string `json:"session_id"`
-	Status    string `json:"status"`
-	StartedAt int64  `json:"started_at"`
-	EndedAt   int64  `json:"ended_at"` // 0 while running, and for a lost run
-	ExitCode  *int   `json:"exit_code,omitempty"`
+	ID        string
+	Path      string
+	Action    string
+	Cmd       string
+	Mode      string // blocking | detached | terminal
+	DeviceID  string
+	PID       int
+	SessionID string
+	Status    string
+	StartedAt int64
+	EndedAt   int64 // 0 while running, and for a lost run
+	ExitCode  *int
 	// PIDStarted is the process's own start time, ms, so a reused pid is
 	// never taken for this run after a restart.
-	PIDStarted int64 `json:"-"`
+	PIDStarted int64
 }
 
 const actionRunColumns = `id, path, action, cmd, mode, device_id, pid, pid_started, session_id,

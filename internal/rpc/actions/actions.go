@@ -7,7 +7,6 @@ import (
 
 	actionscore "github.com/repogoapp/host/internal/actions"
 	"github.com/repogoapp/host/internal/rpc"
-	"github.com/repogoapp/host/internal/store"
 )
 
 type Deps struct {
@@ -27,7 +26,7 @@ type ListParams struct {
 }
 
 type StartResult struct {
-	Run store.ActionRun `json:"run"`
+	Run actionscore.Run `json:"run"`
 }
 
 type RunParams struct {

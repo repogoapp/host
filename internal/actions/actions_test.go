@@ -269,8 +269,11 @@ func TestDetachedRunIsKeptAndStopped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if run.Status != store.RunRunning || run.DeviceID != "phone" || run.Cmd == "" || run.PID == 0 {
+	if run.Status != store.RunRunning || run.Mode != ModeDetached {
 		t.Fatalf("Start = %+v", run)
+	}
+	if row := h.status(t, run.ID); row.DeviceID != "phone" || row.Cmd == "" || row.PID == 0 {
+		t.Fatalf("kept %+v", row)
 	}
 	if snap := h.last(); len(snap.Runs) != 1 || snap.Runs[0].ID != run.ID {
 		t.Fatalf("announced %+v, want the run", snap.Runs)
@@ -327,14 +330,15 @@ func TestTerminalRunSettlesFromItsTab(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if once.Mode != ModeTerminal || once.SessionID == "" {
+	tab := h.status(t, once.ID).SessionID
+	if once.Mode != ModeTerminal || tab == "" {
 		t.Fatalf("Start = %+v, want a terminal run", once)
 	}
 	testwait.For(t, "the command to end", func() bool { return h.status(t, once.ID).Status != store.RunRunning })
 	if got := h.status(t, once.ID); got.Status != store.RunExited || got.ExitCode == nil || *got.ExitCode != 5 {
 		t.Fatalf("settled %+v, want exited 5", got)
 	}
-	if !hasTab(h.terms, h.dir, once.SessionID) {
+	if !hasTab(h.terms, h.dir, tab) {
 		t.Error("the tab closed with its command")
 	}
 
@@ -342,7 +346,7 @@ func TestTerminalRunSettlesFromItsTab(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.terms.Close(server.SessionID); err != nil {
+	if err := h.terms.Close(h.status(t, server.ID).SessionID); err != nil {
 		t.Fatal(err)
 	}
 	testwait.For(t, "the run to settle", func() bool { return h.status(t, server.ID).Status == store.RunStopped })
@@ -367,8 +371,9 @@ func TestRestartAdoptsTheSameProcessAndLosesTheRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.Shutdown() // the host goes; the run does not
+	row := h.status(t, run.ID)
 	gone := store.ActionRun{ID: "gone", Path: h.dir, Action: "bg", Cmd: "x", Mode: ModeDetached,
-		PID: run.PID, PIDStarted: run.PIDStarted + 1, StartedAt: 1}
+		PID: row.PID, PIDStarted: row.PIDStarted + 1, StartedAt: 1}
 	if err := h.db.InsertActionRun(gone); err != nil {
 		t.Fatal(err)
 	}

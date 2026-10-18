@@ -6,16 +6,12 @@
       "name": "name",
       "label": "label",
       "cmd": "cmd",
-      "cwd": "cwd",
       "group": "group",
       "description": "description",
       "timeoutMs": 1,
       "detach": true,
       "terminal": true,
       "island": true,
-      "env": {
-        "env": "env"
-      },
       "envFrom": [
         "envFrom"
       ]
@@ -25,11 +21,7 @@
     {
       "id": "id",
       "action": "action",
-      "cmd": "cmd",
       "mode": "mode",
-      "device_id": "device_id",
-      "pid": 1,
-      "session_id": "session_id",
       "status": "status",
       "started_at": 1,
       "ended_at": 1,

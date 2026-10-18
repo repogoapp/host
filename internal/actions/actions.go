@@ -76,13 +76,12 @@ const (
 	ModeTerminal = "terminal"
 )
 
-// Action is one row of actions.json. JSON tags are the repogo v1 schema —
-// camelCase where it was camelCase — so existing files parse unchanged.
+// Action is one action as the phone, cards and agents list it: what its row
+// shows, what tells an agent which to run, and what decides how a run is held.
 type Action struct {
 	Name        string `json:"name"`
 	Label       string `json:"label,omitempty"`
 	Cmd         string `json:"cmd"`
-	Cwd         string `json:"cwd,omitempty"`
 	Group       string `json:"group,omitempty"`
 	Description string `json:"description,omitempty"`
 	TimeoutMs   int    `json:"timeoutMs,omitempty"`
@@ -90,14 +89,21 @@ type Action struct {
 	// Terminal runs the action in a terminal tab of its own, which stays open
 	// with the output once the command ends.
 	Terminal bool `json:"terminal,omitempty"`
-	// Island pins the action to the chat composer island. The host only
+	// Island pins the action to the chat composer's island. The host only
 	// carries it through; runs are the same either way.
 	Island bool `json:"island,omitempty"`
-	// Env is set over the host's environment, after EnvFrom's variables.
-	Env map[string]string `json:"env,omitempty"`
 	// EnvFrom names env sources by handle: read here when bound here, else
 	// sent by the phone that starts the action.
 	EnvFrom []string `json:"envFrom,omitempty"`
+}
+
+// declared is one row of actions.json: the Action and what only its run
+// reads. Keys are the repogo v1 schema, so existing files parse unchanged.
+type declared struct {
+	Action
+	Cwd string `json:"cwd,omitempty"`
+	// Env is set over the host's environment, after EnvFrom's variables.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // Result is what a blocking run answers with. A non-zero exit is a result,
@@ -294,7 +300,12 @@ func (s *Service) Run(ctx context.Context, caller device.ID, project, name strin
 // Start launches an action that outlives the call: in a terminal tab when it
 // asks for one, else detached with its output in a log. An action already
 // running answers with that run rather than starting a second.
-func (s *Service) Start(caller device.ID, project, name string, sent map[string]map[string]string) (store.ActionRun, error) {
+func (s *Service) Start(caller device.ID, project, name string, sent map[string]map[string]string) (Run, error) {
+	row, err := s.start(caller, project, name, sent)
+	return runOf(row), err
+}
+
+func (s *Service) start(caller device.ID, project, name string, sent map[string]map[string]string) (store.ActionRun, error) {
 	dir, action, err := s.resolve(project, name)
 	if err != nil {
 		return store.ActionRun{}, err
@@ -347,7 +358,7 @@ func (s *Service) Start(caller device.ID, project, name string, sent map[string]
 // begin starts a run through spawn and keeps it: the row is written right
 // after the process starts, and a row that cannot be written stops it, so
 // nothing runs unrecorded.
-func (s *Service) begin(caller device.ID, dir string, action Action, mode string,
+func (s *Service) begin(caller device.ID, dir string, action declared, mode string,
 	spawn func(*store.ActionRun) (func(store.ActionRun), error)) (store.ActionRun, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -560,14 +571,18 @@ func (s *Service) snapshotLocked(dir string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if actions == nil {
-		actions = []Action{}
-	}
-	runs, err := s.d.Store.ActionRuns(dir)
+	rows, err := s.d.Store.ActionRuns(dir)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Path: dir, Revision: s.revision, Actions: actions, Runs: runs}, nil
+	snap := Snapshot{Path: dir, Revision: s.revision, Actions: make([]Action, 0, len(actions)), Runs: make([]Run, 0, len(rows))}
+	for _, a := range actions {
+		snap.Actions = append(snap.Actions, a.Action)
+	}
+	for _, r := range rows {
+		snap.Runs = append(snap.Runs, runOf(r))
+	}
+	return snap, nil
 }
 
 // announceLocked sends the project's snapshot with a newer revision. Under mu,
@@ -610,21 +625,21 @@ func stopGroup(r store.ActionRun) {
 
 // resolve re-reads the file and finds the named action. Re-read on every run,
 // deliberately: the file the user just edited is the file that runs.
-func (s *Service) resolve(project, name string) (string, Action, error) {
+func (s *Service) resolve(project, name string) (string, declared, error) {
 	dir, err := s.d.Paths.Contain(project)
 	if err != nil {
-		return "", Action{}, err
+		return "", declared{}, err
 	}
 	actions, err := load(dir)
 	if err != nil {
-		return "", Action{}, err
+		return "", declared{}, err
 	}
 	for _, a := range actions {
 		if a.Name == name {
 			return dir, a, nil
 		}
 	}
-	return "", Action{}, fmt.Errorf("%w: %s", ErrUnknownAction, name)
+	return "", declared{}, fmt.Errorf("%w: %s", ErrUnknownAction, name)
 }
 
 // resolveCwd resolves an action's project-relative cwd through the same
@@ -642,7 +657,7 @@ func (s *Service) resolveCwd(dir, cwd string) (string, error) {
 // environment is what an action sets over the host's environment: each
 // envFrom handle's variables in order, then its own env, each over the last.
 // Only handles the action names are taken from sent; one missing is skipped.
-func (s *Service) environment(a Action, sent map[string]map[string]string) map[string]string {
+func (s *Service) environment(a declared, sent map[string]map[string]string) map[string]string {
 	env := map[string]string{}
 	bound := s.d.EnvSources.Read(a.EnvFrom)
 	for _, handle := range a.EnvFrom {
@@ -667,7 +682,7 @@ func (a Action) life(fallback time.Duration) time.Duration {
 	return min(fallback, MaxRunLife)
 }
 
-func load(dir string) ([]Action, error) {
+func load(dir string) ([]declared, error) {
 	f, err := os.Open(filepath.Join(dir, "actions.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -685,14 +700,14 @@ func load(dir string) ([]Action, error) {
 		return nil, fmt.Errorf("%w: file is larger than %d bytes", ErrMalformed, MaxFileBytes)
 	}
 	var file struct {
-		Actions []Action `json:"actions"`
+		Actions []declared `json:"actions"`
 	}
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrMalformed, err)
 	}
 	// Rows missing name or cmd are dropped rather than failing the file —
 	// one half-typed entry should not hide the working ones.
-	out := make([]Action, 0, len(file.Actions))
+	out := make([]declared, 0, len(file.Actions))
 	for _, a := range file.Actions {
 		if a.Name == "" || a.Cmd == "" {
 			continue
