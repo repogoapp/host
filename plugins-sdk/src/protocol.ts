@@ -1,4 +1,4 @@
-import type { Caller } from "./context";
+import type { Caller, CronEntry } from "./context";
 import type { CallError } from "./errors";
 import type { Manifest, SentNotice } from "./runtime";
 
@@ -21,7 +21,12 @@ export type Request =
    *  knows it; subscribing again under an id replaces it. */
   | { id: number; method: "subscribe"; params: Target & { subscription: string; name: string; input?: unknown } }
   | { id: number; method: "unsubscribe"; params: { subscription: string } }
-  | { id: number; method: "reload"; params: Target };
+  | { id: number; method: "reload"; params: Target }
+  /**
+   * The folder's whole set of schedules, replacing the last. `plugins` are the
+   * ones they name: a folder opened only for them imports nothing else.
+   */
+  | { id: number; method: "crons"; params: { dir: string; plugins: string[]; crons: CronEntry[] } };
 
 /** `stream`: the method is a stream; its result starts empty and pushes add `items`. */
 export type Subscribed = { subscription: string; revision: number; result: unknown; stream?: true };
@@ -55,7 +60,10 @@ export type HostCall = { id: number; method: "host"; params: { plugin: string; m
 // Between the server and a project's Worker.
 
 export type ToWorker =
-  | { type: "open"; dir: string; dataDir: string; root: string }
+  /** `only` names the plugins to import; null is all of them. */
+  | { type: "open"; dir: string; dataDir: string; root: string; only: string[] | null }
+  /** The folder's schedules; the reply is each one's status. */
+  | { type: "crons"; id: number; crons: CronEntry[] }
   | { type: "list"; id: number }
   | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string }
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown; root?: string }

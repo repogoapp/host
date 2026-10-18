@@ -431,3 +431,104 @@ test("a stream's tail replays, then sends lines as they're appended", async () =
   result(await client.request("call", { dir, name: "clips.log.append", input: { key: "run-1", data: { text: "b" } } }));
   expect((await appended).params).toMatchObject({ items: [{ id: "run-1:1", data: { text: "b" } }] });
 });
+
+const tickerApp = `import { definePlugin, method, z } from "@repogo/plugins";
+import { join } from "node:path";
+export default definePlugin({
+  methods: { tick: method(z.object({}), async (_, ctx) => { await Bun.write(join(ctx.root, "ticked"), String(Date.now())); }) },
+});
+`;
+
+// Its code runs the moment it's imported: the file it leaves says whether it was.
+const neighbourApp = `import { definePlugin, method, z } from "@repogo/plugins";
+import { join, resolve } from "node:path";
+await Bun.write(join(resolve(import.meta.dir, "..", "..", ".."), "neighbour-ran"), "yes");
+export default definePlugin({ methods: { hello: method(z.object({}), () => "hi", { kind: "query" }) } });
+`;
+
+async function until(check: () => Promise<boolean>, timeout = 4000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    if (await check()) return true;
+    await Bun.sleep(50);
+  }
+  return false;
+}
+
+test("schedules run with only their plugins imported; a call opens the rest and keeps them; an empty set stops them", async () => {
+  const { client } = await start();
+  const { root, dir } = await checkout({ ticker: tickerApp, neighbour: neighbourApp });
+  const ticked = { exists: () => Bun.file(join(root, "ticked")).exists(), delete: () => Bun.file(join(root, "ticked")).delete() };
+  const neighbourRan = () => Bun.file(join(root, "neighbour-ran")).exists();
+
+  const statuses = result(await client.request("crons", { dir, plugins: ["ticker"], crons: [{ plugin: "ticker", method: "tick", schedule: "* * * * * *" }] }));
+  expect(statuses).toMatchObject([{ plugin: "ticker", method: "ticker.tick", error: null }]);
+  expect(await until(() => ticked.exists())).toBe(true);
+  expect(await neighbourRan()).toBe(false);
+
+  // A card asks for the neighbour: the folder opens in full, and the schedule carries on.
+  expect(result(await client.request("call", { dir, name: "neighbour.hello" }))).toBe("hi");
+  expect(await neighbourRan()).toBe(true);
+  await ticked.delete();
+  expect(await until(() => ticked.exists())).toBe(true);
+
+  // An empty set stops it.
+  expect(result(await client.request("crons", { dir, plugins: [], crons: [] }))).toEqual([]);
+  await Bun.sleep(1200);
+  await ticked.delete();
+  await Bun.sleep(1500);
+  expect(await ticked.exists()).toBe(false);
+});
+
+test("a schedule naming what the folder doesn't have says so, and the rest still run", async () => {
+  const { client } = await start();
+  const { root, dir } = await checkout({ ticker: tickerApp });
+  const statuses = result(await client.request("crons", {
+    dir, plugins: ["ticker"],
+    crons: [{ plugin: "ticker", method: "missing", schedule: "* * * * *" }, { plugin: "ticker", method: "tick", schedule: "* * * * * *" }],
+  }));
+  expect(statuses[0].error).toContain("isn't one of ticker's methods");
+  expect(statuses[1].error).toBeNull();
+  expect(await until(() => Bun.file(join(root, "ticked")).exists())).toBe(true);
+});
+
+// Imported, it leaves a file; scheduled, it ticks into another.
+const markedApp = (name: string) => `import { definePlugin, method, z } from "@repogo/plugins";
+import { join, resolve } from "node:path";
+const root = resolve(import.meta.dir, "..", "..", "..");
+await Bun.write(join(root, "${name}-imported"), "yes");
+export default definePlugin({ methods: { tick: method(z.object({}), async () => { await Bun.write(join(root, "${name}-ticked"), String(Date.now())); }) } });
+`;
+
+test("a folder opened only for schedules closes when its last one goes", async () => {
+  const { client } = await start();
+  const { root, dir } = await checkout({ a: markedApp("a") });
+  const ticked = () => Bun.file(join(root, "a-ticked")).exists();
+  result(await client.request("crons", { dir, plugins: ["a"], crons: [{ plugin: "a", method: "tick", schedule: "* * * * * *" }] }));
+  expect(await until(ticked)).toBe(true);
+  result(await client.request("crons", { dir, plugins: [], crons: [] }));
+  await Bun.sleep(1200);
+  await Bun.file(join(root, "a-ticked")).delete();
+  await Bun.sleep(1500);
+  expect(await ticked()).toBe(false);
+});
+
+test("a plugin dropped from a folder's schedules isn't imported again, by the new Worker or a reload", async () => {
+  const { client } = await start();
+  const { root, dir } = await checkout({ a: markedApp("a"), b: markedApp("b") });
+  const file = (name: string) => Bun.file(join(root, name));
+  result(await client.request("crons", {
+    dir, plugins: ["a", "b"],
+    crons: [{ plugin: "a", method: "tick", schedule: "* * * * * *" }, { plugin: "b", method: "tick", schedule: "* * * * * *" }],
+  }));
+  expect(await until(() => file("b-ticked").exists())).toBe(true);
+  await file("b-imported").delete();
+
+  result(await client.request("crons", { dir, plugins: ["a"], crons: [{ plugin: "a", method: "tick", schedule: "* * * * * *" }] }));
+  await file("a-ticked").delete();
+  expect(await until(() => file("a-ticked").exists())).toBe(true);
+  result(await client.request("reload", { dir }));
+  await file("a-ticked").delete();
+  expect(await until(() => file("a-ticked").exists())).toBe(true);
+  expect(await file("b-imported").exists()).toBe(false);
+});

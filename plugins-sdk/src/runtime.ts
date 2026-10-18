@@ -6,7 +6,7 @@ import { Bucket } from "./buckets";
 import { Collection } from "./collections";
 import { checkTimezone, nextDue, parseSchedule, type Schedule } from "./cron";
 import { Database } from "./database";
-import type { Caller, Context, Manifest, ManifestCron, Notice } from "./context";
+import type { Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
 import type { PluginDefinition, MethodKind } from "./define";
@@ -46,8 +46,10 @@ export type HostCaller = (plugin: string, method: string, params: unknown) => Pr
 const sampleMs = Number(process.env.REPOGO_PLUGINS_SAMPLE_MS ?? 5000);
 const sampleLimit = 200;
 
-/** A plugin's cron as the runtime keeps it: its schedule read once, and its last run. */
+/** A schedule as the runtime keeps it: read once, with its last run. */
 type CronJob = {
+  /** The plugin, method, schedule and zone: an entry the host sends again keeps its job, and its state. */
+  signature: string;
   plugin: string;
   /** `<plugin>.<method>`. */
   method: string;
@@ -110,11 +112,13 @@ export class Runtime {
     return new Runtime(options.dataDir, options.root ?? process.cwd(), options.host);
   }
 
-  async loadDir(pluginsDir: string) {
+  /** `only` names the plugins to import, for a Worker that runs schedules: their neighbours' code never runs. */
+  async loadDir(pluginsDir: string, only: string[] | null = null) {
     this.pluginsDir = pluginsDir;
     const entries = await readdir(pluginsDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory() || !pluginName.test(entry.name)) continue;
+      if (only && !only.includes(entry.name)) continue;
       const module = await import(join(pluginsDir, entry.name, "app.ts"));
       await this.add(entry.name, module.default);
     }
@@ -203,27 +207,6 @@ export class Runtime {
         input: method.input,
         output: method.output,
         run: async (input) => method.run(input, ctx),
-      });
-    }
-
-    // Checked here, so a cron that could never run fails the load with its reason.
-    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    for (const [index, cron] of (plugin.crons ?? []).entries()) {
-      const where = `${name}: crons[${index}]`;
-      const method = this.methods.get(`${name}.${cron.method}`);
-      if (!method || method.plugin !== name) throw new Error(`${where} names ${cron.method}, which isn't one of ${name}'s methods`);
-      if (method.kind === "stream") throw new Error(`${where}: ${cron.method} is a stream; a cron runs a query or a mutation`);
-      if (method.confirm) throw new Error(`${where}: ${cron.method} asks before it runs, so nothing may run it on a schedule`);
-      if (!method.input.safeParse({}).success) throw new Error(`${where}: ${cron.method} needs input; a cron calls it with {}`);
-      let parsed: Schedule;
-      try { parsed = parseSchedule(cron.schedule); } catch (error) { throw new Error(`${where}: ${(error as Error).message}`); }
-      const timezone = cron.timezone ?? zone;
-      try { checkTimezone(timezone); } catch { throw new Error(`${where}: "${timezone}" isn't a time zone`); }
-      const nextRunAt = nextDue(parsed, Date.now(), timezone);
-      if (nextRunAt === null) throw new Error(`${where}: "${cron.schedule}" is never due`);
-      this.crons.push({
-        plugin: name, method: method.name, schedule: cron.schedule, timezone, parsed,
-        nextRunAt, lastRunAt: null, lastDurationMs: null, lastError: null, running: false, runs: 0,
       });
     }
 
@@ -335,6 +318,53 @@ export class Runtime {
   }
 
   /**
+   * Replaces the schedules with `entries`, the host's whole set for this folder,
+   * and says how each went. One the host sent before keeps its timing and runs;
+   * one left out is never started again, though a run already going finishes.
+   */
+  setCrons(entries: CronEntry[]): CronStatus[] {
+    const kept = new Map(this.crons.map((job) => [job.signature, job]));
+    const jobs: CronJob[] = [];
+    const statuses: CronStatus[] = [];
+    for (const entry of entries) {
+      const timezone = entry.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const signature = `${entry.plugin}.${entry.method} ${entry.schedule} ${timezone}`;
+      try {
+        const job = kept.get(signature) ?? this.cronJob(entry, timezone, signature);
+        jobs.push(job);
+        statuses.push({ ...cronState(job), plugin: job.plugin, error: null });
+      } catch (error) {
+        statuses.push({
+          plugin: entry.plugin, method: `${entry.plugin}.${entry.method}`, schedule: entry.schedule, timezone, error: (error as Error).message,
+          nextRunAt: null, lastRunAt: null, lastError: null, lastDurationMs: null, running: false, runs: 0,
+        });
+      }
+    }
+    this.crons.splice(0, this.crons.length, ...jobs);
+    this.notifyInvalidated([this.cronsTag]);
+    return statuses;
+  }
+
+  /** Checks an entry against what's loaded, so one that could never run says why. */
+  private cronJob(entry: CronEntry, timezone: string, signature: string): CronJob {
+    if (!this.plugins.has(entry.plugin)) throw new Error(`${entry.plugin} isn't loaded here`);
+    const name = `${entry.plugin}.${entry.method}`;
+    const method = this.methods.get(name);
+    if (!method || method.plugin !== entry.plugin) throw new Error(`${entry.method} isn't one of ${entry.plugin}'s methods`);
+    if (method.kind === "stream") throw new Error(`${name} is a stream; a cron runs a query or a mutation`);
+    if (method.confirm) throw new Error(`${name} asks before it runs, so nothing may run it on a schedule`);
+    if (!method.input.safeParse({}).success) throw new Error(`${name} needs input; a cron calls it with {}`);
+    const parsed = parseSchedule(entry.schedule);
+    try { checkTimezone(timezone); } catch { throw new Error(`"${timezone}" isn't a time zone`); }
+    const nextRunAt = nextDue(parsed, Date.now(), timezone);
+    if (nextRunAt === null) throw new Error(`"${entry.schedule}" is never due`);
+    return {
+      signature, plugin: entry.plugin, method: name, schedule: entry.schedule, timezone, parsed,
+      nextRunAt, lastRunAt: null, lastDurationMs: null, lastError: null, running: false, runs: 0,
+    };
+  }
+
+  /**
    * Starts every cron due by `now` and returns the runs it started, for a test
    * to wait on. A due time that comes while the job still runs is skipped, as is
    * one missed by more than two minutes: nothing is caught up.
@@ -381,11 +411,7 @@ export class Runtime {
           input: z.toJSONSchema(method.input, { io: "input", unrepresentable: "any" }),
           output: method.output ? z.toJSONSchema(method.output, { io: "output", unrepresentable: "any" }) : null,
         })),
-      crons: this.crons.filter((job) => job.plugin === name).map((job): ManifestCron => ({
-        method: job.method, schedule: job.schedule, timezone: job.timezone,
-        nextRunAt: job.nextRunAt, lastRunAt: job.lastRunAt, lastError: job.lastError, lastDurationMs: job.lastDurationMs,
-        running: job.running, runs: job.runs,
-      })),
+      crons: this.crons.filter((job) => job.plugin === name).map(cronState),
       storage: {
         buckets: this.storesOf(name, "buckets").map((store) => ({ name: store.name, path: (store as Bucket<any>).path })),
         kv: this.storesOf(name, "kv").map((store) => ({ name: store.name })),
@@ -516,6 +542,14 @@ function fillConfirm(question: string, input: unknown) {
     const value = Object.hasOwn(fields, field) ? fields[field] : undefined;
     return value === undefined || value === null ? "" : String(value);
   });
+}
+
+function cronState(job: CronJob): ManifestCron {
+  return {
+    method: job.method, schedule: job.schedule, timezone: job.timezone,
+    nextRunAt: job.nextRunAt, lastRunAt: job.lastRunAt, lastError: job.lastError, lastDurationMs: job.lastDurationMs,
+    running: job.running, runs: job.runs,
+  };
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {

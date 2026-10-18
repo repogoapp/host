@@ -11,7 +11,6 @@ const notes = definePlugin({
     clear: method(z.object({}), (_, ctx) => ctx.collections.notes.deleteMany({ limit: 1000 }), { confirm: "Delete every note?" }),
     ping: method(z.object({}), (_, ctx) => { ctx.notify({ title: "Ping", body: ctx.caller }); }),
   },
-  crons: [{ method: "ping", schedule: "* * * * *" }],
 });
 
 test("a test runtime runs plugins with real data, confirms, crons and notices, then cleans up", async () => {
@@ -21,6 +20,7 @@ test("a test runtime runs plugins with real data, confirms, crons and notices, t
   expect(await app.call("notes.count")).toBe(2);
   await expect(app.call("notes.clear", {}, { confirmed: false })).rejects.toBeInstanceOf(MethodError);
   expect(await app.call("notes.clear", {}, { confirmed: true })).toBe(2);
+  expect(app.setCrons([{ plugin: "notes", method: "ping", schedule: "* * * * *" }])[0].error).toBeNull();
   await app.tickCrons(app.manifest().plugins[0].crons[0].nextRunAt!);
   expect(app.notices.map((n) => n.body)).toEqual(["cron"]);
   await app.close();

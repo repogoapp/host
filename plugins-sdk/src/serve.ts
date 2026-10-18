@@ -2,7 +2,7 @@ import type { Socket } from "bun";
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
-import type { Caller } from "./context";
+import type { Caller, CronEntry, CronStatus } from "./context";
 import { toCallError, type CallError } from "./errors";
 import type { DataPush, FromWorker, HostCall, NotifyPush, Reply, Request, ToWorker } from "./protocol";
 
@@ -28,6 +28,14 @@ const requestSchema = z.discriminatedUnion("method", [
   z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
   z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
   z.object({ id: z.number(), method: z.literal("reload"), params: target }),
+  z.object({
+    id: z.number(), method: z.literal("crons"),
+    params: z.object({
+      dir: pluginsDir,
+      plugins: z.array(z.string().min(1)),
+      crons: z.array(z.object({ plugin: z.string().min(1), method: z.string().min(1), schedule: z.string().min(1), timezone: z.string().optional() })),
+    }),
+  }),
 ]);
 
 type Connection = Socket<{ inbox: string; outbox: Uint8Array[] }>;
@@ -59,7 +67,10 @@ type Answer = { result: unknown; stream?: true } | { error: CallError };
 /** How long a stopping Worker gets to abort its streams before it is ended. */
 const stopGraceMs = 1000;
 
-/** One checkout's plugins in a Worker: requests out, replies and pushes back. */
+/**
+ * One checkout's plugins in a Worker: requests out, replies and pushes back.
+ * `only` and `crons` outlive the Worker, so one started again picks them up.
+ */
 class Checkout {
   private worker!: Worker;
   private waiting = new Map<number, (answer: Answer) => void>();
@@ -72,6 +83,10 @@ class Checkout {
     private dataDir: string,
     private onMessage: (checkout: Checkout, message: FromWorker) => void,
     private onCrash: (checkout: Checkout) => void,
+    /** The plugins it imports, for a folder opened only for its schedules; null is all of them. */
+    readonly only: string[] | null = null,
+    /** The schedules the host set for this folder. */
+    public crons: CronEntry[] = [],
   ) {
     this.start();
   }
@@ -92,10 +107,18 @@ class Checkout {
       if (!this.stopping) this.onCrash(this);
     });
     // dir is `<checkout>/.repogo/plugins`, so the checkout is two folders up.
-    this.post({ type: "open", dir: this.dir, dataDir: this.dataDir, root: resolve(this.dir, "..", "..") });
+    this.post({ type: "open", dir: this.dir, dataDir: this.dataDir, root: resolve(this.dir, "..", ".."), only: this.only });
+    if (this.crons.length) void this.setCrons(this.crons);
   }
 
-  request(message: { type: "list" } | { type: "call"; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
+  /** Gives the Worker its schedules, the whole set, and answers each one's status. */
+  async setCrons(crons: CronEntry[]): Promise<{ statuses: CronStatus[] } | { error: CallError }> {
+    this.crons = crons;
+    const answer = await this.request({ type: "crons", crons });
+    return "error" in answer ? answer : { statuses: answer.result as CronStatus[] };
+  }
+
+  request(message: { type: "list" } | { type: "crons"; crons: CronEntry[] } | { type: "call"; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
     const id = ++this.nextID;
     return new Promise((resolve) => {
       this.waiting.set(id, resolve);
@@ -140,13 +163,44 @@ export async function serve(options: ServeOptions) {
   let lastKey = 0;
   const newKey = () => `w${++lastKey}`;
 
+  // What a card or agent asks for gets the whole folder: one opened only for
+  // its schedules starts again with every plugin, keeping the schedules.
   function checkoutFor(dir: string) {
-    let checkout = checkouts.get(dir);
+    const checkout = checkouts.get(dir);
     if (!checkout) {
-      checkout = new Checkout(dir, options.dataDir, fromWorker, restart);
-      checkouts.set(dir, checkout);
+      const opened = new Checkout(dir, options.dataDir, fromWorker, restart);
+      checkouts.set(dir, opened);
+      return opened;
     }
-    return checkout;
+    return checkout.only ? restart(checkout, null) : checkout;
+  }
+
+  /**
+   * Sets a folder's schedules, the whole set. A folder no one else opened
+   * imports only the plugins they name, and closes when its last one goes.
+   */
+  async function setCrons(dir: string, plugins: string[], crons: CronEntry[]) {
+    const held = checkouts.get(dir);
+    if (!crons.length) {
+      if (!held) return { statuses: [] };
+      if (held.only) {
+        checkouts.delete(dir);
+        await held.stop();
+        return { statuses: [] };
+      }
+      return held.setCrons([]);
+    }
+    if (!held) {
+      const opened = new Checkout(dir, options.dataDir, fromWorker, restart, plugins);
+      checkouts.set(dir, opened);
+      return opened.setCrons(crons);
+    }
+    // A folder opened only for schedules imports exactly the plugins they name:
+    // one added or one dropped opens it again, so a dropped one's code can't come back.
+    if (!held.only || sameSet(held.only, plugins)) return held.setCrons(crons);
+    held.crons = crons;
+    const reopened = restart(held, plugins);
+    return reopened.setCrons(crons);
   }
 
   function fromWorker(from: Checkout, message: FromWorker) {
@@ -213,13 +267,14 @@ export async function serve(options: ServeOptions) {
     send(subscription.connection, push);
   }
 
-  // A new Worker for the checkout, with its subscriptions taken up again: their
-  // results go out as pushes if the new code answers differently. A stream
-  // starts over, and its empty result tells the device to drop what it held.
-  function restart(old: Checkout) {
-    if (checkouts.get(old.dir) !== old) return;
+  // A new Worker for the checkout, with its schedules and subscriptions taken up
+  // again: their results go out as pushes if the new code answers differently.
+  // A stream starts over, and its empty result tells the device to drop what it held.
+  function restart(old: Checkout, only: string[] | null = old.only): Checkout {
+    const current = checkouts.get(old.dir);
+    if (current !== old) return current ?? old;
     void old.stop();
-    const checkout = new Checkout(old.dir, options.dataDir, fromWorker, restart);
+    const checkout = new Checkout(old.dir, options.dataDir, fromWorker, restart, only, old.crons);
     checkouts.set(old.dir, checkout);
     for (const [id, subscription] of subscriptions) {
       if (subscription.checkout !== old.dir) continue;
@@ -233,6 +288,7 @@ export async function serve(options: ServeOptions) {
         else checkout.post({ type: "unsubscribe", subscription: key });
       });
     }
+    return checkout;
   }
 
   async function handle(connection: Connection, request: Request): Promise<Reply> {
@@ -279,6 +335,11 @@ export async function serve(options: ServeOptions) {
         const checkout = checkouts.get(request.params.dir);
         if (checkout) restart(checkout);
         return { id, result: {} };
+      }
+      case "crons": {
+        const { dir, plugins, crons } = request.params;
+        const answer = await setCrons(dir, plugins, crons);
+        return "error" in answer ? { id, error: answer.error } : { id, result: answer.statuses };
       }
     }
   }
@@ -365,6 +426,10 @@ export async function serve(options: ServeOptions) {
       void rm(options.socket, { force: true });
     },
   };
+}
+
+function sameSet(a: string[], b: string[]) {
+  return a.length === b.length && a.every((item) => b.includes(item));
 }
 
 function hashOf(answer: Answer) {

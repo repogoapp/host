@@ -73,7 +73,7 @@ function host(plugin: string, method: string, params: unknown) {
 self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const message = event.data;
   if (message.type === "open") {
-    ready = open(message.dir, message.dataDir, message.root);
+    ready = open(message.dir, message.dataDir, message.root, message.only);
     return;
   }
   if (message.type === "hosted") {
@@ -107,6 +107,15 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     return post({ type: "reply", id: message.id, error: loadError ?? { code: "INTERNAL", message: "The plugins did not open." } });
   }
   if (message.type === "list") return post({ type: "reply", id: message.id, result: runtime.manifest() });
+  if (message.type === "crons") {
+    const statuses = runtime.setCrons(message.crons);
+    if (runtime.crons.length && !cronTicker) tickOnTheSecond();
+    if (!runtime.crons.length && cronTicker) {
+      clearTimeout(cronTicker);
+      cronTicker = null;
+    }
+    return post({ type: "reply", id: message.id, result: statuses });
+  }
   if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.caller, message.root);
   if (message.type === "subscribe") {
     if (runtime.methods.get(message.name)?.kind === "stream") {
@@ -135,7 +144,7 @@ function tickOnTheSecond() {
   }, wait);
 }
 
-async function open(dir: string, dataDir: string, root: string) {
+async function open(dir: string, dataDir: string, root: string, only: string[] | null) {
   try {
     runtime = await Runtime.open({ dataDir, root, host });
     // A write here re-runs this checkout's queries, and is passed on for the others.
@@ -144,8 +153,7 @@ async function open(dir: string, dataDir: string, root: string) {
       settle(tags);
     });
     runtime.onNotify((notice) => post({ type: "notified", notice }));
-    await runtime.loadDir(dir);
-    if (runtime.crons.length > 0) tickOnTheSecond();
+    await runtime.loadDir(dir, only);
     if (runtime.hasStorage) storageTicker = setInterval(() => void runtime?.tickStorage(), storageTickMs);
   } catch (error) {
     loadError = { code: "INTERNAL", message: `The plugins in ${dir} failed to load: ${toCallError(error).message}` };

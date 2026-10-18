@@ -133,7 +133,7 @@ func (h *Host) openTools() error {
 	})
 	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
-		Global: h.state("plugins"),
+		Global: h.state("plugins"), Crons: h.state("crons.json"),
 		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
 		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
 		Host:   h.pluginHost,
@@ -476,20 +476,6 @@ func (h *Host) recordHook(n notify.Notice) error {
 		h.log.Error("hook ingestion failed; retaining drop for retry", "err", err)
 	}
 	return err
-}
-
-// projectPaths is every project this host lists, for the plugins whose crons it keeps running.
-func (h *Host) projectPaths() []string {
-	projects, err := h.db.ListProjects(string(h.devices.Identity().ID))
-	if err != nil {
-		h.log.Warn("plugins: listing projects failed", "err", err)
-		return nil
-	}
-	paths := make([]string, 0, len(projects))
-	for _, p := range projects {
-		paths = append(paths, p.Path)
-	}
-	return paths
 }
 
 // projectPlugins is what cwd's project can do with plugins, for its prompt.

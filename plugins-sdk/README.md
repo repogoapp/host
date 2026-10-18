@@ -278,32 +278,43 @@ the same namespace and store can still read and write it.
 
 ## Crons
 
-```ts
-export default definePlugin({
-  methods: { watch: method(z.object({}), async (_, ctx) => { /* … */ }) },
-  crons: [
-    { method: "watch", schedule: "*/5 * * * *" },
-    { method: "digest", schedule: "0 9 * * 1-5", timezone: "America/New_York" },
-  ],
-});
+What runs with no one looking is listed in one file the user owns,
+`~/.repogo/crons.json`, not in a plugin's code: a repo you clone can't schedule
+itself. Each line names a plugin, one of its methods and a schedule:
+
+```json
+[
+  { "plugin": "incidents", "method": "watch", "schedule": "*/5 * * * *" },
+  { "project": "~/code/shop", "plugin": "backup", "method": "run", "schedule": "0 3 * * *", "timezone": "America/New_York" },
+  { "plugin": "digest", "method": "send", "schedule": "0 9 * * 1-5", "enabled": false }
+]
 ```
 
-The host calls the method with `{}` when it comes due, as a tap would, whether
-or not anyone is looking. `schedule` is five fields (minute hour day-of-month
-month day-of-week), or six with seconds first (`*/5 * * * * *`); each is `*`, a
-number, a range, a list or a step. `timezone` defaults to the environment's.
+| Field | What |
+| --- | --- |
+| `plugin`, `method` | The plugin's folder name and one of its methods, called with `{}` as a tap would |
+| `project` | The project whose `.repogo/plugins` holds it, an absolute path or one starting `~/`; left out, `~/.repogo/plugins` |
+| `schedule` | A cron: five fields (minute hour day-of-month month day-of-week), or six with seconds first (`*/5 * * * * *`); each `*`, a number, a range, a list or a step |
+| `timezone` | Defaults to the environment's |
+| `enabled` | `false` keeps the line without running it |
+
+The host reads the file every minute, and again when the agent's `plugins` tool
+lists what's there, so an edit shows at once. A folder opened only for its
+schedules imports just the plugins they name; the others beside them don't run.
+A line removed or disabled is never started again; a run already going finishes.
 
 A job still running isn't started again, a time the environment slept through
-is skipped, and nothing is retried. A cron naming a missing method, a stream, a
-method that needs input or asks first, or a schedule never due fails the
-plugin's load. The manifest shows each cron's `nextRunAt`, `lastRunAt`,
-`lastError`, `lastDurationMs` and `runs`, and a query that reads them through
-`ctx.plugins()` re-runs as each run starts and ends.
+is skipped, and nothing is retried. A line naming something missing, a stream, a
+method that needs input or asks first, a bad schedule, or the same method twice
+says why in `plugins` (each line's `error`), and the others run. A file that
+isn't valid JSON pauses every line until it's fixed. Each line also shows
+`nextRunAt`, `lastRunAt`, `lastError`, `lastDurationMs` and `runs`; `ctx.plugins()`
+has the same for a plugin's own, and a query reading them re-runs around each run.
 
-A cron's `ctx.root` is its folder's project, or the home folder for a plugin in
-`~/.repogo/plugins`. Every plugin in a folder shares one thread: code that blocks
-it (a synchronous walk of a big folder, a busy loop) holds up every other cron
-there, and the host's log names the crons that were running when it happened.
+Schedule something only when the user asks for it. A cron's `ctx.root` is its
+project, or the home folder for a plugin in `~/.repogo/plugins`. Plugins in one
+folder share a thread: code that blocks it holds up every other cron there, and
+the host's log names the crons that were running when it happened.
 
 ## The context
 
@@ -349,8 +360,8 @@ Events run in memory: none is retried, and a handler that throws is logged.
 ## How cards and agents reach a plugin
 
 **Agents** use two tools: `plugins` lists every plugin with its methods, input
-schemas, crons and `storage` (each bucket's and stream's folder), and
-`plugin_call` runs one. Call a new method once before a card names it.
+schemas and `storage` (each bucket's and stream's folder), and every line of
+`~/.repogo/crons.json` with how it's going; `plugin_call` runs one. Call a new method once before a card names it.
 
 **Cards** name methods as `plugin:<plugin>.<method>`. A `Data` element runs a
 query, or follows a stream, and redraws when its data changes; a `Button` or
@@ -393,7 +404,8 @@ import notes from "./app";
 const app = await testRuntime({ notes });
 await app.call("notes.add", { text: "hi" });
 await app.call("notes.clear", {}, { confirmed: false }); // throws CONFIRM, as an unanswered tap
-await app.tickCrons(Date.now());                         // runs whatever is due
+app.setCrons([{ plugin: "notes", method: "tidy", schedule: "* * * * *" }]); // as a crons.json line would
+await app.tickCrons(Date.now() + 60_000);                // runs whatever is due by then
 app.notices;                                             // every ctx.notify so far
 await app.close();
 ```

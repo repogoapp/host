@@ -377,21 +377,58 @@ test("calling a stream returns what it sent, and whether it ended", async () => 
   expect(methods.find((m) => m.name === "ticker.ticks")?.kind).toBe("stream");
 });
 
-test("a cron that could never run fails the load with its reason", async () => {
+test("a schedule that could never run says why, and the good ones beside it are set", async () => {
   await open();
-  const job = method(z.object({}), () => null);
-  const cases: [Record<string, any>, unknown, string][] = [
-    [{ job }, { method: "missing", schedule: "* * * * *" }, "isn't one of"],
-    [{ job }, { method: "job", schedule: "* * *" }, "has 3 fields"],
-    [{ job }, { method: "job", schedule: "* * * * *", timezone: "Mars/Olympus" }, "isn't a time zone"],
-    [{ job }, { method: "job", schedule: "0 0 31 2 *" }, "never due"],
-    [{ job: method(z.object({ id: z.string() }), () => null) }, { method: "job", schedule: "* * * * *" }, "needs input"],
-    [{ job: method(z.object({}), () => null, { confirm: "Sure?" }) }, { method: "job", schedule: "* * * * *" }, "asks before it runs"],
-    [{ job: stream(z.object({}), async function* () {}) }, { method: "job", schedule: "* * * * *" }, "is a stream"],
+  await runtime.add("jobs", definePlugin({
+    methods: {
+      job: method(z.object({}), () => null),
+      needs: method(z.object({ id: z.string() }), () => null),
+      asks: method(z.object({}), () => null, { confirm: "Sure?" }),
+      tail: stream(z.object({}), async function* () {}),
+    },
+  }));
+  const cases: [Record<string, string>, string][] = [
+    [{ plugin: "jobs", method: "missing", schedule: "* * * * *" }, "isn't one of"],
+    [{ plugin: "nobody", method: "job", schedule: "* * * * *" }, "isn't loaded here"],
+    [{ plugin: "jobs", method: "job", schedule: "* * *" }, "has 3 fields"],
+    [{ plugin: "jobs", method: "job", schedule: "* * * * *", timezone: "Mars/Olympus" }, "isn't a time zone"],
+    [{ plugin: "jobs", method: "job", schedule: "0 0 31 2 *" }, "never due"],
+    [{ plugin: "jobs", method: "needs", schedule: "* * * * *" }, "needs input"],
+    [{ plugin: "jobs", method: "asks", schedule: "* * * * *" }, "asks before it runs"],
+    [{ plugin: "jobs", method: "tail", schedule: "* * * * *" }, "is a stream"],
   ];
-  for (const [index, [methods, cron, says]] of cases.entries()) {
-    await expect(runtime.add(`bad${index}`, definePlugin({ methods, crons: [cron as any] }))).rejects.toThrow(says);
-  }
+  const statuses = runtime.setCrons([...cases.map(([entry]) => entry as any), { plugin: "jobs", method: "job", schedule: "*/5 * * * * *" }]);
+  for (const [index, [, says]] of cases.entries()) expect(statuses[index].error).toContain(says);
+  expect(statuses.at(-1)).toMatchObject({ method: "jobs.job", error: null });
+  expect(runtime.crons.map((job) => job.method)).toEqual(["jobs.job"]);
+});
+
+test("setting schedules again keeps an unchanged one's state, and drops what's left out", async () => {
+  await open();
+  await runtime.add("jobs", definePlugin({ methods: { a: method(z.object({}), () => null), b: method(z.object({}), () => null) } }));
+  runtime.setCrons([{ plugin: "jobs", method: "a", schedule: "* * * * * *" }, { plugin: "jobs", method: "b", schedule: "* * * * * *" }]);
+  const [a] = runtime.crons;
+  await Promise.all(runtime.tickCrons(a.nextRunAt!));
+  expect(a.runs).toBe(1);
+  runtime.setCrons([{ plugin: "jobs", method: "a", schedule: "* * * * * *" }]);
+  expect(runtime.crons).toEqual([a]);
+  expect(runtime.crons[0].runs).toBe(1);
+  // A new schedule is a new job.
+  runtime.setCrons([{ plugin: "jobs", method: "a", schedule: "*/2 * * * * *" }]);
+  expect(runtime.crons[0].runs).toBe(0);
+  runtime.setCrons([]);
+  expect(runtime.crons).toEqual([]);
+});
+
+test("a folder opened for its schedules imports only the plugins they name", async () => {
+  dataDir = await mkdtemp(join(tmpdir(), "repogo-plugins-"));
+  const dir = await mkdtemp(join(tmpdir(), "repogo-only-"));
+  const write = (name: string, source: string) => Bun.write(join(dir, name, "app.ts"), source);
+  await write("wanted", `export default { methods: {} };`);
+  await write("neighbour", `throw new Error("the neighbour's code ran");`);
+  runtime = await Runtime.open({ dataDir, root: dir });
+  await runtime.loadDir(dir, ["wanted"]);
+  expect([...runtime.plugins.keys()]).toEqual(["wanted"]);
 });
 
 test("a cron runs its method when due, once, and the manifest says how it went", async () => {
@@ -404,8 +441,8 @@ test("a cron runs its method when due, once, and the manifest says how it went",
       tick: method(z.object({}), async (_, ctx) => { runs.push(ctx.root); await ctx.collections.ticks.create({ at: Date.now() }); }),
       fail: method(z.object({}), () => { throw new Error("boom"); }),
     },
-    crons: [{ method: "tick", schedule: "*/5 * * * * *", timezone: "UTC" }, { method: "fail", schedule: "* * * * *" }],
   }));
+  runtime.setCrons([{ plugin: "clock", method: "tick", schedule: "*/5 * * * * *", timezone: "UTC" }, { plugin: "clock", method: "fail", schedule: "* * * * *" }]);
   const [tick, fail] = runtime.crons;
   expect(runtime.tickCrons(tick.nextRunAt! - 1)).toHaveLength(0);
   const due = tick.nextRunAt!;
@@ -426,8 +463,8 @@ test("a cron still running isn't started again, and a time slept through is skip
   let started = 0;
   await runtime.add("slow", definePlugin({
     methods: { work: method(z.object({}), () => { started++; return new Promise<void>((resolve) => { finish = resolve; }); }) },
-    crons: [{ method: "work", schedule: "* * * * * *" }],
   }));
+  runtime.setCrons([{ plugin: "slow", method: "work", schedule: "* * * * * *" }]);
   const [job] = runtime.crons;
   const first = runtime.tickCrons(job.nextRunAt!);
   // The next second comes while it runs: skipped, not saved for later.
@@ -502,7 +539,6 @@ test("ctx.caller is who started the call, and code it calls inherits it", async 
       caller: method(z.object({}), (_, ctx) => ctx.caller, { kind: "query" }),
       relay: method(z.object({}), (_, ctx) => ctx.call("caller"), { kind: "query" }),
     },
-    crons: [{ method: "caller", schedule: "* * * * * *" }],
   }));
   expect((await runtime.call("who.caller")).result).toBe("code");
   expect((await runtime.call("who.caller", {}, { caller: "agent" })).result).toBe("agent");
@@ -511,15 +547,15 @@ test("ctx.caller is who started the call, and code it calls inherits it", async 
 
 test("a cron run reports how long it took, and pages showing crons re-run around it", async () => {
   await open();
-  const tags: string[] = [];
-  runtime.onInvalidate((written) => tags.push(...written));
   await runtime.add("timed", definePlugin({
     methods: {
       work: method(z.object({}), () => new Promise((resolve) => setTimeout(resolve, 20))),
       crons: method(z.object({}), (_, ctx) => ctx.plugins().find((p) => p.name === "timed")!.crons[0].runs, { kind: "query" }),
     },
-    crons: [{ method: "work", schedule: "* * * * * *" }],
   }));
+  runtime.setCrons([{ plugin: "timed", method: "work", schedule: "* * * * * *" }]);
+  const tags: string[] = [];
+  runtime.onInvalidate((written) => tags.push(...written));
   const { reads } = await runtime.call("timed.crons");
   const [job] = runtime.crons.filter((c) => c.plugin === "timed");
   await Promise.all(runtime.tickCrons(job.nextRunAt!));

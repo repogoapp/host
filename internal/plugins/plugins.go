@@ -56,6 +56,9 @@ type Config struct {
 	// Global is the environment's own plugins folder, served to every project
 	// under the project's own; empty leaves it off.
 	Global string
+	// Crons is the user's file of schedules, ~/.repogo/crons.json: what runs
+	// with no one calling. Empty runs nothing on a schedule.
+	Crons string
 	// Emit sends a subscription's new answer to the device that made it.
 	Emit func(device.ID, emit.Event) error
 	// Notify pushes a plugin's alert to the phones; nil drops it.
@@ -72,6 +75,9 @@ type Service struct {
 
 	// startMu makes starting the server one caller's job.
 	startMu sync.Mutex
+	// cronMu makes reconciling one pass at a time, from reading the file to the
+	// last reply: two passes interleaved could each undo the other's schedules.
+	cronMu sync.Mutex
 
 	mu       sync.Mutex
 	server   *server
@@ -79,6 +85,10 @@ type Service struct {
 	subs     map[string]*subscription
 	// prints is each checkout's plugins as last loaded, to reload on a change.
 	prints map[string]string
+	// crons is crons.json's entries as of the last reconcile, and cronDirs the
+	// folders that got schedules then, to clear when the file stops naming them.
+	crons    []Cron
+	cronDirs map[string]bool
 }
 
 // subscription is one device's subscription, by the id the device picked. The
@@ -167,9 +177,12 @@ func isDir(path string) bool {
 }
 
 // List is the manifest of a folder's plugins (each one's `dir`, methods and input
-// schemas; a project plugin hides an environment one of its name) and the pages
-// that show their queries.
+// schemas; a project plugin hides an environment one of its name), the pages
+// that show their queries, and crons.json's entries, read again so an edit shows.
 func (s *Service) List(ctx context.Context, path string) (Answer, error) {
+	if s.cfg.Crons != "" {
+		s.reconcile(ctx)
+	}
 	targets, err := s.targets(path)
 	if err != nil {
 		return Answer{}, err
@@ -205,7 +218,7 @@ func (s *Service) List(ctx context.Context, path string) (Answer, error) {
 	var result bytes.Buffer
 	encoder := json.NewEncoder(&result)
 	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(map[string]any{"plugins": plugins, "pages": pages(checkout(path), s.cfg.Global)}); err != nil {
+	if err := encoder.Encode(map[string]any{"plugins": plugins, "pages": pages(checkout(path), s.cfg.Global), "crons": s.Crons()}); err != nil {
 		return Answer{}, err
 	}
 	return Answer{Result: bytes.TrimSpace(result.Bytes())}, nil

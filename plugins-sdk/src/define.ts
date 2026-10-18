@@ -31,13 +31,6 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
 
 export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>;
 
-/**
- * Runs one of the plugin's methods on a schedule, called with `{}` as a tap
- * would: `{ method: "watch", schedule: "*\/5 * * * *" }`. `schedule` is a cron,
- * five fields or six with seconds first; `timezone` defaults to the environment's.
- */
-export type Cron = { method: string; schedule: string; timezone?: string };
-
 export type PluginDefinition = {
   /** One line, shown to the agent in the index of plugins. */
   description?: string;
@@ -57,7 +50,6 @@ export type PluginDefinition = {
   streams?: Record<string, StreamDefinition>;
   methods?: Record<string, Method<any, any>>;
   on?: Record<string, Handler>;
-  crons?: Cron[];
   /**
    * Data named here gets no generated methods (list, create, delete…), so cards
    * and agents reach it only through the plugin's own: an audit log, say.

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Caller, Manifest, Notice } from "./context";
+import type { Caller, CronEntry, CronStatus, Manifest, Notice } from "./context";
 import type { PluginDefinition } from "./define";
 import { Runtime } from "./runtime";
 
@@ -18,6 +18,8 @@ export type TestCall = {
 export type TestRuntime = {
   /** Runs `<plugin>.<method>` and returns its answer, or throws its MethodError. */
   call: (method: string, input?: unknown, options?: TestCall) => Promise<unknown>;
+  /** Sets the schedules, the whole set, as the host does from `~/.repogo/crons.json`. */
+  setCrons: (crons: CronEntry[]) => CronStatus[];
   /** Runs every cron due at `now` and waits for them. */
   tickCrons: (now?: number) => Promise<void>;
   manifest: () => Manifest;
@@ -47,6 +49,7 @@ export async function testRuntime(plugins: Record<string, PluginDefinition>, opt
   }
   return {
     call: async (method, input = {}, call = {}) => (await runtime.call(method, input, call)).result,
+    setCrons: (crons) => runtime.setCrons(crons),
     tickCrons: async (now) => { await Promise.all(runtime.tickCrons(now)); },
     manifest: () => runtime.manifest(),
     notices,

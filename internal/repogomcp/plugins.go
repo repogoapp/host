@@ -21,7 +21,8 @@ var pluginsTool = tool{
 		"~/.repogo/plugins (each plugin's `dir` says which), with each plugin's methods, " +
 		"whether a method is a query (reads) or a mutation (writes), and the JSON Schema of its input; " +
 		"and `pages`, where a project or plugin page already shows a query: its `target` to open with page:, " +
-		"and the `params` to add to it. Call this before plugin_call, and again after writing or changing a plugin.",
+		"and the `params` to add to it; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
+		"Call this before plugin_call, and again after writing or changing a plugin or crons.json.",
 	InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 }
 

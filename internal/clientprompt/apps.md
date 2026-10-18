@@ -42,13 +42,15 @@ aborts when the card goes, so pass it on (Bun.spawn(cmd, { signal:
 ctx.signal })). Give items an id. Like a query it may not write;
 plugin_call on one returns what arrives within 5 s, at most 200 items.
 For what should happen with no one looking (a check every 5 minutes, a
-morning summary), add crons: [{ method: "watch", schedule: "*/5 * * * *" }]
-to definePlugin: the host calls that method with {} on time, and it may
-write and ctx.notify the phones. A schedule is a cron, five fields or six
-with seconds first; timezone defaults to the environment's. A cron of a
+morning summary), and only when the user asks for it, add a line to
+~/.repogo/crons.json, a JSON array the user owns: { "plugin": "watch",
+"method": "check", "schedule": "*/5 * * * *" }, with "project": "<path>"
+for a project's plugin. The host calls the method with {} on time; it
+may write and ctx.notify the phones. A schedule is a cron, five fields or
+six with seconds first; "timezone" defaults to the environment's. Then
+call `plugins`: each line shows its error or its next run. A cron of a
 plugin in ~/.repogo/plugins runs with ctx.root at the home folder, and
-every plugin in a folder shares one thread, so never block it (no
-synchronous walk of a big folder).
+plugins in a folder share one thread, so never block it.
 A plugin's data, in ~/.repogo/plugin-data/<namespace>/ (namespace is
 required, shared by every plugin naming it), comes in four kinds:
 collections of records (ctx.collections.tasks), kv with optional ttl
