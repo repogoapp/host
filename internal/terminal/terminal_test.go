@@ -87,7 +87,7 @@ func TestSessionRunsCommandsAndReplaysScrollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if info.SessionID == "" || info.PID == 0 {
+	if info.SessionID == "" || info.CreatedAt == 0 {
 		t.Fatalf("create returned an unusable session: %+v", info)
 	}
 
@@ -98,7 +98,7 @@ func TestSessionRunsCommandsAndReplaysScrollback(t *testing.T) {
 
 	// A second device attaching gets the history it missed — the whole reason
 	// the buffer lives on the host.
-	buffered, _, err := m.Attach("ipad", info.SessionID)
+	buffered, err := m.Attach("ipad", info.SessionID)
 	if err != nil {
 		t.Fatalf("attach: %v", err)
 	}

@@ -138,7 +138,7 @@ type EnvSources interface {
 
 // Terminals opens a terminal run's tab and closes it.
 type Terminals interface {
-	StartCommand(terminal.Command, func(code int, finished bool)) (terminal.Info, error)
+	StartCommand(terminal.Command, func(code int, finished bool)) (sessionID string, pid int, err error)
 	Close(id string) error
 }
 
@@ -318,13 +318,13 @@ func (s *Service) start(caller device.ID, project, name string, sent map[string]
 	if action.Terminal {
 		return s.begin(caller, dir, action, ModeTerminal, func(run *store.ActionRun) (func(store.ActionRun), error) {
 			id := run.ID
-			info, err := s.d.Terminals.StartCommand(terminal.Command{Dir: cwd, Cmd: action.Cmd, Env: env},
+			sessionID, pid, err := s.d.Terminals.StartCommand(terminal.Command{Dir: cwd, Cmd: action.Cmd, Env: env},
 				func(code int, finished bool) { s.ended(id, code, finished) })
 			if err != nil {
 				return nil, err
 			}
-			run.PID, run.SessionID = info.PID, info.SessionID
-			return func(store.ActionRun) { _ = s.d.Terminals.Close(info.SessionID) }, nil
+			run.PID, run.SessionID = pid, sessionID
+			return func(store.ActionRun) { _ = s.d.Terminals.Close(sessionID) }, nil
 		})
 	}
 	return s.begin(caller, dir, action, ModeDetached, func(run *store.ActionRun) (func(store.ActionRun), error) {

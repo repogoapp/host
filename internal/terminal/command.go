@@ -21,18 +21,19 @@ type Command struct {
 }
 
 // StartCommand opens a tab running c and calls ended once with the command's
-// exit code, or with finished false when the tab closed first.
-func (m *Manager) StartCommand(c Command, ended func(code int, finished bool)) (Info, error) {
+// exit code, or with finished false when the tab closed first. The pid is the
+// process group a stop signals.
+func (m *Manager) StartCommand(c Command, ended func(code int, finished bool)) (sessionID string, pid int, err error) {
 	dir, err := m.paths.Contain(c.Dir)
 	if err != nil {
-		return Info{}, err
+		return "", 0, err
 	}
 	if m.Open() >= maxSessions {
-		return Info{}, ErrTooMany
+		return "", 0, ErrTooMany
 	}
 	r, w, err := os.Pipe()
 	if err != nil {
-		return Info{}, err
+		return "", 0, err
 	}
 
 	shell := LoginShell()
@@ -46,7 +47,7 @@ func (m *Manager) StartCommand(c Command, ended func(code int, finished bool)) (
 	w.Close()
 	if err != nil {
 		r.Close()
-		return Info{}, err
+		return "", 0, err
 	}
 	go func() {
 		raw, _ := io.ReadAll(r)
@@ -55,5 +56,5 @@ func (m *Manager) StartCommand(c Command, ended func(code int, finished bool)) (
 		ended(code, err == nil)
 	}()
 	m.log.Info("terminal: command opened", "session", s.id, "cwd", dir)
-	return s.info(), nil
+	return s.id, cmd.Process.Pid, nil
 }

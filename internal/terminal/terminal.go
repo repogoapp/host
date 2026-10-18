@@ -53,15 +53,11 @@ var (
 	ErrNoProject = errkind.New(errkind.Invalid, "terminal: a project directory is required")
 )
 
-// Info is one session on the wire.
+// Info is one session on the wire: its id and when it opened, which is the
+// tab order. The phone sizes the PTY itself and keeps names locally.
 type Info struct {
 	SessionID string `json:"session_id"`
-	Cwd       string `json:"cwd"`
-	Shell     string `json:"shell"`
-	PID       int    `json:"pid"`
-	Cols      int    `json:"cols"`
-	Rows      int    `json:"rows"`
-	CreatedAt int64  `json:"created_at_ms"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 type Manager struct {
@@ -264,10 +260,10 @@ func (m *Manager) changed(cwd string) {
 
 // Attach subscribes the caller to a session's output and returns the scrollback
 // it missed, snapshotted under the append lock so no chunk is lost or doubled.
-func (m *Manager) Attach(caller device.ID, id string) ([]byte, Info, error) {
+func (m *Manager) Attach(caller device.ID, id string) ([]byte, error) {
 	s, err := m.lookup(id)
 	if err != nil {
-		return nil, Info{}, err
+		return nil, err
 	}
 	s.mu.Lock()
 	s.watchers[caller] = struct{}{}
@@ -279,7 +275,7 @@ func (m *Manager) Attach(caller device.ID, id string) ([]byte, Info, error) {
 	buffered := make([]byte, len(snapshot))
 	copy(buffered, snapshot)
 	s.mu.Unlock()
-	return buffered, s.info(), nil
+	return buffered, nil
 }
 
 // Detach stops pushing to one device without touching the shell. A session
@@ -317,9 +313,6 @@ func (m *Manager) Resize(id string, cols, rows int) error {
 	if err := pty.Setsize(s.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}); err != nil {
 		return fmt.Errorf("terminal: resize: %w", err)
 	}
-	s.mu.Lock()
-	s.cols, s.rows = cols, rows
-	s.mu.Unlock()
 	return nil
 }
 
@@ -482,22 +475,8 @@ func (m *Manager) push(s *session, ev emit.Event) {
 	}
 }
 
-// info is locked because geometry changes under a resize while a list is being
-// built, and the two run on different goroutines.
 func (s *session) info() Info {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return Info{
-		SessionID: s.id, Cwd: s.cwd, Shell: s.shell, Cols: s.cols, Rows: s.rows,
-		PID: pidOf(s.cmd), CreatedAt: s.createdAt.UnixMilli(),
-	}
-}
-
-func pidOf(cmd *exec.Cmd) int {
-	if cmd.Process == nil {
-		return 0
-	}
-	return cmd.Process.Pid
+	return Info{SessionID: s.id, CreatedAt: s.createdAt.UnixMilli()}
 }
 
 // appendCapped keeps the tail. Reallocating the whole buffer on every read

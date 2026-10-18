@@ -41,8 +41,9 @@ type ResizeParams struct {
 	Rows      int    `json:"rows"`
 }
 
+// AttachResult is the scrollback the caller missed; the session itself is in
+// the list it attached from.
 type AttachResult struct {
-	terminal.Info
 	BufferedOutput []byte `json:"buffered_output"`
 }
 
@@ -82,8 +83,8 @@ func (d Deps) unsubscribe(_ context.Context, c rpc.Caller, a CwdParams) (rpc.Ack
 }
 
 func (d Deps) attach(_ context.Context, c rpc.Caller, a SessionParams) (AttachResult, error) {
-	buffered, info, err := d.Terminals.Attach(c.Device, a.SessionID)
-	return AttachResult{Info: info, BufferedOutput: buffered}, err
+	buffered, err := d.Terminals.Attach(c.Device, a.SessionID)
+	return AttachResult{BufferedOutput: buffered}, err
 }
 
 func (d Deps) detach(_ context.Context, c rpc.Caller, a SessionParams) (rpc.Ack, error) {
