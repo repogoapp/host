@@ -145,7 +145,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 Signal: not replayed; a missed one is recovered by refetching.
 
 - `pipe_id` string
-- `reason` string
 
 ## `forward.pipe_data`
 
@@ -215,7 +214,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 
 Signal: not replayed; a missed one is recovered by refetching.
 
-- `schedules` [object{Row}]
+- `schedules` [object{Schedule}]
 
 ## `terminals.changed`
 

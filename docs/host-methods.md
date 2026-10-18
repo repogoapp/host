@@ -544,17 +544,11 @@ Result:
 Params:
 
 - `port` int
-- `method` string
 - `path` string
-- `headers` object (omitted when empty) (nullable)
-- `body` base64 (omitted when empty) (nullable)
 
 Result:
 
 - `status` int
-- `headers` object (omitted when empty) (nullable)
-- `body` base64 (omitted when empty) (nullable)
-- `truncated` bool (omitted when empty)
 
 ## `forward.pipe_close`
 
@@ -667,11 +661,7 @@ Params:
 
 Result:
 
-- `path` string
-- `content` base64
-- `size` int
 - `mod_time` int
-- `binary` bool
 
 ## `fs.search`
 
@@ -723,11 +713,7 @@ Params:
 
 Result:
 
-- `path` string
-- `content` base64
-- `size` int
 - `mod_time` int
-- `binary` bool
 
 ## `git.branches`
 
@@ -737,7 +723,6 @@ Params:
 
 Result:
 
-- `path` string
 - `branches` [object{Branch}]
 
 ## `git.changes`
@@ -752,7 +737,6 @@ Params:
 
 Result:
 
-- `path` string
 - `files` [object{FileChange}]
 
 ## `git.commit_push`
@@ -769,7 +753,6 @@ Result:
 - `commit` string
 - `branch` string
 - `pushed` bool
-- `shipped` object{Shipped} (omitted when empty) (nullable)
 
 ## `git.create_branch`
 
@@ -797,7 +780,9 @@ Params:
 
 Result:
 
-- `working` object{ChangeSet}
+- `files_changed` int
+- `additions` int
+- `deletions` int
 
 ## `git.patch`
 
@@ -810,8 +795,6 @@ Params:
 
 Result:
 
-- `base` string
-- `head` string (omitted when empty)
 - `files` [object{FileChange}] (omitted when empty) (nullable)
 - `text` string (omitted when empty)
 - `truncated` bool (omitted when empty)
@@ -877,11 +860,8 @@ Params:
 Result:
 
 - `login` string (omitted when empty)
-- `url` string (omitted when empty)
 - `content_hash` string (omitted when empty)
-- `content_type` string (omitted when empty)
 - `bytes` base64 (omitted when empty) (nullable)
-- `not_modified` bool (omitted when empty)
 
 ## `github.clone`
 
@@ -893,7 +873,6 @@ Params:
 
 Result:
 
-- `name_with_owner` string
 - `path` string
 - `existed` bool (omitted when empty)
 
@@ -911,15 +890,7 @@ Params:
 
 Result:
 
-- `number` int
 - `url` string
-- `state` string
-- `title` string
-- `base` string
-- `head` string
-- `merged` bool (omitted when empty)
-- `existed` bool (omitted when empty)
-- `shipped` object{Shipped} (omitted when empty) (nullable)
 
 ## `github.publish`
 
@@ -1267,8 +1238,7 @@ Params:
 
 Result:
 
-- `killed_pids` [int]
-- `command` string (omitted when empty)
+- `processes` int
 
 ## `ports.list`
 
@@ -1457,7 +1427,7 @@ Params:
 
 Result:
 
-- `schedules` [object{Row}]
+- `schedules` [object{Schedule}]
 
 ## `schedules.save`
 
@@ -1501,13 +1471,6 @@ Params:
 
 Result:
 
-- `session_id` string
-- `cwd` string
-- `shell` string
-- `pid` int
-- `cols` int
-- `rows` int
-- `created_at_ms` int
 - `buffered_output` base64 (nullable)
 
 ## `terminals.close`
@@ -1531,12 +1494,7 @@ Params:
 Result:
 
 - `session_id` string
-- `cwd` string
-- `shell` string
-- `pid` int
-- `cols` int
-- `rows` int
-- `created_at_ms` int
+- `created_at` int
 
 ## `terminals.detach`
 
@@ -1612,11 +1570,8 @@ Params:
 Result:
 
 - `kind` string
-- `ran` string (omitted when empty)
 - `ok` bool
 - `error` string (omitted when empty)
-- `output` string (omitted when empty)
-- `version` string (omitted when empty)
 
 ## `tools.login_cancel`
 
@@ -1675,11 +1630,8 @@ Params:
 Result:
 
 - `kind` string
-- `ran` string (omitted when empty)
 - `ok` bool
 - `error` string (omitted when empty)
-- `output` string (omitted when empty)
-- `version` string (omitted when empty)
 
 ## `tools.uninstall`
 
@@ -1692,11 +1644,8 @@ Params:
 Result:
 
 - `kind` string
-- `ran` string (omitted when empty)
 - `ok` bool
 - `error` string (omitted when empty)
-- `output` string (omitted when empty)
-- `version` string (omitted when empty)
 
 ## `tools.update`
 
