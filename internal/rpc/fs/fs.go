@@ -91,6 +91,12 @@ type WriteParams struct {
 	files.Scope
 }
 
+// WriteResult is the saved file's mod_time, which the caller's next read or
+// write sends; the caller already holds what it wrote.
+type WriteResult struct {
+	ModTime int64 `json:"mod_time"`
+}
+
 // ReplaceParams swaps the one place Old appears for New.
 type ReplaceParams struct {
 	Path    string `json:"path"`
@@ -146,12 +152,14 @@ func (d Deps) read(_ context.Context, _ rpc.Caller, a ReadParams) (ReadResult, e
 	return ReadResult{File: file, Unchanged: err == nil && !changed}, err
 }
 
-func (d Deps) write(_ context.Context, _ rpc.Caller, a WriteParams) (files.File, error) {
-	return d.Files.WriteWith(a.Path, a.Content, files.WriteOptions{Create: a.Create, ModTime: a.ModTime, Scope: a.Scope})
+func (d Deps) write(_ context.Context, _ rpc.Caller, a WriteParams) (WriteResult, error) {
+	file, err := d.Files.WriteWith(a.Path, a.Content, files.WriteOptions{Create: a.Create, ModTime: a.ModTime, Scope: a.Scope})
+	return WriteResult{ModTime: file.ModTime}, err
 }
 
-func (d Deps) replace(_ context.Context, _ rpc.Caller, a ReplaceParams) (files.File, error) {
-	return d.Files.Replace(a.Path, a.Old, a.New, files.WriteOptions{ModTime: a.ModTime, Scope: a.Scope})
+func (d Deps) replace(_ context.Context, _ rpc.Caller, a ReplaceParams) (WriteResult, error) {
+	file, err := d.Files.Replace(a.Path, a.Old, a.New, files.WriteOptions{ModTime: a.ModTime, Scope: a.Scope})
+	return WriteResult{ModTime: file.ModTime}, err
 }
 
 func (d Deps) search(_ context.Context, _ rpc.Caller, a SearchParams) (files.SearchResult, error) {
