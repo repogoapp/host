@@ -20,10 +20,7 @@ type reading struct {
 func (r reading) Battery() (power.Battery, bool) { return r.b, r.ok }
 
 func TestStatusCarriesTheBatteryOnceRead(t *testing.T) {
-	status, err := newService(reading{}).Status(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	status := newService(reading{}).Status()
 	if status.Battery != nil {
 		t.Fatalf("battery %+v before the first reading", status.Battery)
 	}
@@ -33,7 +30,7 @@ func TestStatusCarriesTheBatteryOnceRead(t *testing.T) {
 	}
 
 	want := power.Battery{Present: true, Percent: 42, Charging: true, PluggedIn: true}
-	if status, _ = newService(reading{want, true}).Status(context.Background()); status.Battery == nil || *status.Battery != want {
+	if status = newService(reading{want, true}).Status(); status.Battery == nil || *status.Battery != want {
 		t.Fatalf("battery %+v, want %+v", status.Battery, want)
 	}
 }
@@ -44,10 +41,7 @@ func TestStatusCarriesTheNetworkWithoutWaitingOnTheLookup(t *testing.T) {
 		PublicIP: func(context.Context) (string, error) { close(lookedUp); return "203.0.113.7", nil }})
 	s.SetPort(7300)
 
-	status, err := s.Status(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	status := s.Status()
 	if status.Network.Port != 7300 || status.Network.PublicIP != "" {
 		t.Fatalf("network %+v before the lookup, want port 7300 and no public IP", status.Network)
 	}
@@ -57,7 +51,7 @@ func TestStatusCarriesTheNetworkWithoutWaitingOnTheLookup(t *testing.T) {
 	go s.WatchPublicIP(ctx)
 	<-lookedUp
 	testwait.For(t, "the public IP", func() bool {
-		status, _ = s.Status(context.Background())
+		status = s.Status()
 		return status.Network.PublicIP != ""
 	})
 	if status.Network.PublicIP != "203.0.113.7" {
@@ -94,10 +88,7 @@ func TestReleaseSaysWhetherTheHostIsBehind(t *testing.T) {
 }
 
 func TestStatusCarriesTheHomeVolume(t *testing.T) {
-	status, err := newService(reading{}).Status(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	status := newService(reading{}).Status()
 	if s := status.Storage; s == nil || s.TotalBytes == 0 || s.FreeBytes > s.TotalBytes {
 		t.Fatalf("storage %+v, want the home volume with free within total", s)
 	}

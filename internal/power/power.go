@@ -18,7 +18,7 @@ import (
 	"github.com/repogoapp/host/internal/syscmd"
 )
 
-func (Battery) Method() string { return "host.power" }
+func (Battery) Method() string { return "host.battery" }
 
 // SudoersPath is the rule `repogo keep-awake enable` installs; the lid hold needs it.
 const SudoersPath = "/etc/sudoers.d/repogo"

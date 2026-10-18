@@ -39,8 +39,7 @@ func start(t *testing.T) *running {
 	}
 	th.Start()
 	testwait.For(t, "the host to attach to the relay", func() bool {
-		s, err := th.Config.Host.Status(t.Context())
-		return err == nil && s.RelayConnected
+		return th.Config.Host.Status().RelayConnected
 	})
 	return &running{Host: th, ws: fmt.Sprintf("ws://%s/ws", addr), relay: relay}
 }

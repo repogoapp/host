@@ -3,7 +3,6 @@ package hostinfo
 
 import (
 	"context"
-	"os"
 	"sync"
 	"time"
 
@@ -20,7 +19,6 @@ func init() {
 // Release, which host.setup carries.
 type Status struct {
 	Version        string `json:"version"`
-	Executable     string `json:"executable"`
 	Uptime         int64  `json:"uptime_seconds"`
 	RelayConnected bool   `json:"relay_connected"`
 	// UpdateFailed says why the last update was rolled back, for a phone
@@ -30,9 +28,7 @@ type Status struct {
 	Battery *power.Battery `json:"battery,omitempty"`
 	// Absent when the home volume can't be read.
 	Storage *Storage `json:"storage,omitempty"`
-	// Cloud is set on a host that runs for a bounded session.
-	Cloud   *Cloud  `json:"cloud,omitempty"`
-	Network Network `json:"network"`
+	Network Network  `json:"network"`
 	// Capabilities are what a phone may ask of this host, such as
 	// CapabilitySchedules; a phone filters its pickers on them.
 	Capabilities []string `json:"capabilities,omitempty"`
@@ -150,18 +146,13 @@ func (s *Service) Release(ctx context.Context) Release {
 }
 
 // Status is the host as it runs now; it asks nothing over the network.
-func (s *Service) Status(ctx context.Context) (Status, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return Status{}, err
-	}
+func (s *Service) Status() Status {
 	local := localNetwork()
 	storage, hasStorage := homeStorage()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := Status{
 		Version:        release.Version,
-		Executable:     executable,
 		Uptime:         int64(time.Since(s.started).Seconds()),
 		UpdateFailed:   s.d.UpdateFailed,
 		RelayConnected: s.d.Relay(),
@@ -177,11 +168,8 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}
-	if s.cloud != nil {
-		c := *s.cloud
-		out.Cloud = &c
-	} else {
+	if s.cloud == nil {
 		out.Capabilities = append(out.Capabilities, CapabilitySchedules)
 	}
-	return out, nil
+	return out
 }

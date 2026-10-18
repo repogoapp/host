@@ -46,8 +46,8 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "host.set_stops_at", d.setStopsAt)
 }
 
-func (d Deps) status(ctx context.Context, _ rpc.Caller, _ rpc.None) (hostinfo.Status, error) {
-	return d.Service.Status(ctx)
+func (d Deps) status(context.Context, rpc.Caller, rpc.None) (hostinfo.Status, error) {
+	return d.Service.Status(), nil
 }
 
 func (d Deps) setup(ctx context.Context, _ rpc.Caller, a SetupParams) (hostsetup.Setup, error) {

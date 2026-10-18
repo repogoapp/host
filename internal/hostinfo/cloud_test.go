@@ -24,10 +24,7 @@ func TestAMacHasNoCloudSession(t *testing.T) {
 	if _, err := s.SetStopsAt(time.Now().Add(time.Hour)); !errors.Is(err, ErrNotCloud) {
 		t.Fatalf("SetStopsAt on a Mac: %v, want ErrNotCloud", err)
 	}
-	status, _ := s.Status(context.Background())
-	if status.Cloud != nil {
-		t.Fatalf("status cloud %+v on a Mac", status.Cloud)
-	}
+	status := s.Status()
 	if !slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) ||
 		!slices.Contains(status.Capabilities, CapabilityDevices) {
 		t.Fatalf("capabilities %v on a Mac, want devices, schedules and usage", status.Capabilities)
@@ -50,10 +47,10 @@ func TestAnExtensionSurvivesARestartAndANewSessionReplacesIt(t *testing.T) {
 	if _, err := s.SetStopsAt(extended); err != nil {
 		t.Fatal(err)
 	}
-	status, _ := s.Status(context.Background())
-	if status.Cloud == nil || !status.Cloud.StopsAt.Equal(extended) {
-		t.Fatalf("status cloud %+v, want until %v", status.Cloud, extended)
+	if c := s.Cloud(); c == nil || !c.StopsAt.Equal(extended) {
+		t.Fatalf("extended cloud %+v, want until %v", c, extended)
 	}
+	status := s.Status()
 	if slices.Contains(status.Capabilities, CapabilitySchedules) || !slices.Contains(status.Capabilities, CapabilityUsage) ||
 		!slices.Contains(status.Capabilities, CapabilityDevices) {
 		t.Fatalf("capabilities %v on a bounded session, want devices and usage only", status.Capabilities)

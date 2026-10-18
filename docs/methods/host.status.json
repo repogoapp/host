@@ -1,6 +1,5 @@
 {
   "version": "version",
-  "executable": "executable",
   "uptime_seconds": 1,
   "relay_connected": true,
   "update_failed": "update_failed",
@@ -13,10 +12,6 @@
   "storage": {
     "total_bytes": 1,
     "free_bytes": 1
-  },
-  "cloud": {
-    "provider": "provider",
-    "stops_at": "0001-01-01T00:00:00Z"
   },
   "network": {
     "lan_ip": "lan_ip",
