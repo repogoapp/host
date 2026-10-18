@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/rpc"
 )
@@ -107,5 +108,53 @@ func TestHostToolsNeedTheRouter(t *testing.T) {
 	s := hostToolsServer(t, nil)
 	if names := toolNames(t, s, attachIn(t, s, t.TempDir())); strings.Contains(names, "chats_") {
 		t.Fatalf("tools %s", names)
+	}
+}
+
+// A host tool's method hears which chat called and what its turn runs with,
+// the limits on what it may start or send.
+func TestHostToolsNameTheCallingChat(t *testing.T) {
+	calls := map[string]rpc.Caller{}
+	s := hostToolsServer(t, hostRouter(t, calls))
+	turn := agent.RunningTurn{Ctx: t.Context(), TurnID: "t1", ChatID: "claude:s1", Cwd: t.TempDir(), Device: "phone",
+		Config: agent.TurnConfig{PermissionMode: agent.PermissionAutoAcceptEdits, Mode: "plan"}}
+	token, release := bearer(t, s, &fakeSession{turn: turn})
+	defer release()
+	if got := callTool(t, s, token, "chats_pin", map[string]any{"chat_id": "codex:other", "pinned": true}); got.IsError {
+		t.Fatalf("result %+v", got)
+	}
+	want := rpc.AgentCaller{ChatID: "claude:s1", PermissionMode: "auto-accept-edits", Mode: "plan"}
+	if c := calls["chats.pin"]; c.Agent == nil || *c.Agent != want {
+		t.Fatalf("caller's agent %+v, want %+v", c.Agent, want)
+	}
+}
+
+// A chat another chat's agent started can't start or message chats: neither
+// tool is listed, and a call by name is refused before the method runs. It
+// keeps the rest.
+func TestAChildCantStartOrMessageChats(t *testing.T) {
+	calls := map[string]rpc.Caller{}
+	s := hostToolsServer(t, hostRouter(t, calls))
+	cwd := t.TempDir()
+	turn := agent.RunningTurn{Ctx: t.Context(), TurnID: "t1", ChatID: "codex:child", Cwd: cwd, Device: "phone", Parent: "claude:parent"}
+	entry, release := s.Attach(&fakeSession{turn: turn}, agent.TurnRequest{Cwd: cwd, Parent: "claude:parent"})
+	defer release()
+	token := strings.TrimPrefix(entry.Headers[0].Value, "Bearer ")
+
+	names := "," + toolNames(t, s, token) + ","
+	if strings.Contains(names, ",chats_start,") || strings.Contains(names, ",chats_send,") || !strings.Contains(names, ",chats_list,") {
+		t.Fatalf("a child's tools: %s", names)
+	}
+	for _, name := range []string{"chats_start", "chats_send"} {
+		got := callTool(t, s, token, name, map[string]any{"chat_id": "claude:other"})
+		if !got.IsError || !strings.Contains(got.Content[0].Text, "another chat started this one") {
+			t.Fatalf("%s from a child answered %+v", name, got)
+		}
+	}
+	if _, ran := calls["chats.send"]; ran {
+		t.Fatal("chats.send ran for a child")
+	}
+	if got := callTool(t, s, token, "chats_pin", map[string]any{"chat_id": "claude:other", "pinned": true}); got.IsError {
+		t.Fatalf("a child's other tools: %+v", got)
 	}
 }

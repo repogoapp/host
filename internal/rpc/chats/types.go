@@ -37,11 +37,15 @@ type Query struct {
 	// Search keeps the chats whose title, prompts and replies hold every word
 	// of it; each row then carries match, the words around the hit.
 	Search string `json:"search" doc:"Words a chat's title, prompts or replies must all hold"`
+
+	// Parent lists the chats one chat's agent started; empty leaves them out
+	// unless Search is set, as the drawer does.
+	Parent store.ChatID `json:"parent" doc:"Only the chats this chat's agent started; empty leaves those out"`
 }
 
 func (q Query) store() store.ChatQuery {
 	return store.ChatQuery{
-		Cwd: q.Cwd, Cwds: q.Cwds, Resolved: q.Resolved, Agent: q.Agent, Search: q.Search,
+		Cwd: q.Cwd, Cwds: q.Cwds, Resolved: q.Resolved, Agent: q.Agent, Search: q.Search, Parent: q.Parent,
 		Sort: store.ChatSort(q.Sort), Order: store.ChatOrder(q.Order),
 	}
 }
@@ -138,11 +142,31 @@ type StartParams struct {
 	Title string    `json:"title" doc:"The chat's name; empty takes the message's opening words"`
 	// ProjectAgent names one of the project's own agents when Agent is acp.
 	ProjectAgent string `json:"project_agent,omitempty"`
+	// Child is for an agent starting a chat: unset or true starts one under
+	// the calling chat, out of the drawer; false opens one for the user.
+	Child *bool `json:"child,omitempty" doc:"For an agent: false opens a normal chat for the user; omit to start one under this chat"`
 }
 
 type StartResult struct {
 	TurnID string          `json:"turn_id"`
 	State  agent.TurnState `json:"state"`
+}
+
+// WaitParams names a turn, as chats.start and chats.send return it. TimeoutMS
+// is how long to wait; zero is waitDefault, and it is capped at waitMax.
+type WaitParams struct {
+	TurnID    string `json:"turn_id" doc:"The turn_id chats.start or chats.send returned"`
+	TimeoutMS int    `json:"timeout_ms" doc:"How long to wait; default 50000, at most 300000"`
+}
+
+// WaitResult is the turn when it ended or the wait ran out. ChatID is set once
+// the agent has named its chat; Reply is its last message.
+type WaitResult struct {
+	TurnID string          `json:"turn_id"`
+	ChatID store.ChatID    `json:"chat_id,omitempty"`
+	State  agent.TurnState `json:"state"`
+	Reply  string          `json:"reply,omitempty"`
+	Error  string          `json:"error,omitempty"`
 }
 
 type ResolveParams struct {

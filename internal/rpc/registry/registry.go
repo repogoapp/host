@@ -165,7 +165,9 @@ func New(cfg Config) (*rpc.Router, error) {
 	toolsrpc.Register(r, toolsrpc.Deps{Tools: cfg.Tools})
 	shippingrpc.Register(r, shippingrpc.Deps{Usage: cfg.Usage, ModelLabel: cfg.AgentCatalog.ModelLabel})
 	portsrpc.Register(r)
-	agentsrpc.Register(r, agentsrpc.Deps{Files: cfg.Files, Environment: cfg.Agents, Project: cfg.ProjectAgents})
+	agentsrpc.Register(r, agentsrpc.Deps{
+		Files: cfg.Files, Environment: cfg.Agents, Project: cfg.ProjectAgents, Catalog: cfg.AgentCatalog,
+	})
 	forwardrpc.Register(r, forwardrpc.Deps{Fetcher: cfg.Fetcher, Pipes: cfg.Pipes})
 	terminalsrpc.Register(r, terminalsrpc.Deps{Terminals: cfg.Terminals})
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})

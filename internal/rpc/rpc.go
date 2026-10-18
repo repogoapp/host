@@ -36,6 +36,17 @@ const (
 type Caller struct {
 	Device device.ID
 	Scope  Scope
+	// Agent is the chat whose agent calls through RepoGo's MCP, set by the
+	// host and never from params; nil for a device.
+	Agent *AgentCaller
+}
+
+// AgentCaller is a chat calling through its agent, and what its turn runs
+// with: the most a chat it starts or messages may get.
+type AgentCaller struct {
+	ChatID         string
+	PermissionMode string
+	Mode           string
 }
 
 // The router's errors are errkind's roots, so a core package's own sentinel

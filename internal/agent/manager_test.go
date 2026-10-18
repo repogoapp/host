@@ -249,3 +249,51 @@ func TestAdoptedTurnQueuesSendsAndStops(t *testing.T) {
 		t.Fatalf("idle chat: %v, want ErrNotFound", err)
 	}
 }
+
+// replyingAdapter says something, calls a tool, answers, then finishes once
+// release closes.
+type replyingAdapter struct{ release chan struct{} }
+
+func (replyingAdapter) Kind() Kind       { return KindClaude }
+func (replyingAdapter) Available() error { return nil }
+func (a replyingAdapter) Send(ctx context.Context, _ TurnRequest, io TurnIO) (Result, error) {
+	io.Emit(Event{Kind: EventText, Text: "Looking."})
+	io.Emit(Event{Kind: EventToolCall})
+	io.Emit(Event{Kind: EventToolResult})
+	io.Emit(Event{Kind: EventText, Text: "Found "})
+	io.Emit(Event{Kind: EventText, Text: "it."})
+	select {
+	case <-a.release:
+		return Result{}, nil
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	}
+}
+
+// Wait returns at its deadline with the turn still running, and once the turn
+// ends with the agent's last message: the text after its last tool call.
+func TestWaitReturnsTheLastMessageWhenTheTurnEnds(t *testing.T) {
+	release := make(chan struct{})
+	m := NewManager(discard(), quiet(), replyingAdapter{release: release})
+	st, err := m.Send(TurnRequest{ChatID: "claude:s1", Cwd: t.TempDir(), Agent: KindClaude, Prompt: "find it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop(st.TurnID)
+
+	expired, cancel := context.WithCancel(t.Context())
+	cancel()
+	status, _, err := m.Wait(expired, st.TurnID)
+	if err != nil || status.EndedAt != nil {
+		t.Fatalf("a wait past its deadline: ended %v, err %v; want the turn still running", status.EndedAt, err)
+	}
+
+	close(release)
+	status, reply, err := m.Wait(t.Context(), st.TurnID)
+	if err != nil || status.State != StateDone || reply != "Found it." {
+		t.Fatalf("Wait = %q, %q, %v; want done with the last message", status.State, reply, err)
+	}
+	if _, _, err := m.Wait(t.Context(), "no-such-turn"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("waiting on an unknown turn: %v, want ErrNotFound", err)
+	}
+}

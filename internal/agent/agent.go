@@ -112,6 +112,11 @@ type TurnRequest struct {
 	// Device sent the turn, taken from its connection and never from params:
 	// RepoGo's browser tool drives the preview on that phone.
 	Device device.ID `json:"-"`
+
+	// Parent is the chat whose agent started this one, from the calling
+	// session or the chat's marks and never from params. A child's own tools
+	// can't start or message chats.
+	Parent string `json:"parent,omitempty"`
 }
 
 // Attachment is one file that came with a prompt. The bytes are read back
@@ -289,6 +294,10 @@ type TurnIO struct {
 	// The turn and who sent it, for RepoGo's own tools.
 	TurnID string
 	Device device.ID
+	// What the turn runs with and the chat that started its chat, the limits
+	// on what RepoGo's tools let it start or message.
+	Config TurnConfig
+	Parent string
 }
 
 // Adapter is one coding agent. Implementations own their CLI's protocol and

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/chat"
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/rpc/chats"
 	"github.com/repogoapp/host/internal/session"
@@ -132,5 +133,98 @@ func TestUpdateWithNoFieldsAnswersTheRow(t *testing.T) {
 	}
 	if json.Unmarshal(raw, &res) != nil || res.Chat.Title != "demo" {
 		t.Fatalf("update reply = %s", raw)
+	}
+}
+
+// sender records the turns it is handed and answers waits with wait.
+type sender struct {
+	last agent.TurnRequest
+	wait agent.TurnStatus
+}
+
+func (s *sender) Send(req agent.TurnRequest) (agent.TurnStatus, error) {
+	s.last = req
+	return agent.TurnStatus{TurnID: "turn-1", State: agent.StateRunning}, nil
+}
+
+func (s *sender) Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error) {
+	st, err := s.Send(req)
+	return st, false, err
+}
+
+func (*sender) StopChat(string) error    { return agent.ErrNotFound }
+func (*sender) List() []agent.TurnStatus { return nil }
+func (s *sender) Wait(context.Context, string) (agent.TurnStatus, string, error) {
+	return s.wait, "Looks good.", nil
+}
+
+func recordingRouter(t *testing.T) (*rpc.Router, *sender, string) {
+	t.Helper()
+	th := testhost.New(t)
+	d := th.ChatDeps
+	rec := &sender{}
+	d.Sender = rec
+	svc, err := chat.New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := rpc.New(slog.New(slog.DiscardHandler))
+	chats.Register(r, chats.Deps{Chats: svc, Live: th.Config.Live})
+	return r, rec, th.Root
+}
+
+// An agent's start runs under its chat unless it asks for a chat of the
+// user's own; a device's never has a parent, whatever it sends.
+func TestStartFromAnAgentMakesAChild(t *testing.T) {
+	r, rec, root := recordingRouter(t)
+	agentCaller := rpc.Caller{Device: "phone", Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{ChatID: "claude:parent"}}
+	start := func(c rpc.Caller, child any) string {
+		t.Helper()
+		params := map[string]any{"cwd": root, "agent": "codex", "turn": map[string]any{"prompt": "review this"}}
+		if child != nil {
+			params["child"] = child
+		}
+		b, _ := json.Marshal(params)
+		if _, err := r.Call(context.Background(), c, "chats.start", b); err != nil {
+			t.Fatal(err)
+		}
+		return rec.last.Parent
+	}
+	if got := start(agentCaller, nil); got != "claude:parent" {
+		t.Errorf("an agent's start has parent %q, want claude:parent", got)
+	}
+	if got := start(agentCaller, false); got != "" {
+		t.Errorf("child false has parent %q, want none", got)
+	}
+	if got := start(rpc.Caller{Device: "phone", Scope: rpc.ScopeRemote}, true); got != "" {
+		t.Errorf("a device's start has parent %q, want none", got)
+	}
+}
+
+// chats.wait names the chat only once the agent has, and carries its answer.
+func TestWaitNamesTheChatOnceItHasAnID(t *testing.T) {
+	r, rec, _ := recordingRouter(t)
+	rec.wait = agent.TurnStatus{TurnID: "turn-1", ChatID: "6f1c2a", State: agent.StateRunning}
+	out, err := call(t, r, "chats.wait", map[string]any{"turn_id": "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got chats.WaitResult
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ChatID != "" || got.Reply != "Looks good." {
+		t.Fatalf("before the id: %+v", got)
+	}
+	rec.wait = agent.TurnStatus{TurnID: "turn-1", ChatID: "codex:abc", State: agent.StateDone}
+	out, err = call(t, r, "chats.wait", map[string]any{"turn_id": "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ChatID != "codex:abc" || got.State != agent.StateDone {
+		t.Fatalf("after the id: %+v", got)
 	}
 }

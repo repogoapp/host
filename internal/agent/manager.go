@@ -41,6 +41,9 @@ type TurnStatus struct {
 	// The title a new chat was started with. Off the wire: it is for the chat
 	// row and the agent's files, and no device reads it back from a turn.
 	Title string `json:"-"`
+	// The chat whose agent started this one. Off the wire: it is written to
+	// the chat's marks once the chat has its id.
+	Parent string `json:"-"`
 
 	SessionID          string  `json:"session_id,omitempty"`
 	ProviderStopReason *string `json:"provider_stop_reason,omitempty"`
@@ -399,6 +402,7 @@ func (m *Manager) newTurn(req TurnRequest, turnID string, queuedAt time.Time) *t
 
 			PermissionMode: req.Config.PermissionMode,
 			Title:          req.Title,
+			Parent:         req.Parent,
 		},
 	}
 }
@@ -626,6 +630,39 @@ func (m *Manager) Subscribe(turnID string) (<-chan Event, func(), error) {
 	return ch, unsub, nil
 }
 
+// Wait blocks until the turn ends or ctx does, then reports where it stands
+// and the agent's last message: the text after its last tool call. A turn
+// ended longer ago than endedTurnRetention is ErrNotFound.
+func (m *Manager) Wait(ctx context.Context, turnID string) (TurnStatus, string, error) {
+	for {
+		events, unsubscribe, err := m.Subscribe(turnID)
+		if err != nil {
+			return TurnStatus{}, "", err
+		}
+		var reply strings.Builder
+		for open := true; open; {
+			var e Event
+			select {
+			case <-ctx.Done():
+				open = false
+			case e, open = <-events:
+			}
+			switch e.Kind {
+			case EventText:
+				reply.WriteString(e.Text)
+			case EventToolCall, EventToolResult:
+				reply.Reset()
+			}
+		}
+		unsubscribe()
+		status, err := m.Status(turnID)
+		// A subscriber that falls behind is dropped mid-turn: subscribe again.
+		if err != nil || status.EndedAt != nil || ctx.Err() != nil {
+			return status, strings.TrimSpace(reply.String()), err
+		}
+	}
+}
+
 // execute runs t with run, an adapter's Send or Join, and settles it.
 func (m *Manager) execute(t *turn, run func(context.Context, TurnRequest, TurnIO) (Result, error)) {
 	ctx, cancel := t.ctx, t.cancel
@@ -648,6 +685,8 @@ func (m *Manager) execute(t *turn, run func(context.Context, TurnRequest, TurnIO
 		Session:  func(id string) { m.noteSession(t, id) },
 		TurnID:   t.status.TurnID,
 		Device:   t.req.Device,
+		Config:   t.req.Config,
+		Parent:   t.req.Parent,
 	})
 	wasCancelled := ctx.Err() != nil
 	cancel()

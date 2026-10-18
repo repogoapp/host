@@ -78,9 +78,11 @@ Result:
 
 ## `agents.list`
 
+Tool (read): The agents a chat in a project can start with, for chats.start: each one's models, default model, the efforts (reasoning_level) each model accepts, and its modes and permission modes.
+
 Params:
 
-- `project` string
+- `project` string: The project's folder
 
 Result:
 
@@ -158,6 +160,7 @@ Result:
 - `revision` int
 - `resolved_at` int (omitted when empty) (nullable)
 - `pinned_at` int (omitted when empty) (nullable)
+- `parent_id` string (omitted when empty)
 - `context_used` int (omitted when empty)
 - `context_size` int (omitted when empty)
 - `model` string (omitted when empty)
@@ -188,6 +191,7 @@ Params:
 - `sort` string: activity (default), created or title
 - `order` string: desc (default) or asc
 - `search` string: Words a chat's title, prompts or replies must all hold
+- `parent` string: Only the chats this chat's agent started; empty leaves those out
 - `limit` int: Chats per page
 - `refresh` bool: Re-read the agents' files first; slow, leave false
 - `cursor` string: The previous page's next_cursor; empty starts over
@@ -237,6 +241,7 @@ Params:
 - `sort` string: activity (default), created or title
 - `order` string: desc (default) or asc
 - `search` string: Words a chat's title, prompts or replies must all hold
+- `parent` string: Only the chats this chat's agent started; empty leaves those out
 - `chat_id` string
 
 Result:
@@ -302,7 +307,7 @@ Result:
 
 Detached: runs to completion if the caller disconnects.
 
-Tool (write): Start a new chat in a project with its first message.
+Tool (write): Start a new chat in a project with its first message. Started by an agent, it runs under the calling chat, out of the drawer, with no broader permissions; child false opens a normal chat for the user instead.
 
 Params:
 
@@ -311,6 +316,7 @@ Params:
 - `agent` string: claude or codex
 - `title` string: The chat's name; empty takes the message's opening words
 - `project_agent` string (omitted when empty)
+- `child` bool (omitted when empty) (nullable): For an agent: false opens a normal chat for the user; omit to start one under this chat
 
 Result:
 
@@ -420,6 +426,23 @@ Params:
 Result:
 
 - `chat` object{Chat}
+
+## `chats.wait`
+
+Tool (read): Wait for a turn chats.start or chats.send returned to end, then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again.
+
+Params:
+
+- `turn_id` string: The turn_id chats.start or chats.send returned
+- `timeout_ms` int: How long to wait; default 50000, at most 300000
+
+Result:
+
+- `turn_id` string
+- `chat_id` string (omitted when empty)
+- `state` string
+- `reply` string (omitted when empty)
+- `error` string (omitted when empty)
 
 ## `devices.hello`
 

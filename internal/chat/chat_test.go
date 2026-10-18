@@ -1,6 +1,7 @@
 package chat_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -35,6 +36,10 @@ func (r *recorder) Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error) 
 }
 
 func (r *recorder) StopChat(string) error { return agent.ErrNotFound }
+
+func (r *recorder) Wait(context.Context, string) (agent.TurnStatus, string, error) {
+	return agent.TurnStatus{}, "", agent.ErrNotFound
+}
 
 // transcripts is a Transcripts that remembers deletions and serves one subagent.
 type transcripts struct {
@@ -340,5 +345,55 @@ func TestStopSettlesAChatNothingHereRuns(t *testing.T) {
 	}
 	if err := svc.Stop("claude:sess-1"); !errors.Is(err, agent.ErrNotFound) {
 		t.Fatalf("Stop of a settled chat = %v, want ErrNotFound", err)
+	}
+}
+
+// A chat an agent starts runs under the calling chat, with no broader
+// permission or mode than the agent's own: unset ones take the caller's.
+func TestAnAgentsStartIsAChildCappedAtItsCaller(t *testing.T) {
+	h := testhost.New(t)
+	d := h.ChatDeps
+	rec := &recorder{}
+	d.Sender, d.Transcripts = rec, &transcripts{}
+	svc, err := chat.New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := &chat.Caller{ChatID: "claude:parent", Config: agent.TurnConfig{PermissionMode: agent.PermissionAutoAcceptEdits, Mode: "plan"}}
+	where := chat.Start{Path: h.Root, Agent: string(agent.KindCodex), Parent: "claude:parent"}
+
+	if _, err := svc.Start(where, chat.Turn{Prompt: "review this", From: from}); err != nil {
+		t.Fatal(err)
+	}
+	if rec.last.Parent != "claude:parent" || rec.last.Config.PermissionMode != agent.PermissionAutoAcceptEdits || rec.last.Config.Mode != "plan" {
+		t.Fatalf("queued parent %q, permission %q, mode %q; want the caller's", rec.last.Parent, rec.last.Config.PermissionMode, rec.last.Config.Mode)
+	}
+
+	for _, cfg := range []agent.TurnConfig{
+		{PermissionMode: agent.PermissionFullAccess},
+		{Mode: "agent"},
+		{PermissionMode: "anything"},
+	} {
+		_, err := svc.Start(where, chat.Turn{Prompt: "review this", Config: cfg, From: from})
+		if !errors.Is(err, errkind.ErrDenied) {
+			t.Fatalf("start with %+v: err %v, want ErrDenied", cfg, err)
+		}
+	}
+	if rec.n != 1 {
+		t.Fatalf("%d turns queued, want only the first", rec.n)
+	}
+}
+
+// A child stays one whoever sends to it, so its tools stay limited.
+func TestSendToAChildCarriesItsParent(t *testing.T) {
+	svc, rec, _ := newService(t, agent.KindClaude)
+	if err := svc.Cache.SetChatParent("claude:sess-1", "codex:parent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Send("claude:sess-1", chat.Turn{Prompt: "and the tests?"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec.last.Parent != "codex:parent" {
+		t.Fatalf("queued parent %q, want codex:parent", rec.last.Parent)
 	}
 }

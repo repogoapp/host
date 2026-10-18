@@ -1,0 +1,7 @@
+{
+  "turn_id": "turn_id",
+  "chat_id": "chat_id",
+  "state": "state",
+  "reply": "reply",
+  "error": "error"
+}

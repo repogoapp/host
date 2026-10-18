@@ -17,9 +17,9 @@ const ToolsServer = "repogo"
 // call can be traced to the turn running there.
 type Tools interface {
 	On(cwd string) bool
-	// Attach is the entry for a session opened in cwd and what to call when it
-	// closes; cwd picks the tools it is offered.
-	Attach(session ToolSession, cwd string) (MCPServer, func())
+	// Attach is the entry for a session opened by req's turn and what to call
+	// when it closes; its cwd and parent pick the tools it is offered.
+	Attach(session ToolSession, req TurnRequest) (MCPServer, func())
 }
 
 // ToolSession is one agent process as the tools see it.
@@ -37,6 +37,10 @@ type RunningTurn struct {
 	Cwd    string
 	// Device sent the turn; empty for one started on the host itself.
 	Device device.ID
+	// What the turn runs with: the most a chat it starts or messages may get.
+	Config TurnConfig
+	// Parent is the chat whose agent started this one; empty for the user's.
+	Parent string
 	// Ask puts an approval on the turn's chat and blocks until the user answers,
 	// as TurnIO.Ask does; a tool asks before acting outside the machine.
 	Ask func(context.Context, Approval) (json.RawMessage, error)

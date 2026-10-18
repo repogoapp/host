@@ -85,7 +85,7 @@ func post(t *testing.T, h http.Handler, bearer, body string) *httptest.ResponseR
 
 func bearer(t *testing.T, s *Server, session agent.ToolSession) (string, func()) {
 	t.Helper()
-	entry, release := s.Attach(session, "/work/app")
+	entry, release := s.Attach(session, agent.TurnRequest{Cwd: "/work/app"})
 	if entry.Name != agent.ToolsServer || entry.Type != "http" || len(entry.Headers) != 1 {
 		t.Fatalf("entry %+v", entry)
 	}

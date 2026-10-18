@@ -76,15 +76,16 @@ func (h *Host) openAgents() error {
 		// Read when a session starts, so a phone's latest devices.hello counts.
 		// With RepoGo's tools off on this environment, the agent runs as it would
 		// in a terminal: nothing added to its system prompt.
-		Instructions: func(id device.ID, cwd string) string {
-			if !h.tools.On(cwd) {
+		Instructions: func(req agent.TurnRequest) string {
+			if !h.tools.On(req.Cwd) {
 				return ""
 			}
-			peer, err := h.devices.Peer(id)
+			prompt := repogomcp.ChatsPrompt(req.Parent != "")
+			peer, err := h.devices.Peer(req.Device)
 			if err != nil {
-				return ""
+				return prompt
 			}
-			return clientprompt.For(peer.Client, h.projectPlugins(cwd), h.mcps.Keys(cwd))
+			return prompt + clientprompt.For(peer.Client, h.projectPlugins(req.Cwd), h.mcps.Keys(req.Cwd))
 		},
 		Log: h.log,
 	})
@@ -203,6 +204,17 @@ func (h *Host) openDevices() error {
 	return nil
 }
 
+// sessionOpened streams a turn once its chat has an id. A chat another chat's
+// agent started is marked first, so no device lists it in the drawer.
+func (h *Host) sessionOpened(st agent.TurnStatus) {
+	if st.Parent != "" {
+		if err := h.db.SetChatParent(store.ChatID(st.ChatID), store.ChatID(st.Parent)); err != nil {
+			h.log.Error("marking the chat's parent failed", "chat", st.ChatID, "parent", st.Parent, "err", err)
+		}
+	}
+	h.live.StreamTurn(store.ChatID(st.ChatID), st.TurnID)
+}
+
 // openChats opens the chat cache and wires the turn manager and hook bridge
 // into it and the live streams.
 func (h *Host) openChats() error {
@@ -224,7 +236,7 @@ func (h *Host) openChats() error {
 	h.mgr = agent.NewManager(h.log, agent.Hooks{
 		// Every turn this host runs streams through here, not its callers: a
 		// chat started here has no id to stream under until the agent opens it.
-		Session:   func(st agent.TurnStatus) { h.live.StreamTurn(store.ChatID(st.ChatID), st.TurnID) },
+		Session:   h.sessionOpened,
 		Status:    h.syncer.ObserveTurn,
 		SaveQueue: h.db.SaveQueue,
 	}, h.agents.Adapters...)

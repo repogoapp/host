@@ -60,7 +60,7 @@ func pluginsServer(t *testing.T, service *plugins.Service) *Server {
 func attachIn(t *testing.T, s *Server, cwd string) string {
 	t.Helper()
 	turn := agent.RunningTurn{Ctx: context.Background(), TurnID: "t1", ChatID: "claude:s1", Cwd: cwd, Device: "phone"}
-	entry, release := s.Attach(&fakeSession{turn: turn}, cwd)
+	entry, release := s.Attach(&fakeSession{turn: turn}, agent.TurnRequest{Cwd: cwd})
 	t.Cleanup(release)
 	return strings.TrimPrefix(entry.Headers[0].Value, "Bearer ")
 }

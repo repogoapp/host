@@ -7,14 +7,15 @@ import (
 	"time"
 )
 
-// ChatMarks is what the user set on a chat, one field per column of
-// state.chat_marks. Nil is not set.
+// ChatMarks is what RepoGo knows about a chat that its transcript doesn't, one
+// field per column of state.chat_marks. Nil is not set.
 type ChatMarks struct {
 	ResolvedAt *int64
 	PinnedAt   *int64
+	ParentID   *ChatID
 }
 
-func (m ChatMarks) empty() bool { return m.ResolvedAt == nil && m.PinnedAt == nil }
+func (m ChatMarks) empty() bool { return m.ResolvedAt == nil && m.PinnedAt == nil && m.ParentID == nil }
 
 // updateChatMarks is the one writer of state.chat_marks outside the import.
 // change edits the marks it is handed and reports whether it changed any; the
@@ -31,8 +32,8 @@ func (s *Store) updateChatMarks(id ChatID, change func(*ChatMarks) bool) (bool, 
 	defer tx.Rollback()
 
 	var marks ChatMarks
-	err = tx.QueryRow(`SELECT resolved_at, pinned_at FROM state.chat_marks WHERE agent = ? AND session_id = ?`,
-		agent, sessionID).Scan(&marks.ResolvedAt, &marks.PinnedAt)
+	err = tx.QueryRow(`SELECT resolved_at, pinned_at, parent_id FROM state.chat_marks WHERE agent = ? AND session_id = ?`,
+		agent, sessionID).Scan(&marks.ResolvedAt, &marks.PinnedAt, &marks.ParentID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("store: read chat marks: %w", err)
 	}
@@ -43,9 +44,10 @@ func (s *Store) updateChatMarks(id ChatID, change func(*ChatMarks) bool) (bool, 
 	if marks.empty() {
 		_, err = tx.Exec(`DELETE FROM state.chat_marks WHERE agent = ? AND session_id = ?`, agent, sessionID)
 	} else {
-		_, err = tx.Exec(`INSERT INTO state.chat_marks (agent, session_id, resolved_at, pinned_at) VALUES (?, ?, ?, ?)
-			ON CONFLICT (agent, session_id) DO UPDATE SET resolved_at = excluded.resolved_at, pinned_at = excluded.pinned_at`,
-			agent, sessionID, marks.ResolvedAt, marks.PinnedAt)
+		_, err = tx.Exec(`INSERT INTO state.chat_marks (agent, session_id, resolved_at, pinned_at, parent_id) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (agent, session_id) DO UPDATE SET resolved_at = excluded.resolved_at, pinned_at = excluded.pinned_at,
+			parent_id = excluded.parent_id`,
+			agent, sessionID, marks.ResolvedAt, marks.PinnedAt, marks.ParentID)
 	}
 	if err != nil {
 		return false, fmt.Errorf("store: write chat marks: %w", err)
@@ -81,6 +83,22 @@ func (s *Store) SetChatPinned(id ChatID, pinned bool, at time.Time) error {
 		} else {
 			m.PinnedAt = nil
 		}
+		return true
+	})
+	return err
+}
+
+// SetChatParent records the chat whose agent started this one. A chat with a
+// parent stays out of the drawer and is listed under its parent instead.
+func (s *Store) SetChatParent(id, parent ChatID) error {
+	if _, _, err := parent.parts(); err != nil {
+		return err
+	}
+	_, err := s.updateChatMarks(id, func(m *ChatMarks) bool {
+		if m.ParentID != nil && *m.ParentID == parent {
+			return false
+		}
+		m.ParentID = &parent
 		return true
 	})
 	return err

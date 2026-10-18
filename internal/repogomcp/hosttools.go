@@ -13,7 +13,8 @@ import (
 // they are: one tool per method, its params as the input, its result as the answer.
 
 const hostToolsInstructions = " The `chats_*` tools list, read, rename, pin, resolve, stop and message " +
-	"the chats on this environment, in every project, as the chat drawer does; `projects_list`, `git_*`, " +
+	"the chats on this environment, in every project, as the chat drawer does, and start another agent's chat " +
+	"(`agents_list`, `chats_start`) and wait for its answer (`chats_wait`); `projects_list`, `git_*`, " +
 	"`actions_*`, `schedules_list` and `tunnels_list` are the app's own reads and actions, which cards call too."
 
 // hosttools.json is written from the router by `go test ./internal/rpc/conformance -update`.
@@ -36,9 +37,16 @@ func HostToolsFile() []byte { return hostToolsFile }
 // stopping its own thread.
 var ownChatMethods = []string{"chats.send", "chats.stop"}
 
-func hostToolList() []tool {
+// childDenied is what a chat another chat's agent started may not do: start
+// or message chats, so delegation stays one level deep.
+var childDenied = []string{"chats.start", "chats.send"}
+
+func hostToolList(child bool) []tool {
 	out := make([]tool, 0, len(hostTools))
 	for _, d := range hostTools {
+		if child && slices.Contains(childDenied, d.Method) {
+			continue
+		}
 		t := tool{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema}
 		if d.ReadOnly {
 			t.Annotations = &annotations{ReadOnlyHint: true}
@@ -58,9 +66,12 @@ func hostTool(name string) (rpc.ToolDef, bool) {
 
 // callHost runs one host method for the turn, as the phone that sent it would.
 // The embedded list is the allowlist: nothing else on the router is reachable.
-func callHost(router *rpc.Router, turn agent.RunningTurn, def rpc.ToolDef, args json.RawMessage) toolResult {
+func callHost(router *rpc.Router, turn agent.RunningTurn, child bool, def rpc.ToolDef, args json.RawMessage) toolResult {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage("{}")
+	}
+	if child && slices.Contains(childDenied, def.Method) {
+		return failed("RepoGo " + def.Method + ": another chat started this one, so it can't start or message chats")
 	}
 	if slices.Contains(ownChatMethods, def.Method) {
 		var p struct {
@@ -70,7 +81,9 @@ func callHost(router *rpc.Router, turn agent.RunningTurn, def rpc.ToolDef, args 
 			return failed("RepoGo " + def.Method + ": that is this chat; it can't message or stop itself")
 		}
 	}
-	caller := rpc.Caller{Device: turn.Device, Scope: rpc.ScopeLocal}
+	caller := rpc.Caller{Device: turn.Device, Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{
+		ChatID: turn.ChatID, PermissionMode: string(turn.Config.PermissionMode), Mode: turn.Config.Mode,
+	}}
 	out, err := router.Call(turn.Ctx, caller, def.Method, args)
 	if err != nil {
 		return failed("RepoGo " + def.Method + ": " + err.Error())

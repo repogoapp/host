@@ -234,9 +234,9 @@ func (s *Service) cachedFor(kind agent.Kind, install Install) (Catalog, bool) {
 	return c.catalog, c.install == install
 }
 
-// cachedValue is the last catalog read, however old: for naming a model,
-// where an older list is still better than the bare id.
-func (s *Service) cachedValue(kind agent.Kind) (Catalog, bool) {
+// Last is the last catalog read, however old, never asking the CLI: for naming
+// a model or listing agents, where an older list beats waiting on a spawn.
+func (s *Service) Last(kind agent.Kind) (Catalog, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.fresh[kind]

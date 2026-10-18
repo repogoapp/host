@@ -59,11 +59,12 @@ type Server struct {
 	sessions map[string]attached
 }
 
-// attached is one session and the folder it was opened in, which decides its
-// tool list before any turn runs.
+// attached is one session, the folder it was opened in and whether another
+// chat's agent started it, which decide its tool list before any turn runs.
 type attached struct {
 	session agent.ToolSession
 	cwd     string
+	child   bool
 }
 
 func New(cfg Config) *Server {
@@ -74,12 +75,12 @@ func (s *Server) On(cwd string) bool { return s.cfg.On(cwd) }
 
 // Attach mints the bearer that names one session. It never leaves this
 // machine: the agent process gets it as a header, and it dies with the session.
-func (s *Server) Attach(session agent.ToolSession, cwd string) (agent.MCPServer, func()) {
+func (s *Server) Attach(session agent.ToolSession, req agent.TurnRequest) (agent.MCPServer, func()) {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	token := hex.EncodeToString(b)
 	s.mu.Lock()
-	s.sessions[token] = attached{session: session, cwd: cwd}
+	s.sessions[token] = attached{session: session, cwd: req.Cwd, child: req.Parent != ""}
 	s.mu.Unlock()
 	entry := agent.MCPServer{
 		Type: "http", Name: agent.ToolsServer, URL: s.cfg.URL(),
@@ -175,7 +176,7 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 			tools = append(tools, mcpToolsTool)
 		}
 		if s.router() != nil {
-			tools = append(tools, hostToolList()...)
+			tools = append(tools, hostToolList(session.child)...)
 		}
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":
@@ -186,7 +187,7 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "invalid params"}
 		}
-		return s.call(ctx, session.session, p.Name, p.Arguments), nil
+		return s.call(ctx, session, p.Name, p.Arguments), nil
 	}
 	return nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "method not found: " + req.Method}
 }
@@ -207,8 +208,8 @@ func (s *Server) instructions(cwd string) string {
 
 // call runs a tool for the session's current turn. Failures are results, not
 // protocol errors, so the agent reads them and can react.
-func (s *Server) call(ctx context.Context, session agent.ToolSession, name string, args json.RawMessage) toolResult {
-	turn, ok := session.Running()
+func (s *Server) call(ctx context.Context, session attached, name string, args json.RawMessage) toolResult {
+	turn, ok := session.session.Running()
 	if !ok {
 		return failed("RepoGo: no turn is running in this chat")
 	}
@@ -236,7 +237,7 @@ func (s *Server) call(ctx context.Context, session agent.ToolSession, name strin
 		return mcpTools(s.cfg.MCP(), turn)
 	}
 	if def, ok := hostTool(name); ok && s.router() != nil {
-		return callHost(s.router(), turn, def, args)
+		return callHost(s.router(), turn, session.child || turn.Parent != "", def, args)
 	}
 	return failed("unknown tool: " + name)
 }

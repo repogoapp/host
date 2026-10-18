@@ -4,6 +4,7 @@ package chats
 
 import (
 	"context"
+	"time"
 
 	"github.com/repogoapp/host/internal/chatwire"
 
@@ -49,7 +50,10 @@ func Register(r *rpc.Router, d Deps) {
 	// Remote-reachable: the caller names a project the host resolves through
 	// Contain, not an arbitrary directory.
 	rpc.Add(r, "chats.start", d.start, rpc.Detached, rpc.Tool("Start a new chat in a project with "+
-		"its first message."), rpc.Write)
+		"its first message. Started by an agent, it runs under the calling chat, out of the drawer, "+
+		"with no broader permissions; child false opens a normal chat for the user instead."), rpc.Write)
+	rpc.Add(r, "chats.wait", d.wait, rpc.Tool("Wait for a turn chats.start or chats.send returned to end, "+
+		"then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again."), rpc.Read)
 	rpc.Add(r, "chats.resolve", d.resolve, rpc.Tool("Resolve a chat (moves it to the done pile) or unresolve it."), rpc.Write)
 	rpc.Add(r, "chats.pin", d.pin, rpc.Tool("Pin a chat to the top of the drawer, or unpin it."), rpc.Write)
 	rpc.Add(r, "chats.update", d.update, rpc.Tool("Rename a chat. The title is written to the agent's own "+
@@ -124,7 +128,7 @@ func (d Deps) toolsUnsubscribe(_ context.Context, c rpc.Caller, a ToolsUnsubscri
 }
 
 func (d Deps) send(_ context.Context, c rpc.Caller, a SendParams) (SendResult, error) {
-	a.Turn.Device = c.Device
+	a.Turn.Device, a.Turn.From = c.Device, from(c)
 	if a.Steer {
 		status, steered, err := d.Chats.Steer(a.ChatID, a.Turn)
 		return SendResult{TurnID: status.TurnID, State: status.State, Steered: steered}, err
@@ -134,9 +138,49 @@ func (d Deps) send(_ context.Context, c rpc.Caller, a SendParams) (SendResult, e
 }
 
 func (d Deps) start(_ context.Context, c rpc.Caller, a StartParams) (StartResult, error) {
-	a.Turn.Device = c.Device
-	status, err := d.Chats.Start(chat.Start{Path: a.Cwd, Agent: a.Agent, Title: a.Title, ProjectAgent: a.ProjectAgent}, a.Turn)
+	a.Turn.Device, a.Turn.From = c.Device, from(c)
+	where := chat.Start{Path: a.Cwd, Agent: a.Agent, Title: a.Title, ProjectAgent: a.ProjectAgent}
+	if c.Agent != nil && (a.Child == nil || *a.Child) {
+		where.Parent = c.Agent.ChatID
+	}
+	status, err := d.Chats.Start(where, a.Turn)
 	return StartResult{TurnID: status.TurnID, State: status.State}, err
+}
+
+// from is the chat an agent calls from, whose settings cap what it sends;
+// nil for a device.
+func from(c rpc.Caller) *chat.Caller {
+	if c.Agent == nil {
+		return nil
+	}
+	return &chat.Caller{ChatID: c.Agent.ChatID, Config: agent.TurnConfig{
+		PermissionMode: agent.PermissionMode(c.Agent.PermissionMode), Mode: c.Agent.Mode,
+	}}
+}
+
+// The wait's default stays under the 60 s an MCP tool call gets by default.
+const (
+	waitDefault = 50 * time.Second
+	waitMax     = 5 * time.Minute
+)
+
+func (d Deps) wait(ctx context.Context, _ rpc.Caller, a WaitParams) (WaitResult, error) {
+	timeout := min(time.Duration(a.TimeoutMS)*time.Millisecond, waitMax)
+	if timeout <= 0 {
+		timeout = waitDefault
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	w, err := d.Chats.Wait(ctx, a.TurnID)
+	if err != nil {
+		return WaitResult{}, err
+	}
+	out := WaitResult{TurnID: w.Status.TurnID, State: w.Status.State, Reply: w.Reply, Error: w.Status.Error}
+	// Before the agent names its session the id is a placeholder no list knows.
+	if _, _, named := agent.SplitChatID(w.Status.ChatID); named {
+		out.ChatID = store.ChatID(w.Status.ChatID)
+	}
+	return out, nil
 }
 
 func (d Deps) resolve(_ context.Context, _ rpc.Caller, a ResolveParams) (ResolveResult, error) {

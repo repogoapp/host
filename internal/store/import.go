@@ -115,7 +115,7 @@ func (s *Store) newBatch() (*batch, error) {
 		// The import's one write to the user's marks: a resolve older than a
 		// prompt in the file is cleared, and the row goes once nothing is set.
 		{&b.unresolve, `UPDATE state.chat_marks SET resolved_at = NULL WHERE agent = ? AND session_id = ? AND resolved_at < ?`},
-		{&b.dropEmptyMarks, `DELETE FROM state.chat_marks WHERE agent = ? AND session_id = ? AND resolved_at IS NULL AND pinned_at IS NULL`},
+		{&b.dropEmptyMarks, `DELETE FROM state.chat_marks WHERE agent = ? AND session_id = ? AND resolved_at IS NULL AND pinned_at IS NULL AND parent_id IS NULL`},
 	} {
 		if *st.stmt, err = tx.Prepare(st.query); err != nil {
 			b.Close()

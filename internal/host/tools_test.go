@@ -24,7 +24,7 @@ func TestToolsAnswerThroughTheHostsWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(h.Close)
-	entry, release := h.Tools().Attach(idleSession{}, t.TempDir())
+	entry, release := h.Tools().Attach(idleSession{}, agent.TurnRequest{Cwd: t.TempDir()})
 	defer release()
 	for _, method := range []string{"initialize", "tools/list"} {
 		req := httptest.NewRequest(http.MethodPost, repogomcp.Path,

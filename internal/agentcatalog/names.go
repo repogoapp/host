@@ -21,7 +21,7 @@ func (s *Service) ModelLabel(kind agent.Kind, id string) string {
 		return ""
 	}
 	namer, _ := s.namer(kind)
-	if c, ok := s.cachedValue(kind); ok {
+	if c, ok := s.Last(kind); ok {
 		if m, ok := c.model(id); ok && m.Label != "" {
 			return m.Label
 		}

@@ -8,10 +8,20 @@
       "models": [
         {
           "id": "id",
-          "name": "name"
+          "name": "name",
+          "efforts": [
+            "efforts"
+          ],
+          "default_effort": "default_effort"
         }
       ],
-      "model": "model"
+      "model": "model",
+      "modes": [
+        "modes"
+      ],
+      "permission_modes": [
+        "permission_modes"
+      ]
     }
   ]
 }

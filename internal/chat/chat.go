@@ -25,6 +25,7 @@ type Sender interface {
 	Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error)
 	StopChat(chatID string) error
 	List() []agent.TurnStatus
+	Wait(ctx context.Context, turnID string) (agent.TurnStatus, string, error)
 }
 
 // Transcripts is the provider-file side of a chat: its session files and the
@@ -187,13 +188,54 @@ type Turn struct {
 
 	// Device is the caller, set from its connection; see agent.TurnRequest.
 	Device device.ID `json:"-"`
+	// From is the chat whose agent sends this through RepoGo's tools, set by
+	// the host; nil for a device.
+	From *Caller `json:"-"`
+}
+
+// Caller is a chat sending or starting through its agent, with the settings
+// its own turn runs with: the most the turn it sends may get.
+type Caller struct {
+	ChatID string
+	Config agent.TurnConfig
 }
 
 // check runs before the turn is queued, so an empty prompt never reaches an
-// agent.
-func (t Turn) check() error {
+// agent, nor one broader than the agent that sent it.
+func (t *Turn) check() error {
 	if strings.TrimSpace(t.Prompt) == "" && len(t.Attachments) == 0 {
 		return fmt.Errorf("%w: prompt is empty", errkind.ErrInvalid)
+	}
+	if t.From == nil {
+		return nil
+	}
+	return capConfig(&t.Config, t.From.Config)
+}
+
+// permissionRank orders permission modes from narrowest; the empty one is the
+// agent's own default and counts as narrowest.
+var permissionRank = map[agent.PermissionMode]int{
+	"": 0, agent.PermissionApprovalRequired: 0, agent.PermissionAutoAcceptEdits: 1, agent.PermissionFullAccess: 2,
+}
+
+// capConfig keeps a turn an agent sends within the caller's own: an unset
+// permission or mode takes the caller's, and a broader one is refused.
+func capConfig(cfg *agent.TurnConfig, caller agent.TurnConfig) error {
+	if cfg.PermissionMode == "" {
+		cfg.PermissionMode = caller.PermissionMode
+	}
+	rank, known := permissionRank[cfg.PermissionMode]
+	if !known || rank > permissionRank[caller.PermissionMode] {
+		return fmt.Errorf("%w: permission_mode %q is broader than this chat's own (%q)",
+			errkind.ErrDenied, cfg.PermissionMode, caller.PermissionMode)
+	}
+	if caller.Mode == "plan" {
+		if cfg.Mode == "" {
+			cfg.Mode = "plan"
+		}
+		if cfg.Mode != "plan" {
+			return fmt.Errorf("%w: this chat is in plan mode, so what it sends must be too", errkind.ErrDenied)
+		}
 	}
 	return nil
 }
@@ -260,6 +302,8 @@ func (s *Service) send(id store.ChatID, t Turn, steer bool) (agent.TurnStatus, b
 		Agent:  agent.Kind(info.Agent),
 		// Continue the provider's own conversation; otherwise a reply forks the chat.
 		SessionID: id.SessionID(),
+		// A child stays one, whoever sends: its tools stay limited.
+		Parent: string(info.ParentID),
 	}, steer)
 	if err != nil {
 		return agent.TurnStatus{}, false, err
@@ -281,6 +325,8 @@ type Start struct {
 	Title string
 	// ProjectAgent is the project's own agent an acp chat runs.
 	ProjectAgent string
+	// Parent is the chat whose agent starts this one; empty for the user's.
+	Parent string
 }
 
 // Start queues a new chat's first turn in the project folder. The chat id
@@ -302,8 +348,23 @@ func (s *Service) Start(where Start, t Turn) (agent.TurnStatus, error) {
 	}
 	// No chat id yet: the Manager queues the turn under a placeholder and
 	// renames it once the provider opens the session.
-	status, _, err := s.enqueue(t, agent.TurnRequest{Cwd: path, Agent: agent.Kind(where.Agent), Title: title, ProjectAgent: where.ProjectAgent}, false)
+	status, _, err := s.enqueue(t, agent.TurnRequest{
+		Cwd: path, Agent: agent.Kind(where.Agent), Title: title, ProjectAgent: where.ProjectAgent, Parent: where.Parent,
+	}, false)
 	return status, err
+}
+
+// Waited is a turn as chats.wait reports it: where it stands and the agent's
+// last message.
+type Waited struct {
+	Status agent.TurnStatus
+	Reply  string
+}
+
+// Wait blocks until the turn ends or ctx does. A timeout leaves the turn running.
+func (s *Service) Wait(ctx context.Context, turnID string) (Waited, error) {
+	status, reply, err := s.d.Sender.Wait(ctx, turnID)
+	return Waited{Status: status, Reply: reply}, err
 }
 
 // Resolve marks a chat's work done, or takes it back. Resolved chats leave the

@@ -34,7 +34,8 @@ func (s *Store) Delete(id ChatID) error {
 	if err := s.markDeleted(tx, kind, sessionID); err != nil {
 		return err
 	}
-	if err := dropChatState(tx, kind, sessionID); err != nil {
+	freed, err := s.dropChatState(tx, kind, sessionID)
+	if err != nil {
 		return err
 	}
 	if err := s.keepRevFloor(tx); err != nil {
@@ -43,7 +44,7 @@ func (s *Store) Delete(id ChatID) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	s.notify(Change{Removed: []ChatID{id}})
+	s.notify(Change{Changed: freed, Removed: []ChatID{id}})
 	return nil
 }
 
@@ -70,6 +71,7 @@ func (s *Store) Prune(keep map[string]bool) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
+	var freed []ChatID
 	for _, id := range stale {
 		kind, sessionID, _ := id.split()
 		if _, err := tx.Exec(`DELETE FROM events WHERE sid IN (SELECT sid FROM sessions WHERE agent = ? AND session_id = ?)`, kind, sessionID); err != nil {
@@ -84,9 +86,11 @@ func (s *Store) Prune(keep map[string]bool) (int, error) {
 		if err := s.markDeleted(tx, kind, sessionID); err != nil {
 			return 0, err
 		}
-		if err := dropChatState(tx, kind, sessionID); err != nil {
+		children, err := s.dropChatState(tx, kind, sessionID)
+		if err != nil {
 			return 0, err
 		}
+		freed = append(freed, children...)
 	}
 	if err := s.keepRevFloor(tx); err != nil {
 		return 0, err
@@ -94,7 +98,7 @@ func (s *Store) Prune(keep map[string]bool) (int, error) {
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
-	s.notify(Change{Removed: stale})
+	s.notify(Change{Changed: freed, Removed: stale})
 	return len(stale), nil
 }
 
@@ -129,13 +133,32 @@ func selectChats(db querier, query string, args ...any) ([]ChatID, error) {
 	return ids, rows.Err()
 }
 
-// dropChatState removes one deleted chat's resolve and voice number. Only
-// that chat's: a chat missing from the cache may be not yet re-imported, and
-// its state is still the user's.
-func dropChatState(tx *sql.Tx, kind, sessionID string) error {
+// dropChatState removes one deleted chat's marks and voice number, and frees
+// the chats it started back to the drawer. Only that chat's: one missing from
+// the cache may be not yet re-imported, and its state is still the user's.
+func (s *Store) dropChatState(tx *sql.Tx, kind, sessionID string) (freed []ChatID, err error) {
 	if _, err := tx.Exec(`DELETE FROM state.chat_marks WHERE agent = ? AND session_id = ?`, kind, sessionID); err != nil {
-		return err
+		return nil, err
 	}
-	_, err := tx.Exec(`DELETE FROM state.voice_numbers WHERE agent = ? AND session_id = ?`, kind, sessionID)
-	return err
+	if _, err := tx.Exec(`DELETE FROM state.voice_numbers WHERE agent = ? AND session_id = ?`, kind, sessionID); err != nil {
+		return nil, err
+	}
+	parent := string(chatID(kind, sessionID))
+	freed, err = selectChats(tx, `SELECT agent, session_id FROM state.chat_marks WHERE parent_id = ?`, parent)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`UPDATE state.chat_marks SET parent_id = NULL WHERE parent_id = ?`, parent); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM state.chat_marks WHERE resolved_at IS NULL AND pinned_at IS NULL AND parent_id IS NULL`); err != nil {
+		return nil, err
+	}
+	for _, child := range freed {
+		childKind, childSession, _ := child.split()
+		if err := s.bumpRev(tx, childKind, childSession); err != nil {
+			return nil, err
+		}
+	}
+	return freed, nil
 }

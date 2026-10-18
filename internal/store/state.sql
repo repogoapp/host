@@ -3,13 +3,14 @@
 -- column, nothing is renamed or retyped, and the open checks every column
 -- (state.go). Plan 374.
 
--- What the user set on a chat. NULL is not set; an all-NULL row is deleted.
--- One writer: updateChatMarks (marks.go).
+-- What RepoGo knows about a chat that its transcript doesn't. NULL is not
+-- set; an all-NULL row is deleted. One writer: updateChatMarks (marks.go).
 CREATE TABLE IF NOT EXISTS chat_marks (
   agent       TEXT NOT NULL,
   session_id  TEXT NOT NULL,
   resolved_at INTEGER,
   pinned_at   INTEGER,  -- pinned to the top of the list
+  parent_id   TEXT,     -- the chat whose agent started this one, as a ChatID
   PRIMARY KEY (agent, session_id)
 );
 

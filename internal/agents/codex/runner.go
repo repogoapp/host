@@ -82,7 +82,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 	own := r.deps.Tools != nil && r.deps.Tools.On(req.Cwd)
 	var instructions string
 	if r.deps.Instructions != nil {
-		instructions = r.deps.Instructions(req.Device, req.Cwd)
+		instructions = r.deps.Instructions(req)
 	}
 	raw, _ := json.Marshal(struct {
 		Servers      []agent.MCPServer
@@ -140,7 +140,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	s := newLiveSession(req.Cwd, r.deps.Log)
 	if own {
-		entry, release := r.deps.Tools.Attach(s, req.Cwd)
+		entry, release := r.deps.Tools.Attach(s, req)
 		s.release = release
 		servers = append(slices.Clone(servers), entry)
 	}

@@ -95,6 +95,10 @@ type Chat struct {
 	// When the user pinned the chat to the top of the list. Nil is unpinned.
 	PinnedAt *int64 `json:"pinned_at,omitempty"`
 
+	// The chat whose agent started this one; empty for a chat the user
+	// started. A chat with a parent is listed under it, not in the drawer.
+	ParentID ChatID `json:"parent_id,omitempty"`
+
 	// How full the context was on the newest request and the window it was
 	// measured against. Omitted when unknown; Claude never writes a size, so
 	// ContextUsed without ContextSize is normal there.
@@ -211,6 +215,10 @@ type ChatQuery struct {
 	// Agent narrows to one agent's chats; empty is every agent.
 	Agent string
 
+	// Parent lists the chats one chat's agent started. Empty leaves every
+	// started chat out, as the drawer does, unless Search is set.
+	Parent ChatID
+
 	// Search narrows to chats whose title, prompts and replies hold every
 	// word of the text (search.go); empty matches everything.
 	Search string
@@ -246,7 +254,7 @@ type ChatPage struct {
 // numbers, the queue's count and version), for queryChats.
 const chatSelect = `
 SELECT s.agent, s.session_id, s.title, s.last_reply,
-  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.event_count, s.generation, s.context_used, s.context_size, s.model, s.model_label, s.project_agent, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, s.rev, COALESCE(v.number, 0),
+  COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.event_count, s.generation, s.context_used, s.context_size, s.model, s.model_label, s.project_agent, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, COALESCE(m.parent_id, ''), s.rev, COALESCE(v.number, 0),
   (SELECT COUNT(*) FROM state.queued_turns t WHERE t.chat_id = s.agent || ':' || s.session_id), COALESCE(q.rev, 0)
 FROM sessions s LEFT JOIN state.chat_marks m ON m.agent = s.agent AND m.session_id = s.session_id
 LEFT JOIN state.voice_numbers v ON v.agent = s.agent AND v.session_id = s.session_id
@@ -270,7 +278,7 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 		var agent, sessionID string
 		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.LastReply, &c.LastUserMessagePreview, &c.CWD,
 			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.EventCount, &c.Generation, &c.ContextUsed, &c.ContextSize, &c.Model, &c.ModelLabel, &c.ProjectAgent, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
-			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.Revision, &c.VoiceNumber,
+			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.ParentID, &c.Revision, &c.VoiceNumber,
 			&c.QueuedCount, &c.QueueRevision); err != nil {
 			return nil, err
 		}
@@ -382,6 +390,13 @@ func (s *Store) Chats(q ChatQuery) (ChatPage, error) {
 	if q.Agent != "" {
 		where = append(where, `s.agent = ?`)
 		args = append(args, q.Agent)
+	}
+	switch {
+	case q.Parent != "":
+		where = append(where, `m.parent_id = ?`)
+		args = append(args, string(q.Parent))
+	case q.Search == "":
+		where = append(where, `m.parent_id IS NULL`)
 	}
 	match := ""
 	if q.Search != "" {

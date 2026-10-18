@@ -88,6 +88,21 @@
     }
   },
   {
+    "name": "agents_list",
+    "method": "agents.list",
+    "description": "The agents a chat in a project can start with, for chats.start: each one's models, default model, the efforts (reasoning_level) each model accepts, and its modes and permission modes.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "project": {
+          "description": "The project's folder",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "chats_info",
     "method": "chats.info",
     "description": "One chat's row: title, project, status, last reply.",
@@ -134,6 +149,10 @@
         },
         "order": {
           "description": "desc (default) or asc",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Only the chats this chat's agent started; empty leaves those out",
           "type": "string"
         },
         "refresh": {
@@ -300,13 +319,17 @@
   {
     "name": "chats_start",
     "method": "chats.start",
-    "description": "Start a new chat in a project with its first message.",
+    "description": "Start a new chat in a project with its first message. Started by an agent, it runs under the calling chat, out of the drawer, with no broader permissions; child false opens a normal chat for the user instead.",
     "read_only": false,
     "input_schema": {
       "properties": {
         "agent": {
           "description": "claude or codex",
           "type": "string"
+        },
+        "child": {
+          "description": "For an agent: false opens a normal chat for the user; omit to start one under this chat",
+          "type": "boolean"
         },
         "cwd": {
           "description": "The project's folder",
@@ -404,6 +427,25 @@
         },
         "title": {
           "description": "The new title",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_wait",
+    "method": "chats.wait",
+    "description": "Wait for a turn chats.start or chats.send returned to end, then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "timeout_ms": {
+          "description": "How long to wait; default 50000, at most 300000",
+          "type": "integer"
+        },
+        "turn_id": {
+          "description": "The turn_id chats.start or chats.send returned",
           "type": "string"
         }
       },
