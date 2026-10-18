@@ -21,6 +21,7 @@ import (
 
 const notesPlugin = `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
+  namespace: "notes",
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
     texts: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
@@ -444,7 +445,6 @@ export default definePlugin({
 		t.Fatalf("vercel.root from a bare project = %s %v", got.Result, err)
 	}
 }
-
 
 // A plugin's ctx.notify reaches the host's Notify hook, naming the plugin and the project.
 func TestAPluginsNoticeReachesTheHost(t *testing.T) {

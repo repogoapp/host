@@ -117,9 +117,6 @@ export class Runtime {
 
   async add(name: string, plugin: PluginDefinition) {
     if (!pluginName.test(name)) throw new Error(`plugin names are lowercase letters, digits and hyphens: ${name}`);
-    const namespace = plugin.namespace ?? name;
-    if (!namespaceName.test(namespace)) throw new Error(`a plugin's namespace is lowercase letters, digits, dots and hyphens: ${namespace}`);
-
     const collections: Context["collections"] = {};
     const buckets: Context["buckets"] = {};
     const kv: Context["kv"] = {};
@@ -127,6 +124,10 @@ export class Runtime {
     const declared = Object.entries(plugin.collections ?? {});
     // Only data needs a file; plugins naming the same namespace share it on purpose.
     const hasData = declared.length > 0 || [plugin.buckets, plugin.kv, plugin.streams].some((stores) => Object.keys(stores ?? {}).length > 0);
+    // Named by hand, so where data goes is never a folder name's accident.
+    const namespace = plugin.namespace ?? "";
+    if (hasData && !namespace) throw new Error(`plugin ${name} keeps data, so it needs a namespace: "<project>.${name}" for one project's, "${name}" to share it`);
+    if (namespace && !namespaceName.test(namespace)) throw new Error(`a plugin's namespace is lowercase letters, digits, dots and hyphens: ${namespace}`);
     const file = hasData ? await this.database(namespace) : null;
     for (const [collectionName, schema] of declared) {
       const collection = new Collection(file!, this.events, name, namespace, collectionName, schema);

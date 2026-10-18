@@ -151,7 +151,7 @@ func TestPluginCallRunsTheProjectsPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	plugin := `import { definePlugin, z } from "@repogo/plugins";
-export default definePlugin({ collections: { notes: z.object({ text: z.string() }) } });
+export default definePlugin({ namespace: "notes", collections: { notes: z.object({ text: z.string() }) } });
 `
 	if err := os.WriteFile(filepath.Join(dir, "notes", "app.ts"), []byte(plugin), 0o644); err != nil {
 		t.Fatal(err)

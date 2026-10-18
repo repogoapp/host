@@ -44,7 +44,7 @@ export type PluginDefinition = {
   /**
    * Where the plugin's data lives: `<namespace>/` in the data dir, holding `data.db`
    * and its buckets' and streams' files. Plugins naming the same namespace share its
-   * data. The plugin's folder name when left out; by convention a project's own is
+   * data. Required once the plugin keeps data; by convention a project's own is
    * `<project>.<name>` (`repogo.plans`) and data for every project a bare name (`todos`).
    */
   namespace?: string;

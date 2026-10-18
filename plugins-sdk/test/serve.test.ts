@@ -12,6 +12,7 @@ const sdk = resolve(import.meta.dir, "..");
 
 const notesApp = `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
+  namespace: "notes",
   collections: {
     notes: z.object({ text: z.string() }),
     tags: z.object({ name: z.string() }),
@@ -176,7 +177,7 @@ test("a write in one checkout reaches the other checkout's subscriptions", async
 
 test("plugins in two checkouts that name the same namespace share it, and a write in one refreshes the other", async () => {
   const { client, dataDir } = await start();
-  const todos = notesApp.replace("export default definePlugin({", 'export default definePlugin({\n  namespace: "todos",');
+  const todos = notesApp.replace('namespace: "notes"', 'namespace: "todos"');
   const one = await checkout({ notes: todos });
   const two = await checkout({ list: todos });
 

@@ -15,6 +15,7 @@ async function dirs() {
     `import { definePlugin, method, z } from ${JSON.stringify(index)};
 export default definePlugin({
   description: "Notes",
+  namespace: "notes",
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
     count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { kind: "query", output: z.number() }),

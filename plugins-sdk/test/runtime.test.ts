@@ -8,6 +8,7 @@ import { Runtime } from "../src/runtime";
 
 const notes = definePlugin({
   description: "Notes",
+  namespace: "notes",
   collections: { notes: z.object({ text: z.string(), done: z.boolean().default(false) }) },
   methods: {
     count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { kind: "query", output: z.number() }),
@@ -78,6 +79,18 @@ test("namespace names the folder and the tag; two plugins naming one namespace s
   expect(read.reads).toEqual(["repogo.todos.items"]);
 
   await expect(runtime.add("bad", definePlugin({ namespace: "Repo Go", collections: { items: schema } }))).rejects.toThrow("namespace");
+});
+
+test("a plugin with data and no namespace fails the load", async () => {
+  const runtime = await open();
+  const unnamed = definePlugin({ collections: { items: z.object({ text: z.string() }) } });
+  await expect(runtime.add("unnamed", unnamed)).rejects.toThrow("needs a namespace");
+});
+
+test("a plugin with only methods needs no namespace", async () => {
+  const runtime = await open();
+  await runtime.add("plain", definePlugin({ methods: { ping: method(z.object({}), () => "pong", { kind: "query" }) } }));
+  expect((await runtime.call("plain.ping")).result).toBe("pong");
 });
 
 test("update changes only the fields it is given, defaults included", async () => {
@@ -225,7 +238,7 @@ test("update leaves a wrapped default alone when the field is left out", async (
   const runtime = await open();
   await runtime.add(
     "tagged",
-    definePlugin({ collections: { items: z.object({ name: z.string(), tag: z.string().default("x").optional() }) } }),
+    definePlugin({ namespace: "tagged", collections: { items: z.object({ name: z.string(), tag: z.string().default("x").optional() }) } }),
   );
   const { id } = (await runtime.call("tagged.items.create", { name: "a", tag: "kept" })).result as { id: string };
   const updated = (await runtime.call("tagged.items.update", { id, name: "b" })).result as { tag: string };
@@ -239,6 +252,7 @@ test("a query is read-only however it's called, even inside a writable call", as
       sneaky: method(z.object({}), async (_, ctx) => ctx.collections.items.create({ name: "x" }), { kind: "query" }),
       outer: method(z.object({}), async (_, ctx) => ctx.call("plugin.sneaky")),
     },
+    namespace: "plugin",
     collections: { items: z.object({ name: z.string() }) },
   });
   await runtime.add("plugin", plugin);
@@ -274,7 +288,7 @@ test("late writes are announced by the runtime they belong to", async () => {
 
 test("concurrent updates to one record both land", async () => {
   const runtime = await open();
-  await runtime.add("pair", definePlugin({ collections: { items: z.object({ a: z.number(), b: z.number() }) } }));
+  await runtime.add("pair", definePlugin({ namespace: "pair", collections: { items: z.object({ a: z.number(), b: z.number() }) } }));
   const { id } = (await runtime.call("pair.items.create", { a: 0, b: 0 })).result as { id: string };
   await Promise.all([runtime.call("pair.items.update", { id, a: 1 }), runtime.call("pair.items.update", { id, b: 1 })]);
   expect((await runtime.call("pair.items.get", { id })).result).toMatchObject({ a: 1, b: 1 });
@@ -283,6 +297,7 @@ test("concurrent updates to one record both land", async () => {
 test("a handler that writes to the collection it reacts to doesn't deadlock", async () => {
   const runtime = await open();
   await runtime.add("echo", definePlugin({
+    namespace: "echo",
     collections: { items: z.object({ n: z.number() }) },
     on: { "items.created": async (item, ctx) => { if (item.n < 2) await ctx.collections.items.create({ n: item.n + 1 }); } },
   }));
@@ -293,6 +308,7 @@ test("a handler that writes to the collection it reacts to doesn't deadlock", as
 test("a null filter matches stored nulls", async () => {
   const runtime = await open();
   const plugin = definePlugin({
+    namespace: "nulls",
     collections: { items: z.object({ n: z.number().nullable() }) },
     methods: { empty: method(z.object({}), async (_, ctx) => (await ctx.collections.items.list({ where: { n: null } })).length, { kind: "query" }) },
   });
@@ -303,6 +319,7 @@ test("a null filter matches stored nulls", async () => {
 });
 
 const ticker = definePlugin({
+  namespace: "ticker",
   collections: { marks: z.object({ at: z.number() }) },
   methods: {
     ticks: stream(z.object({ count: z.number() }), async function* ({ count }, ctx) {
@@ -381,6 +398,7 @@ test("a cron runs its method when due, once, and the manifest says how it went",
   await open();
   const runs: string[] = [];
   await runtime.add("clock", definePlugin({
+    namespace: "clock",
     collections: { ticks: z.object({ at: z.number() }) },
     methods: {
       tick: method(z.object({}), async (_, ctx) => { runs.push(ctx.root); await ctx.collections.ticks.create({ at: Date.now() }); }),

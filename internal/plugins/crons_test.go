@@ -10,6 +10,7 @@ import (
 
 const tickerPlugin = `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
+  namespace: "ticker",
   collections: { ticks: z.object({ at: z.number() }) },
   methods: {
     tick: method(z.object({}), async (_, ctx) => { await ctx.collections.ticks.create({ at: Date.now() }); }),

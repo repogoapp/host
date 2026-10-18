@@ -144,7 +144,7 @@ test("tail is a stream method cards can watch", async () => {
 
 test("retention drops a key untouched past its age, and old segments past its bytes", async () => {
   const runtime = await open({
-    logs: withContext({ streams: { old: z.object({ text: z.string() }), big: { item: z.object({ text: z.string() }), retain: { bytes: 1_500_000 } } } }),
+    logs: withContext({ namespace: "logs", streams: { old: z.object({ text: z.string() }), big: { item: z.object({ text: z.string() }), retain: { bytes: 1_500_000 } } } }),
   });
   const { old, big } = (await contextOf(runtime, "logs")).streams;
   await old.append("k", { text: "a" });
@@ -311,6 +311,7 @@ test("plugins naming one bucket share it; a different schema fails the load", as
 test("a method and generated data of the same name fail the load", async () => {
   const runtime = await open({});
   const clash = definePlugin({
+    namespace: "clash",
     kv: { state: z.string() },
     methods: { "state.get": { kind: "query", input: z.object({}), run: () => null } },
   });
