@@ -44,7 +44,7 @@ func (d Deps) usage(ctx context.Context, _ rpc.Caller, _ rpc.None) (UsageResult,
 }
 
 func (d Deps) reset(ctx context.Context, _ rpc.Caller, a ResetParams) (ResetResult, error) {
-	outcome, err := d.Usage.Reset(ctx, agent.Kind(a.Kind), a.CreditID)
+	outcome, err := d.Usage.Reset(ctx, agent.Kind(a.Agent), a.CreditID)
 	return ResetResult{Outcome: outcome}, err
 }
 

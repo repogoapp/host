@@ -27,7 +27,7 @@ func (f *fixture) Usage(_ context.Context, last Usage) Usage {
 // is handed the last good one to fall back on.
 func TestServiceCachesAndKeepsTheLastGoodReading(t *testing.T) {
 	f := &fixture{next: Usage{Available: true, CapturedAtMS: 1, Windows: []Window{{ID: "w"}}}}
-	s := New([]agent.Kind{"fixture"}, f)
+	s := New(f)
 	got := s.One(t.Context(), "fixture")
 	if got.Agent != "fixture" || got.Name != "Fixture" || f.calls != 1 {
 		t.Fatalf("first = %+v after %d calls", got, f.calls)
@@ -38,7 +38,7 @@ func TestServiceCachesAndKeepsTheLastGoodReading(t *testing.T) {
 	}
 
 	s.fresh = map[agent.Kind]cached{}
-	f.next = Usage{Detail: "down"}
+	f.next = Usage{}
 	if got := s.One(t.Context(), "fixture"); got.Available {
 		t.Fatalf("failed read = %+v", got)
 	}

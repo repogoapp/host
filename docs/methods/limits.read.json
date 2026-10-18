@@ -5,16 +5,10 @@
       "agent": "agent",
       "available": true,
       "plan": "plan",
-      "tier": "tier",
       "account": {
         "email": "email",
-        "name": "name",
-        "login": "login",
-        "avatar_url": "avatar_url",
         "key": "key"
       },
-      "rate_limit_reached": "rate_limit_reached",
-      "detail": "detail",
       "captured_at_ms": 1,
       "windows": [
         {
@@ -34,10 +28,7 @@
           {
             "id": "id",
             "title": "title",
-            "description": "description",
             "status": "status",
-            "reset_type": "reset_type",
-            "granted_at": 1,
             "expires_at": 1
           }
         ]

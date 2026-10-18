@@ -39,12 +39,12 @@ func TestUsageBodyShapes(t *testing.T) {
 	}
 }
 
-// With no endpoint, the plan still comes from the credential cache, and the
-// account file fills what the cache leaves out.
-func TestPlanTierFromDisk(t *testing.T) {
+// With no endpoint, the plan still comes from the credential cache, ahead of
+// the account file's.
+func TestPlanFromDisk(t *testing.T) {
 	root := t.TempDir()
 	p := New(agent.Dependencies{Root: root})
-	if got := p.claudePlanTierFromDisk(); got.Available || got.Detail != "no local Claude credential cache" {
+	if got := p.claudePlanFromDisk(); got.Available || got.Plan != "" {
 		t.Fatalf("no files = %+v", got)
 	}
 	home := filepath.Join(root, "claude")
@@ -54,11 +54,11 @@ func TestPlanTierFromDisk(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".credentials.json"), []byte(`{"claudeAiOauth":{"subscriptionType":"max"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"oauthAccount":{"organizationType":"team","organizationRateLimitTier":"tier_4"}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"oauthAccount":{"organizationType":"team"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := p.claudePlanTierFromDisk(); !got.Available || got.Plan != "Max" || got.Tier != "tier_4" {
-		t.Fatalf("plan/tier = %+v", got)
+	if got := p.claudePlanFromDisk(); !got.Available || got.Plan != "Max" {
+		t.Fatalf("plan = %+v", got)
 	}
 }
 

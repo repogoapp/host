@@ -6,7 +6,6 @@ package agentusage
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,19 +23,10 @@ type Usage struct {
 	Available bool   `json:"available"`
 
 	Plan string `json:"plan"`
-	Tier string `json:"tier"`
 
 	// Who these windows belong to; a last-known reading keeps the account it
 	// was read for, so an account switch never relabels old numbers.
-	Account *clitool.Account `json:"account,omitempty"`
-
-	// Which window the provider says is currently blocking, when it says so at
-	// all. Only Codex reports this, and only from the account endpoint.
-	RateLimitReached string `json:"rate_limit_reached"`
-
-	// Where these numbers came from, in words: a log scrape and an account API
-	// deserve different trust, and the client cannot tell from the numbers.
-	Detail string `json:"detail"`
+	Account *Account `json:"account,omitempty"`
 
 	// When the reading was taken, NOT when it was served. A cached or
 	// last-known-good answer keeps its original time so the client can show its
@@ -55,6 +45,21 @@ type Usage struct {
 	Balance *Balance `json:"balance,omitempty"`
 }
 
+// Account is the seat a reading belongs to: Key groups hosts signed in to the
+// same subscription, Email names it.
+type Account struct {
+	Email string `json:"email,omitempty"`
+	Key   string `json:"key,omitempty"`
+}
+
+// AccountOf is the CLI's sign-in as a reading's account; nil when signed out.
+func AccountOf(a *clitool.Account) *Account {
+	if a == nil {
+		return nil
+	}
+	return &Account{Email: a.Email, Key: a.Key}
+}
+
 // Balance is prepaid credit left on the account.
 type Balance struct {
 	Remaining float64 `json:"remaining"`
@@ -70,16 +75,13 @@ type Resets struct {
 }
 
 type ResetCredit struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
 
 	// "available", "redeeming", "redeemed", or "unknown".
-	Status    string `json:"status"`
-	ResetType string `json:"reset_type,omitempty"`
+	Status string `json:"status"`
 
-	// Unix seconds; ExpiresAt is zero when the credit does not expire.
-	GrantedAt int64 `json:"granted_at,omitempty"`
+	// Unix seconds; zero when the credit does not expire.
 	ExpiresAt int64 `json:"expires_at"`
 }
 
@@ -150,9 +152,6 @@ type Resetter interface {
 // optimization: Claude's usage endpoint rate-limits its callers, and a host
 // that asked on every keystroke would lock the user out of the number.
 type Service struct {
-	// Every agent this host knows, so one without usage reads as unsupported
-	// rather than unknown.
-	kinds     []agent.Kind
 	providers []Provider
 	mu        sync.Mutex
 	fresh     map[agent.Kind]cached
@@ -174,10 +173,9 @@ const (
 	resetTimeout = 25 * time.Second
 )
 
-// New reads usage from providers; kinds is every agent the host knows.
-func New(kinds []agent.Kind, providers ...Provider) *Service {
+// New reads usage from providers.
+func New(providers ...Provider) *Service {
 	return &Service{
-		kinds:     kinds,
 		providers: providers,
 		fresh:     map[agent.Kind]cached{},
 		lastGood:  map[agent.Kind]Usage{},
@@ -198,10 +196,7 @@ func (s *Service) One(ctx context.Context, kind agent.Kind) Usage {
 
 	provider, ok := agent.Find(s.providers, kind, Provider.Kind)
 	if !ok {
-		if slices.Contains(s.kinds, kind) {
-			return Usage{Agent: string(kind), Detail: "usage reporting is not supported"}
-		}
-		return Usage{Agent: string(kind), Detail: "unknown agent"}
+		return Usage{Agent: string(kind)}
 	}
 	ctx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()

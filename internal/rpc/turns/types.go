@@ -13,7 +13,7 @@ type UsageResult struct {
 
 // ResetParams' credit_id may be empty, to let Codex pick one.
 type ResetParams struct {
-	Kind     string `json:"kind"`
+	Agent    string `json:"agent"`
 	CreditID string `json:"credit_id"`
 }
 

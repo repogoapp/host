@@ -41,7 +41,7 @@ func TestCodexAccountUsageCarriesResetCredits(t *testing.T) {
 	}
 	first, second := usage.Resets.Credits[0], usage.Resets.Credits[1]
 	if first.ID != "RateLimitResetCredit_a" || first.Title != "Full reset" || first.Status != "available" ||
-		first.ExpiresAt != 1791080190 || first.ResetType != "codexRateLimits" {
+		first.ExpiresAt != 1791080190 {
 		t.Fatalf("first credit = %+v", first)
 	}
 	// Nulls decode to empty, never fail the whole reading.

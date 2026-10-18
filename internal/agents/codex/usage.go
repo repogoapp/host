@@ -19,7 +19,7 @@ import (
 // CLI stops writing usable limits to its logs, exactly when the number matters.
 // The rollouts come next, then last's windows.
 func (p *Provider) Usage(ctx context.Context, last agentusage.Usage) agentusage.Usage {
-	account := codexAccount(p.accountPath)
+	account := agentusage.AccountOf(codexAccount(p.accountPath))
 	if usage, ok := p.codexAccountUsage(ctx); ok {
 		usage.Account = account
 		return usage
@@ -29,12 +29,11 @@ func (p *Provider) Usage(ctx context.Context, last agentusage.Usage) agentusage.
 		return usage
 	}
 	if len(last.Windows) > 0 {
-		last.Detail = "codex unavailable; showing last known windows"
 		// A credit listed then may be spent now; offer none rather than a stale one.
 		last.Resets = nil
 		return last
 	}
-	return agentusage.Usage{Account: account, Detail: "codex app-server unavailable and no windowed rate_limits in ~/.codex session logs"}
+	return agentusage.Usage{Account: account}
 }
 
 // codexAccountUsage reads account/rateLimits/read from a one-shot app-server.
@@ -65,18 +64,16 @@ func parseCodexAccountUsage(raw json.RawMessage, now time.Time) (agentusage.Usag
 	}
 
 	usage := agentusage.Usage{
-		Plan:             codexPlanLabel(body.RateLimits.PlanType),
-		RateLimitReached: body.RateLimits.RateLimitReachedType,
-		CapturedAtMS:     now.UnixMilli(),
-		Detail:           "live from codex app-server account/rateLimits/read",
-		Resets:           body.RateLimitResetCredits.resets(),
-		Windows:          windows((*codexLogWindow)(body.RateLimits.Primary), (*codexLogWindow)(body.RateLimits.Secondary)),
-		Balance:          body.RateLimits.Credits.balance(),
+		Plan:         codexPlanLabel(body.RateLimits.PlanType),
+		CapturedAtMS: now.UnixMilli(),
+		Resets:       body.RateLimitResetCredits.resets(),
+		Windows:      windows((*codexLogWindow)(body.RateLimits.Primary), (*codexLogWindow)(body.RateLimits.Secondary)),
+		Balance:      body.RateLimits.Credits.balance(),
 	}
 	// The logs never carry this, so it is the one thing the live read can say
 	// that the fallback cannot: the provider itself calling you blocked.
 	for i, w := range usage.Windows {
-		if usage.RateLimitReached != "" && w.UsedPercent >= 100 {
+		if body.RateLimits.RateLimitReachedType != "" && w.UsedPercent >= 100 {
 			usage.Windows[i].Severity = "exceeded"
 		}
 	}
@@ -159,13 +156,11 @@ func (p *Provider) codexSessionLogUsage() (agentusage.Usage, bool) {
 	}
 
 	usage := agentusage.Usage{
-		Available:        true,
-		Plan:             codexPlanLabel(snapshot.PlanType),
-		RateLimitReached: snapshot.RateLimitReachedType,
-		CapturedAtMS:     at.UnixMilli(),
-		Detail:           "reconstructed from local Codex session logs, not official account billing",
-		Windows:          windows(snapshot.Primary, snapshot.Secondary),
-		Balance:          (*codexCredits)(snapshot.Credits).balance(),
+		Available:    true,
+		Plan:         codexPlanLabel(snapshot.PlanType),
+		CapturedAtMS: at.UnixMilli(),
+		Windows:      windows(snapshot.Primary, snapshot.Secondary),
+		Balance:      (*codexCredits)(snapshot.Credits).balance(),
 	}
 	return usage, len(usage.Windows) > 0
 }

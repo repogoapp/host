@@ -19,16 +19,15 @@ import (
 
 // Usage reads window utilization from Anthropic's OAuth usage endpoint, the
 // only source since Claude Code persists none on disk, falling back to
-// plan/tier from the local credential cache and last's windows.
+// the plan from the local credential cache and last's windows.
 func (p *Provider) Usage(ctx context.Context, last agentusage.Usage) agentusage.Usage {
-	usage := p.claudePlanTierFromDisk()
-	usage.Account = claudeAccount(p.accountPath)
+	usage := p.claudePlanFromDisk()
+	usage.Account = agentusage.AccountOf(claudeAccount(p.accountPath))
 
 	if live, ok := p.fetchClaudeUsage(ctx); ok {
 		usage.Available = true
 		usage.Windows = live
 		usage.CapturedAtMS = time.Now().UnixMilli()
-		usage.Detail = "live from api/oauth/usage (undocumented endpoint)"
 		return usage
 	}
 
@@ -38,42 +37,32 @@ func (p *Provider) Usage(ctx context.Context, last agentusage.Usage) agentusage.
 		usage.Windows = last.Windows
 		usage.Account = last.Account
 		usage.CapturedAtMS = last.CapturedAtMS
-		usage.Detail = "usage endpoint unavailable; showing last known windows"
 	}
 	return usage
 }
 
-// claudePlanTierFromDisk is what we can say without the network: which plan
-// this login is on. Worth having on its own — a popover that names the plan and
+// claudePlanFromDisk is what we can say without the network: which plan this
+// login is on. Worth having on its own — a popover that names the plan and
 // admits it has no numbers beats one that renders nothing.
-func (p *Provider) claudePlanTierFromDisk() agentusage.Usage {
-	var usage agentusage.Usage
+func (p *Provider) claudePlanFromDisk() agentusage.Usage {
 	var credentials struct {
 		OAuth struct {
 			Plan string `json:"subscriptionType"`
-			Tier string `json:"rateLimitTier"`
 		} `json:"claudeAiOauth"`
 	}
 	var config struct {
 		Account struct {
 			Plan string `json:"organizationType"`
-			Tier string `json:"organizationRateLimitTier"`
 		} `json:"oauthAccount"`
 	}
 	clitool.ReadJSON(filepath.Join(p.home, ".credentials.json"), &credentials)
 	clitool.ReadJSON(p.accountPath, &config)
 
 	plan := cmp.Or(credentials.OAuth.Plan, config.Account.Plan)
-	tier := cmp.Or(credentials.OAuth.Tier, config.Account.Tier)
-	if plan == "" && tier == "" {
-		usage.Detail = "no local Claude credential cache"
-		return usage
+	if plan == "" {
+		return agentusage.Usage{}
 	}
-
-	usage.Available = true
-	usage.Plan, usage.Tier = claudePlanLabel(plan), tier
-	usage.Detail = "plan/tier only; usage endpoint unavailable"
-	return usage
+	return agentusage.Usage{Available: true, Plan: claudePlanLabel(plan)}
 }
 
 // fetchClaudeUsage asks the usage endpoint with the Keychain's token.

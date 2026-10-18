@@ -66,13 +66,10 @@ func parseResetOutcome(raw json.RawMessage) (string, error) {
 type codexResetsRaw struct {
 	AvailableCount int64 `json:"availableCount"`
 	Credits        []struct {
-		ID          string  `json:"id"`
-		Title       *string `json:"title"`
-		Description *string `json:"description"`
-		Status      string  `json:"status"`
-		ResetType   string  `json:"resetType"`
-		GrantedAt   int64   `json:"grantedAt"`
-		ExpiresAt   *int64  `json:"expiresAt"`
+		ID        string  `json:"id"`
+		Title     *string `json:"title"`
+		Status    string  `json:"status"`
+		ExpiresAt *int64  `json:"expiresAt"`
 	} `json:"credits"`
 }
 
@@ -83,17 +80,9 @@ func (r *codexResetsRaw) resets() *agentusage.Resets {
 	}
 	out := &agentusage.Resets{Available: r.AvailableCount, Credits: []agentusage.ResetCredit{}}
 	for _, c := range r.Credits {
-		credit := agentusage.ResetCredit{
-			ID:        c.ID,
-			Status:    c.Status,
-			ResetType: c.ResetType,
-			GrantedAt: c.GrantedAt,
-		}
+		credit := agentusage.ResetCredit{ID: c.ID, Status: c.Status}
 		if c.Title != nil {
 			credit.Title = *c.Title
-		}
-		if c.Description != nil {
-			credit.Description = *c.Description
 		}
 		if c.ExpiresAt != nil {
 			credit.ExpiresAt = *c.ExpiresAt
