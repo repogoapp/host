@@ -37,12 +37,10 @@ func TestListIsTheEnvironmentsAgentsThenTheProjects(t *testing.T) {
 		Project: listed{{ID: "helper", Name: "Helper", Models: []projectagent.ProjectAgentModel{{ID: "s", Name: "Sonnet"}}, Model: "s"}},
 		Catalog: catalogs{"claude": {
 			Models: []agentcatalog.Model{
-				{ID: "opus", Label: "Opus", Efforts: []agentcatalog.Choice{{Value: "high"}, {Value: "max"}}, DefaultEffort: "high"},
-				{ID: "old", Label: "Old", Hidden: true},
+				{ID: "opus", Name: "Opus", Efforts: []string{"high", "max"}, DefaultEffort: "high"},
+				{ID: "old", Name: "Old", Hidden: true},
 			},
-			DefaultModel:    "opus",
-			Modes:           []agentcatalog.Choice{{Value: "plan", Name: "Plan"}},
-			PermissionModes: []agentcatalog.Choice{{Value: "acceptEdits", Name: "Accept edits"}},
+			DefaultModel: "opus",
 		}},
 	}
 	got, err := d.list(t.Context(), rpc.Caller{}, ListParams{Project: dir})

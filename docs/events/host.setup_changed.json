@@ -45,94 +45,27 @@
   ],
   "agents": [
     {
-      "kind": "kind",
+      "agent": "agent",
+      "name": "name",
+      "company": "company",
       "available": true,
-      "reason": "reason",
-      "catalog": {
-        "name": "name",
-        "icon": "icon",
-        "company": "company",
-        "agent": "agent",
-        "available": true,
-        "detail": "detail",
-        "captured_at_ms": 1,
-        "models": [
-          {
-            "id": "id",
-            "name": "name",
-            "label": "label",
-            "description": "description",
-            "resolved": "resolved",
-            "default": true,
-            "hidden": true,
-            "efforts": [
-              {
-                "value": "value",
-                "name": "name",
-                "description": "description"
-              }
-            ],
-            "default_effort": "default_effort",
-            "speed_tiers": [
-              {
-                "value": "value",
-                "name": "name",
-                "description": "description"
-              }
-            ],
-            "adaptive_thinking": true,
-            "auto_mode": true,
-            "modalities": [
-              "modalities"
-            ],
-            "company": "company",
-            "provider": "provider",
-            "provider_company": "provider_company"
-          }
-        ],
-        "default_model": "default_model",
-        "default_effort": "default_effort",
-        "modes": [
-          {
-            "value": "value",
-            "name": "name",
-            "description": "description"
-          }
-        ],
-        "permission_modes": [
-          {
-            "value": "value",
-            "name": "name",
-            "description": "description"
-          }
-        ],
-        "default_permission": "default_permission",
-        "sandboxes": [
-          {
-            "value": "value",
-            "name": "name",
-            "description": "description"
-          }
-        ],
-        "default_sandbox": "default_sandbox",
-        "reviewers": [
-          {
-            "value": "value",
-            "name": "name",
-            "description": "description"
-          }
-        ],
-        "personalities": [
-          {
-            "value": "value",
-            "name": "name",
-            "description": "description"
-          }
-        ],
-        "default_personality": "default_personality",
-        "fast_mode": true,
-        "fast_mode_default": true
-      }
+      "models": [
+        {
+          "id": "id",
+          "name": "name",
+          "resolved": "resolved",
+          "default": true,
+          "hidden": true,
+          "efforts": [
+            "efforts"
+          ],
+          "default_effort": "default_effort",
+          "fast_mode": true,
+          "adaptive_thinking": true,
+          "company": "company"
+        }
+      ],
+      "default_model": "default_model"
     }
   ],
   "github": {

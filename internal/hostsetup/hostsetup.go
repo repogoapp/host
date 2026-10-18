@@ -30,26 +30,17 @@ type Setup struct {
 	// the cloud CLIs, each with the category its Environment section shows.
 	Tools []clitool.Install `json:"tools" wire:"array"`
 
-	// Agents is what only an agent has: whether a turn can start with it now
-	// and what its CLI offers to pick. Its install is in Tools, by kind.
-	Agents []Agent `json:"agents" wire:"array"`
+	// Agents is what each agent's CLI offers to pick. Its install is in
+	// Tools, by kind.
+	Agents []agentcatalog.Catalog `json:"agents" wire:"array"`
 
 	GitHub ghcore.CloneFolder `json:"github"`
 }
 
 func (Setup) Method() string { return "host.setup_changed" }
 
-// Agent is one agent: whether a turn can start with it now (Reason says what
-// is missing), and what its CLI offers to pick.
-type Agent struct {
-	Kind      agent.Kind           `json:"kind"`
-	Available bool                 `json:"available"`
-	Reason    string               `json:"reason,omitempty"`
-	Catalog   agentcatalog.Catalog `json:"catalog"`
-}
-
 // Sources is what a snapshot reads: this host's release, where GitHub clones
-// land, every CLI, the adapters that run the agents, and their catalogs.
+// land, every CLI, and the agents' catalogs.
 type Sources struct {
 	Host interface {
 		Release(ctx context.Context) hostinfo.Release
@@ -59,9 +50,6 @@ type Sources struct {
 	}
 	Tools interface {
 		List(ctx context.Context) []clitool.Install
-	}
-	Runner interface {
-		Agents() []agent.Agent
 	}
 	Catalog interface {
 		One(ctx context.Context, kind agent.Kind, install agentcatalog.Install, refresh bool) agentcatalog.Catalog
@@ -85,41 +73,21 @@ func Snapshot(ctx context.Context, src Sources, refresh bool) Setup {
 	return out
 }
 
-func agents(ctx context.Context, src Sources, tools []clitool.Install, refresh bool) []Agent {
-	adapters := map[agent.Kind]agent.Agent{}
-	for _, a := range src.Runner.Agents() {
-		adapters[a.Kind] = a
-	}
+func agents(ctx context.Context, src Sources, tools []clitool.Install, refresh bool) []agentcatalog.Catalog {
 	installs := []clitool.Install{}
 	for _, tool := range tools {
 		if tool.Category == clitool.CategoryAgent {
 			installs = append(installs, tool)
 		}
 	}
-	return par.Map(installs, 0, func(install clitool.Install) Agent {
-		kind := agent.Kind(install.Kind)
-		out := Agent{Kind: kind}
-		adapter, runs := adapters[kind]
-		switch {
-		case !runs:
-			out.Reason = "not supported on this host"
-		case !adapter.Available:
-			out.Reason = adapter.Reason
-		case !install.Installed:
-			out.Reason = "not installed"
-		case !install.Authed:
-			out.Reason = "not signed in"
-		default:
-			out.Available = true
-		}
+	return par.Map(installs, 0, func(install clitool.Install) agentcatalog.Catalog {
 		// A missing CLI has nothing to list, and asking would spawn nothing.
-		if install.Installed {
-			out.Catalog = src.Catalog.One(ctx, kind, catalogInstall(install), refresh)
-		} else {
-			out.Catalog = agentcatalog.Unavailable("not installed")
-			out.Catalog.Agent, out.Catalog.Name, out.Catalog.Icon = install.Kind, install.Name, install.Icon
+		if !install.Installed {
+			out := agentcatalog.Unavailable()
+			out.Agent, out.Name = install.Kind, install.Name
+			return out
 		}
-		return out
+		return src.Catalog.One(ctx, agent.Kind(install.Kind), catalogInstall(install), refresh)
 	})
 }
 

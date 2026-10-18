@@ -105,8 +105,8 @@ func (h *Host) openAgents() error {
 	s := &h.Services
 	s.Agents = h.agents.Providers
 	s.ProjectAgents = h.agents.ProjectAgents
-	s.AgentUsage = agentusage.New(h.agents.Kinds(), h.agents.Usage...)
-	s.AgentCatalog = agentcatalog.New(h.agents.Kinds(), h.agents.Catalogs...)
+	s.AgentUsage = agentusage.New(h.agents.Usage...)
+	s.AgentCatalog = agentcatalog.New(h.log, h.agents.Catalogs...)
 	// Its own database: the chat cache is disposable, and this is history the
 	// transcripts may no longer hold.
 	s.Usage, err = shipping.Open(h.ctx, h.state("usage.db"), h.state("cache", "model-rates.json"), h.agents.Shipping...)
@@ -450,7 +450,7 @@ func (h *Host) relayConnected() bool { return h.link != nil && h.link.Connected(
 // outlives its caller, and changes what the CLI offers, so catalogs are re-read.
 func (h *Host) setupChanged() {
 	h.toEveryPhone(hostsetup.Snapshot(h.ctx, hostsetup.Sources{
-		Host: h.info, GitHub: h.Services.GitHub, Tools: h.Services.Tools, Runner: h.mgr, Catalog: h.Services.AgentCatalog,
+		Host: h.info, GitHub: h.Services.GitHub, Tools: h.Services.Tools, Catalog: h.Services.AgentCatalog,
 	}, true))
 }
 

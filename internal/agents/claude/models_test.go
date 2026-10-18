@@ -14,15 +14,15 @@ func TestCatalogReportsDefaultEffort(t *testing.T) {
 		{"value":"haiku","resolvedModel":"claude-haiku-4-5","displayName":"Haiku 4.5"}]}`)
 
 	for _, tc := range []struct {
-		name, settings, wantAgent, wantOpus, wantSonnet string
+		name, settings, wantOpus, wantSonnet string
 	}{
-		{"applied", `{"effective":{},"applied":{"effort":"high"}}`, "high", "high", "high"},
-		{"global", `{"effective":{"effortLevel":"low"},"applied":{"effort":"high"}}`, "low", "low", "low"},
-		{"per model", `{"effective":{"effortLevel":"low","modelSettings":{"claude-sonnet-5":{"effortLevel":"medium"}}}}`, "low", "low", "medium"},
+		{"applied", `{"effective":{},"applied":{"effort":"high"}}`, "high", "high"},
+		{"global", `{"effective":{"effortLevel":"low"},"applied":{"effort":"high"}}`, "low", "low"},
+		{"per model", `{"effective":{"effortLevel":"low","modelSettings":{"claude-sonnet-5":{"effortLevel":"medium"}}}}`, "low", "medium"},
 	} {
-		got := catalogFrom(map[string]json.RawMessage{"models": models, "settings": json.RawMessage(tc.settings)})
-		if got.DefaultEffort != tc.wantAgent {
-			t.Errorf("%s: agent default effort = %q, want %q", tc.name, got.DefaultEffort, tc.wantAgent)
+		got, err := catalogFrom(map[string]json.RawMessage{"models": models, "settings": json.RawMessage(tc.settings)})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
 		}
 		if e := got.Models[0].DefaultEffort; e != tc.wantOpus {
 			t.Errorf("%s: opus default effort = %q, want %q", tc.name, e, tc.wantOpus)

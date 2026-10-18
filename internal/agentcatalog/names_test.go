@@ -2,6 +2,7 @@ package agentcatalog
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -12,8 +13,8 @@ import (
 // to show that a catalog entry's name wins and an unlisted id is read off itself.
 type namingProvider struct{ catalog Catalog }
 
-func (namingProvider) Kind() agent.Kind                  { return agent.KindClaude }
-func (p namingProvider) Catalog(context.Context) Catalog { return p.catalog }
+func (namingProvider) Kind() agent.Kind                           { return agent.KindClaude }
+func (p namingProvider) Catalog(context.Context) (Catalog, error) { return p.catalog, nil }
 func (namingProvider) ModelName(id string) string {
 	if rest, ok := strings.CutPrefix(id, "model-"); ok {
 		return "Model " + rest
@@ -51,7 +52,7 @@ func TestCatalogIDJoinsATranscriptToItsAlias(t *testing.T) {
 }
 
 func TestModelLabel(t *testing.T) {
-	s := New([]agent.Kind{agent.KindClaude}, namingProvider{claudeCatalog})
+	s := New(slog.New(slog.DiscardHandler), namingProvider{claudeCatalog})
 
 	// Before the catalog is read, an id is named off itself.
 	if got := s.ModelLabel(agent.KindClaude, "model-5"); got != "Model 5" {

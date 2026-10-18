@@ -22,8 +22,8 @@ func (s *Service) ModelLabel(kind agent.Kind, id string) string {
 	}
 	namer, _ := s.namer(kind)
 	if c, ok := s.Last(kind); ok {
-		if m, ok := c.model(id); ok && m.Label != "" {
-			return m.Label
+		if m, ok := c.model(id); ok && m.Name != "" {
+			return m.Name
 		}
 	}
 	return nameFromID(namer, id, id)

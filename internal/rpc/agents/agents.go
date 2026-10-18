@@ -110,7 +110,7 @@ func catalogModels(models []agentcatalog.Model) []AgentModel {
 		if m.Hidden {
 			continue
 		}
-		out = append(out, AgentModel{ID: m.ID, Name: m.Label, Efforts: values(m.Efforts), DefaultEffort: m.DefaultEffort})
+		out = append(out, AgentModel{ID: m.ID, Name: m.Name, Efforts: m.Efforts, DefaultEffort: m.DefaultEffort})
 	}
 	return out
 }
@@ -119,14 +119,6 @@ func projectModels(models []projectagent.ProjectAgentModel) []AgentModel {
 	var out []AgentModel
 	for _, m := range models {
 		out = append(out, AgentModel{ID: m.ID, Name: m.Name})
-	}
-	return out
-}
-
-func values(choices []agentcatalog.Choice) []string {
-	var out []string
-	for _, c := range choices {
-		out = append(out, c.Value)
 	}
 	return out
 }

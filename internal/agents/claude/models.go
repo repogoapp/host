@@ -3,71 +3,51 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/repogoapp/host/internal/agentcatalog"
 )
 
-// Claude's permission modes are a fixed vocabulary, not something the CLI
-// reports; they are the choices `--permission-mode` accepts.
-var claudePermissionModes = []agentcatalog.Choice{
-	{Value: "default", Name: "Ask", Description: "Ask before edits and commands"},
-	{Value: "acceptEdits", Name: "Accept edits", Description: "Edit files without asking; still ask for commands"},
-	{Value: "auto", Name: "Auto", Description: "A classifier decides what needs asking"},
-	{Value: "dontAsk", Name: "Don't ask", Description: "Deny anything that would need a prompt"},
-	{Value: "bypassPermissions", Name: "Bypass", Description: "Run everything without asking"},
-}
-
-// claudeModes is the picker's mode choice: a normal turn, or plan mode.
-var claudeModes = []agentcatalog.Choice{
-	{Value: "agent", Name: "Agent", Description: "Read, edit and run"},
-	{Value: "plan", Name: "Plan", Description: "Read and propose; make no changes"},
-}
-
 // Catalog drives the CLI's stream-json control channel: `list_models` is the
 // same list the in-app picker shows, with per-model effort and fast-mode
 // support, and `get_settings` is what is in force when nothing is chosen.
-func (p *Provider) Catalog(ctx context.Context) agentcatalog.Catalog {
+func (p *Provider) Catalog(ctx context.Context) (agentcatalog.Catalog, error) {
 	res, ok := streamJSONControl(ctx, map[string]string{
 		"models":   "list_models",
 		"settings": "get_settings",
 	})
 	if !ok {
-		return agentcatalog.Unavailable("claude CLI unavailable or did not answer list_models")
+		return agentcatalog.Catalog{}, errors.New("claude CLI unavailable or did not answer list_models")
 	}
 	return catalogFrom(res)
 }
 
 // catalogFrom builds the catalog from the CLI's answers, keyed as Catalog
 // asks for them.
-func catalogFrom(res map[string]json.RawMessage) agentcatalog.Catalog {
+func catalogFrom(res map[string]json.RawMessage) (agentcatalog.Catalog, error) {
 	var models struct {
 		Models []struct {
 			Value            string   `json:"value"`
 			Resolved         string   `json:"resolvedModel"`
 			DisplayName      string   `json:"displayName"`
-			Description      string   `json:"description"`
 			SupportsEffort   bool     `json:"supportsEffort"`
 			Efforts          []string `json:"supportedEffortLevels"`
 			AdaptiveThinking bool     `json:"supportsAdaptiveThinking"`
 			FastMode         bool     `json:"supportsFastMode"`
-			AutoMode         bool     `json:"supportsAutoMode"`
 		} `json:"models"`
 	}
 	if json.Unmarshal(res["models"], &models) != nil || len(models.Models) == 0 {
-		return agentcatalog.Unavailable("claude list_models answered with no models")
+		return agentcatalog.Catalog{}, errors.New("claude list_models answered with no models")
 	}
 
 	var settings struct {
 		Effective struct {
-			Model          string `json:"model"`
-			EffortLevel    string `json:"effortLevel"`
-			FastMode       bool   `json:"fastMode"`
-			PermissionMode string `json:"permissionMode"`
-			ModelSettings  map[string]struct {
+			Model         string `json:"model"`
+			EffortLevel   string `json:"effortLevel"`
+			ModelSettings map[string]struct {
 				EffortLevel string `json:"effortLevel"`
 			} `json:"modelSettings"`
 		} `json:"effective"`
@@ -82,17 +62,7 @@ func catalogFrom(res map[string]json.RawMessage) agentcatalog.Catalog {
 		eff.EffortLevel = settings.Applied.Effort
 	}
 
-	catalog := agentcatalog.Catalog{
-		Available:         true,
-		Detail:            "live from claude stream-json list_models",
-		CapturedAtMS:      time.Now().UnixMilli(),
-		Modes:             claudeModes,
-		PermissionModes:   claudePermissionModes,
-		DefaultPermission: eff.PermissionMode,
-		DefaultModel:      eff.Model,
-		DefaultEffort:     eff.EffortLevel,
-		FastModeDefault:   eff.FastMode,
-	}
+	catalog := agentcatalog.Catalog{Available: true, DefaultModel: eff.Model}
 
 	// The CLI's literal `default` entry only says what it resolves to, and the
 	// app draws its own default row: hide it and mark the real model, the
@@ -109,16 +79,14 @@ func catalogFrom(res map[string]json.RawMessage) agentcatalog.Catalog {
 	for _, m := range models.Models {
 		isDefault := m.Value == defaultModel || (m.Value != "default" && m.Resolved == defaultModel)
 		model := agentcatalog.Model{
-			ID: m.Value, Name: withoutContext(m.DisplayName), Description: withoutContext(m.Description),
+			ID: m.Value, Name: withoutContext(m.DisplayName),
 			Resolved: m.Resolved, Default: isDefault, Hidden: m.Value == "default",
-			Efforts:          []agentcatalog.Choice{},
+			Efforts:          []string{},
+			FastMode:         m.FastMode,
 			AdaptiveThinking: m.AdaptiveThinking,
-			AutoMode:         m.AutoMode,
 		}
 		if m.SupportsEffort {
-			for _, level := range m.Efforts {
-				model.Efforts = append(model.Efforts, agentcatalog.Choice{Value: level, Name: level})
-			}
+			model.Efforts = append(model.Efforts, m.Efforts...)
 			// A per-model override wins over the global level, keyed by the
 			// resolved name without its context suffix.
 			model.DefaultEffort = eff.EffortLevel
@@ -126,13 +94,9 @@ func catalogFrom(res map[string]json.RawMessage) agentcatalog.Catalog {
 				model.DefaultEffort = ms.EffortLevel
 			}
 		}
-		if m.FastMode {
-			model.SpeedTiers = []agentcatalog.Choice{{Value: "fast", Name: "Fast", Description: "Faster output; uses more quota"}}
-			catalog.FastMode = true
-		}
 		catalog.Models = append(catalog.Models, model)
 	}
-	return catalog
+	return catalog, nil
 }
 
 // contextNote is the window size Claude writes into labels: "Opus (1M

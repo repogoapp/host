@@ -154,7 +154,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	r := rpc.New(cfg.Log)
 	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates,
 		Setup: hostsetup.Sources{
-			Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Runner: cfg.Runner, Catalog: cfg.AgentCatalog,
+			Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Catalog: cfg.AgentCatalog,
 		}})
 	turns.Register(r, turns.Deps{
 		Runner: cfg.Runner, Usage: cfg.AgentUsage,

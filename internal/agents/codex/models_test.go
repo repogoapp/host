@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// Fast mode is offered on a model whose speed tiers include "fast", reported
-// as the "fast" tier the app toggles, though its service tier is "priority".
-func TestCatalogReportsFastSpeedTier(t *testing.T) {
+// Fast mode is offered on a model whose speed tiers include "fast", though
+// its service tier is "priority".
+func TestCatalogReportsFastMode(t *testing.T) {
 	res := map[string]json.RawMessage{
 		"models": json.RawMessage(`{"data":[
 			{"model":"gpt-6-astra","displayName":"GPT-6 Astra","additionalSpeedTiers":["fast"],
@@ -16,15 +16,15 @@ func TestCatalogReportsFastSpeedTier(t *testing.T) {
 		"config": json.RawMessage(`{"config":{"model":"gpt-6-astra","service_tier":"priority"}}`),
 	}
 
-	got := catalogFrom(res)
-	if !got.Available || !got.FastMode || !got.FastModeDefault {
-		t.Fatalf("catalog = available %v, fast %v, fast default %v; want all true", got.Available, got.FastMode, got.FastModeDefault)
+	got, err := catalogFrom(res)
+	if err != nil || !got.Available {
+		t.Fatalf("catalog = available %v, err %v; want available", got.Available, err)
 	}
-	if tiers := got.Models[0].SpeedTiers; len(tiers) != 1 || tiers[0].Value != "fast" {
-		t.Fatalf("astra speed tiers = %+v, want one \"fast\"", tiers)
+	if !got.Models[0].FastMode {
+		t.Fatalf("astra fast mode = false, want true")
 	}
-	if tiers := got.Models[1].SpeedTiers; len(tiers) != 0 {
-		t.Fatalf("gpt-5.5 speed tiers = %+v, want none", tiers)
+	if got.Models[1].FastMode {
+		t.Fatalf("gpt-5.5 fast mode = true, want false")
 	}
 }
 

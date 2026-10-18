@@ -95,19 +95,13 @@ func TestDirectProviderApprovalStopAndAbsentCapabilities(t *testing.T) {
 	if len(r.Adapters) != 1 || len(r.Catalogs)+len(r.Usage)+len(r.Sessions)+len(r.Hooks)+len(r.MCP) != 0 {
 		t.Fatal("absent capabilities were synthesized")
 	}
-	if got := agentcatalog.New(r.Kinds(), r.Catalogs...).One(t.Context(), "direct", agentcatalog.Install{}, false); got.Available || got.Detail != "model discovery is not supported" {
+	if got := agentcatalog.New(discard(), r.Catalogs...).One(t.Context(), "direct", agentcatalog.Install{}, false); got.Available || got.Agent != "direct" {
 		t.Fatalf("unsupported catalog: %+v", got)
 	}
-	if got := agentcatalog.New(r.Kinds(), r.Catalogs...).One(t.Context(), "missing", agentcatalog.Install{}, false); got.Detail != "unknown agent" {
-		t.Fatalf("unknown catalog: %+v", got)
-	}
-	if got := agentusage.New(r.Kinds(), r.Usage...).One(t.Context(), "direct"); got.Detail != "usage reporting is not supported" {
+	if got := agentusage.New(r.Usage...).One(t.Context(), "direct"); got.Available || got.Agent != "direct" {
 		t.Fatalf("unsupported usage: %+v", got)
 	}
-	if got := agentusage.New(r.Kinds(), r.Usage...).One(t.Context(), "missing"); got.Detail != "unknown agent" {
-		t.Fatalf("unknown usage: %+v", got)
-	}
-	if _, err := agentusage.New(r.Kinds(), r.Usage...).Reset(t.Context(), "direct", ""); !errors.Is(err, agentusage.ErrNoResets) {
+	if _, err := agentusage.New(r.Usage...).Reset(t.Context(), "direct", ""); !errors.Is(err, agentusage.ErrNoResets) {
 		t.Fatalf("reset: %v", err)
 	}
 	mgr := agent.NewManager(discard(), agent.Hooks{
@@ -183,14 +177,17 @@ type catalogProvider struct {
 
 func (*catalogProvider) Kind() agent.Kind { return "fixture" }
 
-func (p *catalogProvider) Catalog(context.Context) agentcatalog.Catalog {
+func (p *catalogProvider) Catalog(context.Context) (agentcatalog.Catalog, error) {
 	p.calls++
-	return agentcatalog.Catalog{Available: p.available}
+	if !p.available {
+		return agentcatalog.Catalog{}, errors.New("fixture did not answer")
+	}
+	return agentcatalog.Catalog{Available: true}, nil
 }
 
 func TestCatalogRetriesFailureCachesSuccessAndForgets(t *testing.T) {
 	p := &catalogProvider{}
-	s := agentcatalog.New([]agent.Kind{"fixture"}, p)
+	s := agentcatalog.New(discard(), p)
 	s.One(t.Context(), "fixture", agentcatalog.Install{}, false)
 	s.One(t.Context(), "fixture", agentcatalog.Install{}, false)
 	if p.calls != 2 {
@@ -210,7 +207,7 @@ func TestCatalogRetriesFailureCachesSuccessAndForgets(t *testing.T) {
 
 func TestCatalogReadsAgainForAnotherInstall(t *testing.T) {
 	p := &catalogProvider{available: true}
-	s := agentcatalog.New([]agent.Kind{"fixture"}, p)
+	s := agentcatalog.New(discard(), p)
 	s.Warm(t.Context(), []agent.Kind{"fixture"})
 	v1 := agentcatalog.Install{Version: "1.0.0", Account: "a"}
 	s.One(t.Context(), "fixture", v1, false)
