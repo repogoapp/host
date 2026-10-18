@@ -55,6 +55,14 @@ type reply struct {
 	err    *wireError
 }
 
+// hostCall is a plugin's ctx.host, which the server sends up as a request
+// with its own id: the host method, its params, and the plugin calling.
+type hostCall struct {
+	Plugin string          `json:"plugin"`
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
+}
+
 // push is a subscription's news as the server sends it: a query's new answer,
 // or a stream's new items and its end.
 type push struct {
@@ -93,7 +101,7 @@ type server struct {
 
 // startServer runs the plugins server (runtime's `serve`) under ctx and connects
 // to it. onPush gets every subscription answer; onGone runs once when it ends.
-func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log *slog.Logger, onPush func(push), onNotice func(Notice), onGone func(*server)) (*server, error) {
+func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log *slog.Logger, onPush func(push), onNotice func(Notice), onHost func(hostCall) (json.RawMessage, *wireError), onGone func(*server)) (*server, error) {
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return nil, err
 	}
@@ -126,7 +134,7 @@ func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log 
 		return nil, err
 	}
 	s := &server{conn: conn, stdin: stdin, log: log, pending: map[int]chan reply{}, gone: make(chan struct{})}
-	go s.read(onPush, onNotice, onGone)
+	go s.read(onPush, onNotice, onHost, onGone)
 	return s, nil
 }
 
@@ -150,7 +158,7 @@ func dialWhenUp(ctx context.Context, socket string, exited <-chan struct{}) (net
 	}
 }
 
-func (s *server) read(onPush func(push), onNotice func(Notice), onGone func(*server)) {
+func (s *server) read(onPush func(push), onNotice func(Notice), onHost func(hostCall) (json.RawMessage, *wireError), onGone func(*server)) {
 	scanner := bufio.NewScanner(s.conn)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
@@ -171,6 +179,10 @@ func (s *server) read(onPush func(push), onNotice func(Notice), onGone func(*ser
 			if err := json.Unmarshal(l.Params, &n); err == nil {
 				onNotice(n)
 			}
+			continue
+		}
+		if l.Method == "host" && l.ID != nil {
+			go s.answerHost(*l.ID, l.Params, onHost)
 			continue
 		}
 		if l.ID == nil {
@@ -220,6 +232,30 @@ func (s *server) request(ctx context.Context, method string, params any) (json.R
 		return nil, nil, errServerGone
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
+	}
+}
+
+// answerHost runs a plugin's ctx.host off the read loop, so a slow host method
+// holds up no other reply, and writes the answer under the server's id.
+func (s *server) answerHost(id int, params json.RawMessage, onHost func(hostCall) (json.RawMessage, *wireError)) {
+	var call hostCall
+	var answer map[string]any
+	if err := json.Unmarshal(params, &call); err != nil {
+		answer = map[string]any{"id": id, "error": &wireError{Code: "VALIDATION", Message: "plugins: unreadable host call"}}
+	} else if result, failure := onHost(call); failure != nil {
+		answer = map[string]any{"id": id, "error": failure}
+	} else {
+		answer = map[string]any{"id": id, "result": result}
+	}
+	b, err := json.Marshal(answer)
+	if err != nil {
+		s.log.Warn("plugins: encoding a host answer failed", "err", err)
+		return
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.conn.Write(append(b, '\n')); err != nil {
+		s.log.Debug("plugins: host answer not delivered", "err", err)
 	}
 }
 

@@ -1,7 +1,11 @@
 import type { z } from "zod";
 import type { Context } from "./context";
+import type { Retain } from "./streams";
 
 export type Collections = Record<string, z.ZodObject>;
+
+/** A stream's lines' schema, or that and how long it keeps them (7 days or 50 MB a key unless it says). */
+export type StreamDefinition = z.ZodType | { item: z.ZodType; retain: Retain };
 
 /**
  * A query only reads, so cards may run it on their own and again when its data
@@ -27,18 +31,33 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
 
 export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>;
 
+/**
+ * Runs one of the plugin's methods on a schedule, called with `{}` as a tap
+ * would: `{ method: "watch", schedule: "*\/5 * * * *" }`. `schedule` is a cron,
+ * five fields or six with seconds first; `timezone` defaults to the environment's.
+ */
+export type Cron = { method: string; schedule: string; timezone?: string };
+
 export type PluginDefinition = {
   /** One line, shown to the agent in the index of plugins. */
   description?: string;
   /**
-   * The data file the collections live in, `<db>.db` in the data dir; the
-   * plugin's folder name when left out. A project's own data is `<project>.<name>`
-   * (`repogo.plans`); a bare name (`todos`) is shared by every plugin that names it.
+   * Where the plugin's data lives: `<namespace>/` in the data dir, holding `data.db`
+   * and its buckets' and streams' files. Plugins naming the same namespace share its
+   * data. The plugin's folder name when left out; by convention a project's own is
+   * `<project>.<name>` (`repogo.plans`) and data for every project a bare name (`todos`).
    */
-  db?: string;
+  namespace?: string;
   collections?: Collections;
+  /** Files with a `meta.json` each, in `<namespace>/buckets/<name>/`; the schema is the meta's. */
+  buckets?: Record<string, z.ZodObject>;
+  /** Keys to values, in the namespace's `data.db`; a key may expire. */
+  kv?: Record<string, z.ZodType>;
+  /** Append-only JSONL per key, in `<namespace>/streams/<name>/`, kept as `retain` says. */
+  streams?: Record<string, StreamDefinition>;
   methods?: Record<string, Method<any, any>>;
   on?: Record<string, Handler>;
+  crons?: Cron[];
 };
 
 export function definePlugin<T extends PluginDefinition>(plugin: T): T {

@@ -1,13 +1,21 @@
-import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { Bucket } from "./buckets";
 import { Collection } from "./collections";
-import type { Context, Notice } from "./context";
+import { checkTimezone, nextDue, parseSchedule, type Schedule } from "./cron";
+import { Database } from "./database";
+import type { Context, Manifest, ManifestCron, Notice } from "./context";
+
+export type { Manifest, ManifestCron, ManifestMethod } from "./context";
 import type { PluginDefinition, MethodKind } from "./define";
-import { MethodError } from "./errors";
+import { MethodError, toCallError } from "./errors";
 import { EventBus } from "./events";
+import { bucketMethods, kvMethods, streamMethods, type Generated } from "./generated";
+import { Kv } from "./kv";
+import type { Store, StoreKind, StoreOptions } from "./store";
+import { defaultRetain, Stream } from "./streams";
 import { currentAccess, tracked } from "./tracking";
 
 export type RegisteredMethod = {
@@ -22,20 +30,6 @@ export type RegisteredMethod = {
   run: (input: unknown, raw: unknown) => Promise<unknown>;
 };
 
-export type ManifestMethod = {
-  name: string;
-  kind: MethodKind;
-  description: string | null;
-  /** What a card asks before running it; null runs on tap. */
-  confirm: string | null;
-  input: unknown;
-  output: unknown;
-};
-
-export type Manifest = {
-  plugins: { name: string; description: string | null; methods: ManifestMethod[] }[];
-};
-
 /** A call's result with the data it read (what a query depends on) and wrote (what it invalidates). */
 export type CallResult = { result: unknown; reads: string[]; invalidates: string[] };
 
@@ -45,24 +39,48 @@ type InvalidationListener = (tags: string[]) => void;
 export type SentNotice = Notice & { plugin: string; root: string };
 type NoticeListener = (notice: SentNotice) => void;
 
+/** Runs a host method for a plugin's `ctx.host`; the plugins server passes it to the host. */
+export type HostCaller = (plugin: string, method: string, params: unknown) => Promise<unknown>;
+
 /** What an agent's call to a stream gets: the items within this long, or this many. */
 const sampleMs = Number(process.env.REPOGO_PLUGINS_SAMPLE_MS ?? 5000);
 const sampleLimit = 200;
+
+/** A plugin's cron as the runtime keeps it: its schedule read once, and its last run. */
+type CronJob = {
+  plugin: string;
+  /** `<plugin>.<method>`. */
+  method: string;
+  schedule: string;
+  timezone: string;
+  parsed: Schedule;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastError: string | null;
+  running: boolean;
+  runs: number;
+};
+
+/** A due time missed by more than this, as when the machine slept through it, is skipped. */
+const cronLateMs = 2 * 60_000;
 
 /** A call that isn't a stream has a signal that never aborts. */
 const never = new AbortController().signal;
 
 const pluginName = /^[a-z][a-z0-9-]*$/;
-const dbName = /^[a-z][a-z0-9.-]*$/;
+const namespaceName = /^[a-z][a-z0-9.-]*$/;
 
-// Loads every plugin in the plugins dir, opens the database its collections
-// name, builds its context, and registers its methods. The registry is what the
+// Loads every plugin in the plugins dir, opens the namespace its data lives
+// in, builds its context, and registers its methods. The registry is what the
 // agent's tools, cards and schedules all call.
 export class Runtime {
   readonly events = new EventBus();
   readonly methods = new Map<string, RegisteredMethod>();
   readonly plugins = new Map<string, PluginDefinition>();
-  private databases = new Map<string, SQL>();
+  readonly crons: CronJob[] = [];
+  private databases = new Map<string, Database>();
+  /** Every kv, stream and bucket by tag, shared by the plugins that name it, with its schema's JSON. */
+  private stores = new Map<string, { store: Store; schema: string }>();
   private invalidationListeners = new Set<InvalidationListener>();
   private noticeListeners = new Set<NoticeListener>();
   pluginsDir: string | null = null;
@@ -70,6 +88,7 @@ export class Runtime {
   private constructor(
     private dataDir: string,
     private root: string,
+    private host?: HostCaller,
   ) {}
 
   /** The caller's project while a call runs, for plugins that serve every project. */
@@ -77,10 +96,13 @@ export class Runtime {
   /** A running stream's signal, `ctx.signal` to the code it runs. */
   private callSignal = new AsyncLocalStorage<AbortSignal>();
 
-  /** `root` is the project's checkout, `ctx.root` to its plugins; the working directory when left out. */
-  static async open(options: { dataDir: string; root?: string }) {
+  /**
+   * `root` is the project's checkout, `ctx.root` to its plugins; the working
+   * directory when left out. Without `host`, `ctx.host` fails.
+   */
+  static async open(options: { dataDir: string; root?: string; host?: HostCaller }) {
     await mkdir(options.dataDir, { recursive: true });
-    return new Runtime(options.dataDir, options.root ?? process.cwd());
+    return new Runtime(options.dataDir, options.root ?? process.cwd(), options.host);
   }
 
   async loadDir(pluginsDir: string) {
@@ -95,18 +117,42 @@ export class Runtime {
 
   async add(name: string, plugin: PluginDefinition) {
     if (!pluginName.test(name)) throw new Error(`plugin names are lowercase letters, digits and hyphens: ${name}`);
-    const database = plugin.db ?? name;
-    if (!dbName.test(database)) throw new Error(`a plugin's db is lowercase letters, digits, dots and hyphens: ${database}`);
+    const namespace = plugin.namespace ?? name;
+    if (!namespaceName.test(namespace)) throw new Error(`a plugin's namespace is lowercase letters, digits, dots and hyphens: ${namespace}`);
 
-    const db: Context["db"] = {};
-    const collections = Object.entries(plugin.collections ?? {});
-    // Only collections need a file; plugins naming the same db share it on purpose.
-    const sql = collections.length > 0 ? await this.database(database) : null;
-    for (const [collectionName, schema] of collections) {
-      const collection = new Collection(sql!, this.events, name, database, collectionName, schema);
+    const collections: Context["collections"] = {};
+    const buckets: Context["buckets"] = {};
+    const kv: Context["kv"] = {};
+    const streams: Context["streams"] = {};
+    const declared = Object.entries(plugin.collections ?? {});
+    // Only data needs a file; plugins naming the same namespace share it on purpose.
+    const hasData = declared.length > 0 || [plugin.buckets, plugin.kv, plugin.streams].some((stores) => Object.keys(stores ?? {}).length > 0);
+    const file = hasData ? await this.database(namespace) : null;
+    for (const [collectionName, schema] of declared) {
+      const collection = new Collection(file!, this.events, name, namespace, collectionName, schema);
       await collection.setup();
-      db[collectionName] = collection;
+      collections[collectionName] = collection;
       this.registerCrud(name, collectionName, collection, schema);
+    }
+    const options: StoreOptions = {
+      database: file!, events: this.events, namespace, dir: join(this.dataDir, namespace),
+      announce: (tags) => this.notifyInvalidated(tags),
+    };
+    for (const [storeName, schema] of Object.entries(plugin.kv ?? {})) {
+      const store = await this.store(name, "kv", storeName, schema, () => new Kv(options, storeName, schema));
+      kv[storeName] = store;
+      this.registerGenerated(name, storeName, kvMethods(storeName, store, schema));
+    }
+    for (const [storeName, definition] of Object.entries(plugin.streams ?? {})) {
+      const { item, retain } = "item" in definition ? definition : { item: definition, retain: defaultRetain };
+      const store = await this.store(name, "streams", storeName, item, () => new Stream(options, storeName, item, retain), retain);
+      streams[storeName] = store;
+      this.registerGenerated(name, storeName, streamMethods(storeName, store, item));
+    }
+    for (const [storeName, schema] of Object.entries(plugin.buckets ?? {})) {
+      const store = await this.store(name, "buckets", storeName, schema, () => new Bucket(options, storeName, schema));
+      buckets[storeName] = store;
+      this.registerGenerated(name, storeName, bucketMethods(storeName, store, schema));
     }
 
     const runtime = this;
@@ -114,9 +160,17 @@ export class Runtime {
       plugin: name,
       get root() { return runtime.callRoot.getStore() ?? runtime.root; },
       get signal() { return runtime.callSignal.getStore() ?? never; },
-      db,
+      collections,
+      buckets,
+      kv,
+      streams,
       call: async (method, input) => (await this.call(method.includes(".") ? method : `${name}.${method}`, input)).result,
       emit: (event, payload) => this.events.emit(`${name}.${event}`, payload),
+      host: async (method, params) => {
+        if (!runtime.host) throw new MethodError("INTERNAL", "ctx.host runs only under the RepoGo host.");
+        return runtime.host(name, method, params ?? {});
+      },
+      plugins: () => this.manifest().plugins,
       notify: (notice) => {
         const sent = { ...notice, plugin: name, root: runtime.callRoot.getStore() ?? runtime.root };
         for (const listener of runtime.noticeListeners) listener(sent);
@@ -134,6 +188,27 @@ export class Runtime {
         input: method.input,
         output: method.output,
         run: async (input) => method.run(input, ctx),
+      });
+    }
+
+    // Checked here, so a cron that could never run fails the load with its reason.
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    for (const [index, cron] of (plugin.crons ?? []).entries()) {
+      const where = `${name}: crons[${index}]`;
+      const method = this.methods.get(`${name}.${cron.method}`);
+      if (!method || method.plugin !== name) throw new Error(`${where} names ${cron.method}, which isn't one of ${name}'s methods`);
+      if (method.kind === "stream") throw new Error(`${where}: ${cron.method} is a stream; a cron runs a query or a mutation`);
+      if (method.confirm) throw new Error(`${where}: ${cron.method} asks before it runs, so nothing may run it on a schedule`);
+      if (!method.input.safeParse({}).success) throw new Error(`${where}: ${cron.method} needs input; a cron calls it with {}`);
+      let parsed: Schedule;
+      try { parsed = parseSchedule(cron.schedule); } catch (error) { throw new Error(`${where}: ${(error as Error).message}`); }
+      const timezone = cron.timezone ?? zone;
+      try { checkTimezone(timezone); } catch { throw new Error(`${where}: "${timezone}" isn't a time zone`); }
+      const nextRunAt = nextDue(parsed, Date.now(), timezone);
+      if (nextRunAt === null) throw new Error(`${where}: "${cron.schedule}" is never due`);
+      this.crons.push({
+        plugin: name, method: method.name, schedule: cron.schedule, timezone, parsed,
+        nextRunAt, lastRunAt: null, lastError: null, running: false, runs: 0,
       });
     }
 
@@ -239,6 +314,35 @@ export class Runtime {
     return () => this.invalidationListeners.delete(listener);
   }
 
+  /**
+   * Starts every cron due by `now` and returns the runs it started, for a test
+   * to wait on. A due time that comes while the job still runs is skipped, as is
+   * one missed by more than two minutes: nothing is caught up.
+   */
+  tickCrons(now = Date.now()): Promise<void>[] {
+    const started: Promise<void>[] = [];
+    for (const job of this.crons) {
+      if (job.nextRunAt === null || job.nextRunAt > now) continue;
+      const due = job.nextRunAt;
+      job.nextRunAt = nextDue(job.parsed, now, job.timezone);
+      // A time that comes while the job still runs, or that was slept through, is skipped.
+      if (job.running || now - due > cronLateMs) continue;
+      job.running = true;
+      job.lastRunAt = now;
+      started.push(this.call(job.method, {}).then(
+        () => { job.lastError = null; },
+        (error) => {
+          job.lastError = toCallError(error).message;
+          console.error(`[${job.plugin}] cron ${job.method} failed:`, job.lastError);
+        },
+      ).finally(() => {
+        job.running = false;
+        job.runs += 1;
+      }));
+    }
+    return started;
+  }
+
   manifest(): Manifest {
     const plugins = [...this.plugins.entries()].map(([name, plugin]) => ({
       name,
@@ -253,24 +357,68 @@ export class Runtime {
           input: z.toJSONSchema(method.input, { io: "input", unrepresentable: "any" }),
           output: method.output ? z.toJSONSchema(method.output, { io: "output", unrepresentable: "any" }) : null,
         })),
+      crons: this.crons.filter((job) => job.plugin === name).map((job): ManifestCron => ({
+        method: job.method, schedule: job.schedule, timezone: job.timezone,
+        nextRunAt: job.nextRunAt, lastRunAt: job.lastRunAt, lastError: job.lastError, running: job.running, runs: job.runs,
+      })),
+      storage: {
+        buckets: this.storesOf(name, "buckets").map((store) => ({ name: store.name, path: (store as Bucket<any>).path })),
+        kv: this.storesOf(name, "kv").map((store) => ({ name: store.name })),
+        streams: this.storesOf(name, "streams").map((store) => ({ name: store.name, path: (store as Stream<any>).path })),
+      },
     }));
     return { plugins };
   }
 
-  close() {
-    for (const sql of this.databases.values()) sql.close();
+  /** Whether any plugin keeps kv, streams or buckets, which `tickStorage` looks after. */
+  get hasStorage() {
+    return this.stores.size > 0;
   }
 
-  private async database(name: string): Promise<SQL> {
-    let sql = this.databases.get(name);
-    if (sql) return sql;
-    sql = new SQL(`sqlite://${join(this.dataDir, `${name}.db`)}`);
-    // Other Workers open the same file: WAL lets them read while one writes,
-    // and a writer waits for the other's lock.
-    await sql.unsafe("pragma journal_mode = wal");
-    await sql.unsafe("pragma busy_timeout = 5000");
-    this.databases.set(name, sql);
-    return sql;
+  /**
+   * Expires kv keys, trims streams and rescans buckets, each as often as it
+   * needs; the Worker calls it every few seconds. One store failing doesn't stop the rest.
+   */
+  async tickStorage(now = Date.now()) {
+    for (const { store } of this.stores.values()) {
+      await store.tick(now).catch((error) => console.error(`[${store.kind}] ${store.name}:`, toCallError(error).message));
+    }
+  }
+
+  close() {
+    for (const { store } of this.stores.values()) store.close();
+    for (const database of this.databases.values()) database.close();
+  }
+
+  private async database(namespace: string): Promise<Database> {
+    let database = this.databases.get(namespace);
+    if (database) return database;
+    await mkdir(join(this.dataDir, namespace), { recursive: true });
+    database = await Database.open(join(this.dataDir, namespace, "data.db"));
+    this.databases.set(namespace, database);
+    return database;
+  }
+
+  // One store per tag, set up when the first plugin names it; a second plugin
+  // naming it shares it, and must declare the same schema (and retention).
+  private async store<T extends Store>(plugin: string, kind: StoreKind, name: string, schema: z.ZodType, make: () => T, extra?: unknown): Promise<T> {
+    const signature = JSON.stringify([z.toJSONSchema(schema, { unrepresentable: "any" }), extra ?? null]);
+    const made = make();
+    const found = this.stores.get(made.tag);
+    if (found && found.schema !== signature) {
+      throw new Error(`${plugin}: ${kind} ${name} is declared by another plugin in this namespace with a different schema`);
+    }
+    const store = (found?.store ?? made) as T;
+    if (!found) {
+      await store.setup();
+      this.stores.set(store.tag, { store, schema: signature });
+    }
+    store.plugins.add(plugin);
+    return store;
+  }
+
+  private storesOf(plugin: string, kind: StoreKind) {
+    return [...this.stores.values()].map(({ store }) => store).filter((store) => store.kind === kind && store.plugins.has(plugin));
   }
 
   private notifyInvalidated(tags: string[]) {
@@ -278,7 +426,17 @@ export class Runtime {
   }
 
   private register(method: RegisteredMethod) {
+    if (this.methods.has(method.name)) throw new Error(`${method.name} is defined twice; rename the method or the data`);
     this.methods.set(method.name, method);
+  }
+
+  private registerGenerated(plugin: string, name: string, methods: Record<string, Generated>) {
+    for (const [method, { run, ...spec }] of Object.entries(methods)) {
+      this.register({
+        name: `${plugin}.${name}.${method}`, plugin, ...spec,
+        run: async (input) => run(input, this.callSignal.getStore() ?? never),
+      });
+    }
   }
 
   // Every collection gets list/get/create/update/delete, so a data-only plugin

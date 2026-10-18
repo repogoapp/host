@@ -39,6 +39,9 @@ type Caller struct {
 	// Agent is the chat whose agent calls through RepoGo's MCP, set by the
 	// host and never from params; nil for a device.
 	Agent *AgentCaller
+	// Plugin names the plugin calling through ctx.host, set by the host; such
+	// a caller reaches only Tool methods.
+	Plugin string
 }
 
 // AgentCaller is a chat calling through its agent, and what its turn runs
@@ -60,6 +63,7 @@ var (
 
 	ErrLocalOnly  = errkind.New(errkind.Denied, "this method can only be called from the host machine")
 	ErrPairedOnly = errkind.New(errkind.Denied, "this method can only be called from a paired device")
+	ErrToolOnly   = errkind.New(errkind.Denied, "plugins may only call the methods agents and cards can")
 	ErrBusy       = errkind.New(errkind.Unavailable, "too many calls in flight; retry")
 )
 
@@ -232,6 +236,8 @@ func (r *Router) Call(ctx context.Context, c Caller, name string, params json.Ra
 		return nil, fmt.Errorf("%w: %s", ErrLocalOnly, name)
 	case m.Access == PairedOnly && c.Scope != ScopeRemote:
 		return nil, fmt.Errorf("%w: %s", ErrPairedOnly, name)
+	case c.Plugin != "" && m.Tool == "":
+		return nil, fmt.Errorf("%w: %s", ErrToolOnly, name)
 	}
 	if m.Detached {
 		ctx = context.WithoutCancel(ctx)

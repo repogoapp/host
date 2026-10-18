@@ -3,7 +3,7 @@ import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import { toCallError, type CallError } from "./errors";
-import type { DataPush, FromWorker, NotifyPush, Reply, Request, ToWorker } from "./protocol";
+import type { DataPush, FromWorker, HostCall, NotifyPush, Reply, Request, ToWorker } from "./protocol";
 
 // The plugins server: one process for every project on this machine, listening on
 // a Unix socket the host connects to. Each project checkout's plugins run in their
@@ -13,7 +13,7 @@ import type { DataPush, FromWorker, NotifyPush, Reply, Request, ToWorker } from 
 export type ServeOptions = {
   /** The socket's path; created with mode 0600. */
   socket: string;
-  /** Where the databases go, `<dataDir>/<db>.db`. */
+  /** Where each namespace's folder goes, `<dataDir>/<namespace>/`. */
   dataDir: string;
 };
 
@@ -49,6 +49,9 @@ type Subscription = {
 
 /** A subscribe waiting on its first answer. */
 type Pending = { connection: Connection; checkout: string; key: string };
+
+/** A plugin's `ctx.host` sent up to the host: the Worker's id for it, to answer under. */
+type HostWait = { connection: Connection; checkout: Checkout; id: number };
 
 type Answer = { result: unknown; stream?: true } | { error: CallError };
 
@@ -130,6 +133,9 @@ export async function serve(options: ServeOptions) {
   const connections = new Set<Connection>();
   /** Worker key → subscription id, for the Worker's pushes. */
   const byKey = new Map<string, string>();
+  /** Host calls out, by the id this server sent them under. */
+  const hostCalls = new Map<number, HostWait>();
+  let lastHostCall = 0;
   let lastKey = 0;
   const newKey = () => `w${++lastKey}`;
 
@@ -161,7 +167,7 @@ export async function serve(options: ServeOptions) {
       return;
     }
     if (message.type === "invalidated") {
-      // Any other Worker may read the same database: a shared db, or a worktree.
+      // Any other Worker may read the same database: a shared namespace, or a worktree.
       for (const checkout of checkouts.values()) {
         if (checkout !== from) checkout.post({ type: "invalidate", tags: message.tags });
       }
@@ -170,7 +176,28 @@ export async function serve(options: ServeOptions) {
     if (message.type === "notified") {
       const push: NotifyPush = { method: "notify", params: message.notice };
       for (const connection of connections) send(connection, push);
+      return;
     }
+    if (message.type === "host") {
+      // One host connects; the first one there answers.
+      const [connection] = connections;
+      if (!connection) {
+        from.post({ type: "hosted", id: message.id, error: { code: "INTERNAL", message: "The RepoGo host isn't connected." } });
+        return;
+      }
+      const id = ++lastHostCall;
+      hostCalls.set(id, { connection, checkout: from, id: message.id });
+      const call: HostCall = { id, method: "host", params: { plugin: message.plugin, method: message.method, params: message.params } };
+      send(connection, call);
+    }
+  }
+
+  /** The host's answer to a host call, back to the Worker that made it. */
+  function hosted(reply: Reply) {
+    const waiting = hostCalls.get(reply.id);
+    if (!waiting) return;
+    hostCalls.delete(reply.id);
+    waiting.checkout.post({ type: "hosted", id: waiting.id, ...("error" in reply ? { error: reply.error } : { result: reply.result }) });
   }
 
   function deliver(id: string, answer: Answer) {
@@ -277,6 +304,10 @@ export async function serve(options: ServeOptions) {
     } catch {
       return send(connection, { id: -1, error: { code: "VALIDATION", message: "Each line is one JSON request." } });
     }
+    // A line without a method is the host answering a host call.
+    if (typeof raw === "object" && raw !== null && !("method" in raw) && typeof (raw as Reply).id === "number") {
+      return hosted(raw as Reply);
+    }
     const parsed = requestSchema.safeParse(raw);
     if (!parsed.success) {
       const id = typeof (raw as { id?: unknown })?.id === "number" ? (raw as { id: number }).id : -1;
@@ -315,6 +346,9 @@ export async function serve(options: ServeOptions) {
         for (const [id, waiting] of pending) {
           if (waiting.connection === connection) unsubscribe(id);
         }
+        for (const [id, waiting] of hostCalls) {
+          if (waiting.connection === connection) hosted({ id, error: { code: "INTERNAL", message: "The RepoGo host went away." } });
+        }
       },
     },
   });
@@ -339,7 +373,7 @@ function hashOf(answer: Answer) {
 const encoder = new TextEncoder();
 
 // A write the socket can't take at once waits in the outbox for `drain`.
-function send(connection: Connection, message: Reply | DataPush | NotifyPush) {
+function send(connection: Connection, message: Reply | DataPush | NotifyPush | HostCall) {
   connection.data.outbox.push(encoder.encode(JSON.stringify(message) + "\n"));
   flush(connection);
 }

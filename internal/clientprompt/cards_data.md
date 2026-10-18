@@ -14,7 +14,9 @@ Param: name, value, optional type="string|number|boolean|json|null";
   source, one per input field. A value reads state and the rows and
   answers of the Data and Each around it, never its own Data's answer.
   Without type, a value that is exactly {{path}} into data sends that
-  JSON as is (a number, an array); anything else is text. A Param that
+  JSON as is (a number, an array); anything else is text. In a
+  type="json" value, a {{name}} inside quotes is escaped, so typed text
+  may hold quotes and line breaks: {"prompt": "{{message}}"}. A Param that
   can't be read shows its error in Failed, or under the button.
 Each: in="<binding path>", as="row", optional key (default id); repeats
   its children per element, reading {{row.field}}. No Tabs, Input,

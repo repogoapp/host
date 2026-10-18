@@ -49,8 +49,8 @@ type Config struct {
 	// Runtime is the plugins server's entry: the SDK's src/run.ts on a dev host,
 	// the unpacked bundle (Unpack) on a release; empty leaves plugins off.
 	Runtime string
-	// Socket is where the plugins server listens; DataDir holds the databases,
-	// one file per db a plugin names.
+	// Socket is where the plugins server listens; DataDir holds the plugins'
+	// data, one folder per namespace a plugin names.
 	Socket  string
 	DataDir string
 	// Global is the environment's own plugins folder, served to every project
@@ -60,7 +60,9 @@ type Config struct {
 	Emit func(device.ID, emit.Event) error
 	// Notify pushes a plugin's alert to the phones; nil drops it.
 	Notify func(Notice)
-	Log    *slog.Logger
+	// Host runs a host method for a plugin's ctx.host; nil refuses them.
+	Host func(ctx context.Context, plugin, method string, params json.RawMessage) (json.RawMessage, error)
+	Log  *slog.Logger
 }
 
 type Service struct {
@@ -408,7 +410,7 @@ func (s *Service) running(ctx context.Context) (*server, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	srv, err = startServer(s.ctx, bun, s.cfg.Runtime, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.notified, s.lost)
+	srv, err = startServer(s.ctx, bun, s.cfg.Runtime, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.notified, s.hosted, s.lost)
 	if err != nil {
 		return nil, err
 	}
@@ -444,6 +446,36 @@ func (s *Service) notified(n Notice) {
 		return
 	}
 	s.cfg.Notify(n)
+}
+
+// hosted runs a plugin's ctx.host under the host's context, its failure
+// carried back in the SDK's own codes.
+func (s *Service) hosted(call hostCall) (json.RawMessage, *wireError) {
+	if s.cfg.Host == nil {
+		return nil, &wireError{Code: "INTERNAL", Message: "plugins: this host runs no host methods for plugins"}
+	}
+	params := call.Params
+	if len(params) == 0 || string(params) == "null" {
+		params = json.RawMessage("{}")
+	}
+	result, err := s.cfg.Host(s.ctx, call.Plugin, call.Method, params)
+	if err != nil {
+		return nil, &wireError{Code: sdkCode(err), Message: err.Error()}
+	}
+	return result, nil
+}
+
+// sdkCode is an error's kind as the SDK names it.
+func sdkCode(err error) string {
+	switch errkind.Of(err) {
+	case errkind.Invalid:
+		return "VALIDATION"
+	case errkind.NotFound:
+		return "NOT_FOUND"
+	case errkind.Denied:
+		return "FORBIDDEN"
+	}
+	return "INTERNAL"
 }
 
 // lost is the server's connection ending. Subscriptions are taken up again on

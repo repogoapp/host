@@ -17,7 +17,7 @@ export default definePlugin({
   description: "Notes",
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
-    count: method(z.object({}), async (_, ctx) => (await ctx.db.notes.list()).length, { kind: "query", output: z.number() }),
+    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { kind: "query", output: z.number() }),
   },
 });`,
   );

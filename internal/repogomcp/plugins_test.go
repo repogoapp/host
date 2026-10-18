@@ -170,4 +170,22 @@ export default definePlugin({ collections: { notes: z.object({ text: z.string() 
 	if !bad.IsError || !strings.Contains(bad.Content[0].Text, "VALIDATION") {
 		t.Fatalf("bad input: %+v", bad)
 	}
+
+	// A delete asks first, from an agent as from a tap; the record stays until the user's yes.
+	var note struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(created.Content[0].Text), &note); err != nil || note.ID == "" {
+		t.Fatalf("created note: %q %v", created.Content[0].Text, err)
+	}
+	asked := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.delete", "input": map[string]any{"id": note.ID}})
+	if !asked.IsError || !strings.Contains(asked.Content[0].Text, "CONFIRM") {
+		t.Fatalf("delete without confirmed: %+v", asked)
+	}
+	if kept := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.get", "input": map[string]any{"id": note.ID}}); kept.IsError || !strings.Contains(kept.Content[0].Text, `"hi"`) {
+		t.Fatalf("the note went before the user agreed: %+v", kept)
+	}
+	if done := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.delete", "input": map[string]any{"id": note.ID}, "confirmed": true}); done.IsError {
+		t.Fatalf("delete with confirmed: %+v", done)
+	}
 }

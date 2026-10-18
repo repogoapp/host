@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	pluginscore "github.com/repogoapp/host/internal/plugins"
 	"net/http"
@@ -134,6 +135,7 @@ func (h *Host) openTools() error {
 		Global: h.state("plugins"),
 		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
 		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
+		Host:   h.pluginHost,
 		Log:    h.log,
 	})
 	h.tools = repogomcp.New(repogomcp.Config{
@@ -144,6 +146,16 @@ func (h *Host) openTools() error {
 	})
 	h.Services.Browser = browser
 	return nil
+}
+
+// pluginHost runs a plugin's ctx.host as the host's own device; the router
+// keeps a plugin caller to the methods agents and cards can call.
+func (h *Host) pluginHost(ctx context.Context, plugin, method string, params json.RawMessage) (json.RawMessage, error) {
+	if h.Router == nil {
+		return nil, rpc.ErrUnavailable
+	}
+	caller := rpc.Caller{Device: h.devices.Identity().ID, Scope: rpc.ScopeLocal, Plugin: plugin}
+	return h.Router.Call(ctx, caller, method, params)
 }
 
 // openDevices opens the paired devices and what reaches them: pushes, power,
@@ -455,6 +467,20 @@ func (h *Host) recordHook(n notify.Notice) error {
 		h.log.Error("hook ingestion failed; retaining drop for retry", "err", err)
 	}
 	return err
+}
+
+// projectPaths is every project this host lists, for the plugins whose crons it keeps running.
+func (h *Host) projectPaths() []string {
+	projects, err := h.db.ListProjects(string(h.devices.Identity().ID))
+	if err != nil {
+		h.log.Warn("plugins: listing projects failed", "err", err)
+		return nil
+	}
+	paths := make([]string, 0, len(projects))
+	for _, p := range projects {
+		paths = append(paths, p.Path)
+	}
+	return paths
 }
 
 // projectPlugins is what cwd's project can do with plugins, for its prompt.

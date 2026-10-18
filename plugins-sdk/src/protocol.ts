@@ -45,6 +45,12 @@ export type DataPush = {
 /** A plugin's alert for the phones, for the host to push. */
 export type NotifyPush = { method: "notify"; params: SentNotice };
 
+/**
+ * A plugin's `ctx.host`: a request the server makes of the host, under the
+ * server's own ids, which the host answers with a `Reply`.
+ */
+export type HostCall = { id: number; method: "host"; params: { plugin: string; method: string; params: unknown } };
+
 // Between the server and a project's Worker.
 
 export type ToWorker =
@@ -55,6 +61,9 @@ export type ToWorker =
   | { type: "unsubscribe"; subscription: string }
   /** Another Worker wrote these tags. */
   | { type: "invalidate"; tags: string[] }
+  /** The host's answer to a `host` the Worker sent. */
+  | { type: "hosted"; id: number; result: unknown }
+  | { type: "hosted"; id: number; error: CallError }
   /** The Worker is about to end: abort its streams, so what they started stops too. */
   | { type: "stop" };
 
@@ -67,6 +76,8 @@ export type FromWorker =
   | { type: "invalidated"; tags: string[] }
   /** A plugin here sent an alert. */
   | { type: "notified"; notice: SentNotice }
+  /** A plugin here called a host method; the answer comes back as `hosted`. */
+  | { type: "host"; id: number; plugin: string; method: string; params: unknown }
   /** A stream's items since the last, or its end. */
   | { type: "items"; subscription: string; items: unknown[]; done?: true; error?: CallError }
   /** Its streams are aborted, after a `stop`. */

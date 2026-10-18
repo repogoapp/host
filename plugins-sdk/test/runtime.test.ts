@@ -10,9 +10,9 @@ const notes = definePlugin({
   description: "Notes",
   collections: { notes: z.object({ text: z.string(), done: z.boolean().default(false) }) },
   methods: {
-    count: method(z.object({}), async (_, ctx) => (await ctx.db.notes.list()).length, { kind: "query", output: z.number() }),
+    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { kind: "query", output: z.number() }),
     archiveAll: method(z.object({}), async (_, ctx) => {
-      for (const note of await ctx.db.notes.list()) await ctx.db.notes.update(note.id, { done: true });
+      for (const note of await ctx.collections.notes.list()) await ctx.collections.notes.update(note.id, { done: true });
       return null;
     }),
   },
@@ -58,18 +58,18 @@ test("every write emits its event", async () => {
   ]);
 });
 
-test("a plugin with collections gets a file named by its db, one without gets none", async () => {
+test("a plugin with data gets a folder named by its namespace, one without gets none", async () => {
   await open();
-  expect(existsSync(join(dataDir, "notes.db"))).toBe(true);
-  expect(existsSync(join(dataDir, "digest.db"))).toBe(false);
+  expect(existsSync(join(dataDir, "notes", "data.db"))).toBe(true);
+  expect(existsSync(join(dataDir, "digest"))).toBe(false);
 });
 
-test("db names the file and the tag; two plugins naming one db share its tables", async () => {
+test("namespace names the folder and the tag; two plugins naming one namespace share its tables", async () => {
   const runtime = await open();
   const schema = z.object({ text: z.string() });
-  await runtime.add("mine", definePlugin({ db: "repogo.todos", collections: { items: schema } }));
-  await runtime.add("yours", definePlugin({ db: "repogo.todos", collections: { items: schema } }));
-  expect(existsSync(join(dataDir, "repogo.todos.db"))).toBe(true);
+  await runtime.add("mine", definePlugin({ namespace: "repogo.todos", collections: { items: schema } }));
+  await runtime.add("yours", definePlugin({ namespace: "repogo.todos", collections: { items: schema } }));
+  expect(existsSync(join(dataDir, "repogo.todos", "data.db"))).toBe(true);
 
   const written = await runtime.call("mine.items.create", { text: "a" });
   expect(written.invalidates).toEqual(["repogo.todos.items"]);
@@ -77,7 +77,7 @@ test("db names the file and the tag; two plugins naming one db share its tables"
   expect((read.result as { text: string }[]).map((item) => item.text)).toEqual(["a"]);
   expect(read.reads).toEqual(["repogo.todos.items"]);
 
-  await expect(runtime.add("bad", definePlugin({ db: "Repo Go", collections: { items: schema } }))).rejects.toThrow("db");
+  await expect(runtime.add("bad", definePlugin({ namespace: "Repo Go", collections: { items: schema } }))).rejects.toThrow("namespace");
 });
 
 test("update changes only the fields it is given, defaults included", async () => {
@@ -136,6 +136,24 @@ test("the manifest has each method's kind, input and output", async () => {
   expect(list.kind).toBe("query");
   expect(list.output).toMatchObject({ type: "array", items: { type: "object", properties: { id: { type: "string" }, text: { type: "string" } } } });
   expect(plugin.methods.find((m) => m.name === "notes.notes.create")!.kind).toBe("mutation");
+});
+
+test("ctx.plugins lists the plugins beside it, and their methods are what ctx.call reaches", async () => {
+  await open();
+  await runtime.add("catalog", definePlugin({
+    methods: {
+      list: method(z.object({}), (_, ctx) => ctx.plugins().map((p) => ({ name: p.name, methods: p.methods.map((m) => m.name) })), { kind: "query" }),
+      countVia: method(z.object({}), async (_, ctx) => {
+        const count = ctx.plugins().flatMap((p) => p.methods).find((m) => m.name === "notes.count")!;
+        return ctx.call(count.name);
+      }, { kind: "query" }),
+    },
+  }));
+  const { result } = await runtime.call("catalog.list");
+  const listed = result as { name: string; methods: string[] }[];
+  expect(listed.map((p) => p.name)).toEqual(["notes", "digest", "catalog"]);
+  expect(listed.find((p) => p.name === "notes")!.methods).toContain("notes.notes.create");
+  expect((await runtime.call("catalog.countVia")).result).toBe(0);
 });
 
 test("a method's confirm reaches the manifest, and a collection's delete asks by default", async () => {
@@ -218,7 +236,7 @@ test("a query is read-only however it's called, even inside a writable call", as
   const runtime = await open();
   const plugin = definePlugin({
     methods: {
-      sneaky: method(z.object({}), async (_, ctx) => ctx.db.items.create({ name: "x" }), { kind: "query" }),
+      sneaky: method(z.object({}), async (_, ctx) => ctx.collections.items.create({ name: "x" }), { kind: "query" }),
       outer: method(z.object({}), async (_, ctx) => ctx.call("plugin.sneaky")),
     },
     collections: { items: z.object({ name: z.string() }) },
@@ -266,7 +284,7 @@ test("a handler that writes to the collection it reacts to doesn't deadlock", as
   const runtime = await open();
   await runtime.add("echo", definePlugin({
     collections: { items: z.object({ n: z.number() }) },
-    on: { "items.created": async (item, ctx) => { if (item.n < 2) await ctx.db.items.create({ n: item.n + 1 }); } },
+    on: { "items.created": async (item, ctx) => { if (item.n < 2) await ctx.collections.items.create({ n: item.n + 1 }); } },
   }));
   await runtime.call("echo.items.create", { n: 0 });
   expect(((await runtime.call("echo.items.list")).result as unknown[]).length).toBe(3);
@@ -276,7 +294,7 @@ test("a null filter matches stored nulls", async () => {
   const runtime = await open();
   const plugin = definePlugin({
     collections: { items: z.object({ n: z.number().nullable() }) },
-    methods: { empty: method(z.object({}), async (_, ctx) => (await ctx.db.items.list({ where: { n: null } })).length, { kind: "query" }) },
+    methods: { empty: method(z.object({}), async (_, ctx) => (await ctx.collections.items.list({ where: { n: null } })).length, { kind: "query" }) },
   });
   await runtime.add("nulls", plugin);
   await runtime.call("nulls.items.create", { n: null });
@@ -300,7 +318,7 @@ const ticker = definePlugin({
       }
     }),
     writes: stream(z.object({}), async function* (_, ctx) {
-      yield await ctx.db.marks.create({ at: 1 });
+      yield await ctx.collections.marks.create({ at: 1 });
     }),
   },
 });
@@ -340,4 +358,71 @@ test("calling a stream returns what it sent, and whether it ended", async () => 
   expect(capped.done).toBe(false);
   const methods = runtime.manifest().plugins.find((p) => p.name === "ticker")!.methods;
   expect(methods.find((m) => m.name === "ticker.ticks")?.kind).toBe("stream");
+});
+
+test("a cron that could never run fails the load with its reason", async () => {
+  await open();
+  const job = method(z.object({}), () => null);
+  const cases: [Record<string, unknown>, unknown, string][] = [
+    [{ job }, { method: "missing", schedule: "* * * * *" }, "isn't one of"],
+    [{ job }, { method: "job", schedule: "* * *" }, "has 3 fields"],
+    [{ job }, { method: "job", schedule: "* * * * *", timezone: "Mars/Olympus" }, "isn't a time zone"],
+    [{ job }, { method: "job", schedule: "0 0 31 2 *" }, "never due"],
+    [{ job: method(z.object({ id: z.string() }), () => null) }, { method: "job", schedule: "* * * * *" }, "needs input"],
+    [{ job: method(z.object({}), () => null, { confirm: "Sure?" }) }, { method: "job", schedule: "* * * * *" }, "asks before it runs"],
+    [{ job: stream(z.object({}), async function* () {}) }, { method: "job", schedule: "* * * * *" }, "is a stream"],
+  ];
+  for (const [index, [methods, cron, says]] of cases.entries()) {
+    await expect(runtime.add(`bad${index}`, definePlugin({ methods, crons: [cron as any] }))).rejects.toThrow(says);
+  }
+});
+
+test("a cron runs its method when due, once, and the manifest says how it went", async () => {
+  await open();
+  const runs: string[] = [];
+  await runtime.add("clock", definePlugin({
+    collections: { ticks: z.object({ at: z.number() }) },
+    methods: {
+      tick: method(z.object({}), async (_, ctx) => { runs.push(ctx.root); await ctx.collections.ticks.create({ at: Date.now() }); }),
+      fail: method(z.object({}), () => { throw new Error("boom"); }),
+    },
+    crons: [{ method: "tick", schedule: "*/5 * * * * *", timezone: "UTC" }, { method: "fail", schedule: "* * * * *" }],
+  }));
+  const [tick, fail] = runtime.crons;
+  expect(runtime.tickCrons(tick.nextRunAt! - 1)).toHaveLength(0);
+  const due = tick.nextRunAt!;
+  const moment = Math.max(due, fail.nextRunAt!);
+  await Promise.all(runtime.tickCrons(moment));
+  expect(runs).toHaveLength(1);
+  expect(tick.nextRunAt).toBeGreaterThan(moment);
+  // The same moment again starts nothing.
+  expect(runtime.tickCrons(moment)).toHaveLength(0);
+  const [entry] = runtime.manifest().plugins.filter((p) => p.name === "clock");
+  expect(entry.crons.map((c) => [c.method, c.runs, c.lastError, c.running])).toEqual([["clock.tick", 1, null, false], ["clock.fail", 1, "boom", false]]);
+  expect(entry.crons[0].timezone).toBe("UTC");
+});
+
+test("a cron still running isn't started again, and a time slept through is skipped", async () => {
+  await open();
+  let finish = () => {};
+  let started = 0;
+  await runtime.add("slow", definePlugin({
+    methods: { work: method(z.object({}), () => { started++; return new Promise<void>((resolve) => { finish = resolve; }); }) },
+    crons: [{ method: "work", schedule: "* * * * * *" }],
+  }));
+  const [job] = runtime.crons;
+  const first = runtime.tickCrons(job.nextRunAt!);
+  // The next second comes while it runs: skipped, not saved for later.
+  const during = job.nextRunAt!;
+  expect(runtime.tickCrons(during)).toHaveLength(0);
+  finish();
+  await Promise.all(first);
+  expect(started).toBe(1);
+  expect(job.nextRunAt!).toBeGreaterThan(during);
+  expect(runtime.tickCrons(during)).toHaveLength(0);
+  // Ten minutes asleep: the missed second is skipped, and the next one is ahead.
+  const late = job.nextRunAt! + 10 * 60_000;
+  expect(runtime.tickCrons(late)).toHaveLength(0);
+  expect(job.nextRunAt!).toBeGreaterThan(late);
+  expect(started).toBe(1);
 });

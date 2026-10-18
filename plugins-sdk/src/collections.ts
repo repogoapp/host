@@ -1,5 +1,5 @@
-import type { SQL } from "bun";
 import type { z } from "zod";
+import type { Database } from "./database";
 import type { EventBus } from "./events";
 import { assertWritable, recordRead, recordWrite } from "./tracking";
 
@@ -14,24 +14,22 @@ export type ListOptions = {
 
 // A collection is one table of JSON rows. Every write is checked against the
 // schema and emits `<plugin>.<collection>.<created|updated|deleted>`. Reads and
-// writes are tracked under the tag `<db>.<collection>`, the table's identity
+// writes are tracked under the tag `<namespace>.<collection>`, the table's identity
 // across every plugin and Worker that opens the file, so cards refresh.
 export class Collection<S extends z.ZodObject> {
   private table: string;
   readonly tag: string;
-  /** This Worker's writes run one at a time; the transaction holds off other Workers. */
-  private writes: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private sql: SQL,
+    private database: Database,
     private events: EventBus,
     private plugin: string,
-    db: string,
+    namespace: string,
     private name: string,
     private schema: S,
   ) {
     this.table = name.replace(/[^a-zA-Z0-9_]/g, "_");
-    this.tag = `${db}.${name}`;
+    this.tag = `${namespace}.${name}`;
   }
 
   async setup() {
@@ -45,31 +43,16 @@ export class Collection<S extends z.ZodObject> {
     );
   }
 
-  // Each write's read-merge-write runs alone, in a transaction that takes the
-  // file's write lock before the read, so two Workers can't overwrite each
-  // other's change. Its event fires after, so a handler that writes to the same
-  // collection doesn't wait on itself.
-  private serial<T>(work: () => Promise<T>): Promise<T> {
-    const result = this.writes.then(() => this.transaction(work), () => this.transaction(work));
-    this.writes = result.catch(() => {});
-    return result;
+  private get sql() {
+    return this.database.sql;
   }
 
-  private async transaction<T>(work: () => Promise<T>): Promise<T> {
-    await this.sql.unsafe("begin immediate");
-    try {
-      const value = await work();
-      await this.sql.unsafe("commit");
-      return value;
-    } catch (error) {
-      await this.sql.unsafe("rollback").catch(() => {});
-      throw error;
-    }
-  }
-
+  // Each write's read-merge-write runs in the namespace's transaction, so two Workers
+  // can't overwrite each other's change. Its event fires after, so a handler
+  // that writes to the same collection doesn't wait on itself.
   async create(input: z.input<S>): Promise<Record_<z.infer<S>>> {
     assertWritable(this.tag);
-    const record = await this.serial(async () => {
+    const record = await this.database.transaction(async () => {
       const data = this.schema.parse(input);
       const now = new Date().toISOString();
       const record = { ...data, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
@@ -94,7 +77,7 @@ export class Collection<S extends z.ZodObject> {
 
   async update(id: string, patch: Partial<z.input<S>>): Promise<Record_<z.infer<S>>> {
     assertWritable(this.tag);
-    const { before, after } = await this.serial(async () => {
+    const { before, after } = await this.database.transaction(async () => {
       const before = await this.get(id);
       if (!before) throw new Error(`${this.name} ${id} not found`);
       const { id: _, createdAt, updatedAt: __, ...fields } = before;
@@ -110,7 +93,7 @@ export class Collection<S extends z.ZodObject> {
 
   async delete(id: string): Promise<void> {
     assertWritable(this.tag);
-    const before = await this.serial(async () => {
+    const before = await this.database.transaction(async () => {
       const before = await this.get(id);
       if (!before) return null;
       await this.sql.unsafe(`delete from "${this.table}" where id = $1`, [id]);

@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,7 +23,7 @@ const notesPlugin = `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
-    texts: method(z.object({}), async (_, ctx) => (await ctx.db.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
+    texts: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
   },
 });
 `
@@ -466,5 +467,41 @@ export default definePlugin({
 		}
 	case <-t.Context().Done():
 		t.Fatal("no notice reached the host")
+	}
+}
+
+func TestAPluginsHostCallReachesTheHost(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	type asked struct{ plugin, method, params string }
+	got := make(chan asked, 2)
+	s.cfg.Host = func(_ context.Context, plugin, method string, params json.RawMessage) (json.RawMessage, error) {
+		got <- asked{plugin, method, string(params)}
+		if method != "git.status" {
+			return nil, errkind.ErrDenied
+		}
+		return json.RawMessage(`{"branch":"main"}`), nil
+	}
+	root := project(t, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: {
+    status: method(z.object({}), (_, ctx) => ctx.host("git.status", { path: "/p" })),
+    refused: method(z.object({}), (_, ctx) => ctx.host("files.write").catch((error) => error.code)),
+  },
+});
+`})
+	status, err := s.Call(t.Context(), root, "notes.status", nil, true)
+	if err != nil || status.Error != nil || string(status.Result) != `{"branch":"main"}` {
+		t.Fatalf("status = %s %+v %v", status.Result, status.Error, err)
+	}
+	if a := <-got; a != (asked{"notes", "git.status", `{"path":"/p"}`}) {
+		t.Fatalf("host asked %+v", a)
+	}
+	refused, err := s.Call(t.Context(), root, "notes.refused", nil, true)
+	if err != nil || string(refused.Result) != `"FORBIDDEN"` {
+		t.Fatalf("refused = %s %+v %v, want the host's denial as FORBIDDEN", refused.Result, refused.Error, err)
+	}
+	if a := <-got; a.params != "{}" {
+		t.Fatalf("a call without params sent %q, want {}", a.params)
 	}
 }

@@ -1,12 +1,13 @@
 import "./self";
-import { toCallError, type CallError } from "./errors";
+import { MethodError, toCallError, type CallError } from "./errors";
 import type { FromWorker, ToWorker } from "./protocol";
 import { Runtime } from "./runtime";
 
 // One project checkout's plugins, in a Worker of the plugins server: its own module
 // cache, so reloading the code is ending this Worker and starting another.
 // It keeps the subscriptions' queries and re-runs those a write touched, and
-// runs the subscriptions' streams, sending their items in batches.
+// runs the subscriptions' streams, sending their items in batches, and the
+// plugins' crons when they come due.
 
 declare var self: Worker;
 
@@ -46,15 +47,39 @@ const starting = new Set<string>();
 const streams = new Map<string, Stream>();
 const touched = new Set<string>();
 let settling: Timer | null = null;
+/** Starts the plugins' crons as they come due; one tick a second, seconds being a cron's finest field. */
+let cronTicker: Timer | null = null;
+/** Expires kv keys, trims streams and rescans buckets. */
+let storageTicker: Timer | null = null;
+const storageTickMs = 5_000;
+
+/** The plugins' `ctx.host` calls out to the host, by id, until it answers. */
+const hostCalls = new Map<number, { resolve: (result: unknown) => void; reject: (error: MethodError) => void }>();
+let lastHostCall = 0;
 
 function post(message: FromWorker) {
   self.postMessage(message);
+}
+
+function host(plugin: string, method: string, params: unknown) {
+  const id = ++lastHostCall;
+  return new Promise((resolve, reject) => {
+    hostCalls.set(id, { resolve, reject });
+    post({ type: "host", id, plugin, method, params });
+  });
 }
 
 self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const message = event.data;
   if (message.type === "open") {
     ready = open(message.dir, message.dataDir, message.root);
+    return;
+  }
+  if (message.type === "hosted") {
+    const waiting = hostCalls.get(message.id);
+    hostCalls.delete(message.id);
+    if ("error" in message) waiting?.reject(new MethodError(message.error.code, message.error.message, message.error.fieldErrors));
+    else waiting?.resolve(message.result);
     return;
   }
   await ready;
@@ -66,10 +91,15 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     return;
   }
   if (message.type === "stop") {
+    if (cronTicker) clearTimeout(cronTicker);
+    if (storageTicker) clearInterval(storageTicker);
+    cronTicker = null;
+    storageTicker = null;
     const ending = [...streams.values()].map((stream) => stream.ended);
     for (const key of [...streams.keys()]) endStream(key);
     // The plugins' code gets to see its children exit, so none is left unreaped.
     await Promise.allSettled(ending);
+    runtime?.close();
     return post({ type: "stopped" });
   }
   if (!runtime || loadError) {
@@ -85,9 +115,17 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   }
 };
 
+// Each tick lands just after a whole second, the finest a cron names, so a run starts within milliseconds of its time.
+function tickOnTheSecond() {
+  cronTicker = setTimeout(() => {
+    runtime?.tickCrons();
+    tickOnTheSecond();
+  }, 1000 - (Date.now() % 1000) + 2);
+}
+
 async function open(dir: string, dataDir: string, root: string) {
   try {
-    runtime = await Runtime.open({ dataDir, root });
+    runtime = await Runtime.open({ dataDir, root, host });
     // A write here re-runs this checkout's queries, and is passed on for the others.
     runtime.onInvalidate((tags) => {
       post({ type: "invalidated", tags });
@@ -95,6 +133,8 @@ async function open(dir: string, dataDir: string, root: string) {
     });
     runtime.onNotify((notice) => post({ type: "notified", notice }));
     await runtime.loadDir(dir);
+    if (runtime.crons.length > 0) tickOnTheSecond();
+    if (runtime.hasStorage) storageTicker = setInterval(() => void runtime?.tickStorage(), storageTickMs);
   } catch (error) {
     loadError = { code: "INTERNAL", message: `The plugins in ${dir} failed to load: ${toCallError(error).message}` };
   }

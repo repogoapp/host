@@ -29,12 +29,14 @@ var pluginCallTool = tool{
 	Name: "plugin_call",
 	Description: "Run one method of a plugin this project can use and return its result. " +
 		"`method` is `<plugin>.<method>` as `plugins` lists it, such as `plans.move`; " +
-		"`input` must match that method's input schema.",
+		"`input` must match that method's input schema. A method with a `confirm` answers CONFIRM with its question " +
+		"instead of running: put the question to the user, and call again with `confirmed: true` only once they agree.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"method": map[string]any{"type": "string", "description": "`<plugin>.<method>`, as listed by `plugins`"},
-			"input":  map[string]any{"type": "object", "description": "The method's input"},
+			"method":    map[string]any{"type": "string", "description": "`<plugin>.<method>`, as listed by `plugins`"},
+			"input":     map[string]any{"type": "object", "description": "The method's input"},
+			"confirmed": map[string]any{"type": "boolean", "description": "The user agreed to the method's confirm question"},
 		},
 		"required": []string{"method"},
 	},
@@ -47,14 +49,16 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 		return pluginResult(answer, err)
 	}
 	var p struct {
-		Method string          `json:"method"`
-		Input  json.RawMessage `json:"input"`
+		Method    string          `json:"method"`
+		Input     json.RawMessage `json:"input"`
+		Confirmed bool            `json:"confirmed"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil || p.Method == "" {
 		return failed("RepoGo plugins: plugin_call needs a method, such as {\"method\":\"plans.list\",\"input\":{}}")
 	}
-	// A confirm guards taps on cards; the agent's own calls go through its permissions.
-	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, true)
+	// A confirm guards what can't be undone from agents as from taps: an agent's
+	// permissions may let every tool call through, so the user's yes is its own step.
+	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, p.Confirmed)
 	return pluginResult(answer, err)
 }
 

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { DataPush, NotifyPush, Reply } from "../src/protocol";
+import type { DataPush, HostCall, NotifyPush, Reply } from "../src/protocol";
 import { serve } from "../src/serve";
 
 // Re-runs settle fast here; the server's default is 100 ms.
@@ -17,14 +17,14 @@ export default definePlugin({
     tags: z.object({ name: z.string() }),
   },
   methods: {
-    texts: method(z.object({}), async (_, ctx) => (await ctx.db.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
+    texts: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
     root: method(z.object({}), (_, ctx) => ctx.root, { kind: "query" }),
     slowTexts: method(z.object({ status: z.string().default("") }), async (_, ctx) => {
       await Bun.sleep(150);
-      return (await ctx.db.notes.list({ order: "asc" })).map((n) => n.text);
+      return (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text);
     }, { kind: "query" }),
     byPrefix: method(z.object({ prefix: z.string() }), async ({ prefix }, ctx) =>
-      (await ctx.db.notes.list({ order: "asc" })).map((n) => n.text).filter((t) => t.startsWith(prefix)), { kind: "query" }),
+      (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text).filter((t) => t.startsWith(prefix)), { kind: "query" }),
   },
 });
 `;
@@ -44,9 +44,11 @@ async function checkout(plugins: Record<string, string>) {
 
 type Client = {
   request: (method: string, params: unknown) => Promise<Reply>;
-  pushes: (DataPush | NotifyPush)[];
+  /** Answers a request the server made, as the host answers a host call. */
+  answer: (reply: Reply) => void;
+  pushes: (DataPush | NotifyPush | HostCall)[];
   /** Resolves with the next push that matches, or fails after a second. */
-  nextPush: (match: (push: DataPush | NotifyPush) => boolean) => Promise<DataPush | NotifyPush>;
+  nextPush: (match: (push: DataPush | NotifyPush | HostCall) => boolean) => Promise<DataPush | NotifyPush | HostCall>;
   close: () => void;
 };
 
@@ -54,7 +56,7 @@ async function connect(socket: string): Promise<Client> {
   let nextID = 0;
   let inbox = "";
   const waiting = new Map<number, (reply: Reply) => void>();
-  const pushes: (DataPush | NotifyPush)[] = [];
+  const pushes: (DataPush | NotifyPush | HostCall)[] = [];
   const watchers: (() => void)[] = [];
   const connection = await Bun.connect({
     unix: socket,
@@ -99,6 +101,7 @@ async function connect(socket: string): Promise<Client> {
         watch();
       });
     },
+    answer: (reply) => connection.write(JSON.stringify(reply) + "\n"),
     close: () => connection.end(),
   };
 }
@@ -128,7 +131,7 @@ test("the socket is the owner's alone", async () => {
   expect((await stat(socket)).mode & 0o777).toBe(0o600);
 });
 
-test("list and call reach the checkout's plugins; data is one file per db", async () => {
+test("list and call reach the checkout's plugins; data is one folder per namespace", async () => {
   const { client, dataDir } = await start();
   const { root, dir } = await checkout({ notes: notesApp });
   const target = { dir };
@@ -139,7 +142,7 @@ test("list and call reach the checkout's plugins; data is one file per db", asyn
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
   expect(result(await client.request("call", { ...target, name: "notes.texts" }))).toEqual(["a"]);
   expect(result(await client.request("call", { ...target, name: "notes.root" }))).toBe(root);
-  expect((await stat(join(dataDir, "notes.db"))).isFile()).toBe(true);
+  expect((await stat(join(dataDir, "notes", "data.db"))).isFile()).toBe(true);
 });
 
 test("a subscription gets a push when a write changes its result, and nothing otherwise", async () => {
@@ -171,9 +174,9 @@ test("a write in one checkout reaches the other checkout's subscriptions", async
   expect((await pushed).params).toMatchObject({ revision: 2, result: ["from the worktree"] });
 });
 
-test("plugins in two checkouts that name the same db share it, and a write in one refreshes the other", async () => {
+test("plugins in two checkouts that name the same namespace share it, and a write in one refreshes the other", async () => {
   const { client, dataDir } = await start();
-  const todos = notesApp.replace("export default definePlugin({", 'export default definePlugin({\n  db: "todos",');
+  const todos = notesApp.replace("export default definePlugin({", 'export default definePlugin({\n  namespace: "todos",');
   const one = await checkout({ notes: todos });
   const two = await checkout({ list: todos });
 
@@ -181,7 +184,7 @@ test("plugins in two checkouts that name the same db share it, and a write in on
   const pushed = client.nextPush((push) => push.params.subscription === subscribed.subscription);
   result(await client.request("call", { dir: two.dir, name: "list.notes.create", input: { text: "shared" } }));
   expect((await pushed).params).toMatchObject({ revision: 2, result: ["shared"] });
-  expect((await stat(join(dataDir, "todos.db"))).isFile()).toBe(true);
+  expect((await stat(join(dataDir, "todos", "data.db"))).isFile()).toBe(true);
 });
 
 test("a call's root is the caller's project; the folder's own checkout when left out", async () => {
@@ -201,6 +204,26 @@ test("a plugin's notify reaches the host as a push, naming the plugin and the pr
   const pushed = client.nextPush((push) => push.method === "notify");
   result(await client.request("call", { dir, name: "notes.alert" }));
   expect((await pushed).params).toEqual({ title: "Build failed", body: "see logs", page: "x.md?a=1", plugin: "notes", root });
+});
+
+test("a plugin's ctx.host goes to the host, naming the plugin, and gets its answer or its error", async () => {
+  const { client } = await start();
+  const hosting = notesApp.replace("methods: {", `methods: {
+    status: method(z.object({}), (_, ctx) => ctx.host("git.status", { path: ctx.root })),
+    refused: method(z.object({}), (_, ctx) => ctx.host("files.write", {}).catch((error) => error.code)),`);
+  const { root, dir } = await checkout({ notes: hosting });
+
+  const asked = client.nextPush((push) => push.method === "host");
+  const status = client.request("call", { dir, name: "notes.status" });
+  const call = (await asked) as HostCall;
+  expect(call.params).toEqual({ plugin: "notes", method: "git.status", params: { path: root } });
+  client.answer({ id: call.id, result: { branch: "main" } });
+  expect(result(await status)).toEqual({ branch: "main" });
+
+  const askedAgain = client.nextPush((push) => push.method === "host" && push.params.method === "files.write");
+  const refused = client.request("call", { dir, name: "notes.refused" });
+  client.answer({ id: ((await askedAgain) as HostCall).id, error: { code: "FORBIDDEN", message: "plugins may only call the methods agents and cards can" } });
+  expect(result(await refused)).toBe("FORBIDDEN");
 });
 
 test("a reload runs the new code and pushes what changed", async () => {
@@ -368,4 +391,42 @@ test("a reload stops a stream's process and starts it over from empty", async ()
   result(await client.request("reload", { dir }));
   expect((await restarted).params).toEqual({ subscription: "s4", revision: 3, result: [] });
   await exited(pid);
+});
+
+const clipsApp = `import { definePlugin, z } from "@repogo/plugins";
+export default definePlugin({
+  namespace: "clips",
+  buckets: { files: z.object({ note: z.string().optional() }) },
+  streams: { log: z.object({ text: z.string() }) },
+});
+`;
+
+test("a file dropped into a bucket refreshes a card's list, through the Worker's watcher", async () => {
+  const { client } = await start();
+  const { dir } = await checkout({ clips: clipsApp });
+  const manifest = result(await client.request("list", { dir }));
+  const bucket = manifest.plugins[0].storage.buckets[0].path as string;
+
+  const subscribed = result(await client.request("subscribe", { dir, subscription: "b1", name: "clips.files.list" }));
+  expect(subscribed.result).toEqual([]);
+  const pushed = client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  await mkdir(join(bucket, "dropped"));
+  await writeFile(join(bucket, "dropped", "hello.txt"), "hi");
+  await writeFile(join(bucket, "dropped", "meta.json"), `{"note": "from an agent"}`);
+  expect((await pushed).params).toMatchObject({ result: [{ id: "dropped", name: "hello.txt", meta: { note: "from an agent" } }] });
+});
+
+test("a stream's tail replays, then sends lines as they're appended", async () => {
+  const { client } = await start();
+  const { dir } = await checkout({ clips: clipsApp });
+  result(await client.request("call", { dir, name: "clips.log.append", input: { key: "run-1", data: { text: "a" } } }));
+
+  const subscribed = result(await client.request("subscribe", { dir, subscription: "s1", name: "clips.log.tail", input: { key: "run-1" } }));
+  expect(subscribed.stream).toBe(true);
+  const replayed = await client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  expect(replayed.params).toMatchObject({ items: [{ id: "run-1:0", data: { text: "a" } }] });
+
+  const appended = client.nextPush((push) => push.params.subscription === subscribed.subscription && push !== replayed);
+  result(await client.request("call", { dir, name: "clips.log.append", input: { key: "run-1", data: { text: "b" } } }));
+  expect((await appended).params).toMatchObject({ items: [{ id: "run-1:1", data: { text: "b" } }] });
 });

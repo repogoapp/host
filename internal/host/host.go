@@ -235,6 +235,7 @@ func (h *Host) Start() {
 	h.spawn(h.Services.ProjectSync.Run)
 	h.spawn(h.Services.Usage.Run)
 	h.spawn(h.Services.Schedules.Run)
+	h.spawn(func(ctx context.Context) { h.Services.Plugins.Keep(ctx, h.projectPaths) })
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
 	h.spawn(h.Services.Actions.Watch)
