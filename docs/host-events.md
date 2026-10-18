@@ -10,7 +10,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `path` string
 - `revision` int
 - `actions` [object{Action}]
-- `runs` [object{ActionRun}]
+- `runs` [object{Run}]
 
 ## `browser.request`
 
@@ -74,8 +74,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `created_at` int
 - `updated_at` int
 - `activity_at` int
-- `event_count` int
-- `generation` int
 - `status` string
 - `status_at` int
 - `last_turn_started_at` int (nullable)
@@ -169,7 +167,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 
 - `projects` [object{Project}]
 
-## `host.power`
+## `host.battery`
 
 Signal: not replayed; a missed one is recovered by refetching.
 
@@ -184,7 +182,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 
 - `host` object{Release}
 - `tools` [object{Install}]
-- `agents` [object{Agent}]
+- `agents` [object{Catalog}]
 - `github` object{CloneFolder}
 
 ## `mcp.changed`

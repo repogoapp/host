@@ -22,7 +22,7 @@ var methodExports = map[string]bool{
 	"chats.subagent": true, "chats.neighbors": true,
 	"limits.read": true, "limits.reset": true,
 	// Usage, devices and project picking.
-	"usage.history": true, "usage.daily": true, "devices.hello": true, "devices.register_push": true, "devices.list": true, "devices.revoke": true,
+	"usage.history": true, "devices.hello": true, "devices.register_push": true, "devices.list": true, "devices.revoke": true,
 	"github.repos": true, "github.clone": true, "projects.add": true, "projects.create": true,
 	// Editor, git and chat list rows.
 	"fs.write": true, "fs.replace": true, "fs.mkdir": true, "fs.rename": true,
@@ -286,10 +286,6 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 	if t.PkgPath() == "github.com/repogoapp/host/internal/agentusage" || (t.PkgPath() == "github.com/repogoapp/host/internal/clitool" && t.Name() == "Account") {
 		return "Codable"
 	}
-	// Daily reports are persisted until the leaderboard accepts them.
-	if t.PkgPath() == "github.com/repogoapp/host/internal/shipping" && (t.Name() == "Report" || t.Name() == "Bucket") {
-		return "Codable"
-	}
 	if (t.PkgPath() == "github.com/repogoapp/host/internal/git" && (t.Name() == "Status" || t.Name() == "ChangeSet" || t.Name() == "FileChange")) ||
 		(t.PkgPath() == "github.com/repogoapp/host/internal/files" && t.Name() == "Entry") {
 		return "Codable"
@@ -297,8 +293,7 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 	if (t.PkgPath() == "github.com/repogoapp/host/internal/store" && t.Name() == "Project") ||
 		(t.PkgPath() == "github.com/repogoapp/host/internal/rpc/projects" && t.Name() == "ListResult") ||
 		t.PkgPath() == "github.com/repogoapp/host/internal/agentcatalog" ||
-		(t.PkgPath() == "github.com/repogoapp/host/internal/actions" && (t.Name() == "Action" || t.Name() == "Snapshot")) ||
-		(t.PkgPath() == "github.com/repogoapp/host/internal/store" && t.Name() == "ActionRun") {
+		(t.PkgPath() == "github.com/repogoapp/host/internal/actions" && (t.Name() == "Action" || t.Name() == "Run" || t.Name() == "Snapshot")) {
 		return "Codable"
 	}
 	// The agent picker paints the last host.setup it saved before asking again.
@@ -444,8 +439,6 @@ func (g *swiftGen) assignNames() {
 				family = "schedules"
 			case "Reminder":
 				family = "reminders"
-			case "ActionRun":
-				family = "actions"
 			}
 		}
 		if t.PkgPath() == "github.com/repogoapp/host/internal/projectwatch" && (t.Name() == "FilesChanged" || t.Name() == "FileChange") {
@@ -742,7 +735,7 @@ var EventExports = map[string]string{
 	"terminals.exit":      "Terminals.Exit",
 	"forward.pipe_data":   "Forward.PipeData",
 	"forward.pipe_closed": "Forward.PipeClosed",
-	"host.power":          "Host.Power",
+	"host.battery":        "Host.Battery",
 	"host.setup_changed":  "Host.SetupChanged",
 	"browser.request":     "Browser.Request",
 	"mcp.changed":         "MCP.Changed",

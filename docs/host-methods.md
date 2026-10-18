@@ -18,7 +18,7 @@ Result:
 - `path` string
 - `revision` int
 - `actions` [object{Action}]
-- `runs` [object{ActionRun}]
+- `runs` [object{Run}]
 
 ## `actions.output`
 
@@ -62,7 +62,7 @@ Params:
 
 Result:
 
-- `run` object{ActionRun}
+- `run` object{Run}
 
 ## `actions.stop`
 
@@ -149,8 +149,6 @@ Result:
 - `created_at` int
 - `updated_at` int
 - `activity_at` int
-- `event_count` int
-- `generation` int
 - `status` string
 - `status_at` int
 - `last_turn_started_at` int (nullable)
@@ -200,7 +198,6 @@ Result:
 
 - `chats` [object{Chat}]
 - `next_cursor` string
-- `host_id` string
 
 ## `chats.messages`
 
@@ -972,7 +969,7 @@ Result:
 
 - `host` object{Release}
 - `tools` [object{Install}]
-- `agents` [object{Agent}]
+- `agents` [object{Catalog}]
 - `github` object{CloneFolder}
 
 ## `host.status`
@@ -984,13 +981,11 @@ Params:
 Result:
 
 - `version` string
-- `executable` string
 - `uptime_seconds` int
 - `relay_connected` bool
 - `update_failed` string (omitted when empty)
 - `battery` object{Battery} (omitted when empty) (nullable)
 - `storage` object{Storage} (omitted when empty) (nullable)
-- `cloud` object{Cloud} (omitted when empty) (nullable)
 - `network` object{Network}
 - `capabilities` [string] (omitted when empty) (nullable)
 
@@ -1024,7 +1019,7 @@ Detached: runs to completion if the caller disconnects.
 
 Params:
 
-- `kind` string
+- `agent` string
 - `credit_id` string
 
 Result:
@@ -1324,10 +1319,7 @@ Params:
 
 Result:
 
-- `path` string
-- `source` string
 - `content_hash` string
-- `content_type` string
 - `bytes` base64 (omitted when empty) (nullable)
 - `not_modified` bool (omitted when empty)
 - `remote` string (omitted when empty)
@@ -1859,19 +1851,6 @@ Result:
 
 - `ok` bool
 
-## `usage.daily`
-
-Params:
-
-- none
-
-Result:
-
-- `host_id` string
-- `captured_at_ms` int
-- `time_zone` string
-- `buckets` [object{Bucket}]
-
 ## `usage.history`
 
 Params:
@@ -1881,10 +1860,9 @@ Params:
 
 Result:
 
-- `host_id` string
-- `captured_at_ms` int
+- `machine_id` string
 - `complete` bool
 - `homes` [object{Home}]
 - `buckets` [object{HourBucket}]
 - `sessions` [object{AgentCount}]
-- `pricing` object{PricingStatus}
+- `pricing_fetched` bool
