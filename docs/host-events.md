@@ -17,8 +17,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 Signal: not replayed; a missed one is recovered by refetching.
 
 - `request_id` string
-- `turn_id` string
-- `chat_id` string
 - `cwd` string
 - `expires_at` string
 - `action` object{Action}

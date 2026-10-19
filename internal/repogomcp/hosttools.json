@@ -103,21 +103,6 @@
     }
   },
   {
-    "name": "chats_info",
-    "method": "chats.info",
-    "description": "One chat's row: title, project, status, last reply.",
-    "read_only": true,
-    "input_schema": {
-      "properties": {
-        "chat_id": {
-          "description": "The chat's id, as chats.list gives it",
-          "type": "string"
-        }
-      },
-      "type": "object"
-    }
-  },
-  {
     "name": "chats_list",
     "method": "chats.list",
     "description": "List the chats on this environment, newest activity first, filtered and sorted like the chat drawer. Empty cwd is every project.",
@@ -176,6 +161,21 @@
     }
   },
   {
+    "name": "chats_info",
+    "method": "chats.info",
+    "description": "One chat's row: title, project, status, last reply.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "chats_messages",
     "method": "chats.messages",
     "description": "A page of one chat's messages. tail with a limit reads the newest; before_index pages older.",
@@ -200,44 +200,6 @@
         },
         "tail": {
           "description": "Read the newest messages",
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    }
-  },
-  {
-    "name": "chats_pin",
-    "method": "chats.pin",
-    "description": "Pin a chat to the top of the drawer, or unpin it.",
-    "read_only": false,
-    "input_schema": {
-      "properties": {
-        "chat_id": {
-          "description": "The chat's id, as chats.list gives it",
-          "type": "string"
-        },
-        "pinned": {
-          "description": "true pins; false unpins",
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    }
-  },
-  {
-    "name": "chats_resolve",
-    "method": "chats.resolve",
-    "description": "Resolve a chat (moves it to the done pile) or unresolve it.",
-    "read_only": false,
-    "input_schema": {
-      "properties": {
-        "chat_id": {
-          "description": "The chat's id, as chats.list gives it",
-          "type": "string"
-        },
-        "resolved": {
-          "description": "true resolves; false reopens",
           "type": "boolean"
         }
       },
@@ -400,15 +362,57 @@
     }
   },
   {
-    "name": "chats_stop",
-    "method": "chats.stop",
-    "description": "Stop a chat's running turn.",
+    "name": "chats_wait",
+    "method": "chats.wait",
+    "description": "Wait for a turn chats.start or chats.send returned to end, then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "timeout_ms": {
+          "description": "How long to wait; default 50000, at most 300000",
+          "type": "integer"
+        },
+        "turn_id": {
+          "description": "The turn_id chats.start or chats.send returned",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_resolve",
+    "method": "chats.resolve",
+    "description": "Resolve a chat (moves it to the done pile) or unresolve it.",
     "read_only": false,
     "input_schema": {
       "properties": {
         "chat_id": {
           "description": "The chat's id, as chats.list gives it",
           "type": "string"
+        },
+        "resolved": {
+          "description": "true resolves; false reopens",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "chats_pin",
+    "method": "chats.pin",
+    "description": "Pin a chat to the top of the drawer, or unpin it.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        },
+        "pinned": {
+          "description": "true pins; false unpins",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -434,19 +438,33 @@
     }
   },
   {
-    "name": "chats_wait",
-    "method": "chats.wait",
-    "description": "Wait for a turn chats.start or chats.send returned to end, then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again.",
+    "name": "chats_stop",
+    "method": "chats.stop",
+    "description": "Stop a chat's running turn.",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "chat_id": {
+          "description": "The chat's id, as chats.list gives it",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "git_status",
+    "method": "git.status",
+    "description": "Branch, ahead/behind and changed-file counts for several projects at once.",
     "read_only": true,
     "input_schema": {
       "properties": {
-        "timeout_ms": {
-          "description": "How long to wait; default 50000, at most 300000",
-          "type": "integer"
-        },
-        "turn_id": {
-          "description": "The turn_id chats.start or chats.send returned",
-          "type": "string"
+        "paths": {
+          "description": "Projects' folders",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -483,30 +501,27 @@
     }
   },
   {
-    "name": "git_status",
-    "method": "git.status",
-    "description": "Branch, ahead/behind and changed-file counts for several projects at once.",
-    "read_only": true,
-    "input_schema": {
-      "properties": {
-        "paths": {
-          "description": "Projects' folders",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object"
-    }
-  },
-  {
     "name": "projects_list",
     "method": "projects.list",
     "description": "The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.",
     "read_only": true,
     "input_schema": {
       "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "reminders_list",
+    "method": "reminders.list",
+    "description": "The pending reminders on this environment, soonest first.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "path": {
+          "description": "Only this project's; every reminder when left out",
+          "type": "string"
+        }
+      },
       "type": "object"
     }
   },
@@ -550,21 +565,6 @@
       "properties": {
         "id": {
           "description": "The reminder's id, as reminders_list gives it",
-          "type": "string"
-        }
-      },
-      "type": "object"
-    }
-  },
-  {
-    "name": "reminders_list",
-    "method": "reminders.list",
-    "description": "The pending reminders on this environment, soonest first.",
-    "read_only": true,
-    "input_schema": {
-      "properties": {
-        "path": {
-          "description": "Only this project's; every reminder when left out",
           "type": "string"
         }
       },

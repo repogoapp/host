@@ -316,10 +316,15 @@ func (g *swiftGen) conformance(t reflect.Type) string {
 		(t.PkgPath() == "github.com/repogoapp/host/internal/toollabel" && t.Name() == "Lines") {
 		return "Codable"
 	}
+	// The phone saves chat rows as sent, to paint the drawer and the widgets offline.
+	if (t.PkgPath() == "github.com/repogoapp/host/internal/store" && t.Name() == "Chat") ||
+		(t.PkgPath() == "github.com/repogoapp/host/internal/chatlive" && t.Name() == "Changed") {
+		return "Codable"
+	}
 	// Battery is persisted in widget snapshots; status is encoded for diagnostics.
 	if (t.PkgPath() == "github.com/repogoapp/host/internal/power" && t.Name() == "Battery") ||
 		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && t.Name() == "Status") ||
-		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && (t.Name() == "Network" || t.Name() == "Cloud" || t.Name() == "Storage")) {
+		(t.PkgPath() == "github.com/repogoapp/host/internal/hostinfo" && (t.Name() == "Network" || t.Name() == "Storage")) {
 		return "Codable"
 	}
 	switch g.dirs[t] {
@@ -727,7 +732,7 @@ var EventExports = map[string]string{
 	"chats.approval": "Chats.Approval", "chats.tool": "Chats.ToolChanged",
 	"fs.changed":          "FS.Changed",
 	"git.changed":         "Git.Changed",
-	"chats.changed":       "Chats.Changed",
+	"chats.changed":       "Chats.Chat",
 	"chats.removed":       "Chats.Removed",
 	"chats.attention":     "Chats.Attention",
 	"terminals.changed":   "Terminals.Changed",

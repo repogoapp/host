@@ -20,17 +20,6 @@ Result:
 - `actions` [object{Action}]
 - `runs` [object{Run}]
 
-## `actions.output`
-
-Params:
-
-- `run_id` string: The run's id, as actions.start or actions.list gives it
-
-Result:
-
-- `text` string
-- `truncated` bool
-
 ## `actions.run`
 
 Detached: runs to completion if the caller disconnects.
@@ -76,6 +65,17 @@ Result:
 
 - `ok` bool
 
+## `actions.output`
+
+Params:
+
+- `run_id` string: The run's id, as actions.start or actions.list gives it
+
+Result:
+
+- `text` string
+- `truncated` bool
+
 ## `agents.list`
 
 Tool (read): The agents a chat in a project can start with, for chats.start: each one's models, default model, the efforts (reasoning_level) each model accepts, and its modes and permission modes.
@@ -109,25 +109,30 @@ Result:
 
 - `ok` bool
 
-## `chats.delete`
+## `chats.list`
+
+Tool (read): List the chats on this environment, newest activity first, filtered and sorted like the chat drawer. Empty cwd is every project.
+
+Live on: `chats.changed`, `chats.removed`
 
 Params:
 
-- `chat_id` string: The chat's id, as chats.list gives it
+- `cwd` string: A project's folder; empty is every project
+- `cwds` [string] (nullable): Several projects' folders
+- `resolved` bool (nullable): true: only resolved chats; false: only open ones; omit for both
+- `agent` string: Only this agent's chats: claude, codex; empty is all
+- `sort` string: activity (default), created or title
+- `order` string: desc (default) or asc
+- `search` string: Words a chat's title, prompts or replies must all hold
+- `parent` string: Only the chats this chat's agent started; empty leaves those out
+- `limit` int: Chats per page
+- `refresh` bool: Re-read the agents' files first; slow, leave false
+- `cursor` string: The previous page's next_cursor; empty starts over
 
 Result:
 
-- `ok` bool
-
-## `chats.handoff`
-
-Params:
-
-- `chat_id` string: The chat's id, as chats.list gives it
-
-Result:
-
-- `command` string
+- `chats` [object{Chat}]
+- `next_cursor` string
 
 ## `chats.info`
 
@@ -175,11 +180,22 @@ Result:
 - `match` string (omitted when empty)
 - `match_index` int (omitted when empty) (nullable)
 
-## `chats.list`
+## `chats.sync`
 
-Tool (read): List the chats on this environment, newest activity first, filtered and sorted like the chat drawer. Empty cwd is every project.
+Params:
 
-Live on: `chats.changed`, `chats.removed`
+- `epoch` string
+- `since_revision` int
+
+Result:
+
+- `epoch` string
+- `revision` int
+- `more` bool
+- `upsert` [object{Chat}]
+- `delete` [string]
+
+## `chats.neighbors`
 
 Params:
 
@@ -191,14 +207,13 @@ Params:
 - `order` string: desc (default) or asc
 - `search` string: Words a chat's title, prompts or replies must all hold
 - `parent` string: Only the chats this chat's agent started; empty leaves those out
-- `limit` int: Chats per page
-- `refresh` bool: Re-read the agents' files first; slow, leave false
-- `cursor` string: The previous page's next_cursor; empty starts over
+- `chat_id` string
 
 Result:
 
-- `chats` [object{Chat}]
-- `next_cursor` string
+- `previous` object{Chat} (nullable)
+- `next` object{Chat} (nullable)
+- `host_id` string
 
 ## `chats.messages`
 
@@ -227,62 +242,41 @@ Result:
 - `first_index` int
 - `has_before` bool
 
-## `chats.neighbors`
+## `chats.subagent`
 
 Params:
 
-- `cwd` string: A project's folder; empty is every project
-- `cwds` [string] (nullable): Several projects' folders
-- `resolved` bool (nullable): true: only resolved chats; false: only open ones; omit for both
-- `agent` string: Only this agent's chats: claude, codex; empty is all
-- `sort` string: activity (default), created or title
-- `order` string: desc (default) or asc
-- `search` string: Words a chat's title, prompts or replies must all hold
-- `parent` string: Only the chats this chat's agent started; empty leaves those out
 - `chat_id` string
+- `call_id` string
 
 Result:
 
-- `previous` object{Chat} (nullable)
-- `next` object{Chat} (nullable)
-- `host_id` string
+- `kind` string
+- `name` string
+- `events` [object{Message}]
+- `tools` [object{ToolDetail}]
 
-## `chats.pin`
-
-Tool (write): Pin a chat to the top of the drawer, or unpin it.
+## `chats.tools_subscribe`
 
 Params:
 
-- `chat_id` string: The chat's id, as chats.list gives it
-- `pinned` bool: true pins; false unpins
+- `chat_id` string
+- `call_ids` [string]
 
 Result:
 
-- `chat` object{Chat}
+- `tools` [object{ToolDetail}]
 
-## `chats.queue`
+## `chats.tools_unsubscribe`
 
 Params:
 
-- `chat_id` string: The chat's id, as chats.list gives it
+- `chat_id` string
+- `call_ids` [string]
 
 Result:
 
-- `queue_revision` int
-- `queued` [object{QueuedTurn}]
-
-## `chats.resolve`
-
-Tool (write): Resolve a chat (moves it to the done pile) or unresolve it.
-
-Params:
-
-- `chat_id` string: The chat's id, as chats.list gives it
-- `resolved` bool: true resolves; false reopens
-
-Result:
-
-- `chat` object{Chat}
+- `ok` bool
 
 ## `chats.send`
 
@@ -320,106 +314,6 @@ Result:
 - `turn_id` string
 - `state` string
 
-## `chats.stop`
-
-Tool (write): Stop a chat's running turn.
-
-Params:
-
-- `chat_id` string: The chat's id, as chats.list gives it
-
-Result:
-
-- `ok` bool
-
-## `chats.subagent`
-
-Params:
-
-- `chat_id` string
-- `call_id` string
-
-Result:
-
-- `kind` string
-- `name` string
-- `events` [object{Message}]
-- `tools` [object{ToolDetail}]
-
-## `chats.subscribe`
-
-Params:
-
-- `chat_id` string
-- `since_index` int
-
-Result:
-
-- `epoch` string
-- `revision` int
-- `streaming` object{Streaming} (nullable)
-- `approval` object{Approval} (nullable)
-
-## `chats.sync`
-
-Params:
-
-- `epoch` string
-- `since_revision` int
-
-Result:
-
-- `epoch` string
-- `revision` int
-- `more` bool
-- `upsert` [object{Chat}]
-- `delete` [string]
-
-## `chats.tools_subscribe`
-
-Params:
-
-- `chat_id` string
-- `call_ids` [string]
-
-Result:
-
-- `tools` [object{ToolDetail}]
-
-## `chats.tools_unsubscribe`
-
-Params:
-
-- `chat_id` string
-- `call_ids` [string]
-
-Result:
-
-- `ok` bool
-
-## `chats.unsubscribe`
-
-Params:
-
-- none
-
-Result:
-
-- `ok` bool
-
-## `chats.update`
-
-Tool (write): Rename a chat. The title is written to the agent's own files, so its CLI shows it too.
-
-Params:
-
-- `chat_id` string: The chat's id, as chats.list gives it
-- `title` string (nullable): The new title
-
-Result:
-
-- `chat` object{Chat}
-
 ## `chats.wait`
 
 Tool (read): Wait for a turn chats.start or chats.send returned to end, then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again.
@@ -437,6 +331,122 @@ Result:
 - `reply` string (omitted when empty)
 - `error` string (omitted when empty)
 
+## `chats.resolve`
+
+Tool (write): Resolve a chat (moves it to the done pile) or unresolve it.
+
+Params:
+
+- `chat_id` string: The chat's id, as chats.list gives it
+- `resolved` bool: true resolves; false reopens
+
+Result:
+
+- `chat` object{Chat}
+
+## `chats.pin`
+
+Tool (write): Pin a chat to the top of the drawer, or unpin it.
+
+Params:
+
+- `chat_id` string: The chat's id, as chats.list gives it
+- `pinned` bool: true pins; false unpins
+
+Result:
+
+- `chat` object{Chat}
+
+## `chats.update`
+
+Tool (write): Rename a chat. The title is written to the agent's own files, so its CLI shows it too.
+
+Params:
+
+- `chat_id` string: The chat's id, as chats.list gives it
+- `title` string (nullable): The new title
+
+Result:
+
+- `chat` object{Chat}
+
+## `chats.delete`
+
+Params:
+
+- `chat_id` string: The chat's id, as chats.list gives it
+
+Result:
+
+- `ok` bool
+
+## `chats.stop`
+
+Tool (write): Stop a chat's running turn.
+
+Params:
+
+- `chat_id` string: The chat's id, as chats.list gives it
+
+Result:
+
+- `ok` bool
+
+## `chats.subscribe`
+
+Params:
+
+- `chat_id` string
+- `since_index` int
+
+Result:
+
+- `epoch` string
+- `revision` int
+- `streaming` object{Streaming} (nullable)
+- `approval` object{Approval} (nullable)
+
+## `chats.unsubscribe`
+
+Params:
+
+- none
+
+Result:
+
+- `ok` bool
+
+## `chats.queue`
+
+Params:
+
+- `chat_id` string: The chat's id, as chats.list gives it
+
+Result:
+
+- `queue_revision` int
+- `queued` [object{QueuedTurn}]
+
+## `chats.handoff`
+
+Params:
+
+- `chat_id` string: The chat's id, as chats.list gives it
+
+Result:
+
+- `ok` bool
+
+## `devices.list`
+
+Params:
+
+- none
+
+Result:
+
+- `devices` [object{Device}]
+
 ## `devices.hello`
 
 Paired devices only: refused at the machine.
@@ -453,16 +463,6 @@ Result:
 
 - `ok` bool
 
-## `devices.list`
-
-Params:
-
-- none
-
-Result:
-
-- `devices` [object{Device}]
-
 ## `devices.register_push`
 
 Paired devices only: refused at the machine.
@@ -472,7 +472,6 @@ Params:
 - `token` string
 - `environment` string
 - `install_id` string (omitted when empty)
-- `at` int (omitted when empty)
 - `grant` base64 (omitted when empty) (nullable)
 - `granted_at` int (omitted when empty)
 - `kind` string
@@ -513,16 +512,6 @@ Result:
 
 - `sources` [object{Source}]
 
-## `env.sources.remove`
-
-Params:
-
-- `handle` string
-
-Result:
-
-- `ok` bool
-
 ## `env.sources.set`
 
 Params:
@@ -534,6 +523,16 @@ Result:
 
 - `source` object{Source}
 
+## `env.sources.remove`
+
+Params:
+
+- `handle` string
+
+Result:
+
+- `ok` bool
+
 ## `forward.fetch`
 
 Params:
@@ -544,16 +543,6 @@ Params:
 Result:
 
 - `status` int
-
-## `forward.pipe_close`
-
-Params:
-
-- `pipe_id` string
-
-Result:
-
-- `ok` bool
 
 ## `forward.pipe_open`
 
@@ -578,11 +567,11 @@ Result:
 
 - `ok` bool
 
-## `fs.delete`
+## `forward.pipe_close`
 
 Params:
 
-- `path` string
+- `pipe_id` string
 
 Result:
 
@@ -604,11 +593,23 @@ Result:
 - `entries` [object{Entry}]
 - `truncated` bool
 
-## `fs.mkdir`
+## `fs.watch`
 
 Params:
 
-- `path` string
+- `paths` [string]
+- `active` [string]
+- `resync` bool (omitted when empty)
+
+Result:
+
+- `ok` bool
+
+## `fs.unwatch`
+
+Params:
+
+- none
 
 Result:
 
@@ -632,16 +633,20 @@ Result:
 - `binary` bool
 - `unchanged` bool
 
-## `fs.rename`
+## `fs.write`
 
 Params:
 
 - `path` string
-- `new_path` string
+- `content` base64
+- `create` bool
+- `mod_time` int
+- `within` string
+- `extensions` [string] (nullable)
 
 Result:
 
-- `ok` bool
+- `mod_time` int
 
 ## `fs.replace`
 
@@ -673,52 +678,50 @@ Result:
 - `results` [object{SearchFile}]
 - `truncated` bool
 
-## `fs.unwatch`
-
-Params:
-
-- none
-
-Result:
-
-- `ok` bool
-
-## `fs.watch`
-
-Params:
-
-- `paths` [string]
-- `active` [string]
-- `resync` bool (omitted when empty)
-
-Result:
-
-- `ok` bool
-
-## `fs.write`
+## `fs.delete`
 
 Params:
 
 - `path` string
-- `content` base64
-- `create` bool
-- `mod_time` int
-- `within` string
-- `extensions` [string] (nullable)
 
 Result:
 
-- `mod_time` int
+- `ok` bool
 
-## `git.branches`
+## `fs.rename`
 
 Params:
 
-- `path` string: The project's folder
+- `path` string
+- `new_path` string
 
 Result:
 
-- `branches` [object{Branch}]
+- `ok` bool
+
+## `fs.mkdir`
+
+Params:
+
+- `path` string
+
+Result:
+
+- `ok` bool
+
+## `git.status`
+
+Tool (read): Branch, ahead/behind and changed-file counts for several projects at once.
+
+Live on: `git.changed`
+
+Params:
+
+- `paths` [string]: Projects' folders
+
+Result:
+
+- `projects` [object{Status}]
 
 ## `git.changes`
 
@@ -734,34 +737,15 @@ Result:
 
 - `files` [object{FileChange}]
 
-## `git.commit_push`
-
-Detached: runs to completion if the caller disconnects.
+## `git.branches`
 
 Params:
 
-- `path` string
-- `message` string
+- `path` string: The project's folder
 
 Result:
 
-- `commit` string
-- `branch` string
-- `pushed` bool
-
-## `git.create_branch`
-
-Detached: runs to completion if the caller disconnects.
-
-Params:
-
-- `path` string
-- `name` string
-- `from_ref` string
-
-Result:
-
-- `ok` bool
+- `branches` [object{Branch}]
 
 ## `git.diff`
 
@@ -818,20 +802,6 @@ Result:
 
 - `ok` bool
 
-## `git.status`
-
-Tool (read): Branch, ahead/behind and changed-file counts for several projects at once.
-
-Live on: `git.changed`
-
-Params:
-
-- `paths` [string]: Projects' folders
-
-Result:
-
-- `projects` [object{Status}]
-
 ## `git.switch_branch`
 
 Detached: runs to completion if the caller disconnects.
@@ -845,6 +815,35 @@ Result:
 
 - `ok` bool
 
+## `git.create_branch`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `path` string
+- `name` string
+- `from_ref` string
+
+Result:
+
+- `ok` bool
+
+## `git.commit_push`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `path` string
+- `message` string
+
+Result:
+
+- `commit` string
+- `branch` string
+- `pushed` bool
+
 ## `github.avatar`
 
 Params:
@@ -856,6 +855,18 @@ Result:
 - `login` string (omitted when empty)
 - `content_hash` string (omitted when empty)
 - `bytes` base64 (omitted when empty) (nullable)
+
+## `github.repos`
+
+Params:
+
+- `owner` string
+- `query` string
+- `limit` int
+
+Result:
+
+- `repos` [object{Repo}]
 
 ## `github.clone`
 
@@ -902,42 +913,6 @@ Result:
 - `url` string
 - `branch` string
 
-## `github.repos`
-
-Params:
-
-- `owner` string
-- `query` string
-- `limit` int
-
-Result:
-
-- `repos` [object{Repo}]
-
-## `host.set_stops_at`
-
-Params:
-
-- `stops_at` json
-
-Result:
-
-- `provider` string
-- `stops_at` json
-
-## `host.setup`
-
-Params:
-
-- `refresh` bool
-
-Result:
-
-- `host` object{Release}
-- `tools` [object{Install}]
-- `agents` [object{Catalog}]
-- `github` object{CloneFolder}
-
 ## `host.status`
 
 Params:
@@ -955,6 +930,19 @@ Result:
 - `network` object{Network}
 - `capabilities` [string] (omitted when empty) (nullable)
 
+## `host.setup`
+
+Params:
+
+- `refresh` bool
+
+Result:
+
+- `host` object{Release}
+- `tools` [object{Install}]
+- `agents` [object{Catalog}]
+- `github` object{CloneFolder}
+
 ## `host.update`
 
 Detached: runs to completion if the caller disconnects.
@@ -968,6 +956,16 @@ Result:
 - `from` string
 - `to` string (omitted when empty)
 - `busy` object{Busy} (omitted when empty) (nullable)
+
+## `host.set_stops_at`
+
+Params:
+
+- `stops_at` json
+
+Result:
+
+- `ok` bool
 
 ## `limits.read`
 
@@ -992,33 +990,6 @@ Result:
 
 - `outcome` string
 
-## `mcp.call`
-
-Params:
-
-- `project` string
-- `server` string
-- `tool` string
-- `input` json (omitted when empty) (nullable)
-- `read` bool (omitted when empty)
-- `confirmed` bool (omitted when empty)
-
-Result:
-
-- `result` json (omitted when empty) (nullable)
-- `error` object{Failure} (omitted when empty) (nullable)
-
-## `mcp.connect`
-
-Params:
-
-- `probe_id` string
-- `api_key` string (omitted when empty)
-
-Result:
-
-- `ok` bool
-
 ## `mcp.list`
 
 Params:
@@ -1031,15 +1002,28 @@ Result:
 - `builtins` [object{Builtin}]
 - `root` string (omitted when empty)
 
-## `mcp.oauth_finish`
+## `mcp.probe`
 
-Detached: runs to completion if the caller disconnects.
+Params:
+
+- `url` string
+- `label` string (omitted when empty)
+- `project` string
+
+Result:
+
+- `probe_id` string
+- `url` string
+- `auth` string
+- `needs_manual_client` bool
+- `registration_error` string (omitted when empty)
+
+## `mcp.connect`
 
 Params:
 
 - `probe_id` string
-- `code` string
-- `state` string
+- `api_key` string (omitted when empty)
 
 Result:
 
@@ -1058,27 +1042,15 @@ Result:
 - `authorize_url` string
 - `state` string
 
-## `mcp.probe`
+## `mcp.oauth_finish`
+
+Detached: runs to completion if the caller disconnects.
 
 Params:
-
-- `url` string
-- `label` string (omitted when empty)
-- `project` string
-
-Result:
 
 - `probe_id` string
-- `url` string
-- `auth` string
-- `needs_manual_client` bool
-- `registration_error` string (omitted when empty)
-
-## `mcp.remove`
-
-Params:
-
-- `id` string
+- `code` string
+- `state` string
 
 Result:
 
@@ -1107,6 +1079,32 @@ Result:
 
 - `ok` bool
 
+## `mcp.remove`
+
+Params:
+
+- `id` string
+
+Result:
+
+- `ok` bool
+
+## `mcp.call`
+
+Params:
+
+- `project` string
+- `server` string
+- `tool` string
+- `input` json (omitted when empty) (nullable)
+- `read` bool (omitted when empty)
+- `confirmed` bool (omitted when empty)
+
+Result:
+
+- `result` json (omitted when empty) (nullable)
+- `error` object{Failure} (omitted when empty) (nullable)
+
 ## `pair.begin`
 
 Local only: refused to a paired device.
@@ -1117,8 +1115,43 @@ Params:
 
 Result:
 
-- `invite` object{Invite}
 - `qr` string
+
+## `pair.status`
+
+Local only: refused to a paired device.
+
+Params:
+
+- none
+
+Result:
+
+- `pending` bool
+
+## `pair.reusable`
+
+Local only: refused to a paired device.
+
+Params:
+
+- `hours` int
+
+Result:
+
+- `qr` string
+
+## `pair.reusable_revoke`
+
+Local only: refused to a paired device.
+
+Params:
+
+- none
+
+Result:
+
+- `ok` bool
 
 ## `pair.complete`
 
@@ -1139,45 +1172,6 @@ Result:
 - `host_public` base64 (nullable)
 - `host_proof` base64 (nullable)
 - `host_label` string
-
-## `pair.reusable`
-
-Local only: refused to a paired device.
-
-Params:
-
-- `hours` int
-
-Result:
-
-- `invite` object{Invite}
-- `qr` string
-
-## `pair.reusable_revoke`
-
-Local only: refused to a paired device.
-
-Params:
-
-- none
-
-Result:
-
-- `ok` bool
-
-## `pair.status`
-
-Local only: refused to a paired device.
-
-Params:
-
-- none
-
-Result:
-
-- `pending` bool
-- `expires_at` int (omitted when empty)
-- `reusable_expires_at` int (omitted when empty)
 
 ## `plugins.call`
 
@@ -1220,6 +1214,16 @@ Result:
 
 - `ok` bool
 
+## `ports.list`
+
+Params:
+
+- `dir` string
+
+Result:
+
+- `ports` [object{Port}]
+
 ## `ports.kill`
 
 Detached: runs to completion if the caller disconnects.
@@ -1233,46 +1237,19 @@ Result:
 
 - `processes` int
 
-## `ports.list`
+## `projects.list`
+
+Tool (read): The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.
+
+Live on: `projects.changed`
 
 Params:
 
-- `dir` string
+- none
 
 Result:
 
-- `ports` [object{Port}]
-
-## `projects.add`
-
-Params:
-
-- `path` string
-
-Result:
-
-- `path` string
-
-## `projects.create`
-
-Params:
-
-- `name` string
-- `parent` string
-
-Result:
-
-- `path` string
-
-## `projects.delete`
-
-Params:
-
-- `path` string
-
-Result:
-
-- `ok` bool
+- `projects` [object{Project}]
 
 ## `projects.detect_icon`
 
@@ -1288,19 +1265,30 @@ Result:
 - `not_modified` bool (omitted when empty)
 - `remote` string (omitted when empty)
 
-## `projects.list`
-
-Tool (read): The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.
-
-Live on: `projects.changed`
+## `projects.rename`
 
 Params:
 
-- none
+- `path` string
+- `name` string
 
 Result:
 
-- `projects` [object{Project}]
+- `path` string
+- `chat_count` int
+- `repo_owner` string
+- `repo_name` string
+- `kind` string
+- `icon_hash` string
+- `diff_available` bool
+- `files_changed` int
+- `additions` int
+- `deletions` int
+- `activity_at` int
+- `last_message_at` int
+- `display_name` string
+- `pinned_at` int (omitted when empty) (nullable)
+- `host_id` string
 
 ## `projects.pin`
 
@@ -1327,12 +1315,11 @@ Result:
 - `pinned_at` int (omitted when empty) (nullable)
 - `host_id` string
 
-## `projects.rename`
+## `projects.add`
 
 Params:
 
 - `path` string
-- `name` string
 
 Result:
 
@@ -1351,6 +1338,53 @@ Result:
 - `display_name` string
 - `pinned_at` int (omitted when empty) (nullable)
 - `host_id` string
+
+## `projects.create`
+
+Params:
+
+- `name` string
+- `parent` string
+
+Result:
+
+- `path` string
+- `chat_count` int
+- `repo_owner` string
+- `repo_name` string
+- `kind` string
+- `icon_hash` string
+- `diff_available` bool
+- `files_changed` int
+- `additions` int
+- `deletions` int
+- `activity_at` int
+- `last_message_at` int
+- `display_name` string
+- `pinned_at` int (omitted when empty) (nullable)
+- `host_id` string
+
+## `projects.delete`
+
+Params:
+
+- `path` string
+
+Result:
+
+- `ok` bool
+
+## `reminders.list`
+
+Tool (read): The pending reminders on this environment, soonest first.
+
+Params:
+
+- `path` string (omitted when empty): Only this project's; every reminder when left out
+
+Result:
+
+- `reminders` [object{Reminder}] (nullable)
 
 ## `reminders.create`
 
@@ -1381,28 +1415,6 @@ Tool (write): Cancel a pending reminder.
 Params:
 
 - `id` string: The reminder's id, as reminders_list gives it
-
-Result:
-
-- `ok` bool
-
-## `reminders.list`
-
-Tool (read): The pending reminders on this environment, soonest first.
-
-Params:
-
-- `path` string (omitted when empty): Only this project's; every reminder when left out
-
-Result:
-
-- `reminders` [object{Reminder}] (nullable)
-
-## `schedules.delete`
-
-Params:
-
-- `id` string
 
 Result:
 
@@ -1456,21 +1468,11 @@ Result:
 - `host_id` string
 - `next_run_at` int
 
-## `terminals.attach`
+## `schedules.delete`
 
 Params:
 
-- `session_id` string
-
-Result:
-
-- `buffered_output` base64 (nullable)
-
-## `terminals.close`
-
-Params:
-
-- `session_id` string
+- `id` string
 
 Result:
 
@@ -1488,6 +1490,46 @@ Result:
 
 - `session_id` string
 - `created_at` int
+
+## `terminals.list`
+
+Params:
+
+- `cwd` string
+
+Result:
+
+- `sessions` [object{Info}]
+
+## `terminals.subscribe`
+
+Params:
+
+- `cwd` string
+
+Result:
+
+- `ok` bool
+
+## `terminals.unsubscribe`
+
+Params:
+
+- `cwd` string
+
+Result:
+
+- `ok` bool
+
+## `terminals.attach`
+
+Params:
+
+- `session_id` string
+
+Result:
+
+- `buffered_output` base64 (nullable)
 
 ## `terminals.detach`
 
@@ -1510,16 +1552,6 @@ Result:
 
 - `ok` bool
 
-## `terminals.list`
-
-Params:
-
-- `cwd` string
-
-Result:
-
-- `sessions` [object{Info}]
-
 ## `terminals.resize`
 
 Params:
@@ -1532,101 +1564,17 @@ Result:
 
 - `ok` bool
 
-## `terminals.subscribe`
+## `terminals.close`
 
 Params:
 
-- `cwd` string
-
-Result:
-
-- `ok` bool
-
-## `terminals.unsubscribe`
-
-Params:
-
-- `cwd` string
+- `session_id` string
 
 Result:
 
 - `ok` bool
 
 ## `tools.install`
-
-Detached: runs to completion if the caller disconnects.
-
-Params:
-
-- `kind` string
-
-Result:
-
-- `kind` string
-- `ok` bool
-- `error` string (omitted when empty)
-
-## `tools.login_cancel`
-
-Params:
-
-- `kind` string
-
-Result:
-
-- `ok` bool
-
-## `tools.login_complete`
-
-Detached: runs to completion if the caller disconnects.
-
-Params:
-
-- `kind` string
-- `code` string
-
-Result:
-
-- `ok` bool
-
-## `tools.login_start`
-
-Params:
-
-- `kind` string
-
-Result:
-
-- `url` string
-- `style` string
-- `user_code` string (omitted when empty)
-- `expires_at_ms` int
-
-## `tools.logins`
-
-Params:
-
-- none
-
-Result:
-
-- `waiting` [string]
-
-## `tools.logout`
-
-Detached: runs to completion if the caller disconnects.
-
-Params:
-
-- `kind` string
-
-Result:
-
-- `kind` string
-- `ok` bool
-- `error` string (omitted when empty)
-
-## `tools.uninstall`
 
 Detached: runs to completion if the caller disconnects.
 
@@ -1651,6 +1599,94 @@ Params:
 Result:
 
 - `updated` [object{UpdateResult}]
+
+## `tools.uninstall`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `kind` string
+
+Result:
+
+- `kind` string
+- `ok` bool
+- `error` string (omitted when empty)
+
+## `tools.login_start`
+
+Params:
+
+- `kind` string
+
+Result:
+
+- `url` string
+- `style` string
+- `user_code` string (omitted when empty)
+- `expires_at_ms` int
+
+## `tools.login_complete`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `kind` string
+- `code` string
+
+Result:
+
+- `ok` bool
+
+## `tools.login_cancel`
+
+Params:
+
+- `kind` string
+
+Result:
+
+- `ok` bool
+
+## `tools.logout`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `kind` string
+
+Result:
+
+- `kind` string
+- `ok` bool
+- `error` string (omitted when empty)
+
+## `tools.logins`
+
+Params:
+
+- none
+
+Result:
+
+- `waiting` [string]
+
+## `tunnels.open`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `slug` string
+- `port` int
+- `expires_at` int
+
+Result:
+
+- `tunnel` object{Tunnel}
 
 ## `tunnels.close`
 
@@ -1677,46 +1713,6 @@ Result:
 - `tunnels` [object{Tunnel}]
 - `connected` bool
 
-## `tunnels.open`
-
-Paired devices only: refused at the machine.
-
-Params:
-
-- `slug` string
-- `port` int
-- `expires_at` int
-
-Result:
-
-- `tunnel` object{Tunnel}
-
-## `turns.edit_queued`
-
-Params:
-
-- `turn_id` string
-- `prompt` string
-
-Result:
-
-- `ok` bool
-
-## `turns.get`
-
-Params:
-
-- `turn_id` string
-
-Result:
-
-- `turn_id` string
-- `chat_id` string
-- `state` string
-- `session_id` string (omitted when empty)
-- `error` string (omitted when empty)
-- `approval` object{Approval} (omitted when empty) (nullable)
-
 ## `turns.list`
 
 Params:
@@ -1727,29 +1723,7 @@ Result:
 
 - `turns` [object{Turn}] (nullable)
 
-## `turns.remove_queued`
-
-Params:
-
-- `turn_id` string
-
-Result:
-
-- `ok` bool
-
-## `turns.respond`
-
-Params:
-
-- `turn_id` string
-- `call_id` string
-- `answer` json (nullable)
-
-Result:
-
-- `ok` bool
-
-## `turns.send_queued`
+## `turns.get`
 
 Params:
 
@@ -1773,6 +1747,54 @@ Params:
 Result:
 
 - `ok` bool
+
+## `turns.respond`
+
+Params:
+
+- `turn_id` string
+- `call_id` string
+- `answer` json (nullable)
+
+Result:
+
+- `ok` bool
+
+## `turns.edit_queued`
+
+Params:
+
+- `turn_id` string
+- `prompt` string
+
+Result:
+
+- `ok` bool
+
+## `turns.remove_queued`
+
+Params:
+
+- `turn_id` string
+
+Result:
+
+- `ok` bool
+
+## `turns.send_queued`
+
+Params:
+
+- `turn_id` string
+
+Result:
+
+- `turn_id` string
+- `chat_id` string
+- `state` string
+- `session_id` string (omitted when empty)
+- `error` string (omitted when empty)
+- `approval` object{Approval} (omitted when empty) (nullable)
 
 ## `usage.history`
 
