@@ -218,7 +218,6 @@ Result:
 
 - `chat_id` string
 - `events` [object{Message}]
-- `host_id` string (omitted when empty)
 - `cwd` string
 - `agent` string
 - `project_agent` string (omitted when empty)
@@ -342,13 +341,10 @@ Params:
 
 Result:
 
-- `chat_id` string
-- `call_id` string
 - `kind` string
 - `name` string
 - `events` [object{Message}]
 - `tools` [object{ToolDetail}]
-- `host_id` string
 
 ## `chats.subscribe`
 
@@ -388,7 +384,6 @@ Params:
 
 Result:
 
-- `chat_id` string
 - `tools` [object{ToolDetail}]
 
 ## `chats.tools_unsubscribe`
@@ -795,7 +790,6 @@ Params:
 
 Result:
 
-- `files` [object{FileChange}] (omitted when empty) (nullable)
 - `text` string (omitted when empty)
 - `truncated` bool (omitted when empty)
 
@@ -1023,7 +1017,7 @@ Params:
 
 Result:
 
-- `server` object{Server}
+- `ok` bool
 
 ## `mcp.list`
 
@@ -1035,7 +1029,6 @@ Result:
 
 - `servers` [object{Server}]
 - `builtins` [object{Builtin}]
-- `installed` [object{Installed}]
 - `root` string (omitted when empty)
 
 ## `mcp.oauth_finish`
@@ -1050,7 +1043,7 @@ Params:
 
 Result:
 
-- `server` object{Server}
+- `ok` bool
 
 ## `mcp.oauth_start`
 
@@ -1719,19 +1712,9 @@ Result:
 
 - `turn_id` string
 - `chat_id` string
-- `agent` string
-- `cwd` string
-- `prompt` string
 - `state` string
-- `model` string (omitted when empty)
 - `session_id` string (omitted when empty)
-- `provider_stop_reason` string (omitted when empty) (nullable)
 - `error` string (omitted when empty)
-- `usage` object{Usage} (omitted when empty) (nullable)
-- `queued_at` json
-- `started_at` json (omitted when empty) (nullable)
-- `ended_at` json (omitted when empty) (nullable)
-- `event_count` int
 - `approval` object{Approval} (omitted when empty) (nullable)
 
 ## `turns.list`
@@ -1742,7 +1725,7 @@ Params:
 
 Result:
 
-- `turns` [object{TurnStatus}] (nullable)
+- `turns` [object{Turn}] (nullable)
 
 ## `turns.remove_queued`
 
@@ -1776,19 +1759,9 @@ Result:
 
 - `turn_id` string
 - `chat_id` string
-- `agent` string
-- `cwd` string
-- `prompt` string
 - `state` string
-- `model` string (omitted when empty)
 - `session_id` string (omitted when empty)
-- `provider_stop_reason` string (omitted when empty) (nullable)
 - `error` string (omitted when empty)
-- `usage` object{Usage} (omitted when empty) (nullable)
-- `queued_at` json
-- `started_at` json (omitted when empty) (nullable)
-- `ended_at` json (omitted when empty) (nullable)
-- `event_count` int
 - `approval` object{Approval} (omitted when empty) (nullable)
 
 ## `turns.stop`

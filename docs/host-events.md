@@ -29,7 +29,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 
 - `chat_id` string
 - `events` [object{Message}]
-- `host_id` string (omitted when empty)
 - `cwd` string
 - `agent` string
 - `project_agent` string (omitted when empty)
@@ -132,7 +131,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `state` string
 - `input` json (omitted when empty) (nullable)
 - `output` string (omitted when empty)
-- `output_bytes` int (omitted when empty)
 - `result` object{ToolResult} (omitted when empty) (nullable)
 
 ## `devices.changed`
