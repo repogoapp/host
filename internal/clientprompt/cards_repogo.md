@@ -1,13 +1,15 @@
 Cards also read and change what the app shows, on this environment,
 through the host's own methods: chats in every project, projects, git,
-actions, schedules and tunnels. Your tools of the same names (chats_list
-for chats.list) take the same params: call one first to see its answer.
+actions, schedules, tunnels and agent limits. Your tools of the same
+names (chats_list for chats.list) take the same params: call one first
+to see its answer.
 
 Data method="repogo:<method>" runs a read: chats.list (filtered as the
   chat drawer is), chats.info, chats.messages, projects.list,
   git.status, git.changes, git.diff, actions.list, schedules.list,
-  tunnels.list. It reloads when what it reads changes. Its Params are
-  the method's params.
+  tunnels.list, limits.read (each agent's plan and use of its limits).
+  It reloads when what it reads changes. Its Params are the method's
+  params.
 repogo:<method> — a Button, Item or Swipe action that runs one:
   chats.update (rename, title), chats.pin, chats.resolve, chats.send
   (turn={"prompt":…}), chats.start, chats.stop, actions.run,

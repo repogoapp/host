@@ -20,7 +20,8 @@ type Deps struct {
 func Register(r *rpc.Router, d Deps) {
 	// usage reports each provider's remaining rate limit; read-only, it never
 	// costs quota.
-	rpc.Add(r, "limits.read", d.usage)
+	rpc.Add(r, "limits.read", d.usage, rpc.Tool("Each agent's plan and how much of each rate-limit "+
+		"window is used, with when it resets."), rpc.Read)
 	// reset spends one reset credit (listed in limits.read) and answers Codex's
 	// outcome; "nothing_to_reset" means the credit was kept.
 	rpc.Add(r, "limits.reset", d.reset, rpc.Detached)

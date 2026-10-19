@@ -5,7 +5,6 @@
 package plugins
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -59,6 +58,10 @@ type Config struct {
 	// Crons is the user's file of schedules, ~/.repogo/crons.json: what runs
 	// with no one calling. Empty runs nothing on a schedule.
 	Crons string
+	// LogsPath is the SQLite file keeping the plugins' console lines; empty keeps none.
+	LogsPath string
+	// Logged tells every phone that plugins wrote lines, so cards showing them reload; nil drops it.
+	Logged func(Logged)
 	// Emit sends a subscription's new answer to the device that made it.
 	Emit func(device.ID, emit.Event) error
 	// Notify pushes a plugin's alert to the phones; nil drops it.
@@ -89,6 +92,8 @@ type Service struct {
 	// folders that got schedules then, to clear when the file stops naming them.
 	crons    []Cron
 	cronDirs map[string]bool
+	// logs is the plugins' console lines; nil when the host keeps none.
+	logs *Logs
 }
 
 // subscription is one device's subscription, by the id the device picked. The
@@ -109,9 +114,40 @@ func serverID(d device.ID, id string) string { return string(d) + "/" + id }
 var subscriptionID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func New(ctx context.Context, cfg Config) *Service {
-	return &Service{
+	s := &Service{
 		cfg: cfg, ctx: ctx,
 		subs: map[string]*subscription{}, prints: map[string]string{},
+	}
+	if cfg.LogsPath != "" {
+		logs, err := OpenLogs(ctx, cfg.LogsPath, defaultLogLimits, cfg.Log, s.logged)
+		if err != nil {
+			// Plugins run without their log sooner than not at all.
+			cfg.Log.Warn("plugins: the log is off", "err", err)
+		}
+		s.logs = logs
+	}
+	return s
+}
+
+// Close writes what the log still holds.
+func (s *Service) Close() {
+	if s.logs != nil {
+		s.logs.Close()
+	}
+}
+
+// Logs answers the plugins' console lines, newest first.
+func (s *Service) Logs(ctx context.Context, q LogQuery) ([]LogLine, error) {
+	if s.logs == nil {
+		return nil, errkind.ErrUnavailable.Errorf("plugins: this host keeps no plugin log")
+	}
+	return s.logs.Query(ctx, q)
+}
+
+// logged passes a written batch on to the phones.
+func (s *Service) logged(plugins []string) {
+	if s.cfg.Logged != nil {
+		s.cfg.Logged(Logged{Plugins: plugins})
 	}
 }
 
@@ -176,54 +212,6 @@ func isDir(path string) bool {
 	return path != "" && err == nil && info.IsDir()
 }
 
-// List is the manifest of a folder's plugins (each one's `dir`, methods and input
-// schemas; a project plugin hides an environment one of its name), the pages
-// that show their queries, and crons.json's entries, read again so an edit shows.
-func (s *Service) List(ctx context.Context, path string) (Answer, error) {
-	if s.cfg.Crons != "" {
-		s.reconcile(ctx)
-	}
-	targets, err := s.targets(path)
-	if err != nil {
-		return Answer{}, err
-	}
-	plugins := []json.RawMessage{}
-	seen := map[string]bool{}
-	for _, t := range targets {
-		answer, err := s.ask(ctx, t, "list", t)
-		if err != nil || answer.Error != nil {
-			return answer, err
-		}
-		var manifest struct {
-			Plugins []map[string]any `json:"plugins"`
-		}
-		if err := json.Unmarshal(answer.Result, &manifest); err != nil {
-			return Answer{}, fmt.Errorf("plugins: manifest of %s: %w", t.Dir, err)
-		}
-		for _, plugin := range manifest.Plugins {
-			name, _ := plugin["name"].(string)
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			plugin["dir"] = filepath.Join(t.Dir, name)
-			entry, err := json.Marshal(plugin)
-			if err != nil {
-				return Answer{}, err
-			}
-			plugins = append(plugins, entry)
-		}
-	}
-	// Unescaped, so a page's target reads as the agent writes it: `?a=1&b=2`.
-	var result bytes.Buffer
-	encoder := json.NewEncoder(&result)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(map[string]any{"plugins": plugins, "pages": pages(checkout(path), s.cfg.Global), "crons": s.Crons()}); err != nil {
-		return Answer{}, err
-	}
-	return Answer{Result: bytes.TrimSpace(result.Bytes())}, nil
-}
-
 // Caller is who asked for a call, the plugin's ctx.caller.
 type Caller string
 
@@ -232,14 +220,33 @@ const (
 	CallerAgent Caller = "agent"
 )
 
+// Origin is who asked for a call, and for an agent the chat it calls from,
+// which its log lines carry.
+type Origin struct {
+	Caller Caller
+	Chat   string
+}
+
+// recentErrors is each plugin's error lines in the last hour, for the `plugins` tool's list.
+func (s *Service) recentErrors(ctx context.Context) map[string]int {
+	if s.logs == nil {
+		return nil
+	}
+	counts, err := s.logs.Errors(ctx, time.Now().Add(-time.Hour).UnixMilli())
+	if err != nil {
+		s.cfg.Log.Debug("plugins: counting errors failed", "err", err)
+	}
+	return counts
+}
+
 // Call runs one method, a query or a mutation. A method with a confirm
 // answers CONFIRM instead of running until confirmed says the user agreed.
-func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, confirmed bool, caller Caller) (Answer, error) {
+func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, confirmed bool, by Origin) (Answer, error) {
 	t, err := s.targetOf(path, name)
 	if err != nil {
 		return Answer{}, err
 	}
-	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input), Confirmed: confirmed, Caller: caller})
+	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input), Confirmed: confirmed, Caller: by.Caller, Chat: by.Chat})
 }
 
 // Subscribe keeps a device's query or stream under the device's id, replacing
@@ -355,6 +362,7 @@ type callParams struct {
 	Input     json.RawMessage `json:"input"`
 	Confirmed bool            `json:"confirmed,omitempty"`
 	Caller    Caller          `json:"caller,omitempty"`
+	Chat      string          `json:"chat,omitempty"`
 }
 
 type subscribeParams struct {
@@ -432,7 +440,7 @@ func (s *Service) running(ctx context.Context) (*server, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	srv, err = startServer(s.ctx, bun, s.cfg.Runtime, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.notified, s.hosted, s.lost)
+	srv, err = startServer(s.ctx, bun, s.cfg.Runtime, s.cfg.Socket, s.cfg.DataDir, s.cfg.Log, s.pushed, s.notified, s.wrote, s.hosted, s.lost)
 	if err != nil {
 		return nil, err
 	}
@@ -459,6 +467,13 @@ func (s *Service) pushed(p push) {
 	s.mu.Unlock()
 	if err := s.cfg.Emit(d, data); err != nil {
 		s.cfg.Log.Debug("plugins: data push failed", "device", d, "err", err)
+	}
+}
+
+// wrote keeps a folder's console lines; a host without a log drops them.
+func (s *Service) wrote(p logPush) {
+	if s.logs != nil {
+		s.logs.Add(p.Dir, p.Records)
 	}
 }
 

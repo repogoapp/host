@@ -17,7 +17,7 @@ var mcpToolsTool = tool{
 	Description: "List the MCP servers the user connected in RepoGo and switched on for this project, each by the " +
 		"key a card names it with (`mcp:<server>.<tool>`), with its tools: `read_only` tools can feed a card's Data; " +
 		"the rest run from a Button, and `asks_first` ones ask the user before running. " +
-		"Call this before a card names a tool, then call the tool once to see its answer's shape.",
+		"Call this before a card names a tool; call the tool once first only when you don't know its answer's shape.",
 	InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 }
 

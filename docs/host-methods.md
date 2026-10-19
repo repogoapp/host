@@ -158,7 +158,7 @@ Result:
 - `status_at` int
 - `last_turn_started_at` int (nullable)
 - `last_turn_finished_at` int (nullable)
-- `last_reply` string (omitted when empty)
+- `summary` string (omitted when empty)
 - `last_user_message_preview` string (omitted when empty)
 - `revision` int
 - `resolved_at` int (omitted when empty) (nullable)
@@ -949,6 +949,8 @@ Result:
 
 ## `limits.read`
 
+Tool (read): Each agent's plan and how much of each rate-limit window is used, with when it resets.
+
 Params:
 
 - none
@@ -1152,6 +1154,26 @@ Result:
 - `host_public` base64 (nullable)
 - `host_proof` base64 (nullable)
 - `host_label` string
+
+## `plugins.logs`
+
+Tool (read): The console lines plugins wrote, newest first, each with the plugin, the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves.
+
+Live on: `plugins.logged`
+
+Params:
+
+- `plugin` string: Only this plugin's lines; empty is every plugin
+- `level` string: This level and worse: debug, info, warn or error; empty is every level
+- `method` string: Only lines written while this method ran, as <plugin>.<method>
+- `since` int: Only lines at or after this time, in ms since the epoch
+- `until` int: Only lines before this time, in ms since the epoch
+- `query` string: Only lines whose text contains this
+- `limit` int: At most this many, newest first; 100 unless said, at most 1000
+
+Result:
+
+- `lines` [object{LogLine}] (nullable)
 
 ## `plugins.call`
 

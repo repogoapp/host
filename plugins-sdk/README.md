@@ -10,6 +10,7 @@ phone draw its data live and run its methods when you tap.
 - [Methods](#methods): queries, mutations, streams
 - [Data](#data): namespaces, collections, kv, streams, buckets
 - [Crons](#crons)
+- [Logging](#logging)
 - [The context](#the-context)
 - [Events](#events)
 - [How cards and agents reach a plugin](#how-cards-and-agents-reach-a-plugin)
@@ -316,6 +317,20 @@ project, or the home folder for a plugin in `~/.repogo/plugins`. Plugins in one
 folder share a thread: code that blocks it holds up every other cron there, and
 the host's log names the crons that were running when it happened.
 
+## Logging
+
+Write `console.log` (or `warn`, `error`, `debug`); nothing else is needed. The
+host keeps every line with the plugin, the method and the call that wrote it,
+who called (`card`, `agent`, `cron`), and the chat for an agent's call, plus
+the arguments as JSON. An error a method throws, or one nothing caught, is
+kept too, with its stack. Read them with the agent's `plugin_logs` tool, or on
+a card with `<Data method="repogo:plugins.logs">`, which reloads as lines land:
+`plugin`, `level` (that level and worse), `method`, `since`, `until`, `query`
+(a substring) and `limit` narrow it. The `plugins` tool shows each plugin's
+`errors` in the last hour. Lines older than 7 days go, and the oldest hours of
+the noisiest plugin once the log passes 2 GB. A line is cut at 8 KB: a payload
+belongs in the plugin's own data, not its log.
+
 ## The context
 
 Every method, handler and cron gets `ctx`:
@@ -329,12 +344,56 @@ Every method, handler and cron gets `ctx`:
 | `call(method, input)` | Runs a method of a plugin in the same folder; `"open"` is this plugin's own |
 | `plugins()` | The plugins in the same folder, with their methods |
 | `host(method, params)` | Runs one of the host's methods that agents and cards may call (`git.status`, `chats.list`, `actions.run`, …); others fail with `FORBIDDEN` |
+| `mcp(server, tool, input)` | Runs a tool of an MCP server the user connected in RepoGo and switched on for the calling project; see below |
 | `notify({ title, body, page?, collapse? })` | Alerts every paired phone; a tap opens `page`, and alerts sharing `collapse` replace each other |
+| `agent(prompt, { agent, project?, title?, timeout? })` | Starts a chat with `prompt` and waits for the agent's whole answer: `{ chatId, text }`; see below |
 | `emit(event, payload)` | Sends `<plugin>.<event>` to handlers |
 | `signal` | Aborts when a stream's card goes |
-| `log(...)` | Writes to the host's plugin log |
+| `log(...)` | The same as `console.log` |
 
 A query doesn't re-run when what a `ctx.host` method read changes.
+
+### An agent's answer
+
+`ctx.agent` hands a question to Claude or Codex and answers with what it said,
+so a cron can watch, investigate and notify with the finding:
+
+```ts
+watch: method(z.object({}), async (_, ctx) => {
+  const down = await failing(ctx);
+  if (!down.length) return null;
+  const { text, chatId } = await ctx.agent(`Say in two sentences why ${down[0]} is down.`, { agent: "claude" });
+  await ctx.notify({ title: `${down[0]} is down`, body: text, page: `chat:${chatId}` });
+  return text;
+}),
+```
+
+The chat runs in `project` (the calling project unless said), under the
+calling chat when an agent called the plugin. It waits up to `timeout`
+(10 minutes unless said) and then throws, naming the chat, which keeps
+running. The same two host methods are there by hand: `ctx.host("chats.start", …)`
+and `ctx.host("chats.wait", …)`, for a chat you want to link to rather than wait for.
+
+### MCP servers
+
+`ctx.mcp` reaches the MCP servers the user connected in RepoGo, by the key
+cards name them with, using the user's own sign-in, so a plugin needs no key
+or CLI of its own. It answers the tool's structured content, else its text
+(parsed when it's JSON):
+
+```ts
+customers: method(z.object({}), async (_, ctx) => {
+  const list = await ctx.mcp("stripe", "stripe_api_read", { stripe_api_operation_id: "GetCustomers", /* … */ });
+  return list.data.map((c) => ({ id: c.id, email: c.email }));
+}, { kind: "query" }),
+```
+
+A query may run only the server's read-only tools, as a card's `Data` may. A
+tool marked destructive runs only from a method with a `confirm`, or one
+called from it with `ctx.call`: the user's answer to that question is its
+yes. A refusal throws `FORBIDDEN`; a tool's own error throws `INTERNAL` with
+its message. Only servers switched on for `ctx.root` answer, so a cron of an
+environment plugin, whose root is the home folder, reaches none.
 
 ## Events
 
@@ -359,9 +418,13 @@ Events run in memory: none is retried, and a handler that throws is logged.
 
 ## How cards and agents reach a plugin
 
-**Agents** use two tools: `plugins` lists every plugin with its methods, input
-schemas and `storage` (each bucket's and stream's folder), and every line of
-`~/.repogo/crons.json` with how it's going; `plugin_call` runs one. Call a new method once before a card names it.
+**Agents** use two tools. `plugins` lists every plugin with a line per method
+(its kind, whether it asks first, and its input's fields, optional ones ending
+in `?`), and every line of `~/.repogo/crons.json` with how it's going.
+`plugins` with `plugin` set answers that plugin in full: each method's input
+and output JSON Schema and confirm, its `storage` (each bucket's and stream's
+folder), the pages that show its methods, and the cron lines naming it.
+`plugin_call` runs one. Call a new method once before a card names it.
 
 **Cards** name methods as `plugin:<plugin>.<method>`. A `Data` element runs a
 query, or follows a stream, and redraws when its data changes; a `Button` or
@@ -395,7 +458,8 @@ filled from the call's input, so it can say what it acts on:
 ## Testing
 
 `@repogo/plugins/testing` runs plugins as the host does, with real data in a
-temporary folder:
+temporary folder; `host` and `mcp` stand in for the host's methods and the
+user's MCP servers:
 
 ```ts
 import { testRuntime } from "@repogo/plugins/testing";
@@ -407,5 +471,6 @@ await app.call("notes.clear", {}, { confirmed: false }); // throws CONFIRM, as a
 app.setCrons([{ plugin: "notes", method: "tidy", schedule: "* * * * *" }]); // as a crons.json line would
 await app.tickCrons(Date.now() + 60_000);                // runs whatever is due by then
 app.notices;                                             // every ctx.notify so far
+app.logs;                                                // every console line so far, with its method and caller
 await app.close();
 ```

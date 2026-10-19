@@ -1,6 +1,7 @@
 This project has plugins (.repogo/plugins/<name>/app.ts): small apps on the
 user's environment with their own data. The `plugins` tool lists each
-plugin's methods and input schemas; `plugin_call` runs one. Cards read
+plugin's methods and their inputs, and with a plugin's name its schemas;
+`plugin_call` runs one. Cards read
 and write them live:
 
 Data method="plugin:<plugin>.<method>" subscribes and redraws whenever

@@ -501,6 +501,55 @@
     }
   },
   {
+    "name": "limits_read",
+    "method": "limits.read",
+    "description": "Each agent's plan and how much of each rate-limit window is used, with when it resets.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "plugins_logs",
+    "method": "plugins.logs",
+    "description": "The console lines plugins wrote, newest first, each with the plugin, the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "level": {
+          "description": "This level and worse: debug, info, warn or error; empty is every level",
+          "type": "string"
+        },
+        "limit": {
+          "description": "At most this many, newest first; 100 unless said, at most 1000",
+          "type": "integer"
+        },
+        "method": {
+          "description": "Only lines written while this method ran, as \u003cplugin\u003e.\u003cmethod\u003e",
+          "type": "string"
+        },
+        "plugin": {
+          "description": "Only this plugin's lines; empty is every plugin",
+          "type": "string"
+        },
+        "query": {
+          "description": "Only lines whose text contains this",
+          "type": "string"
+        },
+        "since": {
+          "description": "Only lines at or after this time, in ms since the epoch",
+          "type": "integer"
+        },
+        "until": {
+          "description": "Only lines before this time, in ms since the epoch",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "projects_list",
     "method": "projects.list",
     "description": "The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.",

@@ -7,8 +7,16 @@ import (
 )
 
 func init() {
-	emit.Register(Data{})
+	emit.Register(Data{}, Logged{})
 }
+
+// Logged says plugins wrote console lines, naming them, so a card showing
+// plugins.logs reloads.
+type Logged struct {
+	Plugins []string `json:"plugins"`
+}
+
+func (Logged) Method() string { return "plugins.logged" }
 
 // Failure is a plugin's own failure: a code, a sentence, and messages keyed by the
 // input field they're about ("/status"), so a form shows them under its fields.

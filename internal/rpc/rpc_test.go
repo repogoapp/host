@@ -27,6 +27,7 @@ func router() *rpc.Router {
 	rpc.Add(r, "t.detached", func(ctx context.Context, _ rpc.Caller, _ rpc.None) (rpc.Ack, error) { return rpc.OK, ctx.Err() }, rpc.Detached)
 	rpc.Add(r, "t.join", func(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) { return rpc.OK, nil }, rpc.Unpaired)
 	rpc.Add(r, "t.tool", func(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) { return rpc.OK, nil }, rpc.Tool("A tool."), rpc.Read)
+	rpc.Add(r, "t.plugins", func(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) { return rpc.OK, nil }, rpc.Plugins)
 	return r
 }
 
@@ -66,6 +67,8 @@ func TestAccessIsEnforcedByTheRouter(t *testing.T) {
 		{"t.echo", local, false},
 		{"t.echo", remote, false},
 		{"t.tool", plugin, false},
+		{"t.plugins", plugin, false},
+		{"t.plugins", remote, false},
 		{"t.echo", plugin, true},
 		{"t.local", plugin, true},
 	} {

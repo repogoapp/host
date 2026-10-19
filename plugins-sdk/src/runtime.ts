@@ -6,7 +6,8 @@ import { Bucket } from "./buckets";
 import { Collection } from "./collections";
 import { checkTimezone, nextDue, parseSchedule, type Schedule } from "./cron";
 import { Database } from "./database";
-import type { Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
+import { parseDuration } from "./duration";
+import type { AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
 import type { PluginDefinition, MethodKind } from "./define";
@@ -14,6 +15,7 @@ import { MethodError, toCallError } from "./errors";
 import { EventBus } from "./events";
 import { bucketMethods, kvMethods, streamMethods, type Generated } from "./generated";
 import { Kv } from "./kv";
+import { logContext, record, runWith, type LogContext } from "./logs";
 import type { Store, StoreKind, StoreOptions } from "./store";
 import { defaultRetain, Stream } from "./streams";
 import { currentAccess, recordRead, tracked } from "./tracking";
@@ -42,6 +44,9 @@ type NoticeListener = (notice: SentNotice) => void;
 /** Runs a host method for a plugin's `ctx.host`; the plugins server passes it to the host. */
 export type HostCaller = (plugin: string, method: string, params: unknown) => Promise<unknown>;
 
+/** The host's `mcp.call` answer: the tool's result, or its refusal as data. */
+type MCPAnswer = { result?: unknown; error?: { code: string; message: string } };
+
 /** What an agent's call to a stream gets: the items within this long, or this many. */
 const sampleMs = Number(process.env.REPOGO_PLUGINS_SAMPLE_MS ?? 5000);
 const sampleLimit = 200;
@@ -69,6 +74,15 @@ const cronLateMs = 2 * 60_000;
 
 /** A call that isn't a stream has a signal that never aborts. */
 const never = new AbortController().signal;
+
+/** How long `ctx.agent` waits for the agent's answer unless the call says. */
+const agentTimeoutMs = 10 * 60_000;
+/** One `chats.wait` at a time this long; the host caps a wait at five minutes. */
+const agentWaitMs = 50_000;
+
+/** What `chats.start` and `chats.wait` answer, as `ctx.agent` reads them. */
+type StartedChat = { turn_id: string };
+type WaitedTurn = { chat_id?: string; state: string; reply?: string; error?: string };
 
 const pluginName = /^[a-z][a-z0-9-]*$/;
 const namespaceName = /^[a-z][a-z0-9.-]*$/;
@@ -100,6 +114,8 @@ export class Runtime {
   private callSignal = new AsyncLocalStorage<AbortSignal>();
   /** Who started the outermost call, `ctx.caller` to the code it runs. */
   private callCaller = new AsyncLocalStorage<Caller>();
+  /** Whether the user answered a `confirm` for this call or one it runs within, which a destructive MCP tool needs. */
+  private callConfirmed = new AsyncLocalStorage<boolean>();
   /** Read through `ctx.plugins()` and written as each cron run starts and ends; this runtime's own, so other Workers aren't stirred. */
   private cronsTag = `crons.${crypto.randomUUID()}`;
 
@@ -119,7 +135,8 @@ export class Runtime {
     for (const entry of entries) {
       if (!entry.isDirectory() || !pluginName.test(entry.name)) continue;
       if (only && !only.includes(entry.name)) continue;
-      const module = await import(join(pluginsDir, entry.name, "app.ts"));
+      // Lines written while the module loads are the plugin's, with no run behind them.
+      const module = await logContext.run({ plugin: entry.name }, () => import(join(pluginsDir, entry.name, "app.ts")));
       await this.add(entry.name, module.default);
     }
   }
@@ -186,6 +203,19 @@ export class Runtime {
         if (!runtime.host) throw new MethodError("INTERNAL", "ctx.host runs only under the RepoGo host.");
         return runtime.host(name, method, params ?? {});
       },
+      mcp: async (server, tool, input) => {
+        if (!runtime.host) throw new MethodError("INTERNAL", "ctx.mcp runs only under the RepoGo host.");
+        const answer = await runtime.host(name, "mcp.call", {
+          project: ctx.root,
+          server,
+          tool,
+          input: input ?? {},
+          read: currentAccess()?.readOnly ?? false,
+          confirmed: runtime.callConfirmed.getStore() ?? false,
+        }) as MCPAnswer;
+        if (answer.error) throw mcpFailure(server, tool, answer.error);
+        return answer.result ?? null;
+      },
       plugins: () => {
         recordRead(this.cronsTag);
         return this.manifest().plugins;
@@ -194,7 +224,9 @@ export class Runtime {
         const sent = { ...notice, plugin: name, root: runtime.callRoot.getStore() ?? runtime.root };
         for (const listener of runtime.noticeListeners) listener(sent);
       },
-      log: (...args) => console.error(`[${name}]`, ...args),
+      agent: (prompt, options) => this.agent(name, ctx, prompt, options ?? {}),
+      // The console is captured under the running plugin, so this adds nothing to it.
+      log: (...args) => console.log(...args),
     };
 
     for (const [methodName, method] of Object.entries(plugin.methods ?? {})) {
@@ -211,7 +243,7 @@ export class Runtime {
     }
 
     for (const [event, handler] of Object.entries(plugin.on ?? {})) {
-      this.events.on(`${name}.${event}`, (e) => handler(e.payload, ctx));
+      this.events.on(`${name}.${event}`, (e) => logContext.run(this.logContextFor(name), () => handler(e.payload, ctx)));
     }
 
     this.plugins.set(name, plugin);
@@ -227,7 +259,7 @@ export class Runtime {
    * `root` (the caller's project, for the environment's own plugins) and `caller`
    * pass on to the code the method calls.
    */
-  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string; caller?: Caller } = {}): Promise<CallResult> {
+  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string; caller?: Caller; chat?: string } = {}): Promise<CallResult> {
     if (options.root && options.root !== this.callRoot.getStore()) {
       const { root, ...rest } = options;
       return this.callRoot.run(root, () => this.call(name, input, rest));
@@ -238,6 +270,10 @@ export class Runtime {
     }
     const method = this.methods.get(name);
     if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
+    // Lines the method writes carry it, under the outermost call's id.
+    const where = this.logContextFor(method.plugin, name, options.chat);
+    if (!logContext.getStore()) return runWith(where, () => this.call(name, input, options));
+    if (where !== logContext.getStore()) return logContext.run(where, () => this.call(name, input, options));
     if ((options.expect === "query" || currentAccess()?.readOnly) && method.kind === "mutation") {
       throw new MethodError("FORBIDDEN", `${name} changes data, so it only runs when the user acts.`);
     }
@@ -246,16 +282,23 @@ export class Runtime {
     // Asked after the input is read, so the question can name what it acts on.
     if (method.confirm && options.confirmed === false) throw new MethodError("CONFIRM", fillConfirm(method.confirm, parsed));
     if (method.kind === "stream") return { result: await this.sample(name, input), reads: [], invalidates: [] };
+    // Past the check above, a method with a confirm has the user's yes.
+    const confirmed = this.callConfirmed.getStore() ?? false;
     // A query is read-only however it's called, and so is everything it calls.
-    const run = await tracked(method.kind === "query", (tags) => this.notifyInvalidated(tags), async () => {
-      const result = await method.run(parsed, raw);
-      await this.events.emit(name, { input: parsed, result });
-      return result;
-    });
+    const run = await tracked(method.kind === "query", (tags) => this.notifyInvalidated(tags), () =>
+      this.callConfirmed.run(confirmed || method.confirm !== undefined, async () => {
+        const result = await method.run(parsed, raw);
+        await this.events.emit(name, { input: parsed, result });
+        return result;
+      }));
     // Announced by the outermost call, and even when the method threw after writing.
     const invalidates = run.outermost ? [...run.access.writes] : [];
     if (invalidates.length > 0) this.notifyInvalidated(invalidates);
-    if (!run.ok) throw run.error;
+    if (!run.ok) {
+      // A confirm is a question, not a failure; anything else is the plugin's error to read later.
+      if (!(run.error instanceof MethodError && run.error.code === "CONFIRM")) record("error", [run.error]);
+      throw run.error;
+    }
     return { result: run.value ?? null, reads: [...run.access.reads], invalidates };
   }
 
@@ -271,7 +314,8 @@ export class Runtime {
     const parsed = method.input.parse(raw);
     const root = options.root ?? this.callRoot.getStore() ?? this.root;
     const caller = options.caller ?? this.callCaller.getStore() ?? "code";
-    return this.callRoot.run(root, () => this.callCaller.run(caller, () => this.callSignal.run(options.signal, async () => {
+    const where = this.logContextFor(method.plugin, name);
+    return this.callRoot.run(root, () => this.callCaller.run(caller, () => this.callSignal.run(options.signal, () => runWith(where, async () => {
       // Read-only like a query: a stream a card starts on its own may not write.
       const run = await tracked(true, (tags) => this.notifyInvalidated(tags), async () => {
         const items = await method.run(parsed, raw);
@@ -281,8 +325,11 @@ export class Runtime {
           onItem(item);
         }
       });
-      if (!run.ok && !options.signal.aborted) throw run.error;
-    })));
+      if (!run.ok && !options.signal.aborted) {
+        record("error", [run.error]);
+        throw run.error;
+      }
+    }))));
   }
 
   /** A stream called once, by an agent or by code: what arrives within `sampleMs`, at most `sampleLimit` items. */
@@ -382,10 +429,8 @@ export class Runtime {
       const startedAt = Date.now();
       started.push(this.call(job.method, {}, { caller: "cron" }).then(
         () => { job.lastError = null; },
-        (error) => {
-          job.lastError = toCallError(error).message;
-          console.error(`[${job.plugin}] cron ${job.method} failed:`, job.lastError);
-        },
+        // The call recorded the error under the cron's run; the job keeps its message for `plugins`.
+        (error) => { job.lastError = toCallError(error).message; },
       ).finally(() => {
         job.running = false;
         job.runs += 1;
@@ -395,6 +440,47 @@ export class Runtime {
     }
     if (started.length) this.notifyInvalidated([this.cronsTag]);
     return started;
+  }
+
+  /**
+   * The run a line is attributed to: the outermost call's id, caller and chat
+   * stay through the calls it makes; the plugin and method are the code running.
+   */
+  private logContextFor(plugin: string, method?: string, chat?: string): LogContext {
+    const outer = logContext.getStore();
+    if (outer && outer.plugin === plugin && outer.method === method) return outer;
+    return {
+      plugin,
+      method: method ?? outer?.method,
+      caller: this.callCaller.getStore() ?? outer?.caller,
+      callId: outer?.callId ?? crypto.randomUUID().slice(0, 8),
+      chatId: chat ?? outer?.chatId,
+    };
+  }
+
+  /** Starts a chat for the plugin and waits for the agent's answer. */
+  private async agent(plugin: string, ctx: Context, prompt: string, options: AgentOptions): Promise<AgentReply> {
+    if (!this.host) throw new MethodError("INTERNAL", "ctx.agent runs only under the RepoGo host.");
+    if (!options.agent) throw new MethodError("VALIDATION", "ctx.agent needs the agent to run: { agent: \"claude\" } or \"codex\".");
+    const started = (await this.host(plugin, "chats.start", {
+      cwd: options.project ?? ctx.root,
+      agent: options.agent,
+      title: options.title ?? "",
+      turn: { prompt, config: {}, attachments: [] },
+    })) as StartedChat;
+    const deadline = Date.now() + parseDuration(options.timeout ?? agentTimeoutMs);
+    let chatId = "";
+    for (;;) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new MethodError("INTERNAL", `The agent didn't answer in time; its chat ${chatId || started.turn_id} is still running.`);
+      }
+      const waited = (await this.host(plugin, "chats.wait", { turn_id: started.turn_id, timeout_ms: Math.min(remaining, agentWaitMs) })) as WaitedTurn;
+      chatId = waited.chat_id ?? chatId;
+      if (waited.state === "queued" || waited.state === "running") continue;
+      if (waited.state !== "done") throw new MethodError("INTERNAL", `The agent's turn ${waited.state}${waited.error ? `: ${waited.error}` : ""} (chat ${chatId}).`);
+      return { chatId, text: waited.reply ?? "" };
+    }
   }
 
   manifest(): Manifest {
@@ -550,6 +636,17 @@ function cronState(job: CronJob): ManifestCron {
     nextRunAt: job.nextRunAt, lastRunAt: job.lastRunAt, lastError: job.lastError, lastDurationMs: job.lastDurationMs,
     running: job.running, runs: job.runs,
   };
+}
+
+/** A tool's refusal as the plugin's caller reads it. */
+function mcpFailure(server: string, tool: string, error: { code: string; message: string }) {
+  switch (error.code) {
+    case "NOT_READ_ONLY":
+      return new MethodError("FORBIDDEN", `${server}.${tool} changes data, so it runs from a mutation, not a query.`);
+    case "CONFIRM":
+      return new MethodError("FORBIDDEN", `${server}.${tool} may destroy data, so it runs only from a method with a confirm.`);
+  }
+  return new MethodError("INTERNAL", error.message);
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {

@@ -64,7 +64,7 @@ var (
 
 	ErrLocalOnly  = errkind.New(errkind.Denied, "this method can only be called from the host machine")
 	ErrPairedOnly = errkind.New(errkind.Denied, "this method can only be called from a paired device")
-	ErrToolOnly   = errkind.New(errkind.Denied, "plugins may only call the methods agents and cards can")
+	ErrToolOnly   = errkind.New(errkind.Denied, "plugins may only call the methods agents and cards can, and mcp.call")
 	ErrBusy       = errkind.New(errkind.Unavailable, "too many calls in flight; retry")
 )
 
@@ -104,6 +104,9 @@ type Spec struct {
 	// Unpaired lets a device the host has not paired call it; the pairing code guards it instead.
 	Unpaired bool
 
+	// Plugins lets a plugin's ctx.host call it without offering it to agents and cards as a Tool.
+	Plugins bool
+
 	// Tool is what an agent or a card is told the method does; empty keeps it
 	// from both. Effect and LiveOn only mean something on a Tool method.
 	Tool   string
@@ -142,6 +145,7 @@ var (
 	Paired   Option = func(s *Spec) { s.Access = PairedOnly }
 	Detached Option = func(s *Spec) { s.Detached = true }
 	Unpaired Option = func(s *Spec) { s.Unpaired = true }
+	Plugins  Option = func(s *Spec) { s.Plugins = true }
 
 	Read  Option = func(s *Spec) { s.Effect = Reads }
 	Write Option = func(s *Spec) { s.Effect = Writes }
@@ -255,7 +259,7 @@ func (r *Router) Call(ctx context.Context, c Caller, name string, params json.Ra
 		return nil, fmt.Errorf("%w: %s", ErrLocalOnly, name)
 	case m.Access == PairedOnly && c.Scope != ScopeRemote:
 		return nil, fmt.Errorf("%w: %s", ErrPairedOnly, name)
-	case c.Plugin != "" && m.Tool == "":
+	case c.Plugin != "" && m.Tool == "" && !m.Plugins:
 		return nil, fmt.Errorf("%w: %s", ErrToolOnly, name)
 	}
 	if m.Detached {

@@ -4,7 +4,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import type { Caller, CronEntry, CronStatus } from "./context";
 import { toCallError, type CallError } from "./errors";
-import type { DataPush, FromWorker, HostCall, NotifyPush, Reply, Request, ToWorker } from "./protocol";
+import type { DataPush, FromWorker, HostCall, LogPush, NotifyPush, Reply, Request, ToWorker } from "./protocol";
 
 // The plugins server: one process for every project on this machine, listening on
 // a Unix socket the host connects to. Each project checkout's plugins run in their
@@ -24,7 +24,7 @@ const named = target.extend({ name: z.string().min(1), input: z.unknown().option
 
 const requestSchema = z.discriminatedUnion("method", [
   z.object({ id: z.number(), method: z.literal("list"), params: target }),
-  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ confirmed: z.boolean().optional(), caller: z.enum(["card", "agent", "cron", "code"]).optional() }) }),
+  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ confirmed: z.boolean().optional(), caller: z.enum(["card", "agent", "cron", "code"]).optional(), chat: z.string().optional() }) }),
   z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
   z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
   z.object({ id: z.number(), method: z.literal("reload"), params: target }),
@@ -118,7 +118,7 @@ class Checkout {
     return "error" in answer ? answer : { statuses: answer.result as CronStatus[] };
   }
 
-  request(message: { type: "list" } | { type: "crons"; crons: CronEntry[] } | { type: "call"; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
+  request(message: { type: "list" } | { type: "crons"; crons: CronEntry[] } | { type: "call"; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string; chat?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
     const id = ++this.nextID;
     return new Promise((resolve) => {
       this.waiting.set(id, resolve);
@@ -233,6 +233,11 @@ export async function serve(options: ServeOptions) {
       for (const connection of connections) send(connection, push);
       return;
     }
+    if (message.type === "log") {
+      const push: LogPush = { method: "log", params: { dir: from.dir, records: message.records } };
+      for (const connection of connections) send(connection, push);
+      return;
+    }
     if (message.type === "host") {
       // One host connects; the first one there answers.
       const [connection] = connections;
@@ -302,7 +307,7 @@ export async function serve(options: ServeOptions) {
             ? await checkout.request({ type: "list" })
             : await checkout.request({
               type: "call", name: request.params.name, input: request.params.input ?? {},
-              confirmed: request.params.confirmed ?? false, caller: request.params.caller ?? "code", root: request.params.root,
+              confirmed: request.params.confirmed ?? false, caller: request.params.caller ?? "code", root: request.params.root, chat: request.params.chat,
             });
         return { id, ...answer };
       }
@@ -439,7 +444,7 @@ function hashOf(answer: Answer) {
 const encoder = new TextEncoder();
 
 // A write the socket can't take at once waits in the outbox for `drain`.
-function send(connection: Connection, message: Reply | DataPush | NotifyPush | HostCall) {
+function send(connection: Connection, message: Reply | DataPush | NotifyPush | LogPush | HostCall) {
   connection.data.outbox.push(encoder.encode(JSON.stringify(message) + "\n"));
   flush(connection);
 }

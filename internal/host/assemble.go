@@ -132,12 +132,14 @@ func (h *Host) openTools() error {
 	})
 	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
-		Global: h.state("plugins"), Crons: h.state("crons.json"),
+		Global: h.state("plugins"), Crons: h.state("crons.json"), LogsPath: h.state("plugin-logs.db"),
 		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
+		Logged: func(ev pluginscore.Logged) { h.toEveryPhone(ev) },
 		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
 		Host:   h.pluginHost,
 		Log:    h.log,
 	})
+	h.onClose(h.Services.Plugins.Close)
 	h.tools = repogomcp.New(repogomcp.Config{
 		URL:     func() string { u, _ := h.toolsURL.Load().(string); return u },
 		On:      func(string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID) },

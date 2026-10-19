@@ -94,7 +94,8 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "mcp.rename", d.rename)
 	rpc.Add(r, "mcp.set_enabled", d.setEnabled)
 	rpc.Add(r, "mcp.remove", d.remove)
-	rpc.Add(r, "mcp.call", d.call)
+	// Plugins: ctx.mcp reaches the project's servers through it.
+	rpc.Add(r, "mcp.call", d.call, rpc.Plugins)
 }
 
 func (d Deps) list(_ context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {

@@ -56,7 +56,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `approval` object{Approval} (omitted when empty) (nullable)
 - `call_id` string (omitted when empty)
 - `error` string (omitted when empty)
-- `reply` string (omitted when empty)
+- `summary` string (omitted when empty)
 - `answerable` bool
 
 ## `chats.changed`
@@ -75,7 +75,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `status_at` int
 - `last_turn_started_at` int (nullable)
 - `last_turn_finished_at` int (nullable)
-- `last_reply` string (omitted when empty)
+- `summary` string (omitted when empty)
 - `last_user_message_preview` string (omitted when empty)
 - `revision` int
 - `resolved_at` int (omitted when empty) (nullable)
@@ -198,6 +198,12 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `items` json (omitted when empty) (nullable)
 - `done` bool (omitted when empty)
 - `error` object{Failure} (omitted when empty) (nullable)
+
+## `plugins.logged`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `plugins` [string] (nullable)
 
 ## `projects.changed`
 

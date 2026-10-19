@@ -54,7 +54,7 @@ func writeCrons(t *testing.T, s *Service, crons any) {
 
 func ticks(t *testing.T, s *Service, root string) int {
 	t.Helper()
-	got, err := s.Call(t.Context(), root, "ticker.count", nil, false, CallerCard)
+	got, err := s.Call(t.Context(), root, "ticker.count", nil, false, Origin{Caller: CallerCard})
 	var n int
 	if err != nil || got.Error != nil || json.Unmarshal(got.Result, &n) != nil {
 		return -1
@@ -192,7 +192,7 @@ func TestOverlappingReconcilesEndWhereTheFileSays(t *testing.T) {
 // manifestCrons is a plugin's crons as its Worker reports them.
 func manifestCrons(t *testing.T, s *Service, root, plugin string) []json.RawMessage {
 	t.Helper()
-	list, err := s.List(t.Context(), root)
+	list, err := s.ask(t.Context(), Target{Dir: filepath.Join(root, ".repogo", "plugins")}, "list", Target{Dir: filepath.Join(root, ".repogo", "plugins")})
 	if err != nil || list.Error != nil {
 		t.Fatalf("list: %+v %v", list.Error, err)
 	}
@@ -214,20 +214,29 @@ func manifestCrons(t *testing.T, s *Service, root, plugin string) []json.RawMess
 	return nil
 }
 
-// The plugins tool shows the file's lines with how each is going.
+// The plugins tool shows the file's lines with how each is going, once in the
+// list, and in full under the plugin they name.
 func TestListShowsTheCrons(t *testing.T) {
 	dir := sdk(t)
 	root := project(t, dir, map[string]string{"ticker": tickerPlugin})
 	s := cronService(t, dir, []CronEntry{{Project: root, Plugin: "ticker", Method: "tick", Schedule: "*/5 * * * *"}})
-	list, err := s.List(t.Context(), root)
-	if err != nil || list.Error != nil {
-		t.Fatalf("list: %+v %v", list.Error, err)
-	}
-	var got struct {
-		Crons []Cron `json:"crons"`
-	}
-	if err := json.Unmarshal(list.Result, &got); err != nil || len(got.Crons) != 1 || got.Crons[0].Error != "" || got.Crons[0].NextRunAt == nil {
-		t.Fatalf("crons in the list: %s %v", list.Result, err)
+	for _, plugin := range []string{"", "ticker"} {
+		list, err := s.List(t.Context(), root, plugin)
+		if err != nil || list.Error != nil {
+			t.Fatalf("list %q: %+v %v", plugin, list.Error, err)
+		}
+		var got struct {
+			Crons   []Cron `json:"crons"`
+			Plugins []struct {
+				Crons []Cron `json:"crons"`
+			} `json:"plugins"`
+		}
+		if err := json.Unmarshal(list.Result, &got); err != nil || len(got.Crons) != 1 || got.Crons[0].Error != "" || got.Crons[0].NextRunAt == nil {
+			t.Fatalf("crons in list %q: %s %v", plugin, list.Result, err)
+		}
+		if len(got.Plugins) > 0 && got.Plugins[0].Crons != nil {
+			t.Fatalf("the list repeats the crons under their plugin: %s", list.Result)
+		}
 	}
 }
 
@@ -239,7 +248,7 @@ func TestCallsCarryTheirCaller(t *testing.T) {
 export default definePlugin({ methods: { caller: method(z.object({}), (_, ctx) => ctx.caller) } });
 `})
 	for _, caller := range []Caller{CallerCard, CallerAgent} {
-		got, err := s.Call(t.Context(), root, "who.caller", nil, true, caller)
+		got, err := s.Call(t.Context(), root, "who.caller", nil, true, Origin{Caller: caller})
 		if err != nil || got.Error != nil || string(got.Result) != `"`+string(caller)+`"` {
 			t.Fatalf("caller %s: %s %+v %v", caller, got.Result, got.Error, err)
 		}

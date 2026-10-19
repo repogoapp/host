@@ -27,7 +27,8 @@ same holds for methods: `go test ./internal/rpc/conformance -update` rewrites
 `docs/host-methods.md`, `docs/methods`, and RemoteTransport's
 `Generated/HostAPI.swift`: params and result as Swift types for only the methods
 the Swift code names as `HostAPI.<method>` (all of them cost the App Clip about
-0.75 MB). Name a new one, then rerun `-update`.
+0.75 MB). Name a new one, then rerun `-update`. The same run writes the Android
+client's `HostAPI.kt` from the same types and names, events included.
 
 ## Code standards
 
@@ -69,7 +70,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`) | One resource each | |
 | `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing, Rust mirrors it in `session/native` | resolving provider homes itself |
 | `emit`, `errkind`, `par`, `sqlitedb`, `syscmd`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, fan-out, SQLite pragmas, short system tools, `~/.repogo`, dev log copies | a second way to do the same |
-| `wiredoc`, `swiftcontract`, `lint`, `testwait` | Development only: the generated wire docs and Swift contract, the code standards as tests, polling in tests | imported by production code |
+| `wiredoc`, `clientcontract`, `lint`, `testwait` | Development only: the generated wire docs and the clients' contracts (Swift and Kotlin), the code standards as tests, polling in tests | imported by production code |
 
 Errors: a core sentinel says its kind with `errkind.New` (invalid, not found,
 denied, unavailable); `rpc.Code` maps the four kinds onto the wire, so the router
@@ -83,7 +84,8 @@ Methods: `rpc.Add(r, "family.method", d.handler, opts...)` with a handler
 exported types (`<Method>Params`, `<Method>Result`, `rpc.None`, `rpc.Ack`); a
 family with many keeps them in `types.go`. `rpc.Local` and `rpc.Paired` declare
 who may call; `rpc.Detached` marks a mutation that must finish if the caller
-leaves. Changing a method's types means `go test ./internal/rpc/conformance -update`.
+leaves; `rpc.Tool` offers it to agents and cards, and `rpc.Plugins` lets a
+plugin's `ctx.host` call it without that (`mcp.call` behind `ctx.mcp`). Changing a method's types means `go test ./internal/rpc/conformance -update`.
 
 Order: a family's `Register` is the one place its methods are ordered, grouped
 by purpose: reads first, then mutations. `Router.Specs()` lists families by

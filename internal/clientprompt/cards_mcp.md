@@ -10,8 +10,9 @@ Data method="mcp:<server>.<tool>" runs a read-only tool (readOnlyHint)
 mcp:<server>.<tool> — a Button or Item action that runs any tool. One
   that may destroy data asks first.
 The answer is the tool's structured content, else its text: parsed when
-  the text is JSON, else a string ({{name}}). Call the tool yourself
-  once to see its shape before a card names its fields.
+  the text is JSON, else a string ({{name}}). When you know its shape
+  (a well-known API), draw the card straight away; otherwise call the
+  tool yourself once to see it before a card names its fields.
 For data the user will check again (a status, a list), write it as a
 page in .repogo/tabs and open it from chat with page:, rather than
 drawing the card in chat each time.

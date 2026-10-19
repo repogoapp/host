@@ -3,6 +3,7 @@ import type { Collection } from "./collections";
 import type { Kv } from "./kv";
 import type { Stream } from "./streams";
 import type { MethodKind } from "./define";
+import type { Duration } from "./duration";
 
 /** An alert for the user's phones: what it says, and the page a tap opens. */
 export type Notice = {
@@ -72,6 +73,20 @@ export type Manifest = {
 /** Who started a call: a tap or a card's query, an agent's `plugin_call`, a cron, or plugin code with none of those behind it. */
 export type Caller = "card" | "agent" | "cron" | "code";
 
+/** How `ctx.agent` runs a chat: which agent, in which project, and how long to wait for its answer. */
+export type AgentOptions = {
+  /** `claude` or `codex`, as `agents.list` names them. */
+  agent: string;
+  /** The project the chat runs in; the calling project unless said. */
+  project?: string;
+  title?: string;
+  /** How long to wait for the answer; 10 minutes unless said. */
+  timeout?: Duration;
+};
+
+/** What the agent answered, and the chat it answered in, to open or message later. */
+export type AgentReply = { chatId: string; text: string };
+
 export type Context = {
   plugin: string;
   /** Who started the outermost call; `ctx.call` passes it on. */
@@ -90,6 +105,13 @@ export type Context = {
    */
   host: (method: string, params?: unknown) => Promise<unknown>;
   /**
+   * Runs a tool of an MCP server the user switched on for the calling project:
+   * `ctx.mcp("stripe", "stripe_api_read", { … })`, answering the tool's result.
+   * A query may run only read-only tools; a destructive tool runs only from a
+   * method with a `confirm`. Its answer doesn't re-run a query.
+   */
+  mcp: (server: string, tool: string, input?: unknown) => Promise<unknown>;
+  /**
    * The plugins beside this one, in the same folder (the project's, or the
    * environment's), with their methods: what `call` can reach.
    */
@@ -98,5 +120,12 @@ export type Context = {
   signal: AbortSignal;
   /** Sends an alert to every phone paired with this environment. */
   notify: (notice: Notice) => void;
+  /**
+   * Starts a chat with `prompt` and waits for the agent's whole answer:
+   * `await ctx.agent("Why is the build failing?", { agent: "claude" })`.
+   * Throws once `timeout` passes, naming the chat, which keeps running.
+   */
+  agent: (prompt: string, options: AgentOptions) => Promise<AgentReply>;
+  /** The same as `console.log`: every console line is kept with the plugin and the call that wrote it. */
   log: (...args: unknown[]) => void;
 };

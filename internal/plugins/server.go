@@ -101,7 +101,7 @@ type server struct {
 
 // startServer runs the plugins server (runtime's `serve`) under ctx and connects
 // to it. onPush gets every subscription answer; onGone runs once when it ends.
-func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log *slog.Logger, onPush func(push), onNotice func(Notice), onHost func(hostCall) (json.RawMessage, *wireError), onGone func(*server)) (*server, error) {
+func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log *slog.Logger, onPush func(push), onNotice func(Notice), onLog func(logPush), onHost func(hostCall) (json.RawMessage, *wireError), onGone func(*server)) (*server, error) {
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func startServer(ctx context.Context, bun, runtime, socket, dataDir string, log 
 		return nil, err
 	}
 	s := &server{conn: conn, stdin: stdin, log: log, pending: map[int]chan reply{}, gone: make(chan struct{})}
-	go s.read(onPush, onNotice, onHost, onGone)
+	go s.read(onPush, onNotice, onLog, onHost, onGone)
 	return s, nil
 }
 
@@ -158,7 +158,7 @@ func dialWhenUp(ctx context.Context, socket string, exited <-chan struct{}) (net
 	}
 }
 
-func (s *server) read(onPush func(push), onNotice func(Notice), onHost func(hostCall) (json.RawMessage, *wireError), onGone func(*server)) {
+func (s *server) read(onPush func(push), onNotice func(Notice), onLog func(logPush), onHost func(hostCall) (json.RawMessage, *wireError), onGone func(*server)) {
 	scanner := bufio.NewScanner(s.conn)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
@@ -178,6 +178,13 @@ func (s *server) read(onPush func(push), onNotice func(Notice), onHost func(host
 			var n Notice
 			if err := json.Unmarshal(l.Params, &n); err == nil {
 				onNotice(n)
+			}
+			continue
+		}
+		if l.Method == "log" {
+			var p logPush
+			if err := json.Unmarshal(l.Params, &p); err == nil {
+				onLog(p)
 			}
 			continue
 		}
@@ -272,8 +279,8 @@ func (s *server) close() {
 	_ = s.stdin.Close()
 }
 
-// logLines passes the server's output to the host log a line at a time; plugin
-// logs (ctx.log, console) arrive this way.
+// logLines passes the server's own output to the host log a line at a time;
+// the plugins' console lines come as `log` pushes instead.
 type logLines struct {
 	log *slog.Logger
 	mu  sync.Mutex

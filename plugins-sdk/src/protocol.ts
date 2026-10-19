@@ -1,5 +1,6 @@
 import type { Caller, CronEntry } from "./context";
 import type { CallError } from "./errors";
+import type { LogRecord } from "./logs";
 import type { Manifest, SentNotice } from "./runtime";
 
 // What the host and the plugins server say to each other over the socket: one JSON
@@ -15,8 +16,8 @@ export type Target = { dir: string; root?: string };
 
 export type Request =
   | { id: number; method: "list"; params: Target }
-  /** `confirmed`: the user has answered the method's `confirm`, or the caller isn't a tap. */
-  | { id: number; method: "call"; params: Target & { name: string; input?: unknown; confirmed?: boolean; caller?: Caller } }
+  /** `confirmed`: the user has answered the method's `confirm`, or the caller isn't a tap; `chat` is the agent's, for its log lines. */
+  | { id: number; method: "call"; params: Target & { name: string; input?: unknown; confirmed?: boolean; caller?: Caller; chat?: string } }
   /** `subscription` is the caller's id, so a push can't arrive before the caller
    *  knows it; subscribing again under an id replaces it. */
   | { id: number; method: "subscribe"; params: Target & { subscription: string; name: string; input?: unknown } }
@@ -51,6 +52,9 @@ export type DataPush = {
 /** A plugin's alert for the phones, for the host to push. */
 export type NotifyPush = { method: "notify"; params: SentNotice };
 
+/** Console lines the plugins in `dir` wrote, for the host to keep. */
+export type LogPush = { method: "log"; params: { dir: string; records: LogRecord[] } };
+
 /**
  * A plugin's `ctx.host`: a request the server makes of the host, under the
  * server's own ids, which the host answers with a `Reply`.
@@ -65,7 +69,7 @@ export type ToWorker =
   /** The folder's schedules; the reply is each one's status. */
   | { type: "crons"; id: number; crons: CronEntry[] }
   | { type: "list"; id: number }
-  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string }
+  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string; chat?: string }
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown; root?: string }
   | { type: "unsubscribe"; subscription: string }
   /** Another Worker wrote these tags. */
@@ -85,6 +89,8 @@ export type FromWorker =
   | { type: "invalidated"; tags: string[] }
   /** A plugin here sent an alert. */
   | { type: "notified"; notice: SentNotice }
+  /** Console lines the plugins here wrote since the last batch. */
+  | { type: "log"; records: LogRecord[] }
   /** A plugin here called a host method; the answer comes back as `hosted`. */
   | { type: "host"; id: number; plugin: string; method: string; params: unknown }
   /** A stream's items since the last, or its end. */

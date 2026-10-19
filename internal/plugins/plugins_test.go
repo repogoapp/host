@@ -165,17 +165,17 @@ func TestWithoutARuntimePluginsAreOff(t *testing.T) {
 	if s.On() || s.Has(root) {
 		t.Fatal("a host without a runtime offers plugins")
 	}
-	if _, err := s.Call(t.Context(), root, "notes.texts", nil, true, CallerCard); !errors.Is(err, ErrOff) {
+	if _, err := s.Call(t.Context(), root, "notes.texts", nil, true, Origin{Caller: CallerCard}); !errors.Is(err, ErrOff) {
 		t.Fatalf("err = %v, want ErrOff", err)
 	}
 }
 
 func TestAProjectWithoutPluginsIsNotFound(t *testing.T) {
 	s, _ := newService(t, "/sdk")
-	if _, err := s.Call(t.Context(), t.TempDir(), "notes.texts", nil, true, CallerCard); !errors.Is(err, ErrNoPlugins) {
+	if _, err := s.Call(t.Context(), t.TempDir(), "notes.texts", nil, true, Origin{Caller: CallerCard}); !errors.Is(err, ErrNoPlugins) {
 		t.Fatalf("err = %v, want ErrNoPlugins", err)
 	}
-	if _, err := s.Call(t.Context(), "relative/path", "notes.texts", nil, true, CallerCard); err == nil {
+	if _, err := s.Call(t.Context(), "relative/path", "notes.texts", nil, true, Origin{Caller: CallerCard}); err == nil {
 		t.Fatal("a relative project was accepted")
 	}
 }
@@ -185,18 +185,18 @@ func TestCallAndListRunTheProjectsPlugins(t *testing.T) {
 	s, _ := newService(t, dir)
 	root := project(t, dir, map[string]string{"notes": notesPlugin})
 
-	list, err := s.List(t.Context(), root)
+	list, err := s.List(t.Context(), root, "")
 	if err != nil || list.Error != nil || !strings.Contains(string(list.Result), `"notes.texts"`) {
 		t.Fatalf("list = %s %+v %v", list.Result, list.Error, err)
 	}
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Call(t.Context(), root, "notes.texts", nil, true, CallerCard)
+	got, err := s.Call(t.Context(), root, "notes.texts", nil, true, Origin{Caller: CallerCard})
 	if err != nil || strings.Join(texts(t, got.Result), ",") != "a" {
 		t.Fatalf("texts = %s %v", got.Result, err)
 	}
-	bad, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{}`), true, CallerCard)
+	bad, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{}`), true, Origin{Caller: CallerCard})
 	if err != nil || bad.Error == nil || bad.Error.Code != "VALIDATION" || bad.Error.FieldErrors["/text"] == "" {
 		t.Fatalf("bad input = %+v %v, want the plugin's field error", bad.Error, err)
 	}
@@ -213,7 +213,7 @@ func TestASubscriptionPushesToItsDevice(t *testing.T) {
 	if err != nil || sub.Subscription == "" || sub.Revision != 1 || len(texts(t, sub.Result)) != 0 {
 		t.Fatalf("subscribe = %+v %v", sub, err)
 	}
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	got := p.next(t, 0, func(s sent) bool { return s.data.Subscription == sub.Subscription })
@@ -265,7 +265,7 @@ func TestLeavingEndsADevicesSubscriptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Leave("phone")
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	p.next(t, 0, func(s sent) bool { return s.data.Subscription == stays.Subscription })
@@ -284,7 +284,7 @@ func TestEditedPluginsReloadBeforeTheNextCall(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
 	root := project(t, dir, map[string]string{"notes": notesPlugin})
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	sub, err := s.Subscribe(t.Context(), "phone", root, "notes.texts", "s4", nil)
@@ -298,7 +298,7 @@ func TestEditedPluginsReloadBeforeTheNextCall(t *testing.T) {
 	future := time.Now().Add(2 * time.Second)
 	_ = os.Chtimes(filepath.Join(root, ".repogo", "plugins", "notes", "app.ts"), future, future)
 
-	got, err := s.Call(t.Context(), root, "notes.texts", nil, true, CallerCard)
+	got, err := s.Call(t.Context(), root, "notes.texts", nil, true, Origin{Caller: CallerCard})
 	if err != nil || strings.Join(texts(t, got.Result), ",") != "A" {
 		t.Fatalf("after the edit = %s %v", got.Result, err)
 	}
@@ -327,7 +327,7 @@ func TestALostServerTakesItsSubscriptionsBackUp(t *testing.T) {
 	if got.data.Revision != 2 || got.data.Error != nil {
 		t.Fatalf("push after restart = %+v", got.data)
 	}
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"b"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"b"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	again := p.next(t, 1, func(s sent) bool { return s.data.Subscription == sub.Subscription })
@@ -351,7 +351,7 @@ func TestSubscriptionIDsBelongToTheirDevice(t *testing.T) {
 	if _, err := s.Subscribe(t.Context(), "phone", root, "notes.texts", "bad id/", nil); !errors.Is(err, errkind.ErrInvalid) {
 		t.Fatalf("bad id: %v", err)
 	}
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	p.next(t, 0, func(s sent) bool { return s.to == "phone" && s.data.Subscription == "list" })
@@ -374,11 +374,11 @@ func TestSubscribingAgainReplaces(t *testing.T) {
 	if held != 1 {
 		t.Fatalf("subscriptions held = %d, want 1", held)
 	}
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	p.next(t, 0, func(s sent) bool { return s.data.Subscription == "list" })
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"b"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"b"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	got := p.next(t, 1, func(s sent) bool { return s.data.Subscription == "list" })
@@ -407,15 +407,15 @@ export default definePlugin({
 });
 `})
 
-	got, err := s.Call(t.Context(), root, "vercel.root", nil, true, CallerCard)
+	got, err := s.Call(t.Context(), root, "vercel.root", nil, true, Origin{Caller: CallerCard})
 	if err != nil || got.Error != nil || string(got.Result) != fmt.Sprintf("%q", root) {
 		t.Fatalf("vercel.root = %s %+v %v, want the project", got.Result, got.Error, err)
 	}
-	mine, err := s.Call(t.Context(), root, "notes.texts", nil, true, CallerCard)
+	mine, err := s.Call(t.Context(), root, "notes.texts", nil, true, Origin{Caller: CallerCard})
 	if err != nil || strings.Join(texts(t, mine.Result), ",") != "mine" {
 		t.Fatalf("notes.texts = %s %v, want the project's plugin", mine.Result, err)
 	}
-	list, err := s.List(t.Context(), root)
+	list, err := s.List(t.Context(), root, "")
 	if err != nil || list.Error != nil {
 		t.Fatalf("list: %+v %v", list.Error, err)
 	}
@@ -432,8 +432,12 @@ export default definePlugin({
 	for _, p := range manifest.Plugins {
 		dirs[p.Name] = p.Dir
 	}
-	if len(manifest.Plugins) != 2 || dirs["notes"] != filepath.Join(root, ".repogo", "plugins", "notes") || dirs["vercel"] != filepath.Join(s.cfg.Global, "vercel") {
+	if len(manifest.Plugins) != 2 || dirs["notes"] != "project" || dirs["vercel"] != "env" {
 		t.Fatalf("manifest dirs = %v", dirs)
+	}
+	full, err := s.List(t.Context(), root, "vercel")
+	if err != nil || !strings.Contains(string(full.Result), `"path":"`+filepath.Join(s.cfg.Global, "vercel")+`"`) {
+		t.Fatalf("vercel in full = %s %v, want its folder", full.Result, err)
 	}
 
 	// A project without its own folder still has the environment's.
@@ -441,7 +445,7 @@ export default definePlugin({
 	if !s.Has(bare) {
 		t.Fatal("a project without plugins should have the environment's")
 	}
-	if got, err := s.Call(t.Context(), bare, "vercel.root", nil, true, CallerCard); err != nil || string(got.Result) != fmt.Sprintf("%q", bare) {
+	if got, err := s.Call(t.Context(), bare, "vercel.root", nil, true, Origin{Caller: CallerCard}); err != nil || string(got.Result) != fmt.Sprintf("%q", bare) {
 		t.Fatalf("vercel.root from a bare project = %s %v", got.Result, err)
 	}
 }
@@ -457,7 +461,7 @@ export default definePlugin({
   methods: { alert: method(z.object({}), (_, ctx) => { ctx.notify({ title: "Build failed", body: "see logs", page: "x.md?a=1" }); return null; }) },
 });
 `})
-	if _, err := s.Call(t.Context(), root, "notes.alert", nil, true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.alert", nil, true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -467,6 +471,42 @@ export default definePlugin({
 		}
 	case <-t.Context().Done():
 		t.Fatal("no notice reached the host")
+	}
+}
+
+// ctx.mcp is mcp.call through the host, for the calling project, read-only in a query.
+func TestAPluginsMCPCallReachesTheHost(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	type asked struct{ plugin, method, params string }
+	got := make(chan asked, 1)
+	s.cfg.Host = func(_ context.Context, plugin, method string, params json.RawMessage) (json.RawMessage, error) {
+		got <- asked{plugin, method, string(params)}
+		return json.RawMessage(`{"result":{"data":[{"id":"cus_1"}]}}`), nil
+	}
+	root := project(t, dir, map[string]string{"shop": `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: {
+    customers: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers", { limit: 1 }), { kind: "query" }),
+  },
+});
+`})
+	answer, err := s.Call(t.Context(), root, "shop.customers", nil, true, Origin{Caller: CallerCard})
+	if err != nil || answer.Error != nil || string(answer.Result) != `{"data":[{"id":"cus_1"}]}` {
+		t.Fatalf("customers = %s %+v %v", answer.Result, answer.Error, err)
+	}
+	var params struct {
+		Project, Server, Tool string
+		Input                 json.RawMessage
+		Read, Confirmed       bool
+	}
+	a := <-got
+	if err := json.Unmarshal([]byte(a.params), &params); err != nil {
+		t.Fatal(err)
+	}
+	if a.plugin != "shop" || a.method != "mcp.call" || params.Project != root || params.Server != "stripe" ||
+		params.Tool != "list_customers" || string(params.Input) != `{"limit":1}` || !params.Read || params.Confirmed {
+		t.Fatalf("host asked %+v with %+v", a, params)
 	}
 }
 
@@ -490,14 +530,14 @@ export default definePlugin({
   },
 });
 `})
-	status, err := s.Call(t.Context(), root, "notes.status", nil, true, CallerCard)
+	status, err := s.Call(t.Context(), root, "notes.status", nil, true, Origin{Caller: CallerCard})
 	if err != nil || status.Error != nil || string(status.Result) != `{"branch":"main"}` {
 		t.Fatalf("status = %s %+v %v", status.Result, status.Error, err)
 	}
 	if a := <-got; a != (asked{"notes", "git.status", `{"path":"/p"}`}) {
 		t.Fatalf("host asked %+v", a)
 	}
-	refused, err := s.Call(t.Context(), root, "notes.refused", nil, true, CallerCard)
+	refused, err := s.Call(t.Context(), root, "notes.refused", nil, true, Origin{Caller: CallerCard})
 	if err != nil || string(refused.Result) != `"FORBIDDEN"` {
 		t.Fatalf("refused = %s %+v %v, want the host's denial as FORBIDDEN", refused.Result, refused.Error, err)
 	}

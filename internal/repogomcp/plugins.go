@@ -18,12 +18,18 @@ const pluginsInstructions = " `plugins` lists this project's plugins (`.repogo/p
 var pluginsTool = tool{
 	Name: "plugins",
 	Description: "List the plugins this project can use: its own in .repogo/plugins and the environment's in " +
-		"~/.repogo/plugins (each plugin's `dir` says which), with each plugin's methods, " +
-		"whether a method is a query (reads) or a mutation (writes), and the JSON Schema of its input; " +
-		"and `pages`, where a project or plugin page already shows a query: its `target` to open with page:, " +
-		"and the `params` to add to it; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
-		"Call this before plugin_call, and again after writing or changing a plugin or crons.json.",
-	InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		"~/.repogo/plugins (`dir` is `project` or `env`), each with its `errors` in the last hour, the `page` that shows it, " +
+		"and a line per method: `kind` (query, mutation or stream), `asks` when it has a confirm, and `input`, its fields " +
+		"with optional ones ending in `?`; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
+		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema and confirm, its storage, " +
+		"the pages that show its methods (`target` to open with page: and the `params` to add) and the cron lines naming it. " +
+		"Call this, and with the plugin's name for its schemas, before plugin_call; again after writing or changing a plugin or crons.json.",
+	InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"plugin": map[string]any{"type": "string", "description": "One plugin's name, to answer it in full"},
+		},
+	},
 }
 
 var pluginCallTool = tool{
@@ -46,8 +52,16 @@ var pluginCallTool = tool{
 // pluginsTools answers `plugins` and `plugin_call` for the turn's folder.
 func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string, args json.RawMessage) toolResult {
 	if name == pluginsTool.Name {
-		answer, err := service.List(turn.Ctx, turn.Cwd)
-		return pluginResult(answer, err)
+		var p struct {
+			Plugin string `json:"plugin"`
+		}
+		_ = json.Unmarshal(args, &p)
+		answer, err := service.List(turn.Ctx, turn.Cwd, p.Plugin)
+		if err != nil || answer.Error != nil {
+			return pluginResult(answer, err)
+		}
+		// As the host wrote it: compact, where succeeded would indent it threefold.
+		return toolResult{Content: []content{{Type: "text", Text: string(answer.Result)}}}
 	}
 	var p struct {
 		Method    string          `json:"method"`
@@ -59,7 +73,7 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 	}
 	// A confirm guards what can't be undone from agents as from taps: an agent's
 	// permissions may let every tool call through, so the user's yes is its own step.
-	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, p.Confirmed, plugins.CallerAgent)
+	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, p.Confirmed, plugins.Origin{Caller: plugins.CallerAgent, Chat: turn.ChatID})
 	return pluginResult(answer, err)
 }
 

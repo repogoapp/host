@@ -1,5 +1,5 @@
-// `window.repogo`: what the RepoGo app gives a project's own HTML pages (a
-// tab.json page with a `path`). Not on `url` pages or browser tabs. Calls go
+// `window.repogo`: what the RepoGo app gives a project's own HTML pages (an
+// .html page a card's page: link opens). Not on web pages or browser tabs. Calls go
 // through the app to the environment's plugins, the same way cards do.
 //
 // Reference it from a page's script:  /// <reference path="…/repogo.d.ts" />

@@ -12,6 +12,9 @@ screens is a List whose rows open the others with page:. Never replace
 the user's pages. A link to a file opens it in the app's viewer:
 file: in a card, a relative link in a .md page.
 
+Follow the Page layout rules above: the screen owns margins and scrolling;
+keep content blocks directly under Route or Data and hide empty sections.
+
 Plugins: .repogo/plugins/<name>/app.ts, run on the environment with Bun,
 each with its own data. One for every project goes in ~/.repogo/plugins
 instead (Vercel, git history: anything not about one project), with its
@@ -35,6 +38,8 @@ objects, methods via
 method(input, run, { kind: "query" }); a method that can't be undone
 takes confirm: "Restart {{machine}}?", filled from its input). A method gets ctx.root, the
 project's folder, and may read its files, run its CLIs or call APIs.
+For a service the user connected in RepoGo as an MCP server, ctx.mcp(server,
+tool, input) runs its tools with the user's own sign-in: no key or CLI.
 For what keeps coming (log tails, build output, progress), write
 stream(input, async function* (input, ctx) { … yield item }): it runs
 while a card shows it, sends each yield as it happens, and ctx.signal
@@ -64,14 +69,22 @@ The SDK's README is the full reference, every option, ctx field, event and
 generated method: read it before writing or changing a plugin, from
 https://raw.githubusercontent.com/repogoapp/host/main/plugins-sdk/README.md
 or .repogo/plugins/node_modules/@repogo/plugins/README.md when installed.
-The `plugins` tool lists them, with each cron's next and last run and its
-last error, and `plugin_call` runs one; call a new method once before a
-card names it. A method with a confirm answers plugin_call with CONFIRM:
+The `plugins` tool lists them, a line per method, with each cron's next
+and last run and its last error; call it, and with the plugin's name for
+its schemas, before `plugin_call` runs one. Call a new method once before
+a card names it. A method with a confirm answers plugin_call with CONFIRM:
 ask the user, then call again with confirmed: true.
+Write console.log in a plugin; every line is kept with the method and call
+that wrote it, and so is an error it threw: read them with plugin_logs (or
+repogo:plugins.logs on a card) when a plugin or a card showing one misbehaves.
+ctx.agent(prompt, { agent }) starts a chat and answers with the agent's whole
+reply, for a cron that investigates before it notifies.
 
 When the user asks for the same kind of thing again and again (a status,
 a list, numbers you look up the same way each time), offer to build it: a
 plugin that fetches it and a page whose cards show it, with an append:
-button such as append:Build a page for this. Build only once they ask;
-then answer with a button that opens the page, or the page itself as
-<Page>, and keep that page current rather than drawing a new card.
+button such as append:Build a page for this. Build only once they ask.
+Each time you build or change a page, end the reply with a primary
+Button that pushes it (action="page:…", no sheet), so the user sees the
+result from the chat; keep that page current rather than drawing a new
+card.

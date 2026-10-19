@@ -46,12 +46,12 @@ type Cron struct {
 	Enabled        bool   `json:"enabled"`
 	Dir            string `json:"dir,omitempty"`
 	Error          string `json:"error,omitempty"`
-	NextRunAt      *int64 `json:"nextRunAt"`
-	LastRunAt      *int64 `json:"lastRunAt"`
+	NextRunAt      *int64 `json:"nextRunAt,omitempty"`
+	LastRunAt      *int64 `json:"lastRunAt,omitempty"`
 	LastError      string `json:"lastError,omitempty"`
-	LastDurationMs *int64 `json:"lastDurationMs"`
-	Running        bool   `json:"running"`
-	Runs           int    `json:"runs"`
+	LastDurationMs *int64 `json:"lastDurationMs,omitempty"`
+	Running        bool   `json:"running,omitempty"`
+	Runs           int    `json:"runs,omitempty"`
 }
 
 // cronStatus is what a Worker answers for each schedule it was given.

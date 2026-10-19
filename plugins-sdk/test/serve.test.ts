@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { DataPush, HostCall, NotifyPush, Reply } from "../src/protocol";
+import type { DataPush, HostCall, LogPush, NotifyPush, Reply } from "../src/protocol";
 import { serve } from "../src/serve";
 
 // Re-runs settle fast here; the server's default is 100 ms.
@@ -47,9 +47,9 @@ type Client = {
   request: (method: string, params: unknown) => Promise<Reply>;
   /** Answers a request the server made, as the host answers a host call. */
   answer: (reply: Reply) => void;
-  pushes: (DataPush | NotifyPush | HostCall)[];
+  pushes: (DataPush | NotifyPush | HostCall | LogPush)[];
   /** Resolves with the next push that matches, or fails after a second. */
-  nextPush: (match: (push: DataPush | NotifyPush | HostCall) => boolean) => Promise<DataPush | NotifyPush | HostCall>;
+  nextPush: (match: (push: DataPush | NotifyPush | HostCall | LogPush) => boolean) => Promise<DataPush | NotifyPush | HostCall | LogPush>;
   close: () => void;
 };
 
@@ -57,7 +57,7 @@ async function connect(socket: string): Promise<Client> {
   let nextID = 0;
   let inbox = "";
   const waiting = new Map<number, (reply: Reply) => void>();
-  const pushes: (DataPush | NotifyPush | HostCall)[] = [];
+  const pushes: (DataPush | NotifyPush | HostCall | LogPush)[] = [];
   const watchers: (() => void)[] = [];
   const connection = await Bun.connect({
     unix: socket,
@@ -531,4 +531,29 @@ test("a plugin dropped from a folder's schedules isn't imported again, by the ne
   await file("a-ticked").delete();
   expect(await until(() => file("a-ticked").exists())).toBe(true);
   expect(await file("b-imported").exists()).toBe(false);
+});
+
+test("a plugin's console lines reach the host in one batch, naming the folder and the agent's chat", async () => {
+  const { client } = await start();
+  const { dir } = await checkout({ chatty: `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: {
+    hello: method(z.object({}), async () => {
+      console.log("one", 1);
+      console.error("two");
+      return "hi";
+    }),
+  },
+});
+` });
+  const logged = client.nextPush((push) => push.method === "log");
+  expect(result(await client.request("call", { dir, name: "chatty.hello", caller: "agent", chat: "A-1" }))).toBe("hi");
+  const push = (await logged) as LogPush;
+  expect(push.params.dir).toBe(dir);
+  const records = push.params.records;
+  expect(records.map((r) => [r.level, r.plugin, r.method, r.caller, r.chatId, r.text])).toEqual([
+    ["info", "chatty", "chatty.hello", "agent", "A-1", "one 1"],
+    ["error", "chatty", "chatty.hello", "agent", "A-1", "two"],
+  ]);
+  expect(records[0]!.callId).toBe(records[1]!.callId);
 });

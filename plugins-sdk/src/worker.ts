@@ -1,6 +1,7 @@
 import "./self";
 import type { Caller } from "./context";
 import { MethodError, toCallError, type CallError } from "./errors";
+import { captureConsole, record, type LogRecord } from "./logs";
 import type { FromWorker, ToWorker } from "./protocol";
 import { Runtime } from "./runtime";
 
@@ -62,6 +63,32 @@ function post(message: FromWorker) {
   self.postMessage(message);
 }
 
+/** Console lines gather this long, or this many, before they go to the host as one message. */
+const logFlushMs = 250;
+const logBatch = 256;
+let logs: LogRecord[] = [];
+let logFlush: Timer | null = null;
+
+function flushLogs() {
+  if (logFlush) clearTimeout(logFlush);
+  logFlush = null;
+  if (!logs.length) return;
+  const records = logs;
+  logs = [];
+  post({ type: "log", records });
+}
+
+captureConsole((entry) => {
+  logs.push(entry);
+  if (logs.length >= logBatch) flushLogs();
+  else logFlush ??= setTimeout(flushLogs, logFlushMs);
+});
+
+// An error nothing caught is laid to the run going at the time; recorded
+// here, it doesn't end the Worker and every other plugin in it.
+process.on("uncaughtException", (error) => record("error", [error]));
+process.on("unhandledRejection", (reason) => record("error", [reason]));
+
 function host(plugin: string, method: string, params: unknown) {
   const id = ++lastHostCall;
   return new Promise((resolve, reject) => {
@@ -101,6 +128,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     // The plugins' code gets to see its children exit, so none is left unreaped.
     await Promise.allSettled(ending);
     runtime?.close();
+    flushLogs();
     return post({ type: "stopped" });
   }
   if (!runtime || loadError) {
@@ -116,7 +144,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     }
     return post({ type: "reply", id: message.id, result: statuses });
   }
-  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.caller, message.root);
+  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.caller, message.root, message.chat);
   if (message.type === "subscribe") {
     if (runtime.methods.get(message.name)?.kind === "stream") {
       return subscribeStream(message.id, message.subscription, message.name, message.input, message.root);
@@ -160,9 +188,9 @@ async function open(dir: string, dataDir: string, root: string, only: string[] |
   }
 }
 
-async function call(id: number, name: string, input: unknown, confirmed: boolean, caller: Caller, root?: string) {
+async function call(id: number, name: string, input: unknown, confirmed: boolean, caller: Caller, root?: string, chat?: string) {
   try {
-    const { result } = await runtime!.call(name, input, { confirmed, caller, root });
+    const { result } = await runtime!.call(name, input, { confirmed, caller, root, chat });
     post({ type: "reply", id, result });
   } catch (error) {
     post({ type: "reply", id, error: toCallError(error) });

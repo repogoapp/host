@@ -60,10 +60,10 @@ func TestTheBundledRuntimeRunsAProjectsPlugins(t *testing.T) {
 		Emit: func(device.ID, emit.Event) error { return nil }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	root := project(t, "", map[string]string{"notes": notesPlugin})
-	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, CallerCard); err != nil {
+	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Call(t.Context(), root, "notes.texts", nil, true, CallerCard)
+	got, err := s.Call(t.Context(), root, "notes.texts", nil, true, Origin{Caller: CallerCard})
 	if err != nil || got.Error != nil {
 		t.Fatalf("texts: %+v, %v", got, err)
 	}

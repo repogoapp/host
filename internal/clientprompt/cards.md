@@ -39,6 +39,11 @@ Tree: path of a folder (as File takes it); draws it as the app's live
 Icon: name="SF Symbol"; size="sm|md|lg", default md; alt names it for
   VoiceOver (without one it's decorative).
 Progress: value="0..1" plain decimal bar; self-closing; color tints it, default primary.
+  style="ring" draws a ring instead, with a short label in its middle
+  ("72%") and size="sm|md|lg" (default md).
+Rings: Progress children as rings one inside another, the first
+  outermost, as Fitness draws Move, Exercise and Stand; give each a color;
+  optional label under them and size="sm|md|lg".
 Button: label, optional icon, action; variant="primary|secondary|plain",
   default secondary. primary is a filled capsule (one per card, for the
   main action), secondary an outlined one, plain just text. Add
@@ -71,6 +76,9 @@ Router: optional id and initial route path (may read {{state}}, so a
 Route: required path, optional title (may read {{state}}),
   sheet="medium|large" for the heights it rests at when presented,
   or sheet="full" for a full-screen cover;
+  search="query" puts the system's search field in its bar, writing
+  that state for a Data to read, with prompt="…" its placeholder and
+  searchPlacement="top|bottom" (default: where the system puts it);
   contains visual children.
 A Router's first route draws in the card. push: opens a route as a page
 on the screen's navigation stack (system bar, back, swipe back); present:
@@ -132,14 +140,26 @@ Text/Badge/Icon/Button/Menu/Progress/Chart/Radio/Slider color="primary|secondary
   means something (success, danger, a category). A Button's color tints
   its capsule and label.
 Button/Item transition="zoom": the page or sheet it opens grows out of it.
+Button/Item/Swipe haptic="light|medium|heavy|selection|success|warning|error|none":
+  what a tap feels like, default light. A call to a source also plays
+  success or error when it finishes, unless none.
 Row scroll="auto": horizontal scrolling.
 Col scroll="auto": vertical scrolling; maxHeight defaults regular.
   Do not nest same-axis scrolling. Scrolling Row children use intrinsic
   or named widths, without fill, grow, or Spacer.
-show="name=value": visible only when equal.
-selected="name=value": selected styling.
-Button/Menu/Item and every control enabled="name=value": enabled only when equal.
-Conditions are one literal equality, with no other expressions.
+show="<test>": visible only while the test passes.
+selected="<test>": selected styling.
+Button/Menu/Item and every control enabled="<test>": enabled only then.
+A test is one comparison: x (set), !x (empty), a=b, a!=b, a<b, a>b. The
+  left side is a state or a path into data, the right a literal; numbers
+  compare as numbers. Empty is missing, null, "", [] or {}; numbers are
+  never empty, so a Slider at 0 is set. No and/or: nest an If for and,
+  chain ElseIf for or.
+If test="…", then ElseIf test="…" and Else as its next siblings: the
+  first branch that passes draws its children in place of the If, with
+  no box of its own; none passing, the Else's. For a group under one
+  condition or an else; show= stays for a single element. Allowed inside
+  Each. No Endif.
 
 Declare local string state:
 <State name="target" value="preview"/>
@@ -167,6 +187,8 @@ page:<project path> — open one of the project's pages, from chat or
   sheet="large" on the Button or Item opens it in a sheet instead,
   sheet="full" over the whole screen. When a
   page shows what the user asked for, link it rather than redraw it.
+  page:https://… pushes a web page the same way (a dashboard, docs);
+  open: shows one in a Safari sheet instead.
 file:<path> — open a file of the environment in the app's viewer
   (images, PDF, video, CSV, SQLite, code): relative to the project's
   folder, absolute, or under ~/; it may read {{…}} (file:{{f.path}}).
@@ -179,6 +201,7 @@ then="push:detail" after set: or toggle: runs a second, local action:
 {{name}} reads the current state value in Text, Badge, Markdown, the labels of
 Buttons, Menus, Items, Toggles and fields, Item subtitle and detail, field and
 Section footers, Section labels, Route titles, Image url and alt, Icon alt,
+Progress value and label, Rings label,
 set: values, and send:/append:/copy:/share:/open: payloads. No interpolation elsewhere. A filter
 writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
 current), date, time, datetime, number (number:2), currency:USD, percent
@@ -208,9 +231,54 @@ Keep every card simple and iOS-like:
 - A diff's line counts are the Item's trailing Texts, green additions
   and red deletions: <Text color="success">+15</Text><Text color="danger">−4</Text>.
 
-End a turn that did work with a short recap in a blockquote: what
-changed, what was tried, what is left. When there are natural next
-steps, offer them after it as a List of up to three Items, each
+Page layout:
+A page provides scrolling, safe-area handling and grouped-list margins.
+- Put each content block directly under Route or Data. Never wrap the
+  whole page in a Col, padding or a card surface; those stack with the
+  page's margins and turn native rows into one nested content block.
+- Use List > Section > Item for records, details and settings.
+- Use Col only for a small related block, such as a title and subtitle
+  or a form with its explanation. Keep native controls and navigation.
+- Apply padding inside a visible card, not around the page. Let the
+  page control spacing between sections; do not add spacer rows.
+- Hide a Section when its backing array is empty (show="d.related").
+  If an empty state helps the user, show an explanatory row instead.
+- Use the navigation title for the screen name; do not repeat it in
+  the content. A record's descriptive title may appear below its ID.
+Before saving a page, review: unnecessary whole-screen wrappers,
+stacked margins and padding, empty headings or blank space, and
+whether lists remain native rows.
+
+Page structure example (inside a Router; d is the enclosing Data's
+answer, using the service's actual fields):
+```xml
+<Route path="issue" title="{{issue}}">
+  <Data name="d" method="mcp:linear.get_issue" when="issue">
+    <Param name="id" value="{{issue}}"/>
+    <Col gap="xs">
+      <Text font="title">{{d.title}}</Text>
+      <Text font="caption" color="secondary">{{d.project}}</Text>
+    </Col>
+    <Markdown>{{d.description}}</Markdown>
+    <List>
+      <Section label="Details">
+        <Item label="Assignee" detail="{{d.assignee}}"/>
+      </Section>
+      <Section label="Blocks" show="d.relations.blocks">
+        <Each in="d.relations.blocks" as="related">
+          <Item label="{{related.title}}" subtitle="{{related.id}}"/>
+        </Each>
+      </Section>
+    </List>
+  </Data>
+</Route>
+```
+
+End a turn that did work with a short recap in a blockquote, the last
+prose in the message: what changed, what was tried, what is left. The
+chat list shows it and the voice agent reads it, so keep it to a few
+plain sentences. When there are natural next steps, offer them after
+it as a List of up to three Items, each
 action="append:…" with the step as a request the user can edit or send
 (append:Add a test for the empty case). No card when there is nothing
 to offer.
@@ -314,6 +382,20 @@ Example, after a recap:
     <Item icon="arrow.up.circle" iconColor="blue" label="Push and watch CI" action="append:Push and watch CI"/>
   </Section>
 </List>
+```
+
+Example:
+```ui
+<If test="health.status=down">
+  <Text color="danger">Down</Text>
+  <Button label="Restart" width="fill" action="plugin:fly.restart"/>
+</If>
+<ElseIf test="health.failingCount>0">
+  <Text color="warning">{{health.failingCount}} failing</Text>
+</ElseIf>
+<Else>
+  <Text color="success">All healthy</Text>
+</Else>
 ```
 
 Keep each fence small: at most 64 KiB, 512 elements, and depth 32.

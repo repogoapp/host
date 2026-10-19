@@ -15,7 +15,7 @@ import (
 const hostToolsInstructions = " The `chats_*` tools list, read, rename, pin, resolve, stop and message " +
 	"the chats on this environment, in every project, as the chat drawer does, and start another agent's chat " +
 	"(`agents_list`, `chats_start`) and wait for its answer (`chats_wait`); `projects_list`, `git_*`, " +
-	"`actions_*`, `schedules_list` and `tunnels_list` are the app's own reads and actions, which cards call too; " +
+	"`actions_*`, `schedules_list`, `tunnels_list` and `limits_read` are the app's own reads and actions, which cards call too; " +
 	"`reminders_*` notify the user's phones at a set time, set only when the user asks."
 
 // hosttools.json is written from the router by `go test ./internal/rpc/conformance -update`.

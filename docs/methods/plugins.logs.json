@@ -1,0 +1,19 @@
+{
+  "lines": [
+    {
+      "id": 1,
+      "at": 1,
+      "plugin": "plugin",
+      "dir": "dir",
+      "level": "level",
+      "method": "method",
+      "caller": "caller",
+      "call_id": "call_id",
+      "chat_id": "chat_id",
+      "text": "text",
+      "data": {
+        "data": "data"
+      }
+    }
+  ]
+}
