@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -14,8 +15,9 @@ import (
 	"github.com/repogoapp/host/internal/testwait"
 )
 
-// openLogs is a log in a temporary folder with the limits a test asks for.
-func openLogs(t *testing.T, limits LogLimits) (*Logs, *[][]string) {
+// openLogs is a log in a temporary folder with the limits a test asks for, and
+// the batches its writer reported, read under the lock the writer takes.
+func openLogs(t *testing.T, limits LogLimits) (*Logs, func() [][]string) {
 	t.Helper()
 	var mu sync.Mutex
 	var wrote [][]string
@@ -28,7 +30,11 @@ func openLogs(t *testing.T, limits LogLimits) (*Logs, *[][]string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(l.Close)
-	return l, &wrote
+	return l, func() [][]string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(wrote)
+	}
 }
 
 // written waits for the writer to land `want` lines and answers the newest thousand.
@@ -105,8 +111,9 @@ func TestLinesAreKeptWithTheirCallAndQueried(t *testing.T) {
 	if err != nil || errs[errorsKey("/p/.repogo/plugins", "notes")] != 1 || len(errs) != 1 {
 		t.Fatalf("errors = %v %v", errs, err)
 	}
-	if len(*wrote) == 0 || strings.Join((*wrote)[0], ",") != "notes,digest" {
-		t.Fatalf("wrote = %v, want the batch's plugins once each", *wrote)
+	testwait.For(t, "the batch reported", func() bool { return len(wrote()) > 0 })
+	if got := wrote(); strings.Join(got[0], ",") != "notes,digest" {
+		t.Fatalf("wrote = %v, want the batch's plugins once each", got)
 	}
 }
 
