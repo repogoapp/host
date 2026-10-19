@@ -282,7 +282,7 @@ func (h *Host) remind(ctx context.Context, a reminder.Alert) {
 	if h.alerts == nil {
 		return
 	}
-	h.alerts.Reminder(ctx, push.ReminderAlert{ID: a.ID, Text: a.Text, ChatID: a.ChatID, Late: a.Late})
+	h.alerts.Reminder(ctx, a)
 }
 
 // shutdownGrace bounds how long Close waits for loopback requests in flight.

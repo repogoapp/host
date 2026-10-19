@@ -66,24 +66,24 @@ func (s *Service) Cloud() *Cloud {
 }
 
 // SetStopsAt records a session a device extended with its provider.
-func (s *Service) SetStopsAt(at time.Time) (Cloud, error) {
+func (s *Service) SetStopsAt(at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cloud == nil {
-		return Cloud{}, ErrNotCloud
+		return ErrNotCloud
 	}
 	if !at.After(time.Now()) {
-		return Cloud{}, ErrStopsAtPast
+		return ErrStopsAtPast
 	}
 	s.cloud.StopsAt = at.UTC()
 	if err := s.saveCloud(); err != nil {
-		return Cloud{}, err
+		return err
 	}
 	select {
 	case s.cloudChanged <- struct{}{}:
 	default:
 	}
-	return *s.cloud, nil
+	return nil
 }
 
 // WatchStop calls warn once, `before` the session ends, and again after each

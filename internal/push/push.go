@@ -17,6 +17,7 @@ import (
 	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/reminder"
 )
 
 // The low-battery alert goes out once as the Mac's battery alone drops below
@@ -114,7 +115,7 @@ func (n *Notifier) Battery(ctx context.Context, b power.Battery) {
 	}
 }
 
-// BrowserRequest wakes the one phone an agent wants to drive the preview on,
+// BrowserRequest wakes the one phone an agent wants to drive the browser on,
 // when it is not connected to be asked. Opening the app fetches the request
 // with browser.pending.
 func (n *Notifier) BrowserRequest(ctx context.Context, to device.ID, requestID string) {
@@ -189,16 +190,9 @@ func (n *Notifier) Plugin(ctx context.Context, notice PluginNotice) {
 	n.push(ctx, collapse, payload)
 }
 
-// ReminderAlert is a reminder come due: its text, and the chat a tap opens.
-type ReminderAlert struct {
-	ID, Text, ChatID string
-	// How far past its time it fired; zero when on time.
-	Late time.Duration
-}
-
 // Reminder pushes a reminder to every paired phone. A tap opens its chat,
 // as a turn's alert does; one fired late says by how much.
-func (n *Notifier) Reminder(ctx context.Context, r ReminderAlert) {
+func (n *Notifier) Reminder(ctx context.Context, r reminder.Alert) {
 	body := r.Text
 	if r.Late >= time.Minute {
 		body += fmt.Sprintf(" (%d min late)", int(r.Late.Minutes()))

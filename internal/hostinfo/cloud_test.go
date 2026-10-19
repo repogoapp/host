@@ -21,7 +21,7 @@ func TestAMacHasNoCloudSession(t *testing.T) {
 	if s.Cloud() != nil {
 		t.Fatalf("cloud %+v with no environment", s.Cloud())
 	}
-	if _, err := s.SetStopsAt(time.Now().Add(time.Hour)); !errors.Is(err, ErrNotCloud) {
+	if err := s.SetStopsAt(time.Now().Add(time.Hour)); !errors.Is(err, ErrNotCloud) {
 		t.Fatalf("SetStopsAt on a Mac: %v, want ErrNotCloud", err)
 	}
 	status := s.Status()
@@ -44,7 +44,7 @@ func TestAnExtensionSurvivesARestartAndANewSessionReplacesIt(t *testing.T) {
 		t.Fatalf("cloud %+v, want vercel-sandbox until %v", c, first)
 	}
 	extended := first.Add(time.Hour)
-	if _, err := s.SetStopsAt(extended); err != nil {
+	if err := s.SetStopsAt(extended); err != nil {
 		t.Fatal(err)
 	}
 	if c := s.Cloud(); c == nil || !c.StopsAt.Equal(extended) {
@@ -83,7 +83,7 @@ func TestSetStopsAtRefusesThePast(t *testing.T) {
 	if err := s.LoadCloud(filepath.Join(t.TempDir(), "cloud.json"), started); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetStopsAt(time.Now().Add(-time.Minute)); !errors.Is(err, ErrStopsAtPast) {
+	if err := s.SetStopsAt(time.Now().Add(-time.Minute)); !errors.Is(err, ErrStopsAtPast) {
 		t.Fatalf("past stops_at: %v, want ErrStopsAtPast", err)
 	}
 }
@@ -107,7 +107,7 @@ func TestWatchStopWarnsBeforeTheEndAndAgainAfterAnExtension(t *testing.T) {
 	}
 
 	extended := time.Now().Add(2 * time.Second).UTC().Truncate(time.Second).Add(time.Second)
-	if _, err := s.SetStopsAt(extended); err != nil {
+	if err := s.SetStopsAt(extended); err != nil {
 		t.Fatal(err)
 	}
 	select {

@@ -54,8 +54,8 @@ func (d Deps) setup(ctx context.Context, _ rpc.Caller, a SetupParams) (hostsetup
 	return hostsetup.Snapshot(ctx, d.Setup, a.Refresh), nil
 }
 
-func (d Deps) setStopsAt(_ context.Context, _ rpc.Caller, a SetStopsAtParams) (hostinfo.Cloud, error) {
-	return d.Service.SetStopsAt(a.StopsAt)
+func (d Deps) setStopsAt(_ context.Context, _ rpc.Caller, a SetStopsAtParams) (rpc.Ack, error) {
+	return rpc.OK, d.Service.SetStopsAt(a.StopsAt)
 }
 
 func (d Deps) update(ctx context.Context, _ rpc.Caller, a UpdateParams) (hostupdate.Result, error) {
