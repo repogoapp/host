@@ -2,23 +2,20 @@ package chatlive
 
 import (
 	"cmp"
-	"strings"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/turnsummary"
 )
-
-// maxAttentionReply is how much of a turn's final text rides chats.attention:
-// v1's cap, enough for the voice agent to sum a turn up.
-const maxAttentionReply = 600
 
 func (m *Manager) attend(a Attention) { m.onAttention(a) }
 
-// ended is the attention for a turn that is over, by its stop reason.
-func ended(chatID store.ChatID, turnID, stopReason, errMsg, text string, answerable bool) Attention {
+// ended is the attention for a turn that is over, by its stop reason, summed
+// up from its final message the way the chat list's row is.
+func ended(chatID store.ChatID, turnID, stopReason, errMsg, final string, answerable bool) Attention {
 	a := Attention{ChatID: string(chatID), TurnID: turnID, Kind: AttentionFinished,
-		Reply: clipReply(text), Answerable: answerable}
+		Summary: turnsummary.Text(final), Answerable: answerable}
 	switch stopReason {
 	case "stopped":
 		a.Kind = AttentionStopped
@@ -28,21 +25,10 @@ func ended(chatID store.ChatID, turnID, stopReason, errMsg, text string, answera
 	return a
 }
 
-// clipReply keeps the opening of the turn's last message, the same words the
-// chat list previews.
-func clipReply(text string) string {
-	text = strings.TrimSpace(text)
-	runes := []rune(text)
-	if len(runes) <= maxAttentionReply {
-		return text
-	}
-	return strings.TrimSpace(string(runes[:maxAttentionReply])) + "…"
-}
-
 // attendHook turns a terminal turn's hook into attention. Nothing it sends is
 // answerable: the prompt is in the user's terminal, out of turns.respond's
-// reach. reply is the turn's streamed text when n ends it.
-func (m *Manager) attendHook(n notify.Notice, reply string) {
+// reach. final is the turn's last message when n ends it.
+func (m *Manager) attendHook(n notify.Notice, final string) {
 	if n.Origin == notify.OriginApp {
 		return
 	}
@@ -69,7 +55,7 @@ func (m *Manager) attendHook(n notify.Notice, reply string) {
 
 	case n.Ends():
 		m.takeHookPending(chatID)
-		m.attend(ended(chatID, turnID, hookStopReason(n), n.Error, reply, false))
+		m.attend(ended(chatID, turnID, hookStopReason(n), n.Error, final, false))
 	}
 }
 

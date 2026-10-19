@@ -11,7 +11,7 @@
   "status_at": 1,
   "last_turn_started_at": 1,
   "last_turn_finished_at": 1,
-  "last_reply": "last_reply",
+  "summary": "summary",
   "last_user_message_preview": "last_user_message_preview",
   "revision": 1,
   "resolved_at": 1,

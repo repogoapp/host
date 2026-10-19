@@ -77,8 +77,8 @@ type Chat struct {
 	LastTurnStartedAt  *int64           `json:"last_turn_started_at"`
 	LastTurnFinishedAt *int64           `json:"last_turn_finished_at"`
 
-	// The opening of the agent's newest reply: the inbox row's preview line.
-	LastReply string `json:"last_reply,omitempty"`
+	// The newest turn's recap, else its final message's opening: the inbox row's line.
+	Summary string `json:"summary,omitempty"`
 
 	// Derived from the newest saved user event for the inbox preview.
 	LastUserMessagePreview string `json:"last_user_message_preview,omitempty"`
@@ -255,7 +255,7 @@ type ChatPage struct {
 // chatSelect reads chat rows with what state.db holds for them (marks, voice
 // numbers, the queue's count and version), for queryChats.
 const chatSelect = `
-SELECT s.agent, s.session_id, s.title, s.last_reply,
+SELECT s.agent, s.session_id, s.title, s.summary,
   COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.context_used, s.context_size, s.model, s.model_label, s.project_agent, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, COALESCE(m.parent_id, ''), s.rev, COALESCE(v.number, 0),
   (SELECT COUNT(*) FROM state.queued_turns t WHERE t.chat_id = s.agent || ':' || s.session_id), COALESCE(q.rev, 0)
 FROM sessions s LEFT JOIN state.chat_marks m ON m.agent = s.agent AND m.session_id = s.session_id
@@ -278,7 +278,7 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 	for rows.Next() {
 		var c Chat
 		var agent, sessionID string
-		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.LastReply, &c.LastUserMessagePreview, &c.CWD,
+		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.Summary, &c.LastUserMessagePreview, &c.CWD,
 			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.ContextUsed, &c.ContextSize, &c.Model, &c.ModelLabel, &c.ProjectAgent, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
 			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.ParentID, &c.Revision, &c.VoiceNumber,
 			&c.QueuedCount, &c.QueueRevision); err != nil {

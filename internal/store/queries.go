@@ -12,7 +12,7 @@
 //  2. sessionUpsert, once the agent has written the prompt to its transcript
 //     (SyncBatch): the events rows, and the title when the agent's files name
 //     one or the row has none.
-//  3. sessionUpsert, once the reply is in the transcript: last_reply, context,
+//  3. sessionUpsert, once the reply is in the transcript: summary, context,
 //     and the model the provider actually ran, which replaces the requested one.
 //  4. statusUpsert, as the turn ends: status and the finish time.
 //
@@ -22,10 +22,10 @@ package store
 // Writes 2 and 3 above. The generation bump is a parameter: it means "the
 // history you hold is gone", so an append, which a reader keeps, must not bump it.
 const sessionUpsert = `
-INSERT INTO sessions (agent, session_id, cwd, title, last_reply, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size, model, model_label, project_agent, permission_mode, mode, reasoning_level, fast_mode, last_message_at, rev)
+INSERT INTO sessions (agent, session_id, cwd, title, summary, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size, model, model_label, project_agent, permission_mode, mode, reasoning_level, fast_mode, last_message_at, rev)
 VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(agent, session_id) DO UPDATE SET
-  cwd = excluded.cwd, last_reply = excluded.last_reply, path = excluded.path,
+  cwd = excluded.cwd, summary = excluded.summary, path = excluded.path,
   -- The agent's own title (a rename, its generated one) always wins. Opening
   -- words only fill an empty row, so the title a device started the chat with stays.
   title = CASE WHEN ? OR sessions.title = '' THEN excluded.title ELSE sessions.title END,

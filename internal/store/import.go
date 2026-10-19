@@ -176,7 +176,7 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	var sid, searchHash int64
 	var title string
 	agentTitled := collapseSpace(e.Meta.Title) != ""
-	if err := b.upsert.QueryRow(kind, id, e.Meta.Cwd, titleFor(e.Meta, e.Events), lastReply(e.Events), e.Meta.Path,
+	if err := b.upsert.QueryRow(kind, id, e.Meta.Cwd, titleFor(e.Meta, e.Events), summaryOf(e.Events), e.Meta.Path,
 		createdAt(e.Meta, e.Events), e.Meta.UpdatedAt.UnixMilli(), e.Meta.SizeBytes, len(e.Events), int64(full), b.now,
 		e.Meta.ContextUsed, e.Meta.ContextSize, e.Meta.Model, e.Meta.ModelLabel, e.Meta.ProjectAgent,
 		string(e.Meta.Settings.PermissionMode), e.Meta.Settings.Mode, e.Meta.Settings.ReasoningLevel, e.Meta.Settings.FastMode,

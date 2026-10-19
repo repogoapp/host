@@ -34,8 +34,9 @@ type displayTurn struct {
 
 	text   strings.Builder
 	lastAt time.Time
-	// replyStart is where the newest message begins in text.
-	replyStart int
+	// final is the newest message, kept whole past the display cap for the
+	// turn's summary.
+	final strings.Builder
 
 	// The turn's clock as the hooks saw it: UserPromptSubmit starts it, the
 	// first tool call or text frame is the first sign of work, Stop ends it.
@@ -66,7 +67,7 @@ func (m *Manager) Display(f notify.DisplayFrame) {
 		// A turn is several messages (text, tool calls, more text); the
 		// snapshot is all of its text, the same as the turn relay's.
 		t.messageID, t.next, t.parts = f.MessageID, 0, map[int]string{}
-		t.replyStart = t.text.Len()
+		t.final.Reset()
 	}
 	// A frame at or below the prefix is a replay of one already folded in.
 	// Kept out of parts: an index below next would never be reached by the
@@ -84,6 +85,7 @@ func (m *Manager) Display(f notify.DisplayFrame) {
 		if t.text.Len() < maxStreamedChars {
 			t.text.WriteString(delta)
 		}
+		t.final.WriteString(delta)
 	}
 	if f.Final && len(t.parts) > 0 {
 		// The last frame landed but an earlier one never did (a killed hook):
@@ -95,6 +97,7 @@ func (m *Manager) Display(f notify.DisplayFrame) {
 		sort.Ints(idx)
 		for _, i := range idx {
 			t.text.WriteString(t.parts[i])
+			t.final.WriteString(t.parts[i])
 		}
 		t.parts = map[int]string{}
 	}
@@ -179,7 +182,7 @@ func (m *Manager) noteDisplayWork(chatID store.ChatID, turnID string, at time.Ti
 
 // finishDisplay sends the closing snapshot for a terminal turn. `at` is the
 // hook's own stamp, so durations are host time against host time. stopped
-// (a Stop hook, not quiet) keeps the turn from reopening. Returns its text.
+// (a Stop hook, not quiet) keeps the turn from reopening. Returns its final message.
 func (m *Manager) finishDisplay(chatID store.ChatID, at time.Time, stopReason string, stopped bool) string {
 	m.displayMu.Lock()
 	defer m.displayMu.Unlock()
@@ -196,7 +199,7 @@ func (m *Manager) finishDisplay(chatID store.ChatID, at time.Time, stopReason st
 		t.timing.EndedAt = at.UnixMilli()
 		t.timing.StopReason = stopReason
 		m.pushStream(chatID, t.turnID, t.text.String(), true, t.timing)
-		return t.text.String()[t.replyStart:]
+		return t.final.String()
 	}
 	return ""
 }
@@ -227,7 +230,7 @@ func (m *Manager) WatchNotices(ctx context.Context, bridge *notify.Bridge) {
 func (m *Manager) observeNotice(n notify.Notice) {
 	chatID := store.ChatID(n.ChatID())
 	_, turnID := n.Turn()
-	reply := ""
+	final := ""
 	switch {
 	case n.Origin == notify.OriginApp:
 		// The turn relay streams and closes this turn; see Display.
@@ -238,9 +241,9 @@ func (m *Manager) observeNotice(n notify.Notice) {
 	case n.ToolFinished():
 		m.noteDisplayWork(chatID, turnID, n.At, false)
 	case n.Ends():
-		reply = m.finishDisplay(chatID, n.At, hookStopReason(n), true)
+		final = m.finishDisplay(chatID, n.At, hookStopReason(n), true)
 	}
-	m.attendHook(n, reply)
+	m.attendHook(n, final)
 	// The hook fired because the provider wrote something — a prompt, a tool
 	// result, the final message. Send it to watchers now, not on the next poll.
 	m.Nudge(chatID)

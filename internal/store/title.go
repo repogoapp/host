@@ -2,10 +2,12 @@ package store
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/turnsummary"
 )
 
 const (
@@ -129,28 +131,38 @@ func withoutAttachments(text string) string {
 
 func collapseSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// replyMaxChars is enough for a two-line preview on a phone; the rest is a
+// previewMaxChars is enough for a two-line preview on a phone; the rest is a
 // tap away and would only make every list row heavier.
-const replyMaxChars = 240
+const previewMaxChars = 240
 
-// lastReply is the opening of the agent's newest text, the way a mail client
-// previews a message. Both providers write assistant text only when a message
-// completes, so this is always a whole thought, never a half-streamed one.
-func lastReply(events []agent.Event) string {
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind != agent.EventText {
-			continue
-		}
-		if t := previewOf(events[i].Text); t != "" {
-			return t
-		}
-	}
-	return ""
+// summaryOf is the newest turn's summary, from its final message: a turn
+// whose last message has no prose summarizes as "", never as an older turn.
+func summaryOf(events []agent.Event) string {
+	return turnsummary.Text(finalMessage(events))
 }
 
-// previewOf flattens markdown prose to one line: emphasis and code marks are
-// noise at preview size, and a heading or list marker at the start reads as
-// a stray symbol rather than structure.
+// finalMessage is the agent's last message in the newest turn: the text
+// blocks after its last tool call, reasoning or prompt. Claude writes one
+// event per content block, so a message's blocks are joined back here.
+func finalMessage(events []agent.Event) string {
+	var blocks []string
+	for i := len(events) - 1; i >= 0; i-- {
+		switch events[i].Kind {
+		case agent.EventText:
+			blocks = append(blocks, events[i].Text)
+		case agent.EventTurnFinished, agent.EventTurnFailed, agent.EventApprovalRequested, agent.EventApprovalResolved:
+		default:
+			slices.Reverse(blocks)
+			return strings.Join(blocks, "\n\n")
+		}
+	}
+	slices.Reverse(blocks)
+	return strings.Join(blocks, "\n\n")
+}
+
+// previewOf flattens a prompt to one line: emphasis and code marks are noise
+// at preview size, and a heading or list marker at the start reads as a stray
+// symbol rather than structure.
 func previewOf(text string) string {
 	text = strings.NewReplacer("**", "", "__", "", "`", "").Replace(text)
 	var lines []string
@@ -161,8 +173,8 @@ func previewOf(text string) string {
 		}
 	}
 	out := collapseSpace(strings.Join(lines, " "))
-	if runes := []rune(out); len(runes) > replyMaxChars {
-		out = strings.TrimRight(string(runes[:replyMaxChars]), " ") + "…"
+	if runes := []rune(out); len(runes) > previewMaxChars {
+		out = strings.TrimRight(string(runes[:previewMaxChars]), " ") + "…"
 	}
 	return out
 }

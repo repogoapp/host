@@ -2,6 +2,7 @@ package chatlive
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,19 @@ func TestDisplayStreamsTerminalTurnAsSnapshots(t *testing.T) {
 	defer m.mu.Unlock()
 	if _, still := m.display["claude:s1"]; still {
 		t.Error("turn state kept after finish")
+	}
+}
+
+// A terminal turn's end hands back its newest message whole, past the display
+// cap, for the summary: not the turn's earlier messages.
+func TestDisplayFinishReturnsTheFinalMessage(t *testing.T) {
+	m, _, _, _ := streamHarness(t)
+	m.Display(frame("m1", 0, true, "Looking."))
+	m.Display(frame("m2", 0, false, strings.Repeat("a", maxStreamedChars)))
+	m.Display(frame("m2", 1, true, "\n\n> Recap."))
+	final := m.finishDisplay("claude:s1", time.Now(), "", true)
+	if !strings.HasPrefix(final, "aaa") || !strings.HasSuffix(final, "> Recap.") {
+		t.Fatalf("final = %.20q…", final)
 	}
 }
 

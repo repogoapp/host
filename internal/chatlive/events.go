@@ -143,8 +143,8 @@ type Attention struct {
 	// The call a resolved approval answered.
 	CallID string `json:"call_id,omitempty"`
 	Error  string `json:"error,omitempty"`
-	// The turn's final text, clipped to maxAttentionReply.
-	Reply string `json:"reply,omitempty"`
+	// The turn's summary: turnsummary.Text of its final message.
+	Summary string `json:"summary,omitempty"`
 	// False for a turn in the user's terminal: turns.respond cannot reach it.
 	Answerable bool `json:"answerable"`
 }

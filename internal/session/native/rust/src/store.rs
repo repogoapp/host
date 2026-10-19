@@ -8,10 +8,10 @@ use repogo_import::event::{Entry, Event, Kind, Meta};
 const SCHEMA: &str = include_str!("../../../../store/schema.sql");
 
 const SESSION_UPSERT: &str = "
-INSERT INTO sessions (agent, session_id, cwd, title, last_reply, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size)
+INSERT INTO sessions (agent, session_id, cwd, title, summary, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size)
 VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)
 ON CONFLICT(agent, session_id) DO UPDATE SET
-  cwd = excluded.cwd, title = excluded.title, last_reply = excluded.last_reply, path = excluded.path,
+  cwd = excluded.cwd, title = excluded.title, summary = excluded.summary, path = excluded.path,
   created_at = CASE WHEN sessions.created_at > 0 THEN sessions.created_at ELSE excluded.created_at END,
   updated_at = excluded.updated_at, size_bytes = excluded.size_bytes,
   event_count = excluded.event_count, content_hash = excluded.content_hash,
@@ -95,7 +95,7 @@ pub fn sync_batch(db: &mut Connection, entries: &[Entry]) -> rusqlite::Result<()
                 e.meta.id,
                 e.meta.cwd,
                 title_for(&e.meta, &e.events),
-                last_reply(&e.events),
+                summary(&e.events),
                 e.meta.path,
                 created_at(&e.meta, &e.events),
                 e.meta.updated_at_ms,
@@ -204,7 +204,9 @@ fn opening_words(text: &str) -> String {
     out
 }
 
-fn last_reply(events: &[Event]) -> String {
+// The opening of the newest reply, not the host's recap parse: this tool times
+// imports, and the host writes the summary again when the transcript next changes.
+fn summary(events: &[Event]) -> String {
     events
         .iter()
         .rev()

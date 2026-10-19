@@ -12,9 +12,9 @@ CREATE TABLE sessions (
   last_turn_key TEXT NOT NULL DEFAULT '',
   last_turn_started_at INTEGER,
   last_turn_finished_at INTEGER,
-  -- The opening of the agent's newest reply, for the inbox row's preview
-  -- line. Derived from the transcript at sync like title.
-  last_reply  TEXT    NOT NULL DEFAULT '',
+  -- The newest turn's summary (turnsummary.Text of its final message), for
+  -- the inbox row. Derived from the transcript at sync like title.
+  summary     TEXT    NOT NULL DEFAULT '',
   path        TEXT    NOT NULL DEFAULT '',
   -- When the chat began: the first timestamped transcript line, or the file's
   -- mtime for a transcript with none. Written once and kept, so a resync

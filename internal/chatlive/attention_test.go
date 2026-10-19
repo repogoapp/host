@@ -59,7 +59,10 @@ func TestAttentionFollowsAnAppTurn(t *testing.T) {
 		Options: []agent.ApprovalOption{{OptionID: "allow", Name: "Allow", Kind: "allow_once"}}}
 	turns.ch <- agent.Event{Kind: agent.EventApprovalRequested, Approval: approval}
 	turns.ch <- agent.Event{Kind: agent.EventApprovalResolved, Approval: &agent.Approval{CallID: "c1", Title: `"allow"`}}
-	turns.ch <- agent.Event{Kind: agent.EventText, Text: "All done."}
+	turns.ch <- agent.Event{Kind: agent.EventText, Text: "Looking."}
+	turns.ch <- agent.Event{Kind: agent.EventToolCall, Tool: &agent.ToolCall{}}
+	turns.ch <- agent.Event{Kind: agent.EventText, Text: "All done.\n\n> Fixed "}
+	turns.ch <- agent.Event{Kind: agent.EventText, Text: "the build."}
 	turns.ch <- agent.Event{Kind: agent.EventTurnFinished}
 
 	got := sink.wait(t, 3)
@@ -70,7 +73,7 @@ func TestAttentionFollowsAnAppTurn(t *testing.T) {
 	if got[1].Kind != AttentionResolved || got[1].CallID != "c1" || got[1].Approval != nil {
 		t.Errorf("resolved = %+v", got[1])
 	}
-	if got[2].Kind != AttentionFinished || got[2].Reply != "All done." || !got[2].Answerable {
+	if got[2].Kind != AttentionFinished || got[2].Summary != "Fixed the build." || !got[2].Answerable {
 		t.Errorf("finished = %+v", got[2])
 	}
 }
@@ -97,18 +100,15 @@ func TestAttentionNamesHowATurnEnded(t *testing.T) {
 	}
 }
 
-// A long message sends its opening, as the chat list previews it.
-func TestAttentionClipsTheReplyToItsOpening(t *testing.T) {
-	long := "The start. " + strings.Repeat("é", maxAttentionReply)
-	got := clipReply(long)
-	if !strings.HasPrefix(got, "The start.") || !strings.HasSuffix(got, "…") {
-		t.Errorf("clipped = %q", got)
-	}
-	if n := len([]rune(got)); n > maxAttentionReply+1 {
-		t.Errorf("clipped to %d runes", n)
-	}
-	if clipReply("  short \n") != "short" {
-		t.Error("short text should pass through trimmed")
+// A recap past the display cap still reaches the summary: the final message
+// is kept whole apart from the streamed text.
+func TestAttentionSummaryOutlivesTheDisplayCap(t *testing.T) {
+	m, turns, sink := attentionHarness(t)
+	m.StreamTurn("claude:s1", "turn-1")
+	turns.ch <- agent.Event{Kind: agent.EventText, Text: strings.Repeat("a", maxStreamedChars) + "\n\n> Recap at the end."}
+	turns.ch <- agent.Event{Kind: agent.EventTurnFinished}
+	if got := sink.wait(t, 1); got[0].Summary != "Recap at the end." {
+		t.Errorf("summary = %.40q", got[0].Summary)
 	}
 }
 
@@ -136,7 +136,7 @@ func TestAttentionFromTerminalHooks(t *testing.T) {
 
 	stop := base
 	stop.Event, stop.Status = "Stop", agent.ChatCompleted
-	m.attendHook(stop, "Finished it.")
+	m.attendHook(stop, "Finished it.\n\n```ui\n<List/>\n```")
 
 	got := sink.all()
 	if len(got) != 4 {
@@ -154,7 +154,7 @@ func TestAttentionFromTerminalHooks(t *testing.T) {
 		q.Questions[0].Text != "Which one?" || len(q.Questions[0].Options) != 2 {
 		t.Errorf("question = %+v", got[2])
 	}
-	if got[3].Kind != AttentionFinished || got[3].Reply != "Finished it." || got[3].Answerable {
+	if got[3].Kind != AttentionFinished || got[3].Summary != "Finished it." || got[3].Answerable {
 		t.Errorf("finished = %+v", got[3])
 	}
 
