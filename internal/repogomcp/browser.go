@@ -34,8 +34,6 @@ const (
 // that phone: it is the one whose browser the user is looking at.
 type Request struct {
 	RequestID string `json:"request_id"`
-	TurnID    string `json:"turn_id"`
-	ChatID    string `json:"chat_id"`
 	// The turn's working tree; with this host's id, the phone's tab bucket.
 	Cwd       string `json:"cwd"`
 	ExpiresAt string `json:"expires_at"` // RFC 3339
@@ -44,8 +42,8 @@ type Request struct {
 
 func (Request) Method() string { return "browser.request" }
 
-// Action is v1's browser.ActionRequest, checked and trimmed to what its
-// action uses.
+// Action is one browser tool call, checked and trimmed to what its action
+// uses.
 type Action struct {
 	Action          string   `json:"action"`
 	TabID           string   `json:"tab_id"`
@@ -78,7 +76,7 @@ type Action struct {
 	TimeoutMS         int64 `json:"timeout_ms"`
 }
 
-// Result is what the phone found, v1's browser.ActionResponse.
+// Result is what the phone found; browserResult shapes it for the agent.
 type Result struct {
 	OK                  bool                 `json:"ok"`
 	ErrorText           string               `json:"error_text,omitempty"`
@@ -134,8 +132,6 @@ type InteractiveElement struct {
 type Screenshot struct {
 	MimeType string `json:"mime_type"`
 	Data     string `json:"data"` // base64
-	Width    int    `json:"width,omitempty"`
-	Height   int    `json:"height,omitempty"`
 }
 
 type BrowserConfig struct {
@@ -168,7 +164,7 @@ func NewBrowser(cfg BrowserConfig) *Browser {
 	return &Browser{cfg: cfg, pending: map[string]*call{}}
 }
 
-// errNoPhone and errNoAnswer are the agent's to read, in v1's words where v1 had some.
+// errNoPhone, errNoAnswer and errNoWake are the agent's to read.
 const (
 	errNoPhone  = "RepoGo: this turn did not come from a phone, so there is no browser to control. Send it from the RepoGo app."
 	errNoAnswer = "RepoGo: the phone did not answer. Open RepoGo on it, keep the browser open, and try again."
@@ -185,7 +181,7 @@ func (b *Browser) Do(t agent.RunningTurn, a Action) (Result, string) {
 	c := &call{
 		to: t.Device,
 		req: Request{
-			RequestID: uuid.NewString(), TurnID: t.TurnID, ChatID: t.ChatID, Cwd: t.Cwd, Action: a,
+			RequestID: uuid.NewString(), Cwd: t.Cwd, Action: a,
 			// Long enough for a phone that has to be woken: past it, pending drops it.
 			ExpiresAt: time.Now().Add(answer + wakeWait).UTC().Format(time.RFC3339),
 		},

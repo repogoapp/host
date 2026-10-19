@@ -1,4 +1,4 @@
-// Package browser is the `browser.*` methods: a phone answering the preview
+// Package browser is the `browser.*` methods: a phone answering the browser
 // actions RepoGo's MCP server sent it for a turn it started.
 package browser
 

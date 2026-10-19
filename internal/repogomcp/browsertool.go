@@ -288,34 +288,22 @@ func missingArgument(in browserInput) string {
 
 // browserOutput is what the agent reads back, in v1's camelCase.
 type browserOutput struct {
-	Action              string          `json:"action"`
-	ResultJSON          string          `json:"resultJson,omitempty"`
-	Snapshot            *string         `json:"snapshot,omitempty"`
-	SnapshotKind        string          `json:"snapshotKind,omitempty"`
-	URL                 string          `json:"url,omitempty"`
-	Title               string          `json:"title,omitempty"`
-	Tabs                []Tab           `json:"tabs,omitempty"`
-	TabID               string          `json:"tabId,omitempty"`
-	ConsoleDelta        string          `json:"consoleDelta,omitempty"`
-	NetworkDelta        string          `json:"networkDelta,omitempty"`
-	ConsoleCount        *int            `json:"consoleCount,omitempty"`
-	NetworkCount        *int            `json:"networkCount,omitempty"`
-	Target              *ElementState   `json:"target,omitempty"`
-	Navigated           *bool           `json:"navigated,omitempty"`
-	RecordingID         string          `json:"recordingId,omitempty"`
-	InteractiveElements []elementOutput `json:"interactiveElements,omitempty"`
-}
-
-type elementOutput struct {
-	Role     string  `json:"role"`
-	Name     string  `json:"name,omitempty"`
-	Value    string  `json:"value,omitempty"`
-	Locator  string  `json:"locator,omitempty"`
-	Selector string  `json:"selector,omitempty"`
-	X        float64 `json:"x"`
-	Y        float64 `json:"y"`
-	Width    float64 `json:"width"`
-	Height   float64 `json:"height"`
+	Action              string               `json:"action"`
+	ResultJSON          string               `json:"resultJson,omitempty"`
+	Snapshot            *string              `json:"snapshot,omitempty"`
+	SnapshotKind        string               `json:"snapshotKind,omitempty"`
+	URL                 string               `json:"url,omitempty"`
+	Title               string               `json:"title,omitempty"`
+	Tabs                []Tab                `json:"tabs,omitempty"`
+	TabID               string               `json:"tabId,omitempty"`
+	ConsoleDelta        string               `json:"consoleDelta,omitempty"`
+	NetworkDelta        string               `json:"networkDelta,omitempty"`
+	ConsoleCount        *int                 `json:"consoleCount,omitempty"`
+	NetworkCount        *int                 `json:"networkCount,omitempty"`
+	Target              *ElementState        `json:"target,omitempty"`
+	Navigated           *bool                `json:"navigated,omitempty"`
+	RecordingID         string               `json:"recordingId,omitempty"`
+	InteractiveElements []InteractiveElement `json:"interactiveElements,omitempty"`
 }
 
 func browserResult(action string, r Result) toolResult {
@@ -346,9 +334,7 @@ func browserResult(action string, r Result) toolResult {
 		if out.SnapshotKind == "" {
 			out.SnapshotKind = "a11y"
 		}
-		for _, e := range r.InteractiveElements {
-			out.InteractiveElements = append(out.InteractiveElements, elementOutput(e))
-		}
+		out.InteractiveElements = r.InteractiveElements
 	case action == "open":
 		var opened struct {
 			ID string `json:"id"`

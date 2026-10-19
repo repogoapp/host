@@ -1,7 +1,5 @@
 {
   "request_id": "request_id",
-  "turn_id": "turn_id",
-  "chat_id": "chat_id",
   "cwd": "cwd",
   "expires_at": "expires_at",
   "action": {

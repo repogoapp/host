@@ -227,7 +227,7 @@ func TestBrowserSnapshotRoundTrip(t *testing.T) {
 		t.Fatalf("sent %d requests", len(phone.sent))
 	}
 	req := phone.sent[0]
-	if req.Cwd != "/work/app" || req.TurnID != "t1" || req.Action.Action != "snapshot" ||
+	if req.Cwd != "/work/app" || req.Action.Action != "snapshot" ||
 		req.Action.Format != "a11y" || !req.Action.IncludeScreenshot || req.Action.TimeoutMS != defaultTimeoutMS {
 		t.Fatalf("request %+v", req)
 	}
