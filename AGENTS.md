@@ -85,6 +85,15 @@ family with many keeps them in `types.go`. `rpc.Local` and `rpc.Paired` declare
 who may call; `rpc.Detached` marks a mutation that must finish if the caller
 leaves. Changing a method's types means `go test ./internal/rpc/conformance -update`.
 
+Order: a family's `Register` is the one place its methods are ordered, grouped
+by purpose: reads first, then mutations. `Router.Specs()` lists families by
+name and each family's methods in the order `Register` adds them, so
+`host-methods.md`, the MCP tools file and the Swift contract read like
+`Register`; moving an `rpc.Add` line moves them too, so regenerate. Hand-written
+lists of a family's methods (`types.go`, the client's API types and test
+decoders) follow the same order. Code that runs steps in sequence (a test
+that must create a branch before switching to it, a store) keeps its own order.
+
 ## Native transcript parser
 
 The Go parsers in `internal/agents/{claude,codex}` are canonical; `internal/session/native/rust`

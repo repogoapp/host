@@ -52,7 +52,7 @@ func TestToolsListsToolMethods(t *testing.T) {
 	if err := json.Unmarshal(b, &defs); err != nil {
 		t.Fatal(err)
 	}
-	if len(defs) != 2 || defs[0].Name != "t_list" || !defs[0].ReadOnly || defs[1].Name != "t_pin" || defs[1].ReadOnly {
+	if len(defs) != 2 || defs[0].Name != "t_pin" || defs[0].ReadOnly || defs[1].Name != "t_list" || !defs[1].ReadOnly {
 		t.Fatalf("defs %+v", defs)
 	}
 	chatID := defs[1].InputSchema["properties"].(map[string]any)["chat_id"].(map[string]any)

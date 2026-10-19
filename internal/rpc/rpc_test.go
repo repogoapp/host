@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"testing"
 
 	"github.com/repogoapp/host/internal/errkind"
@@ -155,5 +156,18 @@ func TestResultNormalizesRequiredArrays(t *testing.T) {
 	got, err := r.Call(t.Context(), remote, "t.arrays", nil)
 	if err != nil || string(got) != `{"children":[{"items":[]}]}` {
 		t.Fatalf("result = %s, %v", got, err)
+	}
+}
+
+// Specs lists families by name and each family's methods as Register adds
+// them, so the generated docs and Swift read in the same order as Register.
+func TestSpecsKeepRegisterOrderWithinAFamily(t *testing.T) {
+	r := rpc.New(slog.New(slog.DiscardHandler))
+	for _, name := range []string{"git.status", "git.pull", "env.sources.list", "env.read", "git.changes"} {
+		rpc.Add(r, name, func(context.Context, rpc.Caller, struct{}) (rpc.Ack, error) { return rpc.OK, nil })
+	}
+	want := []string{"env.read", "env.sources.list", "git.status", "git.pull", "git.changes"}
+	if got := r.Names(); !slices.Equal(got, want) {
+		t.Fatalf("names %v, want %v", got, want)
 	}
 }

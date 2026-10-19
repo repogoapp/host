@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime/debug"
 	"sort"
+	"strings"
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/errkind"
@@ -173,6 +174,8 @@ type handler func(context.Context, Caller, json.RawMessage) (any, error)
 type method struct {
 	Spec
 	fn handler
+	// order is when Add saw it; Specs lists a family in this order.
+	order int
 }
 
 type Router struct {
@@ -193,7 +196,7 @@ func Add[P, R any](r *Router, name string, fn func(context.Context, Caller, P) (
 		opt(&spec)
 	}
 	spec.check()
-	r.methods[name] = method{Spec: spec, fn: func(ctx context.Context, c Caller, raw json.RawMessage) (any, error) {
+	r.methods[name] = method{Spec: spec, order: len(r.methods), fn: func(ctx context.Context, c Caller, raw json.RawMessage) (any, error) {
 		var p P
 		if err := jsonrpc.Into(raw, &p); err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidParams, err)
@@ -202,14 +205,30 @@ func Add[P, R any](r *Router, name string, fn func(context.Context, Caller, P) (
 	}}
 }
 
-// Specs is the whole vocabulary, sorted by name.
+// Specs is the whole vocabulary: families by name, and each family's methods
+// in the order its Register adds them, so generated files read like Register.
 func (r *Router) Specs() []Spec {
-	out := make([]Spec, 0, len(r.methods))
+	methods := make([]method, 0, len(r.methods))
 	for _, m := range r.methods {
+		methods = append(methods, m)
+	}
+	sort.Slice(methods, func(i, j int) bool {
+		a, b := family(methods[i].Name), family(methods[j].Name)
+		if a != b {
+			return a < b
+		}
+		return methods[i].order < methods[j].order
+	})
+	out := make([]Spec, 0, len(methods))
+	for _, m := range methods {
 		out = append(out, m.Spec)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// family is a method's name up to its last dot: `env.sources` for `env.sources.list`.
+func family(name string) string {
+	return name[:max(strings.LastIndexByte(name, '.'), 0)]
 }
 
 // Names is Specs' names; the conformance suite walks it.
