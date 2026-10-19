@@ -158,6 +158,46 @@ func TestDirectRunnerReuseAndResume(t *testing.T) {
 	}
 }
 
+// A changed system prompt waits for background work, rather than refusing
+// the turn or restarting the process under the work.
+func TestBusySessionKeepsItsSetupUntilIdle(t *testing.T) {
+	r := directTestRunner(t)
+	instructions := "first"
+	r.deps.Instructions = func(agent.TurnRequest) string { return instructions }
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	req := agent.TurnRequest{ChatID: "new", Cwd: t.TempDir(), Prompt: "hello"}
+	turnIO := agent.TurnIO{TurnID: "turn", Emit: func(agent.Event) {}, Session: func(id string) { req.SessionID = id }}
+	first, err := r.Send(ctx, req, turnIO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ChatID = agent.ChatID(agent.KindClaude, first.SessionID)
+	session, _ := r.pool.Get(req.ChatID)
+	r.pool.Release(req.ChatID, session)
+	feed(t, session, `{"type":"system","subtype":"task_started","task_id":"shell","task_type":"local_bash","is_backgrounded":true}`)
+
+	instructions = "second"
+	if _, err := r.Send(ctx, req, turnIO); err != nil {
+		t.Fatalf("busy session refused the turn: %v", err)
+	}
+	kept, _ := r.pool.Get(req.ChatID)
+	r.pool.Release(req.ChatID, kept)
+	if kept != session {
+		t.Fatal("restarted the process under its background work")
+	}
+
+	feed(t, session, `{"type":"system","subtype":"task_updated","task_id":"shell","patch":{"status":"completed"}}`)
+	if _, err := r.Send(ctx, req, turnIO); err != nil {
+		t.Fatal(err)
+	}
+	restarted, _ := r.pool.Get(req.ChatID)
+	r.pool.Release(req.ChatID, restarted)
+	if restarted == session {
+		t.Fatal("kept the old setup after the work ended")
+	}
+}
+
 func TestDirectRunnerStopAndProcessDeath(t *testing.T) {
 	for _, prompt := range []string{"stop", "die"} {
 		t.Run(prompt, func(t *testing.T) {

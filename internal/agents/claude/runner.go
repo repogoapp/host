@@ -86,10 +86,13 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 	if s, ok := r.pool.Get(req.ChatID); ok {
 		s.mu.Lock()
 		matches := s.cwd == req.Cwd && (req.SessionID == "" || req.SessionID == s.id)
-		same := matches && s.fingerprint == fingerprint && !s.closed
 		busy := s.busyLocked()
+		// Restarting a busy session for a new setup would kill its background
+		// work, so it keeps the old setup; the first turn after the work ends
+		// restarts it with the new one.
+		reuse := matches && !s.closed && (s.fingerprint == fingerprint || busy)
 		s.mu.Unlock()
-		if same {
+		if reuse {
 			select {
 			case <-s.client.Done():
 			default:
@@ -98,7 +101,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		}
 		if busy {
 			r.pool.Release(req.ChatID, s)
-			return nil, errors.New("Claude session configuration changed while background work is active; stop or wait for it to finish")
+			return nil, errors.New("Claude session changed while background work is active; stop or wait for it to finish")
 		}
 		if matches && req.SessionID == "" {
 			req.SessionID = s.id
