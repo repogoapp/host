@@ -125,6 +125,7 @@ var unchecked = map[string]string{
 	"schedules.save":       "needs an installed agent and a project; covered in internal/schedule",
 	"projects.pin":         "needs a listed project; covered in internal/store",
 	"turns.respond":        "needs a turn waiting on approval",
+	"plugins.logs":         "reads the plugin log, which the test host opens empty; covered in internal/plugins",
 	"plugins.call":         "runs the plugins server, which needs Bun and the SDK the test host lacks; covered in internal/plugins",
 	"plugins.subscribe":    "same",
 	"plugins.unsubscribe":  "same",

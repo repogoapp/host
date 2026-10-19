@@ -7,7 +7,7 @@ import (
 	"github.com/repogoapp/host/internal/testhost"
 )
 
-var update = flag.Bool("update", false, "rewrite docs/host-methods.md, docs/methods and RemoteTransport's HostAPI.swift from the router")
+var update = flag.Bool("update", false, "rewrite docs/host-methods.md, docs/methods and the clients' HostAPI.swift and HostAPI.kt from the router")
 
 const (
 	methodsDoc = "../../../docs/host-methods.md"

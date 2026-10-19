@@ -1,4 +1,4 @@
-package swiftcontract
+package clientcontract
 
 import (
 	"fmt"

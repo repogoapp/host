@@ -1,5 +1,5 @@
-// Package swiftcontract generates the Foundation-only Swift wire contract.
-package swiftcontract
+// Package clientcontract generates the clients' wire contracts: Swift for iOS, Kotlin for Android.
+package clientcontract
 
 import (
 	"encoding"
@@ -57,7 +57,7 @@ var methodExports = map[string]bool{
 	"mcp.oauth_finish": true, "mcp.rename": true, "mcp.set_enabled": true, "mcp.remove": true,
 	"mcp.call": true,
 
-	"plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
+	"plugins.logs": true, "plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
 
 	"ports.list": true, "ports.kill": true,
 
@@ -90,6 +90,7 @@ func methodsGen(specs []rpc.Spec) (*swiftGen, *swiftGen, map[string]string) {
 	for _, s := range specs {
 		if methodExports[s.Name] {
 			exports = append(exports, s)
+			g.methods = append(g.methods, s)
 			g.collect(s.Params, map[reflect.Type]bool{})
 			g.collect(s.Result, map[reflect.Type]bool{})
 			g.markDir(s.Params, encodes)
@@ -255,9 +256,11 @@ type swiftGen struct {
 	bodies       map[string]string
 	order        []string // bodies' names, each after the type that first uses it
 	queue        []pending
-	dirs         map[reflect.Type]int // encodes, decodes, or both
-	props        map[string][]prop    // Swift name → its stored properties, in init order
-	conformances map[string]string    // Swift name → the conformance its struct declares
+	dirs         map[reflect.Type]int    // encodes, decodes, or both
+	props        map[string][]prop       // Swift name → its stored properties, in init order
+	conformances map[string]string       // Swift name → the conformance its struct declares
+	types        map[string]reflect.Type // each body's Go type, for the Kotlin contract
+	methods      []rpc.Spec              // the exported methods, in Register order
 }
 
 // prop is one stored property of a generated struct.
@@ -534,6 +537,7 @@ func (g *swiftGen) typeRef(t reflect.Type, hint string) string {
 func (g *swiftGen) drain() {
 	g.bodies = map[string]string{}
 	g.order = nil
+	g.types = map[string]reflect.Type{}
 	owners := map[string]reflect.Type{}
 	for len(g.queue) > 0 {
 		p := g.queue[0]
@@ -542,6 +546,7 @@ func (g *swiftGen) drain() {
 			panic("Swift name has two owners: " + p.name)
 		}
 		owners[p.name] = p.t
+		g.types[p.name] = p.t
 		if _, done := g.bodies[p.name]; done {
 			continue
 		}
@@ -766,6 +771,7 @@ var EventExports = map[string]string{
 	"schedules.changed":   "Schedules.Changed",
 	"actions.changed":     "Actions.Changed",
 	"plugins.data":        "Plugins.Data",
+	"plugins.logged":      "Plugins.Logged",
 }
 
 func eventGenerator(catalog []hostemit.Event) *swiftGen {

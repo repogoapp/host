@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/repogoapp/host/internal/emit"
-	"github.com/repogoapp/host/internal/swiftcontract"
+	"github.com/repogoapp/host/internal/clientcontract"
 	"github.com/repogoapp/host/internal/testhost"
 )
 
@@ -40,6 +40,6 @@ var (
 // The phone's local handlers answer with the host's own shapes.
 func TestSwiftServingMatchesRouter(t *testing.T) {
 	testhost.SkipWithoutClient(t, "../../../../swift")
-	got := swiftcontract.Serving(newHost(t).router.Specs(), emit.Catalog(), servedMethods, servedEvents)
+	got := clientcontract.Serving(newHost(t).router.Specs(), emit.Catalog(), servedMethods, servedEvents)
 	testhost.Golden(t, swiftServing, []byte(got), *update, updateHint)
 }

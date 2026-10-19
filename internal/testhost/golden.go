@@ -61,12 +61,12 @@ func GoldenDir(t testing.TB, dir string, want map[string][]byte, update bool, hi
 	}
 }
 
-// SkipWithoutClient skips a test of the iOS client's source when swiftDir is
-// absent: the client sits beside the host in the RepoGo repo, not in a host-only clone.
-func SkipWithoutClient(t testing.TB, swiftDir string) {
+// SkipWithoutClient skips a test of a client's source when clientDir is
+// absent: the clients sit beside the host in the RepoGo repo, not in a host-only clone.
+func SkipWithoutClient(t testing.TB, clientDir string) {
 	t.Helper()
-	if _, err := os.Stat(swiftDir); errors.Is(err, fs.ErrNotExist) {
-		t.Skip("no iOS client at " + swiftDir)
+	if _, err := os.Stat(clientDir); errors.Is(err, fs.ErrNotExist) {
+		t.Skip("no client at " + clientDir)
 	}
 }
 
