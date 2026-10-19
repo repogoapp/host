@@ -180,7 +180,6 @@ func (n *Notifier) Plugin(ctx context.Context, notice PluginNotice) {
 		},
 		"host_id": n.store.Identity().ID,
 		"project": notice.Root,
-		"plugin":  notice.Plugin,
 		"page":    notice.Page,
 	})
 	collapse := notice.Collapse
