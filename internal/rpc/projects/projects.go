@@ -40,11 +40,6 @@ type CreateParams struct {
 	Parent string `json:"parent"`
 }
 
-// PathResult is the project's root as the host resolved it.
-type PathResult struct {
-	Path string `json:"path"`
-}
-
 type DetectIconParams struct {
 	Path        string `json:"path"`
 	IfNoneMatch string `json:"if_none_match"`
@@ -75,6 +70,7 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "projects.rename", d.rename)
 	rpc.Add(r, "projects.pin", d.pin)
 	// add is the folder picker's Select, making a folder it could only see a root.
+	// add and create answer the new project's row, listed at once.
 	rpc.Add(r, "projects.add", d.add)
 	rpc.Add(r, "projects.create", d.create)
 	// delete moves the folder to the Trash, or deletes it on a host with none
@@ -114,14 +110,29 @@ func (d Deps) detectIcon(ctx context.Context, _ rpc.Caller, a DetectIconParams) 
 	return d.Projects.DetectIcon(ctx, a.Path, a.IfNoneMatch)
 }
 
-func (d Deps) add(_ context.Context, _ rpc.Caller, a AddParams) (PathResult, error) {
+func (d Deps) add(ctx context.Context, _ rpc.Caller, a AddParams) (store.Project, error) {
 	path, err := d.Files.AddProject(a.Path)
-	return PathResult{Path: path}, err
+	return d.listed(ctx, path, err)
 }
 
-func (d Deps) create(_ context.Context, _ rpc.Caller, a CreateParams) (PathResult, error) {
+func (d Deps) create(ctx context.Context, _ rpc.Caller, a CreateParams) (store.Project, error) {
 	path, err := d.Files.NewProject(a.Parent, a.Name)
-	return PathResult{Path: path}, err
+	return d.listed(ctx, path, err)
+}
+
+// listed makes a pass now rather than at the next nudge, so the new folder's
+// row exists to answer and every device hears it as projects.changed.
+func (d Deps) listed(ctx context.Context, path string, err error) (store.Project, error) {
+	if err != nil {
+		return store.Project{}, err
+	}
+	d.Sync.Once(ctx)
+	row, err := d.Store.Project(path)
+	if err != nil {
+		return store.Project{}, err
+	}
+	row.HostID = string(d.Self)
+	return row, nil
 }
 
 func (d Deps) delete(_ context.Context, _ rpc.Caller, a DeleteParams) (rpc.Ack, error) {

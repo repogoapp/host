@@ -16,8 +16,10 @@ import (
 	ghcore "github.com/repogoapp/host/internal/github"
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/projectsync"
 	fsrpc "github.com/repogoapp/host/internal/rpc/fs"
 	projectsrpc "github.com/repogoapp/host/internal/rpc/projects"
+	"github.com/repogoapp/host/internal/store"
 )
 
 type roots = files.StaticRoots
@@ -28,9 +30,20 @@ func register(t *testing.T, svc *files.Service) *rpc.Router {
 	t.Helper()
 	router := rpc.New(slog.New(slog.DiscardHandler))
 	fsrpc.Register(router, fsrpc.Deps{Files: svc, Watch: &recordWatch{}})
-	projectsrpc.Register(router, projectsrpc.Deps{Files: svc})
+	db, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	log := slog.New(slog.DiscardHandler)
+	sync := projectsync.New(svc, db, noIcons{}, "", func(store.ProjectChange) {}, log)
+	projectsrpc.Register(router, projectsrpc.Deps{Files: svc, Store: db, Sync: sync})
 	return router
 }
+
+type noIcons struct{}
+
+func (noIcons) IconHash(string) string { return "" }
 
 func TestFileOperationsRPC(t *testing.T) {
 	root := t.TempDir()
@@ -120,9 +133,9 @@ func TestNewProjectRPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, _ := json.Marshal(map[string]string{"path": filepath.Join(resolved, "site")})
-	if string(reply) != string(want) {
-		t.Fatalf("reply: %s, want %s", reply, want)
+	var row store.Project
+	if err := json.Unmarshal(reply, &row); err != nil || row.Path != filepath.Join(resolved, "site") || row.DisplayName != "site" {
+		t.Fatalf("reply: %s, want the row of %s", reply, filepath.Join(resolved, "site"))
 	}
 	if projects, err := svc.Projects(); err != nil || len(projects) != 1 || projects[0].Path != filepath.Join(resolved, "site") {
 		t.Fatalf("projects: %+v, %v", projects, err)
@@ -210,6 +223,9 @@ type picks []string
 
 func (p *picks) Pick(path string, _ time.Time) error { *p = append(*p, path); return nil }
 
+// Roots makes each pick a root, as the host's own picks are.
+func (p *picks) Roots() ([]string, error) { return *p, nil }
+
 // The folder picker: fs.list with dirs_only opens on home, projects.add makes
 // the chosen folder a root, and projects.create with a parent makes and picks one.
 func TestFolderPickerRPC(t *testing.T) {
@@ -222,7 +238,7 @@ func TestFolderPickerRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	picked := &picks{}
-	router := register(t, files.New(files.Config{Roots: roots{}, Home: home, Folders: ghcore.NewLayout(t.TempDir()), Picks: picked}))
+	router := register(t, files.New(files.Config{Roots: picked, Home: home, Folders: ghcore.NewLayout(t.TempDir()), Picks: picked}))
 	call := func(method string, args map[string]any) (json.RawMessage, error) {
 		params, _ := json.Marshal(args)
 		return router.Call(context.Background(), rpc.Caller{}, method, params)
