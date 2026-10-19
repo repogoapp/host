@@ -89,10 +89,13 @@ Order: a family's `Register` is the one place its methods are ordered, grouped
 by purpose: reads first, then mutations. `Router.Specs()` lists families by
 name and each family's methods in the order `Register` adds them, so
 `host-methods.md`, the MCP tools file and the Swift contract read like
-`Register`; moving an `rpc.Add` line moves them too, so regenerate. Hand-written
-lists of a family's methods (`types.go`, the client's API types and test
-decoders) follow the same order. Code that runs steps in sequence (a test
-that must create a branch before switching to it, a store) keeps its own order.
+`Register`; moving an `rpc.Add` line moves them too, so regenerate. In the
+Swift contract each type follows the method that first uses it: a method's
+params, its result, then the types they hold. Hand-written lists of a family's
+methods (`types.go`, `methodExports`, the client's API types and test
+decoders) follow the same order, families A–Z with a blank line between.
+Code that runs steps in sequence (a test that must create a branch before
+switching to it, a store) keeps its own order.
 
 ## Native transcript parser
 

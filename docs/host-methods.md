@@ -195,26 +195,6 @@ Result:
 - `upsert` [object{Chat}]
 - `delete` [string]
 
-## `chats.neighbors`
-
-Params:
-
-- `cwd` string: A project's folder; empty is every project
-- `cwds` [string] (nullable): Several projects' folders
-- `resolved` bool (nullable): true: only resolved chats; false: only open ones; omit for both
-- `agent` string: Only this agent's chats: claude, codex; empty is all
-- `sort` string: activity (default), created or title
-- `order` string: desc (default) or asc
-- `search` string: Words a chat's title, prompts or replies must all hold
-- `parent` string: Only the chats this chat's agent started; empty leaves those out
-- `chat_id` string
-
-Result:
-
-- `previous` object{Chat} (nullable)
-- `next` object{Chat} (nullable)
-- `host_id` string
-
 ## `chats.messages`
 
 Tool (read): A page of one chat's messages. tail with a limit reads the newest; before_index pages older.

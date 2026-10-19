@@ -17,59 +17,69 @@ import (
 )
 
 var methodExports = map[string]bool{
-	"chats.messages": true, "chats.subscribe": true, "chats.unsubscribe": true,
-	"chats.tools_subscribe": true, "chats.tools_unsubscribe": true,
-	"chats.subagent": true, "chats.neighbors": true,
-	"limits.read": true, "limits.reset": true,
-	// Usage, devices and project picking.
-	"usage.history": true, "devices.hello": true, "devices.register_push": true, "devices.list": true, "devices.revoke": true,
-	"github.repos": true, "github.clone": true, "projects.add": true, "projects.create": true,
-	// Editor, git and chat list rows.
-	"fs.write": true, "fs.replace": true, "fs.mkdir": true, "fs.rename": true,
-	"fs.delete": true, "fs.search": true, "fs.watch": true, "fs.unwatch": true,
-	"git.status": true, "git.diff": true, "git.changes": true, "git.branches": true,
-	"git.pull": true, "git.reset_hard": true, "git.switch_branch": true,
-	"git.create_branch": true, "git.patch": true, "git.commit_push": true,
-	"github.pr_create": true, "github.publish": true,
-	"chats.list": true, "chats.info": true, "chats.resolve": true, "chats.pin": true, "chats.update": true,
-	"chats.delete": true, "chats.handoff": true, "chats.sync": true,
-	// A chat's turns, in the order the user acts on them.
-	"chats.send": true, "chats.start": true, "turns.list": true, "turns.get": true, "turns.stop": true, "chats.stop": true,
-	"turns.respond": true, "turns.edit_queued": true, "turns.remove_queued": true,
-	"turns.send_queued": true, "chats.queue": true,
-	// Projects and actions.
-	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
-	"projects.delete": true,
-	"actions.list":    true, "actions.run": true, "actions.start": true, "actions.stop": true,
-	"plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
+	// Each family in the order its Register adds the methods.
+	"actions.list": true, "actions.run": true, "actions.start": true, "actions.stop": true,
+
 	"agents.list": true,
-	// Terminal and forwarding.
+
+	"browser.pending": true, "browser.respond": true,
+
+	"chats.list": true, "chats.info": true, "chats.sync": true,
+	"chats.messages": true, "chats.subagent": true, "chats.tools_subscribe": true,
+	"chats.tools_unsubscribe": true, "chats.send": true, "chats.start": true, "chats.resolve": true,
+	"chats.pin": true, "chats.update": true, "chats.delete": true, "chats.stop": true,
+	"chats.subscribe": true, "chats.unsubscribe": true, "chats.queue": true, "chats.handoff": true,
+
+	"devices.list": true, "devices.hello": true, "devices.register_push": true, "devices.revoke": true,
+
+	"env.read": true,
+
+	"env.sources.list": true, "env.sources.set": true, "env.sources.remove": true,
+
+	"forward.fetch": true, "forward.pipe_open": true, "forward.pipe_send": true,
+	"forward.pipe_close": true,
+
+	"fs.list": true, "fs.watch": true, "fs.unwatch": true, "fs.read": true, "fs.write": true,
+	"fs.replace": true, "fs.search": true, "fs.delete": true, "fs.rename": true, "fs.mkdir": true,
+
+	"git.status": true, "git.changes": true, "git.branches": true, "git.diff": true, "git.patch": true,
+	"git.pull": true, "git.reset_hard": true, "git.switch_branch": true, "git.create_branch": true,
+	"git.commit_push": true,
+
+	"github.avatar": true, "github.repos": true, "github.clone": true, "github.pr_create": true,
+	"github.publish": true,
+
+	"host.status": true, "host.setup": true, "host.update": true, "host.set_stops_at": true,
+
+	"limits.read": true, "limits.reset": true,
+
+	"mcp.list": true, "mcp.probe": true, "mcp.connect": true, "mcp.oauth_start": true,
+	"mcp.oauth_finish": true, "mcp.rename": true, "mcp.set_enabled": true, "mcp.remove": true,
+	"mcp.call": true,
+
+	"plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
+
+	"ports.list": true, "ports.kill": true,
+
+	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
+	"projects.add": true, "projects.create": true, "projects.delete": true,
+
+	"schedules.list": true, "schedules.save": true, "schedules.delete": true,
+
 	"terminals.create": true, "terminals.list": true, "terminals.subscribe": true,
 	"terminals.unsubscribe": true, "terminals.attach": true, "terminals.detach": true,
 	"terminals.input": true, "terminals.resize": true, "terminals.close": true,
-	"ports.list": true, "ports.kill": true, "forward.fetch": true,
-	"forward.pipe_open": true, "forward.pipe_send": true, "forward.pipe_close": true,
-	"fs.read": true,
-	// Hosts and setup.
-	"host.status": true, "host.setup": true, "host.update": true, "host.set_stops_at": true,
-	"github.avatar": true,
-	"tools.install": true, "tools.update": true, "tools.login_start": true,
-	"tools.login_complete": true, "tools.login_cancel": true, "tools.logins": true,
-	"tools.logout": true, "tools.uninstall": true,
-	// Env sources and folder browsing.
-	"env.sources.list": true, "env.sources.set": true, "env.sources.remove": true,
-	"env.read": true,
-	"fs.list":  true,
-	// Browser requests.
-	"browser.pending": true, "browser.respond": true,
-	// MCP.
-	"mcp.list": true, "mcp.probe": true, "mcp.connect": true,
-	"mcp.oauth_start": true, "mcp.oauth_finish": true, "mcp.rename": true,
-	"mcp.set_enabled": true, "mcp.remove": true, "mcp.call": true,
-	// Tunnels.
-	"tunnels.list": true, "tunnels.open": true, "tunnels.close": true,
-	// Schedules.
-	"schedules.list": true, "schedules.save": true, "schedules.delete": true,
+
+	"tools.install": true, "tools.update": true, "tools.uninstall": true, "tools.login_start": true,
+	"tools.login_complete": true, "tools.login_cancel": true, "tools.logout": true,
+	"tools.logins": true,
+
+	"tunnels.open": true, "tunnels.close": true, "tunnels.list": true,
+
+	"turns.list": true, "turns.get": true, "turns.stop": true, "turns.respond": true,
+	"turns.edit_queued": true, "turns.remove_queued": true, "turns.send_queued": true,
+
+	"usage.history": true,
 }
 
 // methodsGen generates the client's method types: the bodies of types the event
@@ -122,13 +132,11 @@ func methodsGen(specs []rpc.Spec) (*swiftGen, *swiftGen, map[string]string) {
 
 func Methods(specs []rpc.Spec) string {
 	g, events, members := methodsGen(specs)
-	names := make([]string, 0, len(g.bodies))
-	for name := range g.bodies {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		body := g.bodies[name]
+	for _, name := range g.order {
+		body, ok := g.bodies[name]
+		if !ok {
+			continue // the event file owns it
+		}
 		family, _, _ := strings.Cut(name, ".")
 		members[family] += "\n" + body
 	}
@@ -245,6 +253,7 @@ type swiftGen struct {
 	names        map[reflect.Type]string // Go struct → Swift name
 	seen         []reflect.Type
 	bodies       map[string]string
+	order        []string // bodies' names, each after the type that first uses it
 	queue        []pending
 	dirs         map[reflect.Type]int // encodes, decodes, or both
 	props        map[string][]prop    // Swift name → its stored properties, in init order
@@ -520,8 +529,11 @@ func (g *swiftGen) typeRef(t reflect.Type, hint string) string {
 	panic("unsupported Swift mapping: " + t.String())
 }
 
+// drain writes each queued type depth first: the types a body refers to come
+// next, so a method's params and result are followed by what they hold.
 func (g *swiftGen) drain() {
 	g.bodies = map[string]string{}
+	g.order = nil
 	owners := map[string]reflect.Type{}
 	for len(g.queue) > 0 {
 		p := g.queue[0]
@@ -533,8 +545,12 @@ func (g *swiftGen) drain() {
 		if _, done := g.bodies[p.name]; done {
 			continue
 		}
+		rest := g.queue
+		g.queue = nil
 		g.bodies[p.name] = "" // reserve against recursion
 		g.bodies[p.name] = g.structBody(p.t, p.name)
+		g.order = append(g.order, p.name)
+		g.queue = append(g.queue, rest...)
 	}
 }
 
