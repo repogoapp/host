@@ -18,16 +18,13 @@ type Deps struct {
 	Addr func() string
 }
 
+// BeginResult is the encoded invite, what the QR and the pairing link carry.
 type BeginResult struct {
-	Invite device.Invite `json:"invite"`
-	QR     string        `json:"qr"`
+	QR string `json:"qr"`
 }
 
 type StatusResult struct {
-	Pending   bool  `json:"pending"`
-	ExpiresAt int64 `json:"expires_at,omitempty"`
-	// ReusableExpiresAt is when the reusable invite ends; omitted when none is open.
-	ReusableExpiresAt int64 `json:"reusable_expires_at,omitempty"`
+	Pending bool `json:"pending"`
 }
 
 type ReusableParams struct {
@@ -65,15 +62,15 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "pair.complete", d.complete, rpc.Unpaired)
 }
 
-// begin issues an invite. The response carries the raw code because the caller
-// is the local UI that renders the QR — it is never sent to the joiner.
+// begin issues an invite. The QR carries the raw code because the caller is
+// the local UI that renders it — the response is never sent to the joiner.
 func (d Deps) begin(context.Context, rpc.Caller, rpc.None) (BeginResult, error) {
 	invite, err := d.Pairer.Begin(d.Addr())
 	if err != nil {
 		return BeginResult{}, err
 	}
 	encoded, err := invite.Encode()
-	return BeginResult{Invite: invite, QR: encoded}, err
+	return BeginResult{QR: encoded}, err
 }
 
 // reusable issues an invite many devices may join with for a.Hours, for a
@@ -84,7 +81,7 @@ func (d Deps) reusable(_ context.Context, _ rpc.Caller, a ReusableParams) (Begin
 		return BeginResult{}, err
 	}
 	encoded, err := invite.Encode()
-	return BeginResult{Invite: invite, QR: encoded}, err
+	return BeginResult{QR: encoded}, err
 }
 
 func (d Deps) reusableRevoke(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) {
@@ -92,15 +89,8 @@ func (d Deps) reusableRevoke(context.Context, rpc.Caller, rpc.None) (rpc.Ack, er
 }
 
 func (d Deps) status(context.Context, rpc.Caller, rpc.None) (StatusResult, error) {
-	pending, expires := d.Pairer.Pending()
-	out := StatusResult{Pending: pending}
-	if pending {
-		out.ExpiresAt = expires.UnixMilli()
-	}
-	if reusable := d.Pairer.ReusableExpires(); !reusable.IsZero() {
-		out.ReusableExpiresAt = reusable.UnixMilli()
-	}
-	return out, nil
+	pending, _ := d.Pairer.Pending()
+	return StatusResult{Pending: pending}, nil
 }
 
 // complete admits a device that proves it saw the QR: an HMAC over its public

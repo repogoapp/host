@@ -118,13 +118,17 @@ func TestRevokeRemovesAPhoneEverywhere(t *testing.T) {
 		t.Fatalf("pair keeper: %v", err)
 	}
 
-	var invite pairing.BeginResult
-	if err := h.local(t, "pair.reusable", pairing.ReusableParams{Hours: 24}, &invite); err != nil {
+	var reusable pairing.BeginResult
+	if err := h.local(t, "pair.reusable", pairing.ReusableParams{Hours: 24}, &reusable); err != nil {
 		t.Fatalf("reusable invite: %v", err)
+	}
+	invite, err := device.DecodeInvite(reusable.QR)
+	if err != nil {
+		t.Fatalf("decode invite: %v", err)
 	}
 	join := pairing.CompleteParams{
 		DeviceID: string(lost.ID), PublicKey: lost.Public, Label: "Lost", Platform: "ios",
-		Proof: device.Proof(invite.Invite.Code, lost.Public),
+		Proof: device.Proof(invite.Code, lost.Public),
 	}
 	if err := h.local(t, "pair.complete", join, nil); err != nil {
 		t.Fatalf("lost phone joins with the invite: %v", err)
@@ -142,7 +146,10 @@ func TestRevokeRemovesAPhoneEverywhere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lost phone over loopback: %v", err)
 	}
-	push := devices.RegisterPushParams{PushTarget: lost.GrantPush(h.Devices.Identity().ID, device.PushTarget{Token: "abcd", Environment: "sandbox"})}
+	granted := lost.GrantPush(h.Devices.Identity().ID, device.PushTarget{Token: "abcd", Environment: "sandbox"})
+	push := devices.RegisterPushParams{
+		Token: granted.Token, Environment: granted.Environment, Grant: granted.Grant, GrantedAt: granted.GrantedAt,
+	}
 	if err := call(t, lostRelay, "devices.register_push", push, nil); err != nil {
 		t.Fatalf("lost phone registers push: %v", err)
 	}

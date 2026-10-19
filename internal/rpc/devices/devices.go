@@ -32,8 +32,14 @@ type HelloParams struct {
 	device.Client
 }
 
+// RegisterPushParams is a push token and its grant; the host stamps when it
+// first saw the token itself.
 type RegisterPushParams struct {
-	device.PushTarget
+	Token       string `json:"token"`
+	Environment string `json:"environment"`
+	InstallID   string `json:"install_id,omitempty"`
+	Grant       []byte `json:"grant,omitempty"`
+	GrantedAt   int64  `json:"granted_at,omitempty"`
 	// Kind "start" is the token that starts the Live Activity and "activity"
 	// the running one's; empty is the device's alert token.
 	Kind string `json:"kind"`
@@ -80,7 +86,11 @@ func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (rpc.Ack, er
 }
 
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {
-	if err := d.Store.RegisterPush(c.Device, a.Kind, a.PushTarget); err != nil {
+	target := device.PushTarget{
+		Token: a.Token, Environment: a.Environment, InstallID: a.InstallID,
+		Grant: a.Grant, GrantedAt: a.GrantedAt,
+	}
+	if err := d.Store.RegisterPush(c.Device, a.Kind, target); err != nil {
 		return rpc.Ack{}, err
 	}
 	if d.PushChanged != nil {

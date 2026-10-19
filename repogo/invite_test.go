@@ -44,7 +44,7 @@ func TestInvitePrintsOneSingleUseInvite(t *testing.T) {
 				return
 			}
 			qr, _ := invite.Encode()
-			json.NewEncoder(w).Encode(map[string]any{"invite": invite, "qr": qr})
+			json.NewEncoder(w).Encode(map[string]any{"qr": qr})
 		default:
 			http.NotFound(w, r)
 		}

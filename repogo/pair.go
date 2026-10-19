@@ -60,16 +60,19 @@ func printInvite(ctx context.Context, w io.Writer) error {
 		return err
 	}
 	var result struct {
-		QR     string        `json:"qr"`
-		Invite device.Invite `json:"invite"`
+		QR string `json:"qr"`
 	}
 	if err := call(ctx, "pair.begin", nil, &result); err != nil {
 		return err
 	}
+	invite, err := device.DecodeInvite(result.QR)
+	if err != nil {
+		return err
+	}
 	return json.NewEncoder(w).Encode(map[string]any{
 		"invite":     result.QR,
-		"host_id":    result.Invite.InviterID,
-		"expires_at": result.Invite.ExpiresAt,
+		"host_id":    invite.InviterID,
+		"expires_at": invite.ExpiresAt,
 	})
 }
 

@@ -1,11 +1,3 @@
 {
-  "invite": {
-    "address": "",
-    "group_id": "",
-    "inviter_id": "",
-    "inviter_public": null,
-    "code": "",
-    "expires_at": 0
-  },
   "qr": ""
 }
