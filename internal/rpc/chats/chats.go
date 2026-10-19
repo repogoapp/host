@@ -218,18 +218,21 @@ func (d Deps) queue(_ context.Context, _ rpc.Caller, a ChatParams) (store.Queue,
 	return d.Chats.Queue(a.ChatID)
 }
 
-func (d Deps) handoff(ctx context.Context, _ rpc.Caller, a ChatParams) (HandoffResult, error) {
+func (d Deps) handoff(ctx context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, error) {
 	c, err := d.Chats.Info(a.ChatID)
 	if err != nil {
-		return HandoffResult{}, err
+		return rpc.Ack{}, err
 	}
 	p, ok := d.Agents.Lookup(agent.Kind(c.Agent))
 	if !ok {
-		return HandoffResult{}, handoff.ErrNoResume
+		return rpc.Ack{}, handoff.ErrNoResume
 	}
 	command, err := handoff.Command(p, c.ID.SessionID(), c.CWD)
 	if err != nil {
-		return HandoffResult{}, err
+		return rpc.Ack{}, err
 	}
-	return HandoffResult{Command: command}, handoff.Open(ctx, command)
+	if err := handoff.Open(ctx, command); err != nil {
+		return rpc.Ack{}, err
+	}
+	return rpc.OK, nil
 }

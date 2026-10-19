@@ -11,11 +11,6 @@ type ChatParams struct {
 	ChatID store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
 }
 
-// HandoffResult is the command the terminal window was opened with.
-type HandoffResult struct {
-	Command string `json:"command"`
-}
-
 // Query is one reading of the inbox: the same keys for the list and for a
 // chat's neighbours in it, so the arrows step through exactly the rows shown.
 type Query struct {
