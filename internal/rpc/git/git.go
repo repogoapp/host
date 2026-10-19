@@ -24,7 +24,7 @@ func Register(r *rpc.Router, d Deps) {
 	// diff is the working tree's change set.
 	rpc.Add(r, "git.diff", d.diff, rpc.Tool("One project's uncommitted totals: files changed, lines "+
 		"added and removed. git.changes lists the files."), rpc.Read, rpc.LiveOn("git.changed"))
-	// patch expands one change set: its files, or one file's hunks.
+	// patch is one changed file's hunks; git.changes lists the files.
 	rpc.Add(r, "git.patch", d.patch)
 
 	// Mutations finish once started: a checkout left mid-pull is worse than

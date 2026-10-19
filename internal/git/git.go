@@ -233,16 +233,16 @@ func (s *Service) status(ctx context.Context, path string) Status {
 }
 
 // Changes lists the files that differ from HEAD, working tree and index
-// together, with line counts.
+// together, with line counts: the changes review's list and the tree's badges.
 func (s *Service) Changes(ctx context.Context, path string) ([]FileChange, error) {
 	dir, err := s.paths.Contain(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// -z, or a path with a space, quote or non-ASCII byte comes back quoted and
-	// misses its numstat line.
-	porcelain, err := run(ctx, dir, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
+	// -z, or a quoted path misses its numstat line. Untracked files come from
+	// `untrackedFiles`, one per file with its lines as `workingSet` counts them.
+	porcelain, err := run(ctx, dir, "status", "--porcelain=v1", "-z", "--untracked-files=no")
 	if err != nil {
 		return nil, err
 	}
@@ -271,15 +271,23 @@ func (s *Service) Changes(ctx context.Context, path string) ([]FileChange, error
 	}
 	// HEAD covers staged and unstaged in one pass; without it a staged file
 	// reports zero changed lines, which reads as "nothing happened".
-	if stats, err := run(ctx, dir, "diff", "--numstat", "-z", "HEAD"); err == nil {
+	base, err := diffBase(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	if stats, err := run(ctx, dir, "diff", "--no-ext-diff", "--numstat", "-z", base, "--"); err == nil {
 		applyNumstat(stats, changes)
 	}
+	untracked, err := untrackedFiles(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
 
-	out := make([]FileChange, 0, len(order))
+	out := make([]FileChange, 0, len(order)+len(untracked))
 	for _, name := range order {
 		out = append(out, *changes[name])
 	}
-	return out, nil
+	return append(out, untracked...), nil
 }
 
 // Branches lists what a chat could fork from, most recently committed first.
@@ -405,7 +413,7 @@ func withoutRemote(name string) string {
 }
 
 // applyNumstat folds `git diff --numstat -z` output into the change set, by
-// the same parse the patch file list uses, so a rename lands on its new path.
+// the same parse `workingSet` totals, so a rename lands on its new path.
 func applyNumstat(stats string, changes map[string]*FileChange) {
 	for _, stat := range numstatFiles(stats) {
 		change, ok := changes[stat.Path]

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -51,14 +52,9 @@ func (s *Service) WorkingDiff(ctx context.Context, path string) (*ChangeSet, err
 // see them.
 func workingSet(ctx context.Context, dir string) (ChangeSet, error) {
 	var set ChangeSet
-	base := "HEAD"
-	if _, err := resolve(ctx, dir, "HEAD"); err != nil {
-		// An unborn branch compares staged files against an empty tree.
-		empty, err := run(ctx, dir, "hash-object", "-w", "-t", "tree", "--stdin")
-		if err != nil {
-			return set, err
-		}
-		base = strings.TrimSpace(empty)
+	base, err := diffBase(ctx, dir)
+	if err != nil {
+		return set, err
 	}
 	stats, err := run(ctx, dir, "diff", "--no-ext-diff", "--numstat", "-z", base, "--")
 	if err != nil {
@@ -74,6 +70,52 @@ func workingSet(ctx context.Context, dir string) (ChangeSet, error) {
 		set.Deletions += change.Deletions
 	}
 	return set, nil
+}
+
+// numstatFiles parses `--numstat -z`: "added\tremoved\tpath" records. A rename
+// leaves the path empty and puts old and new in the next two records; the new
+// one exists, so it is listed. Binary files report "-" for both counts.
+func numstatFiles(stats string) []FileChange {
+	var out []FileChange
+	records := strings.Split(stats, "\x00")
+	for i := 0; i < len(records); i++ {
+		fields := strings.SplitN(records[i], "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		path := fields[2]
+		if path == "" {
+			if i+2 >= len(records) {
+				break
+			}
+			path = records[i+2]
+			i += 2
+		}
+		change := FileChange{Path: path}
+		if fields[0] == "-" || fields[1] == "-" {
+			change.Binary = true
+		} else {
+			change.Additions = atoi(fields[0])
+			change.Deletions = atoi(fields[1])
+		}
+		out = append(out, change)
+	}
+	return out
+}
+
+func atoi(value string) int {
+	n, _ := strconv.Atoi(value)
+	return n
+}
+
+// diffBase is what the working tree is compared with: HEAD, or on an unborn
+// branch an empty tree, so staged files still count.
+func diffBase(ctx context.Context, dir string) (string, error) {
+	if _, err := resolve(ctx, dir, "HEAD"); err == nil {
+		return "HEAD", nil
+	}
+	empty, err := run(ctx, dir, "hash-object", "-w", "-t", "tree", "--stdin")
+	return strings.TrimSpace(empty), err
 }
 
 // untrackedFiles lists what git is not tracking, every line as an addition. Read

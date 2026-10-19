@@ -100,19 +100,11 @@ func TestWorkingSetCountsTrackedAndUntracked(t *testing.T) {
 	}
 }
 
-// The patch path: a file list, then one file's hunks, through the same method.
-func TestPatchExpandsFilesThenHunks(t *testing.T) {
+// One file's hunks; the list is git.changes, so a call without a file is refused.
+func TestPatchIsOneFilesHunks(t *testing.T) {
 	dir, service := repo(t)
 	ctx := context.Background()
 	write(t, dir, "kept.txt", "one\ntwo\nthree\nfour\n")
-
-	files, err := service.Patch(ctx, dir, "HEAD", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files.Files) != 1 || files.Files[0].Path != "kept.txt" {
-		t.Fatalf("files = %+v, want kept.txt", files.Files)
-	}
 
 	hunks, err := service.Patch(ctx, dir, "HEAD", "", "kept.txt")
 	if err != nil {
@@ -121,48 +113,68 @@ func TestPatchExpandsFilesThenHunks(t *testing.T) {
 	if !strings.Contains(hunks.Text, "+four") {
 		t.Errorf("patch does not contain the added line:\n%s", hunks.Text)
 	}
+	if _, err := service.Patch(ctx, dir, "HEAD", "", ""); !errors.Is(err, ErrInvalidMutation) {
+		t.Errorf("Patch without a file = %v, want invalid", err)
+	}
 }
 
-// A moved file is listed at the path it now has. Without -z git writes a
-// rename as `{old => new}/name`, and the client made a folder of the braces.
-func TestPatchListsARenameAtItsNewPath(t *testing.T) {
+// A deleted file is listed with git's D, so the review counts and marks it as
+// deleted, and its patch is the removal of every line.
+func TestChangesMarkADeletedFileAndPatchRemovesIt(t *testing.T) {
 	dir, service := repo(t)
 	ctx := context.Background()
-	if err := os.MkdirAll(filepath.Join(dir, "cmd", "old"), 0o755); err != nil {
+	if err := os.Remove(filepath.Join(dir, "kept.txt")); err != nil {
 		t.Fatal(err)
 	}
-	body := "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(1)\n\tfmt.Println(2)\n\tfmt.Println(3)\n}\n"
-	write(t, dir, "cmd/old/main.go", body)
-	commit(t, dir, "add")
-	base := strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD"))
-	if err := os.Rename(filepath.Join(dir, "cmd", "old"), filepath.Join(dir, "cmd", "new")); err != nil {
-		t.Fatal(err)
-	}
-	write(t, dir, "cmd/new/main.go", strings.Replace(body, "(3)", "(4)", 1))
-	commit(t, dir, "move")
 
-	files, err := service.Patch(ctx, dir, base, "HEAD", "")
+	changes, err := service.Changes(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files.Files) != 1 {
-		t.Fatalf("files = %+v, want the one moved file", files.Files)
+	if len(changes) != 1 || changes[0].Path != "kept.txt" || changes[0].Code != " D" || changes[0].Deletions != 3 {
+		t.Fatalf("changes = %+v, want kept.txt \" D\" -3", changes)
 	}
-	got := files.Files[0]
-	if got.Path != "cmd/new/main.go" || got.Additions != 1 || got.Deletions != 1 {
-		t.Errorf("file = %+v, want cmd/new/main.go +1 -1", got)
+
+	patch, err := service.Patch(ctx, dir, "HEAD", "", "kept.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(patch.Text, "deleted file mode") || !strings.Contains(patch.Text, "-three") {
+		t.Errorf("patch is not a deletion:\n%s", patch.Text)
 	}
 }
 
-func gitOut(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
+// A new folder's files are listed one by one with their lines, as the header's
+// totals count them; status alone would name only the folder.
+func TestChangesListsEachUntrackedFileWithItsLines(t *testing.T) {
+	dir, service := repo(t)
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Join(dir, "web"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return string(out)
+	write(t, dir, "web/index.html", "<p>\n</p>\n")
+	write(t, dir, "web/app.js", "go()\n")
+
+	changes, err := service.Changes(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]FileChange{}
+	for _, change := range changes {
+		byPath[change.Path] = change
+	}
+	if len(changes) != 2 || byPath["web/index.html"].Code != "??" || byPath["web/index.html"].Additions != 2 ||
+		byPath["web/app.js"].Additions != 1 {
+		t.Errorf("changes = %+v, want both files ?? with their lines", changes)
+	}
+
+	working, err := service.Diff(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working.FilesChanged != len(changes) {
+		t.Errorf("totals count %d files, the list %d", working.FilesChanged, len(changes))
+	}
 }
 
 // A revision starting with a dash would reach git as an option: `--output=`
@@ -173,7 +185,7 @@ func TestPatchRefusesARevisionThatIsAnOption(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "overwritten")
 
 	for _, args := range [][2]string{{"--output=" + target, ""}, {"HEAD", "--output=" + target}} {
-		_, err := service.Patch(ctx, dir, args[0], args[1], "")
+		_, err := service.Patch(ctx, dir, args[0], args[1], "kept.txt")
 		if !errors.Is(err, ErrInvalidMutation) || errkind.Of(err) != errkind.Invalid {
 			t.Errorf("Patch(%q, %q) = %v, want invalid", args[0], args[1], err)
 		}

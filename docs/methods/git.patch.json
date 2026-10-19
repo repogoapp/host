@@ -1,13 +1,4 @@
 {
-  "files": [
-    {
-      "path": "path",
-      "code": "code",
-      "additions": 1,
-      "deletions": 1,
-      "binary": true
-    }
-  ],
   "text": "text",
   "truncated": true
 }
