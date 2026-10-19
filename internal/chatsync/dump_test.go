@@ -125,7 +125,6 @@ func writePages(t *testing.T, db *store.Store, wire *chatwire.Builder, id store.
 		if err != nil {
 			t.Fatal(err)
 		}
-		page.HostID = "bench"
 		if err := enc.Encode(wire.Page(page)); err != nil {
 			t.Fatal(err)
 		}

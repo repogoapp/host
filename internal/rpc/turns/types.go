@@ -21,13 +21,28 @@ type ResetResult struct {
 	Outcome string `json:"outcome"`
 }
 
+// TurnParams names the turn turns.get, turns.stop, turns.remove_queued and
+// turns.send_queued act on.
 type TurnParams struct {
 	TurnID string `json:"turn_id"`
 }
 
-// StopParams stops a running turn, or drops one still queued.
-type StopParams struct {
-	TurnID string `json:"turn_id"`
+// Turn is a turn as the phone follows it: whether it opened its chat
+// (SessionID set), how it ended, and what it waits on.
+type Turn struct {
+	TurnID    string          `json:"turn_id"`
+	ChatID    string          `json:"chat_id"`
+	State     agent.TurnState `json:"state"`
+	SessionID string          `json:"session_id,omitempty"`
+	Error     string          `json:"error,omitempty"`
+
+	// The prompt the turn is blocked on, so a device that arrives late (voice
+	// starting) learns it from turns.list without having watched the chat.
+	Approval *agent.Approval `json:"approval,omitempty"`
+}
+
+func turnOf(s agent.TurnStatus) Turn {
+	return Turn{TurnID: s.TurnID, ChatID: s.ChatID, State: s.State, SessionID: s.SessionID, Error: s.Error, Approval: s.Approval}
 }
 
 // EditQueuedParams replaces a queued turn's prompt while it still waits; a
@@ -37,14 +52,8 @@ type EditQueuedParams struct {
 	Prompt string `json:"prompt"`
 }
 
-// RemoveQueuedParams drops a turn only while it still waits, so a queue row
-// acted on late cannot stop the turn it has become.
-type RemoveQueuedParams struct {
-	TurnID string `json:"turn_id"`
-}
-
 type TurnsResult struct {
-	Turns []agent.TurnStatus `json:"turns"`
+	Turns []Turn `json:"turns"`
 }
 
 type RespondParams struct {

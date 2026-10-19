@@ -41,10 +41,6 @@ type Deps struct {
 	Turns    TurnStream
 	Log      *slog.Logger
 
-	// HostID stamps pushed pages, so a pushed page and a fetched one describe
-	// themselves identically.
-	HostID device.ID
-
 	// Attention reports what every paired device should hear about any chat:
 	// approvals, questions, answers and turn ends; attention.go.
 	Attention func(Attention)
@@ -61,8 +57,7 @@ type Manager struct {
 	wire     *chatwire.Builder
 	log      *slog.Logger
 
-	hostID device.ID
-	turns  TurnStream
+	turns TurnStream
 
 	// Every push leaves through here. A chat's watchers are its room, and the
 	// in-flight snapshot and blocked prompt are room state a late subscriber
@@ -121,7 +116,7 @@ type tail struct {
 func New(ctx context.Context, d Deps) *Manager {
 	return &Manager{
 		ctx: ctx, sessions: d.Sessions, db: d.Store, emit: d.Emit, turns: d.Turns, log: d.Log, wire: d.Wire,
-		hostID: d.HostID, onAttention: d.Attention,
+		onAttention: d.Attention,
 
 		tails:       map[device.ID]*tail{},
 		toolWatches: map[device.ID]map[store.ChatID]map[string]bool{},
@@ -383,7 +378,6 @@ func (m *Manager) flush(ctx context.Context, caller device.ID, chatID store.Chat
 		if len(page.Events) == 0 {
 			return cursor, nil
 		}
-		page.HostID = string(m.hostID)
 		if err := m.emit.To(caller, Appended{Page: m.wire.Page(page)}); err != nil {
 			return cursor, err
 		}

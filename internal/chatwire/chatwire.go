@@ -22,10 +22,9 @@ type Page struct {
 	ChatID store.ChatID `json:"chat_id"`
 	Events []Message    `json:"events" wire:"array"`
 
-	// Where the conversation is happening. HostID is stamped by the transport.
-	HostID string `json:"host_id,omitempty"`
-	Cwd    string `json:"cwd"`
-	Agent  string `json:"agent"`
+	// Where the conversation is happening.
+	Cwd   string `json:"cwd"`
+	Agent string `json:"agent"`
 	// ProjectAgent is which of the project's own agents the chat runs; see
 	// store.Chat.
 	ProjectAgent string `json:"project_agent,omitempty"`
@@ -130,9 +129,6 @@ type ToolDetail struct {
 	Input  json.RawMessage `json:"input,omitempty"`
 	Output string          `json:"output,omitempty"`
 
-	// OutputBytes is the output's full size when it was cut to MaxOutput.
-	OutputBytes int `json:"output_bytes,omitempty"`
-
 	// Result is what the agent recorded beyond the output: exit code, time,
 	// stderr, a cell's commands, a search's links. Only the sheet gets it.
 	Result *agent.ToolResult `json:"result,omitempty"`
@@ -160,7 +156,7 @@ func New(labelers []Labeler) *Builder {
 func (b *Builder) Page(p store.Page) Page {
 	return Page{
 		ChatID: p.ChatID, Events: b.Messages(agent.Kind(p.Agent), p.Events),
-		HostID: p.HostID, Cwd: p.Cwd, Agent: p.Agent, ProjectAgent: p.ProjectAgent, Generation: p.Generation,
+		Cwd: p.Cwd, Agent: p.Agent, ProjectAgent: p.ProjectAgent, Generation: p.Generation,
 		EventCount: p.EventCount, NextIndex: p.NextIndex, FirstIndex: p.FirstIndex, HasBefore: p.HasBefore,
 	}
 }
@@ -250,12 +246,7 @@ func (b *Builder) detail(kind agent.Kind, call agent.ToolCall, finished bool) To
 	if l, ok := b.labelers[kind]; ok {
 		call = l.Resolve(call)
 	}
-	d := ToolDetail{CallID: call.CallID, Name: call.Name, State: state, Input: call.Input, Output: call.Output, Result: capped(call.Result)}
-	if len(d.Output) > MaxOutput {
-		d.OutputBytes = len(d.Output)
-		d.Output = cut(d.Output)
-	}
-	return d
+	return ToolDetail{CallID: call.CallID, Name: call.Name, State: state, Input: call.Input, Output: cut(call.Output), Result: capped(call.Result)}
 }
 
 // capped is r with its stderr and each command's output cut to MaxOutput,

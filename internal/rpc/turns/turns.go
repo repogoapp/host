@@ -49,14 +49,21 @@ func (d Deps) reset(ctx context.Context, _ rpc.Caller, a ResetParams) (ResetResu
 }
 
 func (d Deps) list(context.Context, rpc.Caller, rpc.None) (TurnsResult, error) {
-	return TurnsResult{Turns: d.Runner.List()}, nil
+	all := d.Runner.List()
+	turns := make([]Turn, len(all))
+	for i, s := range all {
+		turns[i] = turnOf(s)
+	}
+	return TurnsResult{Turns: turns}, nil
 }
 
-func (d Deps) get(_ context.Context, _ rpc.Caller, a TurnParams) (agent.TurnStatus, error) {
-	return d.Runner.Status(a.TurnID)
+func (d Deps) get(_ context.Context, _ rpc.Caller, a TurnParams) (Turn, error) {
+	s, err := d.Runner.Status(a.TurnID)
+	return turnOf(s), err
 }
 
-func (d Deps) stop(_ context.Context, _ rpc.Caller, a StopParams) (rpc.Ack, error) {
+// stop stops a running turn, or drops one still queued.
+func (d Deps) stop(_ context.Context, _ rpc.Caller, a TurnParams) (rpc.Ack, error) {
 	return rpc.OK, d.Runner.Stop(a.TurnID)
 }
 
@@ -68,10 +75,13 @@ func (d Deps) editQueued(_ context.Context, _ rpc.Caller, a EditQueuedParams) (r
 	return rpc.OK, d.Runner.EditQueued(a.TurnID, a.Prompt)
 }
 
-func (d Deps) removeQueued(_ context.Context, _ rpc.Caller, a RemoveQueuedParams) (rpc.Ack, error) {
+// removeQueued drops a turn only while it still waits, so a queue row acted
+// on late cannot stop the turn it has become.
+func (d Deps) removeQueued(_ context.Context, _ rpc.Caller, a TurnParams) (rpc.Ack, error) {
 	return rpc.OK, d.Runner.RemoveQueued(a.TurnID)
 }
 
-func (d Deps) sendQueued(_ context.Context, c rpc.Caller, a TurnParams) (agent.TurnStatus, error) {
-	return d.Runner.SendQueued(a.TurnID, c.Device)
+func (d Deps) sendQueued(_ context.Context, c rpc.Caller, a TurnParams) (Turn, error) {
+	s, err := d.Runner.SendQueued(a.TurnID, c.Device)
+	return turnOf(s), err
 }

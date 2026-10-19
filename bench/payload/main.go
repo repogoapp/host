@@ -286,7 +286,7 @@ func main() {
 		used++
 		msgs := store.MessagesOf(events)
 		lo := max(0, len(msgs)-40)
-		page := store.Page{ChatID: store.ChatID(meta.ID), Events: msgs[lo:], HostID: "h", Cwd: meta.Cwd,
+		page := store.Page{ChatID: store.ChatID(meta.ID), Events: msgs[lo:], Cwd: meta.Cwd,
 			Agent: string(meta.Agent), Generation: 1, EventCount: len(msgs), NextIndex: len(msgs), FirstIndex: lo, HasBefore: lo > 0}
 
 		t := time.Now()

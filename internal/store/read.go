@@ -169,11 +169,9 @@ type Page struct {
 	ChatID ChatID    `json:"chat_id"`
 	Events []Message `json:"events"`
 
-	// Where the conversation is happening. A project is addressed by (host, cwd);
-	// HostID is stamped by the transport, not the cache.
-	HostID string `json:"host_id,omitempty"`
-	Cwd    string `json:"cwd"`
-	Agent  string `json:"agent"`
+	// Where the conversation is happening.
+	Cwd   string `json:"cwd"`
+	Agent string `json:"agent"`
 	// ProjectAgent is which of the project's own agents the chat runs; see Chat.
 	ProjectAgent string `json:"project_agent,omitempty"`
 

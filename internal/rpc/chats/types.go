@@ -92,8 +92,7 @@ type ToolsSubscribeParams struct {
 }
 
 type ToolsSubscribeResult struct {
-	ChatID store.ChatID          `json:"chat_id"`
-	Tools  []chatwire.ToolDetail `json:"tools" wire:"array"`
+	Tools []chatwire.ToolDetail `json:"tools" wire:"array"`
 }
 
 type ToolsUnsubscribeParams struct {
@@ -106,15 +105,14 @@ type SubagentParams struct {
 	CallID string       `json:"call_id"`
 }
 
+// SubagentResult is a subagent's steps: its type and name for the page's
+// header, and its rows in chats.messages' shape.
 type SubagentResult struct {
-	ChatID store.ChatID       `json:"chat_id"`
-	CallID string             `json:"call_id"`
 	Kind   string             `json:"kind"`
 	Name   string             `json:"name"`
 	Events []chatwire.Message `json:"events" wire:"array"`
 	// Tools is every step's call whole: a subagent's page is itself a sheet.
-	Tools  []chatwire.ToolDetail `json:"tools" wire:"array"`
-	HostID string                `json:"host_id"`
+	Tools []chatwire.ToolDetail `json:"tools" wire:"array"`
 }
 
 type SendParams struct {

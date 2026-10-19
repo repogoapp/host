@@ -46,7 +46,7 @@ func toolRow(t *testing.T, kind string, call agent.ToolCall) store.Message {
 func TestPageCarriesLabelsNotPayloads(t *testing.T) {
 	b := New([]Labeler{fake{"claude"}})
 	page := b.Page(store.Page{
-		ChatID: "claude:s1", HostID: "h", Cwd: "/repo", Agent: "claude", Generation: 3,
+		ChatID: "claude:s1", Cwd: "/repo", Agent: "claude", Generation: 3,
 		EventCount: 9, NextIndex: 9, FirstIndex: 6, HasBefore: true,
 		Events: []store.Message{
 			{Index: 6, Kind: "text", Turn: "t1", Text: "Looking.", At: 100},
@@ -57,7 +57,7 @@ func TestPageCarriesLabelsNotPayloads(t *testing.T) {
 	})
 
 	want := Page{
-		ChatID: "claude:s1", HostID: "h", Cwd: "/repo", Agent: "claude", Generation: 3,
+		ChatID: "claude:s1", Cwd: "/repo", Agent: "claude", Generation: 3,
 		EventCount: 9, NextIndex: 9, FirstIndex: 6, HasBefore: true,
 		Events: []Message{
 			{Index: 6, Kind: "text", Turn: "t1", Text: "Looking.", At: 100},
@@ -212,14 +212,13 @@ func TestDetails(t *testing.T) {
 	}
 }
 
-// A long output is cut to MaxOutput, whole characters only, and says how
-// long it was.
+// A long output is cut to MaxOutput, whole characters only.
 func TestDetailOutputIsCut(t *testing.T) {
 	long := strings.Repeat("é", MaxOutput) // two bytes each
 	got := New(nil).Details("claude", []store.Message{
 		toolRow(t, "tool_result", agent.ToolCall{CallID: "a", Output: long}),
 	})[0]
-	if got.OutputBytes != len(long) || len(got.Output) != MaxOutput || !utf8.ValidString(got.Output) {
-		t.Errorf("output %d bytes (valid %v), output_bytes %d", len(got.Output), utf8.ValidString(got.Output), got.OutputBytes)
+	if len(got.Output) != MaxOutput || !utf8.ValidString(got.Output) {
+		t.Errorf("output %d bytes (valid %v)", len(got.Output), utf8.ValidString(got.Output))
 	}
 }

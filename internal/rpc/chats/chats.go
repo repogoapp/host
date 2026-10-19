@@ -107,9 +107,8 @@ func (d Deps) subagent(_ context.Context, _ rpc.Caller, a SubagentParams) (Subag
 	}
 	rows := store.MessagesOf(sub.Events)
 	return SubagentResult{
-		ChatID: a.ChatID, CallID: a.CallID, Kind: sub.Kind, Name: sub.Name,
+		Kind: sub.Kind, Name: sub.Name,
 		Events: d.Wire.Messages(a.ChatID.Kind(), rows), Tools: d.Wire.Details(a.ChatID.Kind(), rows),
-		HostID: string(d.Chats.Self()),
 	}, nil
 }
 
@@ -119,7 +118,7 @@ func (d Deps) toolsSubscribe(_ context.Context, c rpc.Caller, a ToolsSubscribePa
 		return ToolsSubscribeResult{}, err
 	}
 	d.Live.WatchTools(c.Device, a.ChatID, a.CallIDs)
-	return ToolsSubscribeResult{ChatID: a.ChatID, Tools: d.Wire.Details(a.ChatID.Kind(), rows)}, nil
+	return ToolsSubscribeResult{Tools: d.Wire.Details(a.ChatID.Kind(), rows)}, nil
 }
 
 func (d Deps) toolsUnsubscribe(_ context.Context, c rpc.Caller, a ToolsUnsubscribeParams) (rpc.Ack, error) {

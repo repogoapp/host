@@ -158,7 +158,6 @@ func (s *Service) Messages(id store.ChatID, p Page) (store.Page, error) {
 	default:
 		page, err = s.d.Cache.Messages(id, p.SinceIndex, p.Limit)
 	}
-	page.HostID = string(s.d.Self)
 	return page, err
 }
 
