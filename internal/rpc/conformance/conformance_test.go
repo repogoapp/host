@@ -42,7 +42,6 @@ func vocabulary(root string) []check {
 	return []check{
 		{method: "tools.logins", key: "waiting"},
 		{method: "tools.login_cancel", params: map[string]any{"kind": "gh"}, key: "ok"},
-		{method: "chats.neighbors", params: map[string]any{"chat_id": "claude:missing"}, key: "previous"},
 		{method: "chats.list", params: map[string]any{"limit": 5}, key: "chats"},
 		{method: "chats.info", params: map[string]any{"chat_id": "claude:missing"}, key: "id"},
 		{method: "chats.messages", params: map[string]any{"chat_id": "claude:missing", "tail": true}, key: "events"},

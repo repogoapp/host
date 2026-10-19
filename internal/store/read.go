@@ -436,41 +436,6 @@ func (s *Store) Chats(q ChatQuery) (ChatPage, error) {
 	return page, nil
 }
 
-// Neighbors is the row before and after one chat under a query: what the
-// transcript's arrows step to. Each side is a one-row page from the chat's own
-// sort key, so it stays exact however the list has moved. Nil with nothing there.
-func (s *Store) Neighbors(id ChatID, q ChatQuery) (previous, next *Chat, err error) {
-	chat, err := s.Info(id)
-	if err != nil {
-		return nil, nil, err
-	}
-	if q, err = q.withDefaults(); err != nil {
-		return nil, nil, err
-	}
-	q.Cursor, q.Limit = q.cursorAt(chat), 1
-
-	one := func(q ChatQuery) (*Chat, error) {
-		page, err := s.Chats(q)
-		if err != nil || len(page.Chats) == 0 {
-			return nil, err
-		}
-		return &page.Chats[0], nil
-	}
-	if next, err = one(q); err != nil {
-		return nil, nil, err
-	}
-	// The row before is the first row past the chat with the order flipped.
-	flipped := q
-	flipped.Order = OrderAsc
-	if q.Order == OrderAsc {
-		flipped.Order = OrderDesc
-	}
-	if previous, err = one(flipped); err != nil {
-		return nil, nil, err
-	}
-	return previous, next, nil
-}
-
 // Roots is every distinct folder a chat has run in or the user picked, most
 // recent first: the filesystem family's allowed set.
 func (s *Store) Roots() ([]string, error) {

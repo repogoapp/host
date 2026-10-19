@@ -152,46 +152,6 @@ func TestChatsSortByCreationAndPage(t *testing.T) {
 	}
 }
 
-func TestNeighborsFollowTheListOrder(t *testing.T) {
-	db := newStore(t)
-	write(t, db, "a", 100, 1)
-	write(t, db, "b", 300, 1)
-	write(t, db, "c", 200, 1)
-
-	// Newest first: b, c, a. The middle row has one on each side.
-	live := false
-	previous, next, err := db.Neighbors("claude:c", ChatQuery{Resolved: &live})
-	if err != nil {
-		t.Fatalf("neighbors: %v", err)
-	}
-	if previous == nil || previous.ID != "claude:b" || next == nil || next.ID != "claude:a" {
-		t.Fatalf("wrong neighbours of c: previous=%+v next=%+v", previous, next)
-	}
-
-	// The top row has nothing above it and the bottom nothing below.
-	if previous, next, _ = db.Neighbors("claude:b", ChatQuery{Resolved: &live}); previous != nil || next == nil || next.ID != "claude:c" {
-		t.Fatalf("wrong neighbours of b: previous=%+v next=%+v", previous, next)
-	}
-	if previous, next, _ = db.Neighbors("claude:a", ChatQuery{Resolved: &live}); previous == nil || previous.ID != "claude:c" || next != nil {
-		t.Fatalf("wrong neighbours of a: previous=%+v next=%+v", previous, next)
-	}
-
-	// Ascending by title (chat a, chat b, chat c): the same rows, read the
-	// other way, so the arrows follow whatever order the list showed.
-	if previous, next, _ = db.Neighbors("claude:b", ChatQuery{Sort: SortTitle, Order: OrderAsc}); previous == nil || previous.ID != "claude:a" || next == nil || next.ID != "claude:c" {
-		t.Fatalf("wrong title-order neighbours of b: previous=%+v next=%+v", previous, next)
-	}
-
-	// Scoped to one project, the chat is alone.
-	if previous, next, _ = db.Neighbors("claude:b", ChatQuery{Cwd: "/tmp/b"}); previous != nil || next != nil {
-		t.Fatalf("scoped neighbours: previous=%+v next=%+v", previous, next)
-	}
-
-	if _, _, err := db.Neighbors("claude:missing", ChatQuery{}); err == nil {
-		t.Fatal("neighbours of a missing chat did not fail")
-	}
-}
-
 func TestMessagesResumeFromCursor(t *testing.T) {
 	db := newStore(t)
 	write(t, db, "a", 100, 10)

@@ -36,7 +36,6 @@ func Register(r *rpc.Router, d Deps) {
 		rpc.Read, rpc.LiveOn("chats.changed", "chats.removed"))
 	// sync keeps the phone's copy of every chat row current from a cursor.
 	rpc.Add(r, "chats.sync", d.sync)
-	rpc.Add(r, "chats.neighbors", d.neighbors)
 	rpc.Add(r, "chats.messages", d.messages, rpc.Tool("A page of one chat's messages. "+
 		"tail with a limit reads the newest; before_index pages older."),
 		rpc.Read, rpc.LiveOn("chats.changed"))
@@ -84,11 +83,6 @@ func (d Deps) sync(ctx context.Context, _ rpc.Caller, a store.SyncParams) (store
 
 func (d Deps) info(_ context.Context, _ rpc.Caller, a ChatParams) (store.Chat, error) {
 	return d.Chats.Info(a.ChatID)
-}
-
-func (d Deps) neighbors(_ context.Context, _ rpc.Caller, a NeighborsParams) (NeighborsResult, error) {
-	previous, next, err := d.Chats.Neighbors(a.ChatID, a.store())
-	return NeighborsResult{Previous: previous, Next: next, HostID: string(d.Chats.Self())}, err
 }
 
 func (d Deps) messages(_ context.Context, _ rpc.Caller, a MessagesParams) (chatwire.Page, error) {

@@ -45,10 +45,6 @@ func TestAChildIsListedUnderItsParentOnly(t *testing.T) {
 	if err != nil || c.ParentID != "claude:parent" {
 		t.Fatalf("child row has parent %q (%v)", c.ParentID, err)
 	}
-	previous, next, err := db.Neighbors("claude:parent", ChatQuery{})
-	if err != nil || previous != nil || next != nil {
-		t.Fatalf("the parent's neighbors are %v, %v (%v); the child is not in the drawer", previous, next, err)
-	}
 }
 
 // A marks row holding only a parent survives clearing another mark and a

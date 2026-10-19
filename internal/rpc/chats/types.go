@@ -59,17 +59,6 @@ type ListResult struct {
 	NextCursor string       `json:"next_cursor"`
 }
 
-type NeighborsParams struct {
-	Query
-	ChatID store.ChatID `json:"chat_id"`
-}
-
-type NeighborsResult struct {
-	Previous *store.Chat `json:"previous"`
-	Next     *store.Chat `json:"next"`
-	HostID   string      `json:"host_id"`
-}
-
 type MessagesParams struct {
 	ChatID     store.ChatID `json:"chat_id" doc:"The chat's id, as chats.list gives it"`
 	SinceIndex int          `json:"since_index" doc:"Messages after this index"`

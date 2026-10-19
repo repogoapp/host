@@ -125,18 +125,6 @@ func (s *Service) stamp(c *store.Chat) { c.Stamp(string(s.d.Self), s.d.ModelLabe
 // saves every change to them.
 func (s *Service) Queue(id store.ChatID) (store.Queue, error) { return s.d.Cache.Queue(id) }
 
-// Neighbors is the row before and after one chat under the query the list was
-// read with: the transcript's up and down arrows, exact as rows move.
-func (s *Service) Neighbors(id store.ChatID, q store.ChatQuery) (previous, next *store.Chat, err error) {
-	previous, next, err = s.d.Cache.Neighbors(id, q)
-	for _, c := range []*store.Chat{previous, next} {
-		if c != nil {
-			s.stamp(c)
-		}
-	}
-	return previous, next, err
-}
-
 // Page selects a transcript read. A transcript opens at the bottom and pages
 // upward, so the two directions need separate cursors; absent both, this is
 // the live push cursor's read.

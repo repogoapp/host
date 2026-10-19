@@ -236,29 +236,6 @@ func TestDeleteAndPruneDropTheSearchRow(t *testing.T) {
 	}
 }
 
-// The transcript's arrows step through the search results, not the whole list.
-func TestNeighborsStayInsideASearch(t *testing.T) {
-	db := newStore(t)
-	for i, id := range []string{"a", "b", "c"} {
-		text := "other"
-		if id != "b" {
-			text = "sparkle"
-		}
-		err := db.Sync(session.Meta{Agent: agent.KindClaude, ID: id, Title: "Chat", Cwd: "/tmp",
-			UpdatedAt: time.UnixMilli(int64(1000 * (i + 1))), SizeBytes: 1}, []agent.Event{prompt(text)})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	previous, next, err := db.Neighbors("claude:c", ChatQuery{Search: "sparkle"})
-	if err != nil {
-		t.Fatalf("neighbors: %v", err)
-	}
-	if previous != nil || next == nil || next.ID != "claude:a" {
-		t.Errorf("neighbors of c = %v, %v; want nil and claude:a", previous, next)
-	}
-}
-
 // Agents write curly quotes and dashes; the tokenizer splits only on ASCII
 // punctuation, so the index holds them as ASCII and each word is findable.
 func TestSearchSeesThroughTypographicPunctuation(t *testing.T) {
