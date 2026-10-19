@@ -209,10 +209,10 @@ func (s *Service) newRecord(p *pending) record {
 	if strings.TrimSpace(p.project) != "" {
 		projects = append(projects, Root(p.project))
 	}
-	return record{Server: Server{
-		ID: serverID(p.url), Label: label, URL: p.url, Auth: p.auth,
-		Projects: projects, CreatedAt: time.Now().UnixMilli(),
-	}}
+	return record{
+		Server: Server{ID: serverID(p.url), Label: label, URL: p.url, Projects: projects},
+		Auth:   p.auth,
+	}
 }
 
 type grant struct {

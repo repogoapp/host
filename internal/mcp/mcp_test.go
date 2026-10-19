@@ -202,8 +202,8 @@ func TestOAuthServerSignsInWithPKCEAndRefreshes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if srv.Auth != AuthOAuth || up.issued.Load() != 1 {
-		t.Fatalf("server = %+v issued=%d", srv, up.issued.Load())
+	if s.servers[0].ID != srv.ID || s.servers[0].Auth != AuthOAuth || up.issued.Load() != 1 {
+		t.Fatalf("stored = %+v issued=%d", s.servers, up.issued.Load())
 	}
 
 	got := s.ForTurn(context.Background(), project)
@@ -412,7 +412,7 @@ func TestBuiltinIsOnUntilSwitchedOffForTheEnvironment(t *testing.T) {
 func TestAConnectedServerDoesNotTakeTheBuiltinsName(t *testing.T) {
 	s := open(t)
 	project := t.TempDir()
-	s.servers = []record{{Server: Server{ID: "x", Label: "RepoGo", URL: "https://example.com/mcp", Auth: AuthNone, Projects: []string{Root(project)}}}}
+	s.servers = []record{{Server: Server{ID: "x", Label: "RepoGo", URL: "https://example.com/mcp", Projects: []string{Root(project)}}, Auth: AuthNone}}
 	got := s.ForTurn(context.Background(), project)
 	if len(got) != 1 || got[0].Name == BuiltinID {
 		t.Fatalf("servers %+v", got)
@@ -421,7 +421,7 @@ func TestAConnectedServerDoesNotTakeTheBuiltinsName(t *testing.T) {
 
 func TestEmptyListingUsesArrays(t *testing.T) {
 	list := open(t).List("")
-	if list.Servers == nil || list.Builtins == nil || list.Installed == nil {
+	if list.Servers == nil || list.Builtins == nil {
 		t.Fatalf("required collections must be arrays: %+v", list)
 	}
 }

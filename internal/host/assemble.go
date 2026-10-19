@@ -71,8 +71,7 @@ func (h *Host) openAgents() error {
 		Context: h.ctx,
 		Root:    h.cfg.ProviderRoot,
 		Env:     []string{notify.OriginEnv + "=" + string(notify.OriginApp)},
-		// h.mcps is opened from the providers this builds, so after them; a
-		// turn cannot start before New returns.
+		// h.mcps is opened below; a turn cannot start before New returns.
 		MCP:   func(ctx context.Context, cwd string) []agent.MCPServer { return h.mcps.ForTurn(ctx, cwd) },
 		Tools: h.tools,
 		// Read when a session starts, so a phone's latest devices.hello counts.
@@ -95,7 +94,7 @@ func (h *Host) openAgents() error {
 		return err
 	}
 	h.onClose(h.agents.Close)
-	h.mcps, err = mcp.Open(h.state("mcp.json"), func(ev mcp.Changed) { h.toEveryPhone(ev) }, h.agents.MCP...)
+	h.mcps, err = mcp.Open(h.state("mcp.json"), func(ev mcp.Changed) { h.toEveryPhone(ev) })
 	if err != nil {
 		return err
 	}
@@ -263,8 +262,8 @@ func (h *Host) openChats() error {
 	wire := chatwire.New(h.agents.Labelers)
 	h.live = chatlive.New(h.ctx, chatlive.Deps{
 		Sessions: h.sessions, Store: h.db, Emit: h.emitter, Turns: h.mgr, Log: h.log,
-		HostID: h.devices.Identity().ID, Attention: h.announcer.Attention,
-		Wire: wire,
+		Attention: h.announcer.Attention,
+		Wire:      wire,
 	})
 	// Terminal turns stream through the MessageDisplay hook; Stop closes them.
 	h.bridge, err = notify.NewBridge(h.state("notify"), h.recordHook, h.live.Display, h.agents.Hooks...)

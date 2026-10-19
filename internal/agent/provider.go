@@ -25,7 +25,6 @@ const (
 	CapabilityUsageReset = "usage_reset"
 	CapabilityHistory    = "history"
 	CapabilityHooks      = "hooks"
-	CapabilityMCP        = "mcp"
 	CapabilityShipping   = "shipping"
 )
 

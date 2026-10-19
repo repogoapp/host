@@ -13,7 +13,6 @@ import (
 	"github.com/repogoapp/host/internal/agentusage"
 	"github.com/repogoapp/host/internal/chatwire"
 	"github.com/repogoapp/host/internal/clitool"
-	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/session"
@@ -40,7 +39,6 @@ type Registry struct {
 	Usage    []agentusage.Provider
 	Sessions []session.Provider
 	Hooks    []notify.Provider
-	MCP      []mcp.Provider
 	Shipping []shipping.Provider
 	Labelers []chatwire.Labeler
 	// ProjectAgents lists each project's own agents for the picker.
@@ -92,10 +90,6 @@ func Construct(deps agent.Dependencies, factories ...Factory) (*Registry, error)
 		if c, ok := p.(notify.HookSource); ok {
 			r.Hooks = append(r.Hooks, c.Hooks())
 			caps = append(caps, agent.CapabilityHooks)
-		}
-		if c, ok := p.(mcp.Provider); ok {
-			r.MCP = append(r.MCP, c)
-			caps = append(caps, agent.CapabilityMCP)
 		}
 		if c, ok := p.(chatwire.Labeler); ok {
 			r.Labelers = append(r.Labelers, c)

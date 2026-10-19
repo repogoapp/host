@@ -19,17 +19,16 @@ type ServerParams struct {
 	ID string `json:"id"`
 }
 
-// ListParams' project is optional: with one, the agents' own servers for it
-// are listed too, and root is the project a server's switch lands on for it.
+// ListParams' project is optional: with one, root is the project a server's
+// switch lands on for it.
 type ListParams struct {
 	Project string `json:"project"`
 }
 
 type ListResult struct {
-	Servers   []mcpcore.Server    `json:"servers" wire:"array"`
-	Builtins  []mcpcore.Builtin   `json:"builtins" wire:"array"`
-	Installed []mcpcore.Installed `json:"installed" wire:"array"`
-	Root      string              `json:"root,omitempty"`
+	Servers  []mcpcore.Server  `json:"servers" wire:"array"`
+	Builtins []mcpcore.Builtin `json:"builtins" wire:"array"`
+	Root     string            `json:"root,omitempty"`
 }
 
 type ProbeParams struct {
@@ -41,10 +40,6 @@ type ProbeParams struct {
 type ConnectParams struct {
 	ProbeID string `json:"probe_id"`
 	APIKey  string `json:"api_key,omitempty"`
-}
-
-type ServerResult struct {
-	Server mcpcore.Server `json:"server"`
 }
 
 type OAuthStartParams struct {
@@ -104,16 +99,17 @@ func Register(r *rpc.Router, d Deps) {
 
 func (d Deps) list(_ context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {
 	l := d.MCP.List(a.Project)
-	return ListResult{Servers: l.Servers, Builtins: l.Builtins, Installed: l.Installed, Root: l.Root}, nil
+	return ListResult{Servers: l.Servers, Builtins: l.Builtins, Root: l.Root}, nil
 }
 
 func (d Deps) probe(ctx context.Context, _ rpc.Caller, a ProbeParams) (mcpcore.Probe, error) {
 	return d.MCP.Probe(ctx, a.URL, a.Label, a.Project)
 }
 
-func (d Deps) connect(_ context.Context, _ rpc.Caller, a ConnectParams) (ServerResult, error) {
-	srv, err := d.MCP.Connect(a.ProbeID, a.APIKey)
-	return ServerResult{Server: srv}, err
+// connect and oauthFinish answer only ok: mcp.changed carries the new list.
+func (d Deps) connect(_ context.Context, _ rpc.Caller, a ConnectParams) (rpc.Ack, error) {
+	_, err := d.MCP.Connect(a.ProbeID, a.APIKey)
+	return rpc.OK, err
 }
 
 func (d Deps) oauthStart(ctx context.Context, _ rpc.Caller, a OAuthStartParams) (OAuthStartResult, error) {
@@ -121,9 +117,9 @@ func (d Deps) oauthStart(ctx context.Context, _ rpc.Caller, a OAuthStartParams) 
 	return OAuthStartResult{AuthorizeURL: u, State: state}, err
 }
 
-func (d Deps) oauthFinish(ctx context.Context, _ rpc.Caller, a OAuthFinishParams) (ServerResult, error) {
-	srv, err := d.MCP.OAuthFinish(ctx, a.ProbeID, a.Code, a.State)
-	return ServerResult{Server: srv}, err
+func (d Deps) oauthFinish(ctx context.Context, _ rpc.Caller, a OAuthFinishParams) (rpc.Ack, error) {
+	_, err := d.MCP.OAuthFinish(ctx, a.ProbeID, a.Code, a.State)
+	return rpc.OK, err
 }
 
 func (d Deps) rename(_ context.Context, _ rpc.Caller, a RenameParams) (rpc.Ack, error) {

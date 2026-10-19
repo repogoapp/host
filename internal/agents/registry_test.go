@@ -33,7 +33,7 @@ func TestRegistryConstructsIsolatedProviders(t *testing.T) {
 	defer b.Close()
 	// Claude, Codex and ACP run turns and keep history; ACP has no CLI to install,
 	// sign in, or read models, usage and hooks from.
-	if len(a.Agents) != 3 || len(a.Adapters) != 3 || len(a.Sessions) != 3 || len(a.Providers) != 2 || len(a.Hooks) != 2|| len(a.Catalogs) != 2 || len(a.Usage) != 2 || len(a.MCP) != 2 || len(a.Shipping) != 2 {
+	if len(a.Agents) != 3 || len(a.Adapters) != 3 || len(a.Sessions) != 3 || len(a.Providers) != 2 || len(a.Hooks) != 2|| len(a.Catalogs) != 2 || len(a.Usage) != 2 || len(a.Shipping) != 2 {
 		t.Fatalf("incomplete registry: %+v", a)
 	}
 	for i, p := range a.Tools() {
@@ -92,7 +92,7 @@ func TestDirectProviderApprovalStopAndAbsentCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if len(r.Adapters) != 1 || len(r.Catalogs)+len(r.Usage)+len(r.Sessions)+len(r.Hooks)+len(r.MCP) != 0 {
+	if len(r.Adapters) != 1 || len(r.Catalogs)+len(r.Usage)+len(r.Sessions)+len(r.Hooks) != 0 {
 		t.Fatal("absent capabilities were synthesized")
 	}
 	if got := agentcatalog.New(discard(), r.Catalogs...).One(t.Context(), "direct", agentcatalog.Install{}, false); got.Available || got.Agent != "direct" {

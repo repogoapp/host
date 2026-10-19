@@ -72,7 +72,7 @@ func vocabulary(root string) []check {
 		{method: "chats.sync", params: map[string]any{}, key: "upsert"},
 		{method: "projects.list", key: "projects"},
 		{method: "agents.list", params: map[string]any{"project": root}, key: "agents"},
-		{method: "mcp.list", params: map[string]any{"project": root}, key: "installed"},
+		{method: "mcp.list", params: map[string]any{"project": root}, key: "root"},
 		{method: "mcp.rename", params: map[string]any{"id": "missing", "label": "x"}, key: "ok"},
 		{method: "mcp.set_enabled", params: map[string]any{"id": "missing", "project": root, "enabled": true}, key: "ok"},
 		{method: "mcp.remove", params: map[string]any{"id": "missing"}, key: "ok"},

@@ -96,7 +96,7 @@ func connected(t *testing.T, up *toolServer) (*Service, string) {
 	t.Helper()
 	s := open(t)
 	project := t.TempDir()
-	r := record{Server: Server{ID: serverID(up.URL), Label: "Neon", URL: up.URL, Auth: AuthNone, Projects: []string{project}}}
+	r := record{Server: Server{ID: serverID(up.URL), Label: "Neon", URL: up.URL, Projects: []string{project}}, Auth: AuthNone}
 	if _, err := s.put(r); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestKeysNameOnlyCallableServers(t *testing.T) {
 	if got := s.Keys(t.TempDir()); len(got) != 0 {
 		t.Errorf("a project nothing is switched on for has %v", got)
 	}
-	locked := record{Server: Server{ID: "x", Label: "Locked", URL: "https://example.com", Auth: AuthAPIKey, Projects: []string{project}}}
+	locked := record{Server: Server{ID: "x", Label: "Locked", URL: "https://example.com", Projects: []string{project}}, Auth: AuthAPIKey}
 	if _, err := s.put(locked); err != nil {
 		t.Fatal(err)
 	}

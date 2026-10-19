@@ -41,19 +41,18 @@ const (
 
 // Server is what a device sees: never a credential.
 type Server struct {
-	ID    string   `json:"id"`
-	Label string   `json:"label"`
-	URL   string   `json:"url"`
-	Auth  AuthKind `json:"auth"`
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	URL   string `json:"url"`
 	// Project roots this server is switched on for. Opt-in: a server costs
 	// context in every turn it rides, so it is on only where the user said.
-	Projects  []string `json:"projects" wire:"array"`
-	CreatedAt int64    `json:"created_at"`
+	Projects []string `json:"projects" wire:"array"`
 }
 
 // record is a Server as stored, with what it takes to call it.
 type record struct {
 	Server
+	Auth AuthKind `json:"auth"`
 	// Set when an API key goes in a header other than Authorization.
 	HeaderName string       `json:"header_name,omitempty"`
 	OAuth      *oauthClient `json:"oauth,omitempty"`
@@ -88,9 +87,8 @@ type file struct {
 }
 
 type Service struct {
-	path      string
-	providers []Provider
-	http      *http.Client
+	path string
+	http *http.Client
 	// calls is for tools, which may run longer than a sign-in step.
 	calls *http.Client
 
@@ -109,15 +107,14 @@ type Service struct {
 
 // Open loads path, 0600 because it holds the users' credentials for other
 // services. changed is told the whole list after every change, for mcp.changed.
-func Open(path string, changed func(Changed), providers ...Provider) (*Service, error) {
+func Open(path string, changed func(Changed)) (*Service, error) {
 	s := &Service{
-		path:      path,
-		onChange:  changed,
-		providers: providers,
-		http:      &http.Client{Timeout: 15 * time.Second},
-		calls:     &http.Client{Timeout: time.Minute},
-		pending:   map[string]*pending{},
-		sessions:  map[string]*session{},
+		path:     path,
+		onChange: changed,
+		http:     &http.Client{Timeout: 15 * time.Second},
+		calls:    &http.Client{Timeout: time.Minute},
+		pending:  map[string]*pending{},
+		sessions: map[string]*session{},
 	}
 	var f file
 	if _, err := apphome.ReadJSON(path, &f); err != nil {
@@ -128,13 +125,11 @@ func Open(path string, changed func(Changed), providers ...Provider) (*Service, 
 }
 
 // Listing is every connected server, by label, and the built-ins. Given a
-// project, it also has the agents' own servers there, and Root is the project
-// a switch lands on.
+// project, Root is the project a switch lands on.
 type Listing struct {
-	Servers   []Server
-	Builtins  []Builtin
-	Installed []Installed
-	Root      string
+	Servers  []Server
+	Builtins []Builtin
+	Root     string
 }
 
 func (s *Service) List(project string) Listing {
@@ -145,7 +140,7 @@ func (s *Service) List(project string) Listing {
 	s.mu.Lock()
 	servers, on := s.publicLocked(), s.builtinsLocked()
 	s.mu.Unlock()
-	return Listing{Servers: servers, Builtins: on, Installed: s.installed(root), Root: root}
+	return Listing{Servers: servers, Builtins: on, Root: root}
 }
 
 func (s *Service) builtinsLocked() []Builtin {

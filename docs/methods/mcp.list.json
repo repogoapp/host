@@ -4,11 +4,9 @@
       "id": "id",
       "label": "label",
       "url": "url",
-      "auth": "auth",
       "projects": [
         "projects"
-      ],
-      "created_at": 1
+      ]
     }
   ],
   "builtins": [
@@ -17,15 +15,6 @@
       "label": "label",
       "description": "description",
       "on": true
-    }
-  ],
-  "installed": [
-    {
-      "name": "name",
-      "agent": "agent",
-      "scope": "scope",
-      "transport": "transport",
-      "target": "target"
     }
   ],
   "root": "root"
