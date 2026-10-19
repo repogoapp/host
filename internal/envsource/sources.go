@@ -30,7 +30,7 @@ var (
 // MaxBytes bounds a dotenv file; anything bigger is not one.
 const MaxBytes = 256 << 10
 
-// Why a handle could not be read, as EnvReadResult.error.
+// Why a handle could not be read, as ReadResult.error.
 const (
 	NotBound   = "not_bound"
 	Missing    = "missing"
@@ -46,10 +46,11 @@ type Source struct {
 	Exists bool   `json:"exists"`
 }
 
-// ReadResult is one handle's variables, or why there are none.
+// ReadResult is one handle's variables, or why there are none. Only a
+// successful read carries vars, so a failure sends no values at all.
 type ReadResult struct {
 	OK    bool              `json:"ok"`
-	Vars  map[string]string `json:"vars"`
+	Vars  map[string]string `json:"vars,omitempty"`
 	Error string            `json:"error,omitempty"`
 }
 
@@ -161,12 +162,12 @@ func (s *Sources) Read(handles []string) map[string]ReadResult {
 	for _, handle := range handles {
 		path, ok := paths[handle]
 		if !ok {
-			out[handle] = ReadResult{Vars: map[string]string{}, Error: NotBound}
+			out[handle] = ReadResult{Error: NotBound}
 			continue
 		}
 		b, code := s.load(path)
 		if code != "" {
-			out[handle] = ReadResult{Vars: map[string]string{}, Error: code}
+			out[handle] = ReadResult{Error: code}
 			continue
 		}
 		out[handle] = ReadResult{OK: true, Vars: Parse(string(b))}

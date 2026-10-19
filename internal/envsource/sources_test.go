@@ -126,8 +126,8 @@ func TestReadReportsEachHandle(t *testing.T) {
 		t.Errorf("Good = %+v", r)
 	}
 	for handle, want := range map[string]string{"gone": Missing, "turned": Binary, "unknown": NotBound} {
-		if r := got[handle]; r.OK || r.Error != want || r.Vars == nil {
-			t.Errorf("%s = %+v, want error %s and empty vars", handle, r, want)
+		if r := got[handle]; r.OK || r.Error != want || r.Vars != nil {
+			t.Errorf("%s = %+v, want error %s and no vars", handle, r, want)
 		}
 	}
 }
