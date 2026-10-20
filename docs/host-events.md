@@ -58,6 +58,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `error` string (omitted when empty)
 - `summary` string (omitted when empty)
 - `answerable` bool
+- `card` string (omitted when empty)
 
 ## `chats.changed`
 
@@ -110,6 +111,7 @@ Stateful, key `streaming`: the last one is handed to a device joining the room; 
 - `chat_id` string
 - `turn_id` string
 - `text` string
+- `prompt` string (omitted when empty)
 - `offset` int (omitted when empty) (nullable)
 - `done` bool
 - `started_at` int (omitted when empty)
@@ -130,6 +132,12 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `input` json (omitted when empty) (nullable)
 - `output` string (omitted when empty)
 - `result` object{ToolResult} (omitted when empty) (nullable)
+
+## `connect.changed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `flow` object{Flow}
 
 ## `devices.changed`
 

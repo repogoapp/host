@@ -38,8 +38,13 @@ type Inventory struct {
 	// Sign-ins waiting on a person at the provider's page, by kind.
 	logins   clilogin.Logins
 	onChange func()
-	log      *slog.Logger
+	// loginEnded hears which sign-in ended and how, set once at assembly.
+	loginEnded func(kind string, ok bool)
+	log        *slog.Logger
 }
+
+// OnLoginEnd tells f each sign-in's end by kind, however it was started.
+func (in *Inventory) OnLoginEnd(f func(kind string, ok bool)) { in.loginEnded = f }
 
 // NewInventory is an empty inventory; the host adds each tool. changed is
 // told when a sign-in ends, however it ended, and when an install or update

@@ -111,7 +111,7 @@ func (m *Manager) Display(f notify.DisplayFrame) {
 	m.log.Debug("chatlive: display frame", "chat", chatID, "turn", turnID,
 		"message", f.MessageID, "index", f.Index, "final", f.Final,
 		"chars", len(text), "watchers", watchers)
-	m.pushStream(chatID, turnID, text, false, timing)
+	m.pushStream(chatID, turnID, "", text, false, timing)
 }
 
 // openDisplayLocked returns the chat's terminal turn, closing a different open
@@ -127,7 +127,7 @@ func (m *Manager) openDisplayLocked(chatID store.ChatID, turnID string, at time.
 		m.displayDone[chatID] = old.turnID
 		m.mu.Unlock()
 		old.timing.EndedAt = at.UnixMilli()
-		m.pushStream(chatID, old.turnID, old.text.String(), true, old.timing)
+		m.pushStream(chatID, old.turnID, "", old.text.String(), true, old.timing)
 		m.mu.Lock()
 		t = nil
 	}
@@ -156,7 +156,7 @@ func (m *Manager) startDisplay(chatID store.ChatID, turnID string, at time.Time)
 	}
 	timing, text := t.timing, t.text.String()
 	m.mu.Unlock()
-	m.pushStream(chatID, turnID, text, false, timing)
+	m.pushStream(chatID, turnID, "", text, false, timing)
 }
 
 // noteDisplayWork marks a tool starting as the first sign of work, so the
@@ -177,7 +177,7 @@ func (m *Manager) noteDisplayWork(chatID store.ChatID, turnID string, at time.Ti
 	t.lastAt = at
 	timing, turnID, text := t.timing, t.turnID, t.text.String()
 	m.mu.Unlock()
-	m.pushStream(chatID, turnID, text, false, timing)
+	m.pushStream(chatID, turnID, "", text, false, timing)
 }
 
 // finishDisplay sends the closing snapshot for a terminal turn. `at` is the
@@ -198,7 +198,7 @@ func (m *Manager) finishDisplay(chatID store.ChatID, at time.Time, stopReason st
 	if ok {
 		t.timing.EndedAt = at.UnixMilli()
 		t.timing.StopReason = stopReason
-		m.pushStream(chatID, t.turnID, t.text.String(), true, t.timing)
+		m.pushStream(chatID, t.turnID, "", t.text.String(), true, t.timing)
 		return t.final.String()
 	}
 	return ""

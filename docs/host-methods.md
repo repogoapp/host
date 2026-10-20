@@ -109,6 +109,17 @@ Result:
 
 - `ok` bool
 
+## `catalog.read`
+
+Params:
+
+- `project` string: The project's folder; empty is the environment alone
+- `name` string: One plugin (plans) or MCP server (mcp:linear) to answer in full
+
+Result:
+
+- `text` string
+
 ## `chats.list`
 
 Tool (read): List the chats on this environment, newest activity first, filtered and sorted like the chat drawer. Empty cwd is every project.
@@ -417,6 +428,87 @@ Result:
 
 - `ok` bool
 
+## `connect.list`
+
+Tool (read): Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:<url>) or a CLI's sign-in (cli:<tool>); never with what.
+
+Live on: `connect.changed`
+
+Params:
+
+- `project` string: The project the card or agent is in
+- `targets` [object{Want}] (nullable): The targets to report on
+
+Result:
+
+- `connections` [object{Connection}]
+
+## `connect.get`
+
+Tool (read): A connect flow the user was shown: waiting, or how it ended.
+
+Live on: `connect.changed`
+
+Params:
+
+- `flow_id` string: The flow's id, as connect.start gave it
+
+Result:
+
+- `flow` object{Flow}
+
+## `connect.start`
+
+Params:
+
+- `project` string: The project the card or agent is in
+- `target` string: What to connect: env:<NAME>, mcp:<url> or cli:<tool>
+- `scope` string (omitted when empty): Which file an env key goes in: plugin:<name>, plugins, source:<handle> or project:<.env file>
+- `label` string (omitted when empty): The name an MCP server is listed and called by
+- `note` string (omitted when empty): A line on where to find the value
+- `help_url` string (omitted when empty): An https page where the value is found
+- `loopback` bool (omitted when empty): The MCP server only accepts a localhost redirect
+
+Result:
+
+- `flow` object{Flow}
+
+## `connect.submit`
+
+Params:
+
+- `flow_id` string
+- `step_id` string
+- `value` string
+
+Result:
+
+- `flow` object{Flow}
+
+## `connect.callback`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `state` string
+- `code` string (omitted when empty)
+- `error` string (omitted when empty)
+
+Result:
+
+- `flow` object{Flow}
+
+## `connect.cancel`
+
+Params:
+
+- `flow_id` string: The flow's id, as connect.start gave it
+
+Result:
+
+- `ok` bool
+
 ## `devices.list`
 
 Params:
@@ -450,6 +542,7 @@ Paired devices only: refused at the machine.
 Params:
 
 - `token` string
+- `service` string
 - `environment` string
 - `install_id` string (omitted when empty)
 - `grant` base64 (omitted when empty) (nullable)

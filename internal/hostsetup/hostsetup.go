@@ -68,27 +68,43 @@ func Snapshot(ctx context.Context, src Sources, refresh bool) Setup {
 	go func() {
 		defer wg.Done()
 		out.Tools = src.Tools.List(ctx)
-		out.Agents = agents(ctx, src, out.Tools, refresh)
+		out.Agents = []agentcatalog.Catalog{}
+		for _, a := range agents(ctx, src, out.Tools, refresh) {
+			out.Agents = append(out.Agents, a.Catalog)
+		}
 	}()
 	wg.Wait()
 	return out
 }
 
-func agents(ctx context.Context, src Sources, tools []clitool.Install, refresh bool) []agentcatalog.Catalog {
+// Agent is one agent CLI: whether it is installed and signed in, and what it
+// offers to pick.
+type Agent struct {
+	Install clitool.Install
+	Catalog agentcatalog.Catalog
+}
+
+// Agents reads every agent CLI's install and catalog, as Snapshot does.
+func Agents(ctx context.Context, src Sources, refresh bool) []Agent {
+	return agents(ctx, src, src.Tools.List(ctx), refresh)
+}
+
+func agents(ctx context.Context, src Sources, tools []clitool.Install, refresh bool) []Agent {
 	installs := []clitool.Install{}
 	for _, tool := range tools {
 		if tool.Category == clitool.CategoryAgent {
 			installs = append(installs, tool)
 		}
 	}
-	return par.Map(installs, 0, func(install clitool.Install) agentcatalog.Catalog {
+	return par.Map(installs, 0, func(install clitool.Install) Agent {
 		// A missing CLI has nothing to list, and asking would spawn nothing.
 		if !install.Installed {
 			out := agentcatalog.Unavailable()
 			out.Agent, out.Name = install.Kind, install.Name
-			return out
+			return Agent{Install: install, Catalog: out}
 		}
-		return src.Catalog.One(ctx, agent.Kind(install.Kind), catalogInstall(install, src.Tools.AccountKey(install.Kind)), refresh)
+		catalog := src.Catalog.One(ctx, agent.Kind(install.Kind), catalogInstall(install, src.Tools.AccountKey(install.Kind)), refresh)
+		return Agent{Install: install, Catalog: catalog}
 	})
 }
 

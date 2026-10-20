@@ -38,6 +38,11 @@ objects, methods via
 method(input, run, { kind: "query" }); a method that can't be undone
 takes confirm: "Restart {{machine}}?", filled from its input). A method gets ctx.root, the
 project's folder, and may read its files, run its CLIs or call APIs.
+A query that returns a list takes limit, with a default and a maximum
+in its schema (z.number().int().min(1).max(100).default(20)), and
+returns only what a card or the voice agent shows of each item: ids,
+titles, status. A get method returns one in full; long text (a body,
+a log) is cut short in a list.
 For a service the user connected in RepoGo as an MCP server, ctx.mcp(server,
 tool, input) runs its tools with the user's own sign-in: no key or CLI.
 For what keeps coming (log tails, build output, progress), write

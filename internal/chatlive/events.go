@@ -44,6 +44,10 @@ type Streaming struct {
 	TurnID string `json:"turn_id"`
 	Text   string `json:"text"`
 
+	// The message the turn answers, on whole snapshots only: a watcher can
+	// show it before the agent's own transcript records it, seconds later.
+	Prompt string `json:"prompt,omitempty"`
+
 	// Offset is where Text goes in the turn's text, in bytes, on a push that
 	// carries only what was added; without it, Text is the whole of it.
 	Offset *int `json:"offset,omitempty"`
@@ -69,7 +73,7 @@ func (s Streaming) Delta() emit.Event {
 		return s
 	}
 	from := s.from
-	s.Text, s.Offset = s.Text[from:], &from
+	s.Text, s.Offset, s.Prompt = s.Text[from:], &from, ""
 	return s
 }
 func (Streaming) StateKey() string { return "streaming" }
@@ -147,6 +151,9 @@ type Attention struct {
 	Summary string `json:"summary,omitempty"`
 	// False for a turn in the user's terminal: turns.respond cannot reach it.
 	Answerable bool `json:"answerable"`
+	// The card the phone's alert expands into for an ended turn it can answer:
+	// a reply box. Its state chat_id is set by the phone.
+	Card string `json:"card,omitempty"`
 }
 
 func (Attention) Method() string { return "chats.attention" }

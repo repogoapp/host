@@ -21,6 +21,7 @@ import (
 	"github.com/repogoapp/host/internal/chatwire"
 	"github.com/repogoapp/host/internal/clientprompt"
 	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/connect"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/envsource"
@@ -228,7 +229,7 @@ func (h *Host) sessionOpened(st agent.TurnStatus) {
 			h.log.Error("marking the chat's parent failed", "chat", st.ChatID, "parent", st.Parent, "err", err)
 		}
 	}
-	h.live.StreamTurn(store.ChatID(st.ChatID), st.TurnID)
+	h.live.StreamTurn(store.ChatID(st.ChatID), st.TurnID, st.Prompt)
 }
 
 // openChats opens the chat cache and wires the turn manager and hook bridge
@@ -390,6 +391,13 @@ func (h *Host) openProjects() error {
 	s.Actions = acts
 	s.Updates = hostupdate.New(update)
 	s.EnvSources = envSources
+	s.Connect = connect.New(connect.Deps{
+		Sources: envSources, PluginDir: s.Plugins.Dir, SharedEnv: filepath.Join(h.state("plugins"), ".env"),
+		Contain: projectFiles.Contain, MCP: h.mcps, CLIs: s.Tools,
+		Changed: func(c connect.Changed) { h.toEveryPhone(c) }, Now: time.Now,
+	})
+	s.Tools.OnLoginEnd(s.Connect.CLIEnded)
+	s.Home = h.cfg.Home
 	return nil
 }
 

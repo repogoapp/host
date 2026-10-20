@@ -53,7 +53,7 @@ func attentionHarness(t *testing.T) (*Manager, *fakeTurns, *attentionSink) {
 // and the end carries what the turn said.
 func TestAttentionFollowsAnAppTurn(t *testing.T) {
 	m, turns, sink := attentionHarness(t)
-	m.StreamTurn("claude:s1", "turn-1")
+	m.StreamTurn("claude:s1", "turn-1", "")
 
 	approval := &agent.Approval{CallID: "c1", Title: "Run ls", Kind: "execute",
 		Options: []agent.ApprovalOption{{OptionID: "allow", Name: "Allow", Kind: "allow_once"}}}
@@ -76,6 +76,9 @@ func TestAttentionFollowsAnAppTurn(t *testing.T) {
 	if got[2].Kind != AttentionFinished || got[2].Summary != "Fixed the build." || !got[2].Answerable {
 		t.Errorf("finished = %+v", got[2])
 	}
+	if got[0].Card != "" || !strings.Contains(got[2].Card, "repogo:chats.send") {
+		t.Errorf("only the end carries the reply card: approval %q, end %q", got[0].Card, got[2].Card)
+	}
 }
 
 func TestAttentionNamesHowATurnEnded(t *testing.T) {
@@ -90,7 +93,7 @@ func TestAttentionNamesHowATurnEnded(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, turns, sink := attentionHarness(t)
-			m.StreamTurn("claude:s1", "turn-1")
+			m.StreamTurn("claude:s1", "turn-1", "")
 			turns.ch <- tc.event
 			got := sink.wait(t, 1)
 			if got[0].Kind != tc.kind || got[0].Error != tc.err {
@@ -104,7 +107,7 @@ func TestAttentionNamesHowATurnEnded(t *testing.T) {
 // is kept whole apart from the streamed text.
 func TestAttentionSummaryOutlivesTheDisplayCap(t *testing.T) {
 	m, turns, sink := attentionHarness(t)
-	m.StreamTurn("claude:s1", "turn-1")
+	m.StreamTurn("claude:s1", "turn-1", "")
 	turns.ch <- agent.Event{Kind: agent.EventText, Text: strings.Repeat("a", maxStreamedChars) + "\n\n> Recap at the end."}
 	turns.ch <- agent.Event{Kind: agent.EventTurnFinished}
 	if got := sink.wait(t, 1); got[0].Summary != "Recap at the end." {
@@ -154,7 +157,7 @@ func TestAttentionFromTerminalHooks(t *testing.T) {
 		q.Questions[0].Text != "Which one?" || len(q.Questions[0].Options) != 2 {
 		t.Errorf("question = %+v", got[2])
 	}
-	if got[3].Kind != AttentionFinished || got[3].Summary != "Finished it." || got[3].Answerable {
+	if got[3].Kind != AttentionFinished || got[3].Summary != "Finished it." || got[3].Answerable || got[3].Card != "" {
 		t.Errorf("finished = %+v", got[3])
 	}
 

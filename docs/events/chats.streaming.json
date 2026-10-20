@@ -2,6 +2,7 @@
   "chat_id": "chat_id",
   "turn_id": "turn_id",
   "text": "text",
+  "prompt": "prompt",
   "offset": 1,
   "done": true,
   "started_at": 1,

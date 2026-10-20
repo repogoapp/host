@@ -8,6 +8,15 @@ Data method="plugin:<plugin>.<method>" subscribes and redraws whenever
   the answer changes, from any card, page or agent.
 plugin:<plugin>.<method> — a Button or Item action that runs a method.
   A method the plugin gave a confirm question asks it first.
+Upload: label and/or icon, variant like Button; accept="image/*|video/*|
+  application/pdf" (MIME types, default */*); multiple="true" for up to
+  10; action="plugin:<plugin>.<method>", Params and then as on Button.
+  A tap offers what accept allows (Take Photo, Record Video, Photo
+  Library, Choose File); the files go to the environment, then the method
+  runs with them as input files: [{ id, name, type, size, path }]. The
+  method declares files: z.array(upload()) from "@repogo/plugins" and
+  copies what it keeps from path, staged a day:
+  ctx.buckets.<name>.put({ body: Bun.file(file.path), name: file.name }).
 
 Example:
 ```ui

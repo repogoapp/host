@@ -1,0 +1,8 @@
+Agents:
+- Couldn't check them: it didn't answer in time
+Project agents:
+- Couldn't list them: manifest unreadable
+Plugins:
+- Couldn't list them: plugins: the runtime crashed
+MCP servers:
+- Couldn't list them: it didn't answer in time

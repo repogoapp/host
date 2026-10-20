@@ -1,0 +1,23 @@
+Agents:
+- Claude (claude): ready. Models: Opus (opus), Sonnet (sonnet). Default: opus.
+- Codex (codex): not signed in.
+- OpenCode (opencode): ready. Models: router/m00, router/m01, router/m02, router/m03, router/m04, router/m05, router/m06, router/m07, router/m08, router/m09, router/m10, router/m11, and 2 more.
+- Gemini CLI (gemini): not installed.
+Project agents:
+- Helper (helper): ready. Models: Sonnet (claude-sonnet-5-5). Default: claude-sonnet-5-5.
+- Grok (grok): broken: agent.json: no command
+Plugins:
+- plans, this project's: Plans for this project.
+  - plugin:plans.list(): Every plan.
+  - plugin:plans.move(id, status?): Move a plan to another column, keeping its place in the column it lands in, and tell every card showing plans so they redraw without a… Asks first.
+- vercel, the environment's
+  - plugin:vercel.deploys(project?)
+MCP servers:
+- Linear (mcp:linear):
+  - mcp:linear.get_issue(id, comments?): Get one issue.
+  - mcp:linear.save_issue(): Create or update an issue. Asks first.
+- Vercel (mcp:vercel): 20 tools; name "mcp:vercel" for each one.
+- Stripe (mcp:stripe): couldn't list its tools: 401 Unauthorized
+RepoGo:
+- repogo:actions.run(name?, path?): Run an action to the end and answer with its output.
+- repogo:git.status(): A project's branch and changes.

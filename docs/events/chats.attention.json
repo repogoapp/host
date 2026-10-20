@@ -35,5 +35,6 @@
   "call_id": "call_id",
   "error": "error",
   "summary": "summary",
-  "answerable": true
+  "answerable": true,
+  "card": "card"
 }

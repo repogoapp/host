@@ -16,6 +16,7 @@ import (
 	"github.com/repogoapp/host/internal/chatlive"
 	"github.com/repogoapp/host/internal/chatwire"
 	"github.com/repogoapp/host/internal/clitool"
+	connectcore "github.com/repogoapp/host/internal/connect"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/files"
@@ -36,7 +37,9 @@ import (
 	actionsrpc "github.com/repogoapp/host/internal/rpc/actions"
 	agentsrpc "github.com/repogoapp/host/internal/rpc/agents"
 	browserrpc "github.com/repogoapp/host/internal/rpc/browser"
+	catalogrpc "github.com/repogoapp/host/internal/rpc/catalog"
 	"github.com/repogoapp/host/internal/rpc/chats"
+	connectrpc "github.com/repogoapp/host/internal/rpc/connect"
 	"github.com/repogoapp/host/internal/rpc/devices"
 	envrpc "github.com/repogoapp/host/internal/rpc/env"
 	forwardrpc "github.com/repogoapp/host/internal/rpc/forward"
@@ -137,6 +140,11 @@ type Config struct {
 
 	// EnvSources is the dotenv files bound here.
 	EnvSources *envsource.Sources
+	// Connect is the keys the phone puts on this environment.
+	Connect *connectcore.Service
+
+	// Home is the user's home: an environment's catalog lists from it.
+	Home string
 
 	// Tunnels serves this host's public URLs.
 	Tunnels *tunnel.Service
@@ -156,10 +164,8 @@ func New(cfg Config) (*rpc.Router, error) {
 	}
 
 	r := rpc.New(cfg.Log)
-	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates,
-		Setup: hostsetup.Sources{
-			Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Catalog: cfg.AgentCatalog,
-		}})
+	setup := hostsetup.Sources{Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Catalog: cfg.AgentCatalog}
+	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates, Setup: setup})
 	turns.Register(r, turns.Deps{
 		Runner: cfg.Runner, Usage: cfg.AgentUsage,
 	})
@@ -177,6 +183,10 @@ func New(cfg Config) (*rpc.Router, error) {
 	agentsrpc.Register(r, agentsrpc.Deps{
 		Files: cfg.Files, Environment: cfg.Agents, Project: cfg.ProjectAgents, Catalog: cfg.AgentCatalog,
 	})
+	catalogrpc.Register(r, catalogrpc.Deps{
+		Files: cfg.Files, Home: cfg.Home, Setup: setup, ProjectAgents: cfg.ProjectAgents,
+		Plugins: cfg.Plugins, MCP: cfg.MCP, Wait: catalogrpc.Wait,
+	})
 	forwardrpc.Register(r, forwardrpc.Deps{Fetcher: cfg.Fetcher, Pipes: cfg.Pipes})
 	terminalsrpc.Register(r, terminalsrpc.Deps{Terminals: cfg.Terminals})
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})
@@ -184,6 +194,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	browserrpc.Register(r, browserrpc.Deps{Browser: cfg.Browser})
 	pluginsrpc.Register(r, pluginsrpc.Deps{Plugins: cfg.Plugins, Uploads: cfg.Uploads})
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources})
+	connectrpc.Register(r, connectrpc.Deps{Connect: cfg.Connect})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
 	remindersrpc.Register(r, remindersrpc.Deps{Reminders: cfg.Reminders})

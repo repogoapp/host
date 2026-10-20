@@ -8,10 +8,11 @@ import (
 
 	"github.com/repogoapp/host/internal/clientprompt"
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/testhost"
 )
 
-var update = flag.Bool("update", false, "rewrite cards.md from the phone's CardInstructions")
+var update = flag.Bool("update", false, "rewrite cards.md from the phone's CardInstructions, and testdata/app.md")
 
 const cardInstructions = "../../../swift/Packages/RepoGoCards/Sources/RepoGoCards/CardInstructions.swift"
 
@@ -144,4 +145,13 @@ func TestRepoGoPromptFollowsTheClient(t *testing.T) {
 	if strings.Contains(clientprompt.For(clip, clientprompt.NoPlugins, nil), draw) {
 		t.Errorf("the Clip is taught repogo: cards")
 	}
+}
+
+// TestWritesTheAppsPrompt keeps what an agent started from the app gets added
+// to its system prompt, joined as host.New's Instructions joins it, in a
+// project with plugins and MCP servers, so a change to it reads as a diff.
+func TestWritesTheAppsPrompt(t *testing.T) {
+	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1, "mcp": 1, "repogo": 1}}
+	prompt := repogomcp.ChatsPrompt(false) + clientprompt.For(app, clientprompt.HasPlugins, []string{"linear", "vercel"})
+	testhost.Golden(t, "testdata/app.md", []byte(prompt), *update, "run: go test ./internal/clientprompt -update")
 }

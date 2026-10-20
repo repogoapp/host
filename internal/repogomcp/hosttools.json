@@ -453,6 +453,53 @@
     }
   },
   {
+    "name": "connect_list",
+    "method": "connect.list",
+    "description": "Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:\u003curl\u003e) or a CLI's sign-in (cli:\u003ctool\u003e); never with what.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "project": {
+          "description": "The project the card or agent is in",
+          "type": "string"
+        },
+        "targets": {
+          "description": "The targets to report on",
+          "items": {
+            "properties": {
+              "scope": {
+                "description": "For an env key, its file: plugin:\u003cname\u003e, plugins, source:\u003chandle\u003e or project:\u003c.env file\u003e",
+                "type": "string"
+              },
+              "target": {
+                "description": "What is connected: env:\u003cNAME\u003e, mcp:\u003curl\u003e or cli:\u003ctool\u003e",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "connect_get",
+    "method": "connect.get",
+    "description": "A connect flow the user was shown: waiting, or how it ended.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "flow_id": {
+          "description": "The flow's id, as connect.start gave it",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "git_status",
     "method": "git.status",
     "description": "Branch, ahead/behind and changed-file counts for several projects at once.",

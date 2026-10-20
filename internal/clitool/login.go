@@ -46,6 +46,9 @@ func (in *Inventory) LoginStart(ctx context.Context, kind string) (clilogin.Code
 			if ok && t.Spec.AfterSignIn != nil {
 				t.Spec.AfterSignIn(after, path)
 			}
+			if in.loginEnded != nil {
+				in.loginEnded(kind, ok)
+			}
 			in.changed()
 		},
 	})

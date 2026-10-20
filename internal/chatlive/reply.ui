@@ -1,0 +1,7 @@
+<State name="chat_id" value=""/>
+<TextArea name="reply" placeholder="Reply" rows="2"/>
+<Button label="Send" icon="arrow.up" variant="primary" width="fill" enabled="reply"
+        action="repogo:chats.send" then="back">
+  <Param name="chat_id" value="{{chat_id}}"/>
+  <Param name="turn" type="json" value="{&quot;prompt&quot;: &quot;{{reply}}&quot;}"/>
+</Button>

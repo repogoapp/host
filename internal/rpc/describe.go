@@ -71,9 +71,8 @@ type ToolDef struct {
 // ToolName is a method's tool name: MCP clients take letters, digits, _ and -.
 func ToolName(method string) string { return strings.ReplaceAll(method, ".", "_") }
 
-// Tools renders every Tool method as the file the repogo MCP embeds, so what
-// agents see is reviewed in a diff and stays in step with the handlers.
-func (r *Router) Tools() ([]byte, error) {
+// ToolDefs is every Tool method, in the router's order.
+func (r *Router) ToolDefs() []ToolDef {
 	defs := []ToolDef{}
 	for _, s := range r.Specs() {
 		if s.Tool == "" {
@@ -84,6 +83,12 @@ func (r *Router) Tools() ([]byte, error) {
 			ReadOnly: s.Effect == Reads, InputSchema: wiredoc.Schema(s.Params),
 		})
 	}
-	b, err := json.MarshalIndent(defs, "", "  ")
+	return defs
+}
+
+// Tools renders every Tool method as the file the repogo MCP embeds, so what
+// agents see is reviewed in a diff and stays in step with the handlers.
+func (r *Router) Tools() ([]byte, error) {
+	b, err := json.MarshalIndent(r.ToolDefs(), "", "  ")
 	return append(b, '\n'), err
 }

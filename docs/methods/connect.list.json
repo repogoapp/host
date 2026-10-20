@@ -1,0 +1,12 @@
+{
+  "connections": [
+    {
+      "target": "target",
+      "scope": "scope",
+      "status": "status",
+      "destination": "destination",
+      "account": "account",
+      "reason": "reason"
+    }
+  ]
+}

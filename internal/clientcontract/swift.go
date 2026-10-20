@@ -24,11 +24,16 @@ var methodExports = map[string]bool{
 
 	"browser.pending": true, "browser.respond": true,
 
+	"catalog.read": true,
+
 	"chats.list": true, "chats.info": true, "chats.sync": true,
 	"chats.messages": true, "chats.subagent": true, "chats.tools_subscribe": true,
 	"chats.tools_unsubscribe": true, "chats.send": true, "chats.start": true, "chats.resolve": true,
 	"chats.pin": true, "chats.update": true, "chats.delete": true, "chats.stop": true,
 	"chats.subscribe": true, "chats.unsubscribe": true, "chats.queue": true, "chats.handoff": true,
+
+	"connect.list": true, "connect.get": true, "connect.start": true, "connect.submit": true,
+	"connect.callback": true, "connect.cancel": true,
 
 	"devices.list": true, "devices.hello": true, "devices.register_push": true, "devices.revoke": true,
 
@@ -426,6 +431,7 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/clitool":      "tools",
 	"github.com/repogoapp/host/internal/rpc/tools":    "tools",
 	"github.com/repogoapp/host/internal/rpc/browser":  "browser",
+	"github.com/repogoapp/host/internal/rpc/catalog":  "catalog",
 	"github.com/repogoapp/host/internal/repogomcp":    "browser",
 	"github.com/repogoapp/host/internal/rpc/env":      "env",
 	"github.com/repogoapp/host/internal/envsource":    "env",
@@ -440,6 +446,9 @@ var typeFamilies = map[string]string{
 
 	"github.com/repogoapp/host/internal/rpc/schedules": "schedules",
 	"github.com/repogoapp/host/internal/schedule":      "schedules",
+
+	"github.com/repogoapp/host/internal/rpc/connect": "connect",
+	"github.com/repogoapp/host/internal/connect":     "connect",
 
 	"github.com/repogoapp/host/internal/rpc/reminders": "reminders",
 	"github.com/repogoapp/host/internal/reminder":      "reminders",
@@ -770,6 +779,7 @@ var EventExports = map[string]string{
 	"host.battery":        "Host.Battery",
 	"host.setup_changed":  "Host.SetupChanged",
 	"browser.request":     "Browser.Request",
+	"connect.changed":     "Connect.Changed",
 	"mcp.changed":         "MCP.Changed",
 	"tunnels.changed":     "Tunnels.Changed",
 	"devices.changed":     "Devices.Changed",

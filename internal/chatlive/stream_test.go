@@ -105,7 +105,7 @@ func streamHarness(t *testing.T) (*Manager, *fakeTurns, *streamCapture, device.I
 // order, or misses some, ends up with the same text either way.
 func TestStreamPushesCumulativeSnapshots(t *testing.T) {
 	m, turns, cap, _ := streamHarness(t)
-	m.StreamTurn("claude:s1", "turn-1")
+	m.StreamTurn("claude:s1", "turn-1", "")
 
 	sent := ""
 	for _, chunk := range []string{"Hello", " there", " world"} {
@@ -141,7 +141,7 @@ func TestStreamPushesCumulativeSnapshots(t *testing.T) {
 // snapshot separates them the same way instead of gluing "first.Both".
 func TestStreamBreaksParagraphAroundToolCalls(t *testing.T) {
 	m, turns, cap, _ := streamHarness(t)
-	m.StreamTurn("claude:s1", "turn-1")
+	m.StreamTurn("claude:s1", "turn-1", "")
 
 	turns.ch <- agent.Event{Kind: agent.EventReasoning, Text: "hmm"}
 	turns.ch <- agent.Event{Kind: agent.EventText, Text: "Let me look "}
@@ -174,7 +174,7 @@ func TestStreamOnlyReachesWatchersOfThatChat(t *testing.T) {
 	m.emit.Leave(caller, chatRoom("claude:s1"))
 	m.emit.Join(caller, chatRoom("claude:OTHER"))
 
-	m.StreamTurn("claude:s1", "turn-1")
+	m.StreamTurn("claude:s1", "turn-1", "")
 	turns.ch <- agent.Event{Kind: agent.EventText, Text: "secret"}
 	turns.ch <- agent.Event{Kind: agent.EventTurnFinished}
 	testwait.For(t, "the relay to end", func() bool {
@@ -278,7 +278,7 @@ func TestDisplayFrameAfterStopDoesNotReopen(t *testing.T) {
 // sent it sees something to stop before the first token.
 func TestStreamAnnouncesTurnStart(t *testing.T) {
 	m, turns, cap, _ := streamHarness(t)
-	m.StreamTurn("claude:s1", "turn-1")
+	m.StreamTurn("claude:s1", "turn-1", "")
 	turns.ch <- agent.Event{Kind: agent.EventTurnStarted, At: 1_000}
 
 	testwait.For(t, "the start push", func() bool { return len(cap.all()) > 0 })
@@ -292,7 +292,7 @@ func TestStreamAnnouncesTurnStart(t *testing.T) {
 // offset the phone's copy ends; the first and last push are whole.
 func TestStreamSendsWhatTheTextGained(t *testing.T) {
 	m, turns, cap, _ := streamHarness(t)
-	m.StreamTurn("claude:s1", "turn-1")
+	m.StreamTurn("claude:s1", "turn-1", "")
 
 	sent := ""
 	for _, chunk := range []string{"Hello", " there", " — wörld"} {
@@ -334,11 +334,11 @@ func TestStreamSendsTheWholeTextEveryFewSeconds(t *testing.T) {
 	now := time.Unix(1000, 0)
 	m.now = func() time.Time { return now }
 
-	m.pushStream("claude:s1", "turn-1", "one", false, streamTiming{})
-	m.pushStream("claude:s1", "turn-1", "one two", false, streamTiming{})
+	m.pushStream("claude:s1", "turn-1", "", "one", false, streamTiming{})
+	m.pushStream("claude:s1", "turn-1", "", "one two", false, streamTiming{})
 	now = now.Add(fullEvery)
-	m.pushStream("claude:s1", "turn-1", "one two three", false, streamTiming{})
-	m.pushStream("claude:s1", "turn-2", "new", false, streamTiming{})
+	m.pushStream("claude:s1", "turn-1", "", "one two three", false, streamTiming{})
+	m.pushStream("claude:s1", "turn-2", "", "new", false, streamTiming{})
 
 	raw, _ := cap.sent()
 	var shapes []string
@@ -354,11 +354,28 @@ func TestStreamSendsTheWholeTextEveryFewSeconds(t *testing.T) {
 		t.Errorf("pushes %v, want %v", shapes, want)
 	}
 
-	m.pushStream("claude:s1", "turn-2", "new text", false, streamTiming{})
+	m.pushStream("claude:s1", "turn-2", "", "new text", false, streamTiming{})
 	joined := m.emit.Join(device.ID("ffeeddccbbaa99887766554433221100"), chatRoom("claude:s1"))
 	state := joined.State[Streaming{}.StateKey()].(Streaming)
 	b, _ := json.Marshal(state)
 	if state.Text != "new text" || strings.Contains(string(b), `"offset"`) {
 		t.Errorf("a device joining mid-turn gets %s, want the whole text", b)
+	}
+}
+
+// The prompt rides whole snapshots, so a device opening the chat before the
+// agent's transcript records it still shows what the turn answers.
+func TestStreamCarriesThePromptOnWholeSnapshots(t *testing.T) {
+	m, _, cap, _ := streamHarness(t)
+	m.pushStream("claude:s1", "turn-1", "Say hi", "Hi", false, streamTiming{})
+	m.pushStream("claude:s1", "turn-1", "Say hi", "Hi there", false, streamTiming{})
+
+	raw, _ := cap.sent()
+	if len(raw) != 2 || raw[0].Prompt != "Say hi" || raw[1].Offset == nil || raw[1].Prompt != "" {
+		t.Errorf("pushes %+v, want the prompt on the whole snapshot only", raw)
+	}
+	joined := m.emit.Join(device.ID("ffeeddccbbaa99887766554433221100"), chatRoom("claude:s1"))
+	if state := joined.State[Streaming{}.StateKey()].(Streaming); state.Prompt != "Say hi" {
+		t.Errorf("a device joining mid-turn gets prompt %q, want %q", state.Prompt, "Say hi")
 	}
 }

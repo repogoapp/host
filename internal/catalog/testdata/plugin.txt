@@ -1,0 +1,3 @@
+plans: Plans for this project. Kept in its data folder.
+- plugin:plans.list(): Every plan.
+- plugin:plans.move(id, status?): Move a plan to another column, keeping its place in the column it lands in, and tell every card showing plans so they redraw without a refresh. Asks first.

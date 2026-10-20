@@ -1,0 +1,12 @@
+Agents:
+- Claude (claude): ready. Models: Opus (opus), Sonnet (sonnet). Default: opus.
+- Codex (codex): not signed in.
+- OpenCode (opencode): ready. Models: router/m00, router/m01, router/m02, router/m03, router/m04, router/m05, router/m06, router/m07, router/m08, router/m09, router/m10, router/m11, and 2 more.
+- Gemini CLI (gemini): not installed.
+Plugins:
+- vercel, the environment's
+  - plugin:vercel.deploys(project?)
+MCP servers:
+- Linear (mcp:linear):
+  - mcp:linear.get_issue(id, comments?): Get one issue.
+  - mcp:linear.save_issue(): Create or update an issue. Asks first.

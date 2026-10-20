@@ -2,6 +2,7 @@ package chatlive
 
 import (
 	"cmp"
+	_ "embed"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/notify"
@@ -11,11 +12,17 @@ import (
 
 func (m *Manager) attend(a Attention) { m.onAttention(a) }
 
+//go:embed reply.ui
+var replyCard string
+
 // ended is the attention for a turn that is over, by its stop reason, summed
 // up from its final message the way the chat list's row is.
 func ended(chatID store.ChatID, turnID, stopReason, errMsg, final string, answerable bool) Attention {
 	a := Attention{ChatID: string(chatID), TurnID: turnID, Kind: AttentionFinished,
 		Summary: turnsummary.Text(final), Answerable: answerable}
+	if answerable {
+		a.Card = replyCard
+	}
 	switch stopReason {
 	case "stopped":
 		a.Kind = AttentionStopped

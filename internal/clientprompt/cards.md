@@ -17,8 +17,10 @@ Input, TextArea, Select, Radio and Slider take label (a small header above) and 
 Radio: name, options="Build muscle|Lose fat|Get stronger", optional value, direction="col|row" (default col); self-closing; declares state like Select.
 Toggle: name, nonempty label, value="true|false" (default false); self-closing; declares state like Tabs (no State needed).
 Slider: name, min/max (default 0/1), optional positive step/value; plain decimals; self-closing; declares state like Tabs (no State needed).
-Chart: type="bar|line", values="3|5|2" (or spaces), labels="Mon|Tue|Wed"; self-closing; color defaults primary, height compact.
+Chart: type="bar|line", values="3|5|2" (or spaces or commas), labels="Mon|Tue|Wed"; self-closing; color defaults primary, height compact.
 Text: plain text; font="title|heading|body|caption|code", default body.
+  A {{…}} it reads rolls to a new value, as the system's numbers do; set
+  animate="false" on a Text of several values or a sentence.
 Badge: short label in a pill; color tints it, default neutral.
 Markdown: its text drawn as Markdown (headings, lists, tables, code, links);
   may read {{…}}, such as <Markdown>{{plan.body}}</Markdown>. Indent it with
@@ -39,11 +41,13 @@ Tree: path of a folder (as File takes it); draws it as the app's live
 Icon: name="SF Symbol"; size="sm|md|lg", default md; alt names it for
   VoiceOver (without one it's decorative).
 Progress: value="0..1" plain decimal bar; self-closing; color tints it, default primary.
+  Above 1 is full, so a 0–100 percent needs its fraction from the source.
   style="ring" draws a ring instead, with a short label in its middle
   ("72%") and size="sm|md|lg" (default md).
 Rings: Progress children as rings one inside another, the first
   outermost, as Fitness draws Move, Exercise and Stand; give each a color;
-  optional label under them and size="sm|md|lg".
+  optional label under them and size="sm|md|lg". Only direct Progress
+  children count: an Each or If inside Rings draws nothing.
 Button: label, optional icon, action; variant="primary|secondary|plain",
   default secondary. primary is a filled capsule (one per card, for the
   main action), secondary an outlined one, plain just text. Add
@@ -54,7 +58,7 @@ Button: label, optional icon, action; variant="primary|secondary|plain",
   Router inside Button. Supply a readable label for icon-only Buttons.
 Menu: label and/or icon, variant like Button; contains Buttons and
   Dividers, shown as the system's menu; a Button with role="destructive"
-  is its red, destructive item.
+  is its red, destructive item. Write them directly: no Each or If.
 ContextMenu: a child of a Button, Item, Image or any visual element:
   what a long-press shows, its tap unchanged. Contains Buttons, Menus
   and Dividers as a Menu does, and an optional Preview first, lifted
@@ -63,6 +67,7 @@ ContextMenu: a child of a Button, Item, Image or any visual element:
   On an Item that can't swipe, its Swipes join the menu.
 Toolbar: Buttons and Menus for the bar of the page or sheet the card is
   on (an Add button, a "…" Menu); where there's no bar, a row of them.
+  Like Menu, its items are written directly.
 Divider, Spacer: separator and flexible space along the parent layout.
 State: a local string value; declare it at the top (anywhere but inside Each).
   A page's State is also its parameters: page:x.ui?name=value and a

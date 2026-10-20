@@ -27,9 +27,10 @@ type TurnStream interface {
 	Subscribe(turnID string) (<-chan agent.Event, func(), error)
 }
 
-// StreamTurn relays an in-flight turn's text to everyone watching this chat.
-// Turns started in the user's own terminal still arrive whole on the file tail.
-func (m *Manager) StreamTurn(chatID store.ChatID, turnID string) {
+// StreamTurn relays an in-flight turn's text, and the prompt it answers, to
+// everyone watching this chat. Turns started in the user's own terminal still
+// arrive whole on the file tail.
+func (m *Manager) StreamTurn(chatID store.ChatID, turnID, prompt string) {
 	events, cancel, err := m.turns.Subscribe(turnID)
 	if err != nil {
 		m.log.Debug("chatlive: cannot stream turn", "turn", turnID, "err", err)
@@ -38,10 +39,10 @@ func (m *Manager) StreamTurn(chatID store.ChatID, turnID string) {
 	m.mu.Lock()
 	m.streaming[chatID]++
 	m.mu.Unlock()
-	go m.relay(chatID, turnID, events, cancel)
+	go m.relay(chatID, turnID, prompt, events, cancel)
 }
 
-func (m *Manager) relay(chatID store.ChatID, turnID string, events <-chan agent.Event, cancel func()) {
+func (m *Manager) relay(chatID store.ChatID, turnID, prompt string, events <-chan agent.Event, cancel func()) {
 	defer cancel()
 	defer func() {
 		m.mu.Lock()
@@ -53,7 +54,7 @@ func (m *Manager) relay(chatID store.ChatID, turnID string, events <-chan agent.
 
 	ticker := time.NewTicker(streamInterval)
 	defer ticker.Stop()
-	st := &streamState{m: m, chatID: chatID, turnID: turnID, leading: true}
+	st := &streamState{m: m, chatID: chatID, turnID: turnID, prompt: prompt, leading: true}
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -79,6 +80,7 @@ type streamState struct {
 	m      *Manager
 	chatID store.ChatID
 	turnID string
+	prompt string
 
 	text  strings.Builder
 	dirty bool
@@ -99,7 +101,7 @@ type streamState struct {
 }
 
 func (st *streamState) push(done bool) {
-	st.m.pushStream(st.chatID, st.turnID, st.text.String(), done, st.timing)
+	st.m.pushStream(st.chatID, st.turnID, st.prompt, st.text.String(), done, st.timing)
 	st.dirty = false
 }
 
@@ -197,7 +199,7 @@ type streamSent struct {
 // pushStream sends a chat's text to its watchers and keeps it whole as the
 // room's state. It only grows within a turn, so a push sends what it gained;
 // a turn's first and last push, and one every fullEvery, send all of it.
-func (m *Manager) pushStream(chatID store.ChatID, turnID, text string, done bool, timing streamTiming) {
+func (m *Manager) pushStream(chatID store.ChatID, turnID, prompt, text string, done bool, timing streamTiming) {
 	m.streamMu.Lock()
 	defer m.streamMu.Unlock()
 	now := m.now()
@@ -206,6 +208,7 @@ func (m *Manager) pushStream(chatID store.ChatID, turnID, text string, done bool
 		ChatID:       string(chatID),
 		TurnID:       turnID,
 		Text:         text,
+		Prompt:       prompt,
 		Done:         done,
 		streamTiming: timing,
 	}
