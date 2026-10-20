@@ -29,7 +29,7 @@ func storeWithPhones(t *testing.T) (*device.Store, device.ID) {
 			t.Fatal(err)
 		}
 	}
-	if err := store.RegisterPush(withToken.ID, "", withToken.GrantPush(store.Identity().ID, device.PushTarget{Token: "abcd", Environment: "sandbox"})); err != nil {
+	if err := store.RegisterPush(withToken.ID, "", withToken.GrantPush(store.Identity().ID, device.PushTarget{Service: device.PushAPNs, Token: "abcd", Environment: "sandbox"})); err != nil {
 		t.Fatal(err)
 	}
 	return store, withToken.ID
@@ -118,5 +118,27 @@ func TestLowBatteryAlertsOnceUntilRecovered(t *testing.T) {
 	n.Battery(ctx, power.Battery{PluggedIn: true})
 	if len(sender.Calls) != 3 {
 		t.Fatalf("sent %d pushes, want 3", len(sender.Calls))
+	}
+}
+
+func TestFCMTokensWaitForTheRelay(t *testing.T) {
+	store, phone := storeWithPhones(t)
+	android, _ := device.Generate()
+	if err := store.Add(device.Peer{ID: android.ID, Public: android.Public}); err != nil {
+		t.Fatal(err)
+	}
+	fcm := android.GrantPush(store.Identity().ID, device.PushTarget{Service: device.PushFCM, Token: "fJ3x:APA91b"})
+	if err := store.RegisterPush(android.ID, "", fcm); err != nil {
+		t.Fatal(err)
+	}
+	sender := &pushtest.Sender{}
+	n := New(store, sender, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	n.deliver(context.Background(), notify.Notice{Agent: agent.Kind("claude"), SessionID: "s1"},
+		alert{"Task finished", "Your environment finished a task."})
+
+	// Only the APNs phone is sent to; the relay can't deliver FCM yet.
+	if len(sender.Calls) != 1 || sender.Calls[0].Token != "abcd" {
+		t.Fatalf("calls = %+v, want only %s's", sender.Calls, phone)
 	}
 }

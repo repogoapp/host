@@ -221,7 +221,8 @@ func (n *Notifier) push(ctx context.Context, collapseID string, payload []byte) 
 }
 
 func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, collapseID string, payload []byte) {
-	if peer.Push == nil {
+	// The relay delivers through APNs only; an FCM token waits on the host until it can.
+	if peer.Push == nil || peer.Push.Service != device.PushAPNs {
 		return
 	}
 	req := Request(peer, *peer.Push)

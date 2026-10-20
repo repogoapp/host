@@ -72,7 +72,7 @@ func setup(t *testing.T) *fixture {
 
 func (f *fixture) register(kind, token string) {
 	f.t.Helper()
-	target := f.phone.GrantPush(f.devices.Identity().ID, device.PushTarget{Token: token, Environment: "sandbox"})
+	target := f.phone.GrantPush(f.devices.Identity().ID, device.PushTarget{Service: device.PushAPNs, Token: token, Environment: "sandbox"})
 	if err := f.devices.RegisterPush(f.phone.ID, kind, target); err != nil {
 		f.t.Fatal(err)
 	}

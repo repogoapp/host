@@ -146,9 +146,9 @@ func TestRevokeRemovesAPhoneEverywhere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lost phone over loopback: %v", err)
 	}
-	granted := lost.GrantPush(h.Devices.Identity().ID, device.PushTarget{Token: "abcd", Environment: "sandbox"})
+	granted := lost.GrantPush(h.Devices.Identity().ID, device.PushTarget{Service: device.PushAPNs, Token: "abcd", Environment: "sandbox"})
 	push := devices.RegisterPushParams{
-		Token: granted.Token, Environment: granted.Environment, Grant: granted.Grant, GrantedAt: granted.GrantedAt,
+		Token: granted.Token, Service: granted.Service, Environment: granted.Environment, Grant: granted.Grant, GrantedAt: granted.GrantedAt,
 	}
 	if err := call(t, lostRelay, "devices.register_push", push, nil); err != nil {
 		t.Fatalf("lost phone registers push: %v", err)

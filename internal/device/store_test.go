@@ -67,7 +67,7 @@ func TestRevocationSurvivesRestart(t *testing.T) {
 	}
 	phone := addPhone(t, first, "Old phone")
 	id := phone.ID
-	if err := first.RegisterPush(id, "", phone.GrantPush(first.Identity().ID, PushTarget{Token: "ab", Environment: "sandbox"})); err != nil {
+	if err := first.RegisterPush(id, "", phone.GrantPush(first.Identity().ID, PushTarget{Service: PushAPNs, Token: "ab", Environment: "sandbox"})); err != nil {
 		t.Fatalf("register push: %v", err)
 	}
 	var told []ID
@@ -108,7 +108,7 @@ func TestPushTokenBelongsToOnePeer(t *testing.T) {
 	old, fresh, other := add("Old pairing"), add("New pairing"), add("Other phone")
 	grant := func(id ID, target PushTarget) PushTarget { return phones[id].GrantPush(s.Identity().ID, target) }
 
-	phone := PushTarget{Token: "a1b2", Environment: "production"}
+	phone := PushTarget{Service: PushAPNs, Token: "a1b2", Environment: "production"}
 	for _, id := range []ID{old, fresh} {
 		if err := s.RegisterPush(id, "", grant(id, phone)); err != nil {
 			t.Fatalf("register push: %v", err)
@@ -117,7 +117,7 @@ func TestPushTokenBelongsToOnePeer(t *testing.T) {
 			t.Fatalf("register push-to-start: %v", err)
 		}
 	}
-	if err := s.RegisterPush(other, "", grant(other, PushTarget{Token: "c3d4", Environment: "sandbox"})); err != nil {
+	if err := s.RegisterPush(other, "", grant(other, PushTarget{Service: PushAPNs, Token: "c3d4", Environment: "sandbox"})); err != nil {
 		t.Fatalf("register other: %v", err)
 	}
 
@@ -159,9 +159,9 @@ func TestPushTargetBelongsToOneInstall(t *testing.T) {
 		id     ID
 		target PushTarget
 	}{
-		{before, PushTarget{Token: "e5f6", InstallID: "install-a", Environment: "sandbox"}},
-		{other, PushTarget{Token: "c3d4", InstallID: "install-b", Environment: "sandbox"}},
-		{after, PushTarget{Token: "0a0b", InstallID: "install-a", Environment: "sandbox"}},
+		{before, PushTarget{Service: PushAPNs, Token: "e5f6", InstallID: "install-a", Environment: "sandbox"}},
+		{other, PushTarget{Service: PushAPNs, Token: "c3d4", InstallID: "install-b", Environment: "sandbox"}},
+		{after, PushTarget{Service: PushAPNs, Token: "0a0b", InstallID: "install-a", Environment: "sandbox"}},
 	}
 	for _, r := range regs {
 		if err := s.RegisterPush(r.id, "", grant(r.id, r.target)); err != nil {
@@ -257,10 +257,16 @@ func TestRegisterPushValidatesAndStamps(t *testing.T) {
 		kind   string
 		target PushTarget
 	}{
-		{"alert", PushTarget{Token: "ab", Environment: "sandbox"}},
-		{"", PushTarget{Token: "not-hex", Environment: "sandbox"}},
-		{"", PushTarget{Token: "ab", Environment: "staging"}},
-		{"", PushTarget{Token: "ab", Environment: "sandbox", InstallID: strings.Repeat("x", 65)}},
+		{"alert", PushTarget{Service: PushAPNs, Token: "ab", Environment: "sandbox"}},
+		{"", PushTarget{Service: PushAPNs, Token: "not-hex", Environment: "sandbox"}},
+		{"", PushTarget{Service: PushAPNs, Token: "ab", Environment: "staging"}},
+		{"", PushTarget{Service: PushAPNs, Token: "ab", Environment: "sandbox", InstallID: strings.Repeat("x", 65)}},
+		{"", PushTarget{Service: "gcm", Token: "ab", Environment: "sandbox"}},
+		{"", PushTarget{Token: "ab", Environment: "sandbox"}},
+		{PushToStart, PushTarget{Service: PushFCM, Token: "fJ3x:APA91b"}},
+		{"", PushTarget{Service: PushFCM, Token: "fJ3x:APA91b", Environment: "sandbox"}},
+		{"", PushTarget{Service: PushFCM, Token: "not a token"}},
+		{"", PushTarget{Service: PushFCM, Token: strings.Repeat("a", maxFCMToken+1)}},
 	}
 	for _, b := range bad {
 		if err := s.RegisterPush(phone, b.kind, b.target); !errors.Is(err, errkind.ErrInvalid) {
@@ -269,7 +275,7 @@ func TestRegisterPushValidatesAndStamps(t *testing.T) {
 	}
 	// A client's At is ignored; a token gets the host's clock once, and
 	// saving the same token again keeps it.
-	target := key.GrantPush(s.Identity().ID, PushTarget{Token: "ab", Environment: "sandbox", At: 1})
+	target := key.GrantPush(s.Identity().ID, PushTarget{Service: PushAPNs, Token: "ab", Environment: "sandbox", At: 1})
 	if err := s.RegisterPush(phone, PushActivity, target); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +332,7 @@ func TestRegisterPushNeedsThePhonesGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	phone, other := addPhone(t, s, "Phone"), addPhone(t, s, "Other")
-	target := PushTarget{Token: "a1b2", Environment: "sandbox"}
+	target := PushTarget{Service: PushAPNs, Token: "a1b2", Environment: "sandbox"}
 	if err := s.RegisterPush(phone.ID, "", target); !errors.Is(err, errkind.ErrInvalid) {
 		t.Fatalf("no grant: %v, want invalid", err)
 	}
@@ -334,7 +340,7 @@ func TestRegisterPushNeedsThePhonesGrant(t *testing.T) {
 		"another phone's": other.GrantPush(s.Identity().ID, target),
 		"another host's":  phone.GrantPush(other.ID, target),
 		"another token's": func() PushTarget {
-			g := phone.GrantPush(s.Identity().ID, PushTarget{Token: "ffff", Environment: "sandbox"})
+			g := phone.GrantPush(s.Identity().ID, PushTarget{Service: PushAPNs, Token: "ffff", Environment: "sandbox"})
 			g.Token = target.Token
 			return g
 		}(),
@@ -345,5 +351,27 @@ func TestRegisterPushNeedsThePhonesGrant(t *testing.T) {
 	}
 	if err := s.RegisterPush(phone.ID, "", phone.GrantPush(s.Identity().ID, target)); err != nil {
 		t.Fatalf("a good grant: %v", err)
+	}
+}
+
+func TestRegisterPushKeepsAnFCMToken(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "device.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := addPhone(t, s, "Android")
+	target := key.GrantPush(s.Identity().ID, PushTarget{Service: PushFCM, Token: "fJ3x-_9:APA91bHq"})
+	if err := s.RegisterPush(key.ID, "", target); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.Peer(key.ID)
+	if p.Push == nil || p.Push.Service != PushFCM || p.Push.Token != target.Token {
+		t.Fatalf("push = %+v", p.Push)
+	}
+	// The grant still binds the token to this phone and host.
+	other := target
+	other.Token = "gK4y:APA91bHq"
+	if err := s.RegisterPush(key.ID, "", other); !errors.Is(err, ErrBadGrant) {
+		t.Fatalf("another token's grant: %v, want ErrBadGrant", err)
 	}
 }

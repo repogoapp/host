@@ -264,6 +264,16 @@ func pushField(p *Peer, kind string) **PushTarget {
 // maxInstallID bounds the one free-form string a phone stores here.
 const maxInstallID = 64
 
+// The services a push token belongs to: Apple's for iOS, Firebase Cloud
+// Messaging for Android.
+const (
+	PushAPNs = "apns"
+	PushFCM  = "fcm"
+)
+
+// maxFCMToken bounds an FCM registration token, which runs to a few hundred bytes.
+const maxFCMToken = 1024
+
 func (t PushTarget) validate(kind string) error {
 	switch {
 	case kind != "" && kind != PushToStart && kind != PushActivity:
@@ -273,11 +283,27 @@ func (t PushTarget) validate(kind string) error {
 	case t.Token == "":
 		return nil
 	}
-	if _, err := hex.DecodeString(t.Token); err != nil {
-		return fmt.Errorf("%w: token must be hexadecimal", errkind.ErrInvalid)
-	}
-	if t.Environment != "sandbox" && t.Environment != "production" {
-		return fmt.Errorf("%w: environment must be sandbox or production", errkind.ErrInvalid)
+	switch t.Service {
+	case PushAPNs:
+		if _, err := hex.DecodeString(t.Token); err != nil {
+			return fmt.Errorf("%w: token must be hexadecimal", errkind.ErrInvalid)
+		}
+		if t.Environment != "sandbox" && t.Environment != "production" {
+			return fmt.Errorf("%w: environment must be sandbox or production", errkind.ErrInvalid)
+		}
+	case PushFCM:
+		// FCM has no Live Activities and no sandbox.
+		if kind != "" {
+			return fmt.Errorf("%w: an fcm token is an alert token", errkind.ErrInvalid)
+		}
+		if t.Environment != "" {
+			return fmt.Errorf("%w: an fcm token has no environment", errkind.ErrInvalid)
+		}
+		if !validFCMToken(t.Token) {
+			return fmt.Errorf("%w: token is not an fcm registration token", errkind.ErrInvalid)
+		}
+	default:
+		return fmt.Errorf("%w: service must be apns or fcm", errkind.ErrInvalid)
 	}
 	if len(t.Grant) == 0 || len(t.Grant) > MaxPushProofBytes || t.GrantedAt <= 0 {
 		return fmt.Errorf("%w: a token needs the phone's grant", errkind.ErrInvalid)
@@ -355,4 +381,18 @@ func randomID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// validFCMToken is the shape Firebase issues: URL-safe base64 with a colon
+// between the instance and the token.
+func validFCMToken(token string) bool {
+	if len(token) > maxFCMToken {
+		return false
+	}
+	for _, r := range token {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == ':') {
+			return false
+		}
+	}
+	return true
 }

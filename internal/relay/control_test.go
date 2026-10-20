@@ -85,7 +85,7 @@ func TestPushChecksAppleEvidenceAtTheGrantTime(t *testing.T) {
 	}
 	host := device.ID("00000000000000000000000000000001")
 	granted := time.Now().Add(-3 * 24 * time.Hour).Truncate(time.Millisecond)
-	target := phone.GrantPush(host, device.PushTarget{Token: "abcd", Environment: "sandbox", GrantedAt: granted.UnixMilli()})
+	target := phone.GrantPush(host, device.PushTarget{Service: device.PushAPNs, Token: "abcd", Environment: "sandbox", GrantedAt: granted.UnixMilli()})
 	req := PushRequest{Token: "abcd", Environment: "sandbox",
 		Grant: PushGrant{Device: phone.ID, PublicKey: phone.Public, Signature: target.Grant, GrantedAt: target.GrantedAt}}
 	if err := h.srv.verifyGrant(host, req, time.Now()); err != nil {
@@ -205,7 +205,7 @@ func pushParams(t *testing.T, host *peer, token, environment, extra string) stri
 
 func pushParamsSigned(t *testing.T, phone *device.Identity, host device.ID, token, environment string, grantedAt int64, extra string) string {
 	t.Helper()
-	target := phone.GrantPush(host, device.PushTarget{Token: token, Environment: environment, GrantedAt: grantedAt})
+	target := phone.GrantPush(host, device.PushTarget{Service: device.PushAPNs, Token: token, Environment: environment, GrantedAt: grantedAt})
 	grant, err := json.Marshal(PushGrant{Device: phone.ID, PublicKey: phone.Public, Signature: target.Grant, GrantedAt: target.GrantedAt})
 	if err != nil {
 		t.Fatal(err)

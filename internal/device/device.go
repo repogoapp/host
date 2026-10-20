@@ -118,7 +118,9 @@ func (c Client) Validate() error {
 }
 
 type PushTarget struct {
-	Token       string `json:"token"`
+	Token string `json:"token"`
+	// Service is who delivers to Token: PushAPNs or PushFCM.
+	Service     string `json:"service"`
 	Environment string `json:"environment"`
 	// InstallID names the phone's app install, which outlives its pairings and
 	// its tokens. Re-pairing leaves the old records behind, and one install
@@ -128,7 +130,7 @@ type PushTarget struct {
 	// ends a Live Activity after eight hours, so an older activity token is dead.
 	At int64 `json:"at,omitempty"`
 	// Grant carries PushProof for this host and token; GrantedAt is when the
-	// phone signed it. The relay requires the accompanying Apple evidence.
+	// phone signed it. The relay requires the accompanying platform evidence.
 	Grant     []byte `json:"grant,omitempty"`
 	GrantedAt int64  `json:"granted_at,omitempty"`
 }

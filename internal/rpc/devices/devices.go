@@ -35,7 +35,9 @@ type HelloParams struct {
 // RegisterPushParams is a push token and its grant; the host stamps when it
 // first saw the token itself.
 type RegisterPushParams struct {
-	Token       string `json:"token"`
+	Token string `json:"token"`
+	// Service is "apns" or "fcm"; an empty token, which forgets, needs none.
+	Service     string `json:"service"`
 	Environment string `json:"environment"`
 	InstallID   string `json:"install_id,omitempty"`
 	Grant       []byte `json:"grant,omitempty"`
@@ -87,7 +89,7 @@ func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (rpc.Ack, er
 
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {
 	target := device.PushTarget{
-		Token: a.Token, Environment: a.Environment, InstallID: a.InstallID,
+		Token: a.Token, Service: a.Service, Environment: a.Environment, InstallID: a.InstallID,
 		Grant: a.Grant, GrantedAt: a.GrantedAt,
 	}
 	if err := d.Store.RegisterPush(c.Device, a.Kind, target); err != nil {
