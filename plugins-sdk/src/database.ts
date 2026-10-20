@@ -12,9 +12,10 @@ export class Database {
   static async open(path: string) {
     const sql = new SQL(`sqlite://${path}`);
     // Other Workers open the same file: WAL lets them read while one writes,
-    // and a writer waits for the other's lock.
-    await sql.unsafe("pragma journal_mode = wal");
+    // and a writer waits for the other's lock. The wait comes first, since
+    // switching to WAL takes a lock another Worker may hold.
     await sql.unsafe("pragma busy_timeout = 5000");
+    await sql.unsafe("pragma journal_mode = wal");
     return new Database(sql);
   }
 
