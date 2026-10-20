@@ -11,3 +11,9 @@ export type { Retain, StreamEntry, StreamKey } from "./streams";
 export type { Duration } from "./duration";
 export { MethodError, toCallError, type CallError } from "./errors";
 export { z } from "zod";
+
+export { workflow, type Workflow, type WorkflowContext, type WorkflowOptions } from "./workflow/definition";
+export { NonRetryable } from "./workflow/errors";
+export type { StepContext } from "./workflow/definition";
+export type { StepOptions } from "./workflow/policy";
+export type { RunSummary } from "./workflow/contracts";

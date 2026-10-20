@@ -57,6 +57,7 @@ let storageTicker: Timer | null = null;
 const storageTickMs = 5_000;
 
 /** The plugins' `ctx.host` calls out to the host, by id, until it answers. */
+const workflowCalls = new Map<number, { resolve: (result: unknown) => void; reject: (error: MethodError) => void }>();
 const hostCalls = new Map<number, { resolve: (result: unknown) => void; reject: (error: MethodError) => void }>();
 let lastHostCall = 0;
 
@@ -102,6 +103,12 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const message = event.data;
   if (message.type === "open") {
     ready = open(message.dir, message.dataDir, message.root, message.only);
+    return;
+  }
+  if (message.type === "workflowed") {
+    const waiting = workflowCalls.get(message.id); workflowCalls.delete(message.id);
+    if ("error" in message) waiting?.reject(new MethodError(message.error.code, message.error.message));
+    else waiting?.resolve(message.result);
     return;
   }
   if (message.type === "hosted") {
@@ -175,7 +182,10 @@ function tickOnTheSecond() {
 
 async function open(dir: string, dataDir: string, root: string, only: string[] | null) {
   try {
-    runtime = await Runtime.open({ dataDir, root, host });
+    runtime = await Runtime.open({ dataDir, root, host, workflows: request => {
+      const id = ++lastHostCall;
+      return new Promise((resolve, reject) => { workflowCalls.set(id, { resolve, reject }); post({ type: "workflow", id, request }); });
+    } });
     // A write here re-runs this checkout's queries, and is passed on for the others.
     runtime.onInvalidate((tags) => {
       post({ type: "invalidated", tags });

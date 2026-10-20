@@ -239,6 +239,7 @@ func (h *Host) Start() {
 		everyMinute(ctx, h.Services.Schedules.Tick, h.Services.Reminders.Tick, h.Services.Uploads.Sweep)
 	})
 	h.spawn(h.Services.Plugins.RunCrons)
+	h.spawn(h.Services.Plugins.RunWorkflows)
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
 	h.spawn(h.Services.Actions.Watch)

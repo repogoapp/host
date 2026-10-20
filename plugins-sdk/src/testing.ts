@@ -100,3 +100,5 @@ function testHost(mcp?: TestMCP, host?: TestHost) {
     }
   };
 }
+
+export { testWorkflowRuntime } from "./workflow/testing";

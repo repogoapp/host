@@ -1,3 +1,5 @@
+import { WorkflowGateway } from "./workflow/gateway";
+import { MethodError } from "./errors";
 import type { Socket } from "bun";
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
@@ -62,7 +64,7 @@ type Subscription = {
 type Pending = { connection: Connection; checkout: string; key: string };
 
 /** A plugin's `ctx.host` sent up to the host: the Worker's id for it, to answer under. */
-type HostWait = { connection: Connection; checkout: Checkout; id: number };
+type HostWait = { connection: Connection; deliver: (reply: Reply) => void };
 
 type Answer = { result: unknown; stream?: true } | { error: CallError };
 
@@ -163,6 +165,18 @@ export async function serve(options: ServeOptions) {
   const hostCalls = new Map<number, HostWait>();
   let lastHostCall = 0;
   let lastKey = 0;
+  const workflows = await WorkflowGateway.open(options.dataDir, {
+    host: (plugin, method, params) => new Promise((resolve, reject) => {
+      const [connection] = connections;
+      if (!connection) { reject(new MethodError("INTERNAL", "The RepoGo host is not connected.")); return; }
+      const id = ++lastHostCall;
+      hostCalls.set(id, { connection, deliver: reply => { if ("error" in reply) reject(new MethodError(reply.error.code, reply.error.message)); else resolve(reply.result); } });
+      send(connection, { id, method: "host", params: { plugin, method, params } });
+    }),
+    invalidate: tags => { for (const checkout of checkouts.values()) checkout.post({ type: "invalidate", tags }); },
+    notify: notice => { for (const connection of connections) send(connection, { method: "notify", params: notice }); },
+    logs: (dir, records) => { for (const connection of connections) send(connection, { method: "log", params: { dir, records } }); },
+  });
   const newKey = () => `w${++lastKey}`;
 
   // What a card or agent asks for gets the whole folder: one opened only for
@@ -206,6 +220,14 @@ export async function serve(options: ServeOptions) {
   }
 
   function fromWorker(from: Checkout, message: FromWorker) {
+    if (message.type === "workflow") {
+      if (message.request.dir !== from.dir) { from.post({ type: "workflowed", id: message.id, error: { code: "FORBIDDEN", message: "Workflow source must belong to this checkout." } }); return; }
+      void workflows.request(message.request).then(
+        result => from.post({ type: "workflowed", id: message.id, result }),
+        error => from.post({ type: "workflowed", id: message.id, error: toCallError(error) }),
+      );
+      return;
+    }
     if (message.type === "data") {
       const id = byKey.get(message.subscription);
       if (id) deliver(id, "error" in message ? { error: message.error } : { result: message.result });
@@ -248,7 +270,7 @@ export async function serve(options: ServeOptions) {
         return;
       }
       const id = ++lastHostCall;
-      hostCalls.set(id, { connection, checkout: from, id: message.id });
+      hostCalls.set(id, { connection, deliver: reply => from.post({ type: "hosted", id: message.id, ...("error" in reply ? { error: reply.error } : { result: reply.result }) }) });
       const call: HostCall = { id, method: "host", params: { plugin: message.plugin, method: message.method, params: message.params } };
       send(connection, call);
     }
@@ -259,7 +281,7 @@ export async function serve(options: ServeOptions) {
     const waiting = hostCalls.get(reply.id);
     if (!waiting) return;
     hostCalls.delete(reply.id);
-    waiting.checkout.post({ type: "hosted", id: waiting.id, ...("error" in reply ? { error: reply.error } : { result: reply.result }) });
+    waiting.deliver(reply);
   }
 
   function deliver(id: string, answer: Answer) {
@@ -393,6 +415,7 @@ export async function serve(options: ServeOptions) {
       open(connection) {
         connection.data = { inbox: "", outbox: [] };
         connections.add(connection);
+        workflows.start();
       },
       data(connection, chunk) {
         connection.data.inbox += chunk.toString();
@@ -426,6 +449,7 @@ export async function serve(options: ServeOptions) {
   return {
     async stop() {
       listener.stop(true);
+      await workflows.close();
       const stopping = [...checkouts.values()].map((checkout) => checkout.stop());
       checkouts.clear();
       await Promise.all(stopping);

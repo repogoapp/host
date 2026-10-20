@@ -9,6 +9,7 @@ phone draw its data live and run its methods when you tap.
 - [Where plugins live](#where-plugins-live)
 - [Methods](#methods): queries, mutations, streams
 - [Data](#data): namespaces, collections, kv, streams, buckets, uploads
+- [Workflows](#workflows)
 - [Crons](#crons)
 - [Logging](#logging)
 - [The context](#the-context)
@@ -319,6 +320,121 @@ Data named in `private` gets none of these, so cards and agents reach it only
 through the plugin's own methods: `private: ["actions", "lines"]` for an audit
 log no tap can edit. It hides methods; it isn't a lock. Another plugin naming
 the same namespace and store can still read and write it.
+
+## Workflows
+
+A workflow keeps progress across host restarts. Define it beside `methods`;
+`workflow(input, run, options)` follows the same shape as `method`:
+
+```ts
+import { definePlugin, workflow, z } from "@repogo/plugins";
+
+export default definePlugin({
+  namespace: "myproject.reports",
+  workflows: {
+    report: workflow(z.object({ url: z.url() }), async ({ url }, ctx) => {
+      const report = await ctx.step.run("fetch", async ({ signal }) => {
+        const response = await fetch(url, { signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return { title: await response.text() };
+      }, { kind: "query", attempts: 3, timeout: "30s" });
+
+      await ctx.sleep("5m");
+
+      return await ctx.step.run("save", async () => {
+        await ctx.kv.reports.set("latest", report);
+        return report;
+      });
+    }, { timeout: "30d", maxOffline: "14d", retention: "30d" }),
+  },
+  kv: { reports: z.object({ title: z.string() }) },
+});
+```
+
+For a plugin folder named `reports`, the host generates:
+
+- `reports.report.list({ limit?, status?, cursor? })`: bounded summaries and a next cursor.
+- `reports.report.get({ id })`: one summary, input, result, error and the latest 20 steps.
+- `reports.report.start({ input, key? })`: persist and queue a run; returns its summary immediately.
+- `reports.report.cancel({ id })`: persist cancellation intent and abort active work.
+- `reports.report.retry({ id })`: retry a safely failed query on its original build.
+
+These use the existing plugin methods, `ctx.call`, cards and subscriptions.
+The namespace is required. `confirm` on the workflow confirms its start;
+it does not preapprove later host actions. An unattended workflow refuses
+confirmation-gated plugin methods. The calling project and caller
+are preserved. A start `key` deduplicates within that project, plugin and
+workflow while its run is retained; reusing it with different input fails.
+
+Await each step and use a unique, stable name. Keep effects inside step callbacks:
+the handler runs from the beginning after recovery, and completed callbacks
+return their recorded JSON instead of running again. Steps are sequential;
+nesting, overlap, omission and reordering fail. Return JSON, including an
+explicit `null` for a step with no result. Large payloads belong in buckets;
+a journal record is limited to 1 MiB, a run journal to 64 MiB. `get` omits
+input or final results above 16 KiB and sets their truncation flags.
+
+Use `await ctx.sleep("5m")` between steps for a durable wait. No ID is needed:
+the runner identifies each sleep by its position among the workflow's operations.
+It saves an absolute wake time, releases the executor, and resumes without
+repeating completed steps. Loops and consecutive sleeps each get a separate
+position. The first recorded duration wins on replay, even when the expression
+that supplied it later changes. Durations follow the SDK convention (strings
+like `"5m"` or milliseconds), must be positive, and cannot exceed 365 days.
+
+Always await sleep at the workflow level, outside step callbacks; do not catch
+its internal waiting signal or detach background workflow operations. Branch
+using recorded step results so replay follows the same operation order.
+The original run timeout and `maxOffline` still apply during sleep. A sleep
+past the run deadline expires at that deadline; an unavailable environment
+resumes only when available and within those limits. `list`/`get` show
+`waiting` with `nextAttemptAt` as the wake time, and detail rows identify sleeps
+with `kind: "sleep"`. Terminal runs have no pending wake time.
+
+`attempts` counts the first invocation and defaults to 1. Only steps declared
+`kind: "query"` may automatically retry; they cannot write SDK data or call
+mutations. Within query steps, use `ctx.mcp` for read-aware host access;
+generic `ctx.host`, notifications and agent starts are refused. Query backoff defaults to full jitter with initial `2s`, factor 2
+and maximum `1m`. Import `NonRetryable` and throw it for a permanent failure.
+Step `timeout` defaults to `5m`. The callback receives `signal`, `attempt`,
+`attempts`, `runId`, `stepId` and an `idempotencyKey` stable across its attempts.
+Pass its signal to fetch or subprocess APIs. A timeout aborts cooperatively;
+a callback must settle before another attempt can begin.
+
+Mutation steps get one attempt. An interrupted or timed-out mutation becomes
+`unknown`: its external effect may have happened, and it is never automatically
+repeated. Reconcile that effect before starting new work. Cancellation cannot
+roll back remote effects. Manual retry only extends the budget of a failed
+query, keeps its completed prefix and original lifetime, and rejects cancelled,
+expired, unknown, permanent-failure and invalid-result runs.
+
+At start, the host builds a content-addressed executable containing the plugin,
+its imports, sibling plugins and the SDK. Old runs keep their original code;
+new runs capture edits. Dependencies must bundle into one module (maximum
+32 MiB): computed imports, native/external assets and source-relative runtime
+paths are rejected. Use `ctx.root` for project files. Those files, environment
+variables, installed CLIs and credentials remain live; they are not snapshots.
+Nested workflow starts from a pinned executor are not supported.
+
+The host resumes work without an open phone or page. `timeout` is a wall-clock
+run lifetime, including waits. `maxOffline` expires work when the environment
+or workflow service has been unavailable for that long. A persistent network
+outage is also tracked when the environment has no nonlocal network address;
+this passive check does not probe external services or prove internet access.
+Individual API failures use the step's retry budget. The host records expiry on its next wake.
+Shutdown suspends work without recording user cancellation. Required builds
+stay until all referencing runs pass terminal `retention`; cleanup removes
+those journals and then unreferenced builds. Admission refuses new runs above
+its storage budget rather than evicting active history. Missing/corrupt journals
+or incompatible builds block execution instead of running mutable source.
+
+For integration tests, import `testWorkflowRuntime` from
+`@repogo/plugins/testing` and pass the fixture's plugins directory. It uses real
+temporary storage and pinned subprocesses. Call the same lifecycle methods,
+use `await app.wait("reports.report", id)` to await a terminal/blocked run, and
+`await app.close()` afterward. The in-memory `testRuntime({ plugin })` helper
+cannot freeze closures and does not execute durable workflows.
+
 
 ## Crons
 

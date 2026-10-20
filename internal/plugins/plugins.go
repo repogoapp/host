@@ -551,7 +551,7 @@ func (s *Service) lost(srv *server) {
 	s.server = nil
 	s.restarts++
 	wait := min(time.Duration(s.restarts)*time.Second, maxRestartWait)
-	held := len(s.subs) > 0
+	held := len(s.subs) > 0 || s.hasWorkflows()
 	s.mu.Unlock()
 	s.cfg.Log.Warn("plugins: server stopped", "subscriptions", held)
 	if !held || s.ctx.Err() != nil {

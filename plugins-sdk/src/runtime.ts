@@ -18,7 +18,11 @@ import { Kv } from "./kv";
 import { logContext, record, runWith, type LogContext } from "./logs";
 import type { Store, StoreKind, StoreOptions } from "./store";
 import { defaultRetain, Stream } from "./streams";
-import { currentAccess, recordRead, tracked } from "./tracking";
+import { currentAccess, recordRead, tracked, assertWritable } from "./tracking";
+import { workflowMethods, workflowSettings } from "./workflow/register";
+import type { WorkflowBridge } from "./workflow/contracts";
+import { workflowContext, type WorkflowContext } from "./workflow/definition";
+import { attemptScope, workflowScope } from "./workflow/scope";
 import { callFiles, type UploadedFile } from "./uploads";
 
 export type RegisteredMethod = {
@@ -97,6 +101,7 @@ export class Runtime {
   readonly methods = new Map<string, RegisteredMethod>();
   readonly plugins = new Map<string, PluginDefinition>();
   readonly crons: CronJob[] = [];
+  private contexts = new Map<string, Context>();
   private databases = new Map<string, Database>();
   /** Every kv, stream and bucket by tag, shared by the plugins that name it, with its schema's JSON. */
   private stores = new Map<string, { store: Store; schema: string }>();
@@ -108,6 +113,7 @@ export class Runtime {
     private dataDir: string,
     private root: string,
     private host?: HostCaller,
+    private workflows?: WorkflowBridge,
   ) {}
 
   /** The caller's project while a call runs, for plugins that serve every project. */
@@ -125,9 +131,9 @@ export class Runtime {
    * `root` is the project's checkout, `ctx.root` to its plugins; the working
    * directory when left out. Without `host`, `ctx.host` fails.
    */
-  static async open(options: { dataDir: string; root?: string; host?: HostCaller }) {
+  static async open(options: { dataDir: string; root?: string; host?: HostCaller; workflows?: WorkflowBridge }) {
     await mkdir(options.dataDir, { recursive: true });
-    return new Runtime(options.dataDir, options.root ?? process.cwd(), options.host);
+    return new Runtime(options.dataDir, options.root ?? process.cwd(), options.host, options.workflows);
   }
 
   /** `only` names the plugins to import, for a Worker that runs schedules: their neighbours' code never runs. */
@@ -156,7 +162,7 @@ export class Runtime {
       if (!stores.includes(store)) throw new Error(`plugin ${name} lists ${store} as private, but keeps no collection, kv, stream or bucket by that name`);
     }
     // Only data needs a file; plugins naming the same namespace share it on purpose.
-    const hasData = declared.length > 0 || [plugin.buckets, plugin.kv, plugin.streams].some((stores) => Object.keys(stores ?? {}).length > 0);
+    const hasData = Object.keys(plugin.workflows ?? {}).length > 0 || declared.length > 0 || [plugin.buckets, plugin.kv, plugin.streams].some((stores) => Object.keys(stores ?? {}).length > 0);
     // Named by hand, so where data goes is never a folder name's accident.
     const namespace = plugin.namespace ?? "";
     if (hasData && !namespace) throw new Error(`plugin ${name} keeps data, so it needs a namespace: "<project>.${name}" for one project's, "${name}" to share it`);
@@ -194,7 +200,7 @@ export class Runtime {
       plugin: name,
       get caller() { return runtime.callCaller.getStore() ?? "code"; },
       get root() { return runtime.callRoot.getStore() ?? runtime.root; },
-      get signal() { return runtime.callSignal.getStore() ?? never; },
+      get signal() { return attemptScope.getStore()?.signal ?? runtime.callSignal.getStore() ?? never; },
       collections,
       buckets,
       kv,
@@ -202,6 +208,7 @@ export class Runtime {
       call: async (method, input) => (await this.call(method.includes(".") ? method : `${name}.${method}`, input)).result,
       emit: (event, payload) => this.events.emit(`${name}.${event}`, payload),
       host: async (method, params) => {
+        if (workflowScope.getStore()) assertWritable("host methods");
         if (!runtime.host) throw new MethodError("INTERNAL", "ctx.host runs only under the RepoGo host.");
         return runtime.host(name, method, params ?? {});
       },
@@ -223,6 +230,7 @@ export class Runtime {
         return this.manifest().plugins;
       },
       notify: (notice) => {
+        assertWritable("notifications");
         const sent = { ...notice, plugin: name, root: runtime.callRoot.getStore() ?? runtime.root };
         for (const listener of runtime.noticeListeners) listener(sent);
       },
@@ -245,11 +253,30 @@ export class Runtime {
       });
     }
 
+    this.contexts.set(name, ctx);
+    for (const [workflowName, definition] of Object.entries(plugin.workflows ?? {})) {
+      if (!/^[a-z][a-zA-Z0-9_-]*$/.test(workflowName)) throw new Error(`Invalid workflow name ${workflowName}.`);
+      workflowSettings(definition);
+      for (const method of workflowMethods(name, namespace, workflowName, definition, ctx, this.workflows, () => this.pluginsDir)) this.register(method);
+    }
+
     for (const [event, handler] of Object.entries(plugin.on ?? {})) {
       this.events.on(`${name}.${event}`, (e) => logContext.run(this.logContextFor(name), () => handler(e.payload, ctx)));
     }
 
     this.plugins.set(name, plugin);
+  }
+
+  async executeWorkflow(plugin: string, name: string, input: unknown, context: import("./workflow/runner").RunContext & { root: string; runId: string; caller: Caller }): Promise<unknown> {
+    const definition = this.plugins.get(plugin)?.workflows?.[name];
+    if (!definition) throw new MethodError("NOT_FOUND", `No workflow ${plugin}.${name}.`);
+    const ctx = this.contexts.get(plugin)!;
+    return workflowScope.run(true, () => this.callCaller.run(context.caller, () => this.callRoot.run(context.root, () => this.callSignal.run(context.signal, () => runWith(
+      { plugin, method: `${plugin}.${name}`, caller: context.caller, callId: context.runId }, async () => {
+        const result = await definition.run(definition.input.parse(input), workflowContext(ctx, context));
+        return definition.output ? definition.output.parse(result) : result;
+      },
+    )))));
   }
 
   /**
@@ -290,7 +317,7 @@ export class Runtime {
     const raw = input ?? {};
     const parsed = method.input.parse(raw);
     // Asked after the input is read, so the question can name what it acts on.
-    if (method.confirm && options.confirmed === false) throw new MethodError("CONFIRM", fillConfirm(method.confirm, parsed));
+    if (method.confirm && (options.confirmed === false || workflowScope.getStore())) throw new MethodError("CONFIRM", fillConfirm(method.confirm, parsed));
     if (method.kind === "stream") return { result: await this.sample(name, input), reads: [], invalidates: [] };
     // Past the check above, a method with a confirm has the user's yes.
     const confirmed = this.callConfirmed.getStore() ?? false;
@@ -470,6 +497,7 @@ export class Runtime {
 
   /** Starts a chat for the plugin and waits for the agent's answer. */
   private async agent(plugin: string, ctx: Context, prompt: string, options: AgentOptions): Promise<AgentReply> {
+    assertWritable("agents");
     if (!this.host) throw new MethodError("INTERNAL", "ctx.agent runs only under the RepoGo host.");
     if (!options.agent) throw new MethodError("VALIDATION", "ctx.agent needs the agent to run: { agent: \"claude\" } or \"codex\".");
     const started = (await this.host(plugin, "chats.start", {

@@ -1,3 +1,4 @@
+import type { WorkflowRequest } from "./workflow/contracts";
 import type { Caller, CronEntry } from "./context";
 import type { CallError } from "./errors";
 import type { LogRecord } from "./logs";
@@ -68,6 +69,8 @@ export type HostCall = { id: number; method: "host"; params: { plugin: string; m
 // Between the server and a project's Worker.
 
 export type ToWorker =
+  | { type: "workflowed"; id: number; result: unknown }
+  | { type: "workflowed"; id: number; error: CallError }
   /** `only` names the plugins to import; null is all of them. */
   | { type: "open"; dir: string; dataDir: string; root: string; only: string[] | null }
   /** The folder's schedules; the reply is each one's status. */
@@ -85,6 +88,7 @@ export type ToWorker =
   | { type: "stop" };
 
 export type FromWorker =
+  | { type: "workflow"; id: number; request: WorkflowRequest }
   | { type: "reply"; id: number; result: unknown; stream?: true }
   | { type: "reply"; id: number; error: CallError }
   | { type: "data"; subscription: string; result: unknown }

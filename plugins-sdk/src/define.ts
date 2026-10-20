@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { Context } from "./context";
+import type { Workflow } from "./workflow/definition";
 import type { Retain } from "./streams";
 
 export type Collections = Record<string, z.ZodObject>;
@@ -57,6 +58,7 @@ export type PluginDefinition = {
   /** Append-only JSONL per key, in `<namespace>/streams/<name>/`, kept as `retain` says. */
   streams?: Record<string, StreamDefinition>;
   methods?: Record<string, Method<any, any>>;
+  workflows?: Record<string, Workflow<any, any>>;
   on?: Record<string, Handler>;
   /**
    * Data named here gets no generated methods (list, create, delete…), so cards
