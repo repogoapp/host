@@ -182,6 +182,17 @@ func New(cfg Config) (*Server, error) {
 }
 
 func (s *Server) Listen() (net.Addr, error) {
+	srv, addr, err := wsconn.Listen(s.cfg.Addr, s.Handler(), s.log)
+	if err != nil {
+		return nil, fmt.Errorf("relay: listen: %w", err)
+	}
+	s.http = srv
+	return addr, nil
+}
+
+// Handler serves the relay's routes, for a caller that owns the listener,
+// such as a bench on a Unix socket.
+func (s *Server) Handler() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWS)
 	// Deliberately minimal and unauthenticated: counts, never identities. A
@@ -190,13 +201,7 @@ func (s *Server) Listen() (net.Addr, error) {
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"connections":%d,"server_id":%q}`, s.connectionCount(), s.cfg.ServerID)
 	})
-
-	srv, addr, err := wsconn.Listen(s.cfg.Addr, mux, s.log)
-	if err != nil {
-		return nil, fmt.Errorf("relay: listen: %w", err)
-	}
-	s.http = srv
-	return addr, nil
+	return mux
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
