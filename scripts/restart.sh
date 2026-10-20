@@ -42,17 +42,29 @@ say() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 say "Building host"
 go build $GO_TAGS -o "$BIN" ./repogo
 
+# Dev only: Go profiles on loopback, for bench/monitor and `go tool pprof`.
+export REPOGO_PPROF="${REPOGO_PPROF:-127.0.0.1:6061}"
+PPROF_PORT="${REPOGO_PPROF##*:}"
+
+# A stopping host closes the runtime port before the pprof one, so wait for
+# whatever holds either port to exit, or the new host can't bind pprof.
+listeners() { lsof -t -iTCP:"$PORT" -iTCP:"$PPROF_PORT" -sTCP:LISTEN 2>/dev/null | sort -u; }
+
 say "Stopping the old host"
 "$BIN" stop
-if pids=$(lsof -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null) && [ -n "$pids" ]; then
+if pids=$(listeners) && [ -n "$pids" ]; then
   kill $pids 2>/dev/null || true
-  for _ in $(seq 1 30); do
-    lsof -t -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || break
+  for _ in $(seq 1 50); do
+    [ -z "$(listeners)" ] && break
     sleep 0.1
   done
+  if [ -n "$(listeners)" ]; then
+    kill -9 $(listeners) 2>/dev/null || true
+    sleep 0.2
+  fi
   echo "  stopped (pid $(echo "$pids" | tr '\n' ' '))"
 else
-  echo "  nothing was running on :$PORT"
+  echo "  nothing was running on :$PORT or :$PPROF_PORT"
 fi
 
 say "Starting host"
@@ -62,8 +74,6 @@ say "Starting host"
 export REPOGO_LOG_SERVER="${REPOGO_LOG_SERVER:-http://127.0.0.1:${REPOGO_LOG_SERVER_PORT:-3939}}"
 # Dev only: the plugins SDK in this checkout runs the project plugins in .repogo/plugins.
 export REPOGO_PLUGINS_SDK="${REPOGO_PLUGINS_SDK:-$PWD/plugins-sdk}"
-# Dev only: Go profiles on loopback, for bench/monitor and `go tool pprof`.
-export REPOGO_PPROF="${REPOGO_PPROF:-127.0.0.1:6061}"
 # A new session, so the host outlives this script and whatever launched it.
 nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' \
   "$BIN" serve -port "$PORT" "$@" >>"$LOG" 2>&1 </dev/null &
