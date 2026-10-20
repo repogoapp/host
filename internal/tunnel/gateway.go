@@ -107,6 +107,8 @@ func (s *Service) connect(ctx context.Context) error {
 		switch m := m.(type) {
 		case *tunnelwire.Request:
 			go l.serveHTTP(ctx, m)
+		case *tunnelwire.PluginRequest:
+			go l.servePlugin(ctx, m)
 		case *tunnelwire.WSOpen:
 			go l.openWS(ctx, m)
 		case *tunnelwire.WSFrame:

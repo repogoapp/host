@@ -1,5 +1,6 @@
-// Package tunnel serves public `<slug>.repogo.dev` URLs for this host's dev
-// servers through RepoGo's tunnel gateway. repogo.app decides who
+// Package tunnel serves public `<slug>.<Domain>` URLs for this host's dev
+// servers, and `h-<host id>.<Domain>` for its plugins, through RepoGo's
+// tunnel gateway. repogo.app decides who
 // may open a tunnel and writes the gateway's row; this host decides what it
 // serves: only a slug a paired device opened here, only to that slug's port,
 // only on 127.0.0.1. It dials the gateway only while a tunnel is open, and
@@ -27,7 +28,7 @@ var (
 )
 
 // Domain is where the gateway serves tunnels.
-const Domain = "repogo.dev"
+const Domain = "tunnels.repogo.dev"
 
 // DefaultGateway is where the host opens its gateway socket; its host name is
 // signed into every proof, so a proof made for it is useless anywhere else.
@@ -74,6 +75,8 @@ type Config struct {
 	// OwnPort is the host's own loopback port, read at each open since the
 	// listener binds after this service is built. A tunnel to it is refused.
 	OwnPort func() int
+	// Plugins serves the environment's own address; nil serves nothing there.
+	Plugins Plugins
 	Log     *slog.Logger
 }
 
@@ -287,10 +290,7 @@ func (s *Service) setConnected(on bool) {
 }
 
 func (s *Service) changed() {
-	select {
-	case s.wake <- struct{}{}:
-	default:
-	}
+	s.Wake()
 	s.mu.Lock()
 	ev := Changed{Tunnels: s.listLocked(), Connected: s.connected}
 	s.mu.Unlock()
@@ -308,13 +308,13 @@ func (s *Service) saveLocked() error {
 // pruneEvery is how often an idle or connected host re-checks expiry.
 const pruneEvery = time.Minute
 
-// Run holds the gateway connection open while any tunnel is, and drops it
-// when the last one closes or expires.
+// Run holds the gateway connection open while any tunnel is or a plugin
+// serves HTTP, and drops it when neither is left.
 func (s *Service) Run(ctx context.Context) {
 	s.setRunning(true)
 	defer s.setRunning(false)
 	for ctx.Err() == nil {
-		if len(s.List()) == 0 {
+		if !s.wanted() {
 			select {
 			case <-ctx.Done():
 				return
@@ -329,7 +329,7 @@ func (s *Service) Run(ctx context.Context) {
 			defer close(done)
 			s.dialLoop(linkCtx)
 		}()
-		for len(s.List()) > 0 && ctx.Err() == nil {
+		for s.wanted() && ctx.Err() == nil {
 			select {
 			case <-ctx.Done():
 			case <-s.wake:
@@ -339,6 +339,21 @@ func (s *Service) Run(ctx context.Context) {
 		cancel()
 		<-done
 		s.setConnected(false)
+	}
+}
+
+// wanted reports whether anything needs the gateway: an open tunnel, or a
+// plugin route at the environment's address.
+func (s *Service) wanted() bool {
+	return len(s.List()) > 0 || (s.cfg.Plugins != nil && s.cfg.Plugins.HasRoutes())
+}
+
+// Wake re-checks at once whether the gateway is needed, for a plugin that
+// just gained or lost its HTTP routes.
+func (s *Service) Wake() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
 }
 

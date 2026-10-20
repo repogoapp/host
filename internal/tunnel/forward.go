@@ -149,6 +149,12 @@ func (l *link) serveHTTP(ctx context.Context, req *tunnelwire.Request) {
 			"Local server unreachable")
 		return
 	}
+	l.relay(id, method, resp, isFiniteAsset(req, method))
+}
+
+// relay sends resp back as one Response, or streamed when it is large,
+// open-ended or asset says so.
+func (l *link) relay(id, method string, resp *http.Response, asset bool) {
 	defer resp.Body.Close()
 	lines := make([]string, 0, len(resp.Header))
 	for k, vs := range resp.Header {
@@ -161,7 +167,7 @@ func (l *link) serveHTTP(ctx context.Context, req *tunnelwire.Request) {
 	}
 	status := resp.StatusCode
 	empty := method == http.MethodHead || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotModified
-	if !empty && (shouldStream(resp) || isFiniteAsset(req, method)) {
+	if !empty && (shouldStream(resp) || asset) {
 		l.streamBody(id, status, lines, resp)
 		return
 	}

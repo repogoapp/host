@@ -30,17 +30,18 @@ func ProofMessage(nonce []byte, gatewayID string, timeMS uint64) []byte {
 type Kind byte
 
 const (
-	KindHello     Kind = 1 // host → gateway
-	KindChallenge Kind = 2 // gateway → host
-	KindProof     Kind = 3 // host → gateway
-	KindReady     Kind = 4 // gateway → host
-	KindRequest   Kind = 5 // gateway → host
-	KindResponse  Kind = 6 // host → gateway
-	KindBodyChunk Kind = 7 // host → gateway
-	KindWSOpen    Kind = 8 // gateway → host
-	KindWSOpenAck Kind = 9 // host → gateway
-	KindWSFrame   Kind = 10
-	KindWSClose   Kind = 11
+	KindHello         Kind = 1 // host → gateway
+	KindChallenge     Kind = 2 // gateway → host
+	KindProof         Kind = 3 // host → gateway
+	KindReady         Kind = 4 // gateway → host
+	KindRequest       Kind = 5 // gateway → host
+	KindResponse      Kind = 6 // host → gateway
+	KindBodyChunk     Kind = 7 // host → gateway
+	KindWSOpen        Kind = 8 // gateway → host
+	KindWSOpenAck     Kind = 9 // host → gateway
+	KindWSFrame       Kind = 10
+	KindWSClose       Kind = 11
+	KindPluginRequest Kind = 12 // gateway → host
 )
 
 // Message is any frame's body.
@@ -72,7 +73,17 @@ type Request struct {
 	Body        []byte   `json:"-"`
 }
 
-// Response answers a Request; Streaming means BodyChunks follow.
+// PluginRequest is a caller's HTTP request to the environment's own address,
+// h-<host id>.<domain>. Its own kind, so it can only reach plugins, never a port.
+type PluginRequest struct {
+	SessionID   string   `json:"session_id"`
+	Method      string   `json:"method"`
+	Path        string   `json:"path"`
+	HeaderLines []string `json:"header_lines"`
+	Body        []byte   `json:"-"`
+}
+
+// Response answers a Request or a PluginRequest; Streaming means BodyChunks follow.
 type Response struct {
 	SessionID   string   `json:"session_id"`
 	Status      int      `json:"status"`
@@ -115,22 +126,25 @@ type WSClose struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
-func (*Hello) Kind() Kind     { return KindHello }
-func (*Challenge) Kind() Kind { return KindChallenge }
-func (*Proof) Kind() Kind     { return KindProof }
-func (*Ready) Kind() Kind     { return KindReady }
-func (*Request) Kind() Kind   { return KindRequest }
-func (*Response) Kind() Kind  { return KindResponse }
-func (*BodyChunk) Kind() Kind { return KindBodyChunk }
-func (*WSOpen) Kind() Kind    { return KindWSOpen }
-func (*WSOpenAck) Kind() Kind { return KindWSOpenAck }
-func (*WSFrame) Kind() Kind   { return KindWSFrame }
-func (*WSClose) Kind() Kind   { return KindWSClose }
+func (*Hello) Kind() Kind         { return KindHello }
+func (*Challenge) Kind() Kind     { return KindChallenge }
+func (*Proof) Kind() Kind         { return KindProof }
+func (*Ready) Kind() Kind         { return KindReady }
+func (*Request) Kind() Kind       { return KindRequest }
+func (*Response) Kind() Kind      { return KindResponse }
+func (*BodyChunk) Kind() Kind     { return KindBodyChunk }
+func (*WSOpen) Kind() Kind        { return KindWSOpen }
+func (*WSOpenAck) Kind() Kind     { return KindWSOpenAck }
+func (*WSFrame) Kind() Kind       { return KindWSFrame }
+func (*WSClose) Kind() Kind       { return KindWSClose }
+func (*PluginRequest) Kind() Kind { return KindPluginRequest }
 
 // raw is the part of a message that travels unencoded after the header.
 func raw(m Message) []byte {
 	switch m := m.(type) {
 	case *Request:
+		return m.Body
+	case *PluginRequest:
 		return m.Body
 	case *Response:
 		return m.Body
@@ -177,6 +191,8 @@ func Decode(b []byte) (Message, error) {
 		m = &Ready{}
 	case KindRequest:
 		m = &Request{Body: body}
+	case KindPluginRequest:
+		m = &PluginRequest{Body: body}
 	case KindResponse:
 		m = &Response{Body: body}
 	case KindBodyChunk:

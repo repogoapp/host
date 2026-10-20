@@ -13,6 +13,7 @@ func TestRoundTrip(t *testing.T) {
 		&Proof{Signature: []byte{9, 9}},
 		&Ready{},
 		&Request{SessionID: "s1", Method: "POST", Path: "/a?b=1", Target: "3000", HeaderLines: []string{"Host: x.tunnels.repogo.dev"}, Body: []byte("payload")},
+		&PluginRequest{SessionID: "p1", Method: "POST", Path: "/builds/install/job?token=t", HeaderLines: []string{"Host: h-x.repogo.dev"}, Body: []byte("payload")},
 		&Response{SessionID: "s1", Status: 200, HeaderLines: []string{"Content-Type: text/plain"}, Body: []byte{0, 255, 10}},
 		&Response{SessionID: "s2", Status: 200, HeaderLines: []string{}, Streaming: true, Body: []byte{}},
 		&BodyChunk{SessionID: "s2", EndOfStream: true, Data: []byte("tail")},
