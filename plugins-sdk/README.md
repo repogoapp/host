@@ -8,7 +8,7 @@ phone draw its data live and run its methods when you tap.
 - [Quick start](#quick-start)
 - [Where plugins live](#where-plugins-live)
 - [Methods](#methods): queries, mutations, streams
-- [Data](#data): namespaces, collections, kv, streams, buckets
+- [Data](#data): namespaces, collections, kv, streams, buckets, uploads
 - [Crons](#crons)
 - [Logging](#logging)
 - [The context](#the-context)
@@ -89,6 +89,18 @@ Mark every method that only reads as `kind: "query"`: that's what lets a card
 show it and keep it current. Give each a `description`; agents read it to choose
 a method. `output`, a zod schema of the result, tells agents and cards its
 field names.
+
+A query that returns a list takes `limit`, with a default and a maximum in its
+schema, and returns only what a card or the voice agent shows of each item:
+ids, titles, status. A `get` returns one in full, and long text (a body, a log)
+is cut short in the list. Answers stay small, so cards draw fast and an agent
+or the voice agent reads the whole of one.
+
+```ts
+open: method(z.object({ limit: z.number().int().min(1).max(100).default(20) }), async ({ limit }, ctx) =>
+  (await ctx.collections.notes.list({ where: { done: false }, limit })).map(({ id, text }) => ({ id, text: text.slice(0, 200) })),
+  { kind: "query", description: "Notes not done yet, newest first" }),
+```
 
 A **stream** sends each `yield` to the card as it happens, for as long as the
 card shows it. `ctx.signal` aborts when the card goes, so hand it to what you
@@ -254,6 +266,37 @@ is the file on disk. `update` merges into the meta, `null` removing a field, and
 checks it against the schema; with `revision`, it fails if the file changed
 since you read it. Writes through `ctx` are checked; files written by hand are
 indexed with their `status` instead.
+
+### Uploads
+
+A card's `<Upload>` lets the user take a photo, record a video, or pick
+photos or files on their phone, and hands them to one of your methods as
+`files`. Declare the field with `upload()`:
+
+```ts
+import { definePlugin, method, upload, z } from "@repogo/plugins";
+
+ingest: method(z.object({ files: z.array(upload()), month: z.string() }), async ({ files, month }, ctx) => {
+  for (const file of files) {
+    await ctx.buckets.receipts.put({ body: Bun.file(file.path), name: file.name, folder: month });
+  }
+  return { added: files.length };
+}),
+```
+
+Each file is `{ id, name, type, size, path }`. `type` is its MIME type, and
+`path` is where the host staged it on the environment. The phone sends the
+bytes before the call, encrypted like every call, and the call starts once
+they've all arrived. A staged file is deleted a day after its last use, so
+copy what you keep: into a bucket, as above, or wherever you like. `files` is
+always an array, even for one file.
+
+`upload()` accepts only files the host attached to the running call. Input
+written by hand, such as an agent's `plugin_call` with a made-up `path`, fails
+validation, and so does a call that sends its own `files` alongside the
+upload's. A method the upload's method calls with `ctx.call` may pass the
+files on. In tests, `app.call("receipts.ingest", { month: "may" }, { files })`
+stands in for the host.
 
 ### Generated methods
 

@@ -129,6 +129,8 @@ var unchecked = map[string]string{
 	"plugins.call":         "runs the plugins server, which needs Bun and the SDK the test host lacks; covered in internal/plugins",
 	"plugins.subscribe":    "same",
 	"plugins.unsubscribe":  "same",
+	"uploads.write":        "paired devices only, and loopback callers are denied; covered in internal/uploads",
+	"uploads.remove":       "same",
 	"chats.resolve":        "needs a chat cache; covered in the chats family suite",
 	"chats.pin":            "needs a chat cache; covered in the chats family suite",
 	"chats.update":         "writes provider files; covered in the chats family suite",

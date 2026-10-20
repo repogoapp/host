@@ -4,6 +4,9 @@
   },
   "error": {
     "code": "code",
-    "message": "message"
+    "message": "message",
+    "field_errors": {
+      "field_errors": "field_errors"
+    }
   }
 }

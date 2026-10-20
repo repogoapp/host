@@ -27,5 +27,5 @@ func (s *Server) withMCP(cwd string) bool {
 }
 
 func mcpTools(service *mcp.Service, turn agent.RunningTurn) toolResult {
-	return succeeded(map[string]any{"servers": service.Tools(turn.Ctx, turn.Cwd)})
+	return succeeded(map[string]any{"servers": service.Tools(turn.Ctx, turn.Cwd, false)})
 }

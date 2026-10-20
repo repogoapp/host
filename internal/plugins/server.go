@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/repogoapp/host/internal/outcome"
 )
 
 // The plugins server is the SDK's `run.ts serve`: one Bun process for every
@@ -34,11 +36,11 @@ type wireError struct {
 	FieldErrors map[string]string `json:"fieldErrors,omitempty"`
 }
 
-func (e *wireError) toError() *Failure {
+func (e *wireError) toError() *outcome.Failure {
 	if e == nil {
 		return nil
 	}
-	return &Failure{Code: e.Code, Message: e.Message, FieldErrors: e.FieldErrors}
+	return &outcome.Failure{Code: e.Code, Message: e.Message, FieldErrors: e.FieldErrors}
 }
 
 // line is anything the server sends: a reply has an id, a push a method.

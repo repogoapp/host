@@ -4,6 +4,7 @@ import { MethodError, toCallError, type CallError } from "./errors";
 import { captureConsole, record, type LogRecord } from "./logs";
 import type { FromWorker, ToWorker } from "./protocol";
 import { Runtime } from "./runtime";
+import type { UploadedFile } from "./uploads";
 
 // One project checkout's plugins, in a Worker of the plugins server: its own module
 // cache, so reloading the code is ending this Worker and starting another.
@@ -144,7 +145,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     }
     return post({ type: "reply", id: message.id, result: statuses });
   }
-  if (message.type === "call") return call(message.id, message.name, message.input, message.confirmed, message.caller, message.root, message.chat);
+  if (message.type === "call") return call(message.id, message.name, message.input, message.files, message.confirmed, message.caller, message.root, message.chat);
   if (message.type === "subscribe") {
     if (runtime.methods.get(message.name)?.kind === "stream") {
       return subscribeStream(message.id, message.subscription, message.name, message.input, message.root);
@@ -188,9 +189,9 @@ async function open(dir: string, dataDir: string, root: string, only: string[] |
   }
 }
 
-async function call(id: number, name: string, input: unknown, confirmed: boolean, caller: Caller, root?: string, chat?: string) {
+async function call(id: number, name: string, input: unknown, files: UploadedFile[] | undefined, confirmed: boolean, caller: Caller, root?: string, chat?: string) {
   try {
-    const { result } = await runtime!.call(name, input, { confirmed, caller, root, chat });
+    const { result } = await runtime!.call(name, input, { files, confirmed, caller, root, chat });
     post({ type: "reply", id, result });
   } catch (error) {
     post({ type: "reply", id, error: toCallError(error) });

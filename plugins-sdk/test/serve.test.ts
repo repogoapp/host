@@ -154,7 +154,7 @@ test("a subscription gets a push when a write changes its result, and nothing ot
   const first = result(await client.request("subscribe", { ...target, subscription: "t1", name: "notes.texts" }));
   expect(first).toEqual({ subscription: first.subscription, revision: 1, result: [] });
 
-  const pushed = client.nextPush((push) => push.params.subscription === first.subscription);
+  const pushed = client.nextPush((push) => push.method === "data" && push.params.subscription === first.subscription);
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
   expect((await pushed).params).toEqual({ subscription: first.subscription, revision: 2, result: ["a"] });
 
@@ -170,7 +170,7 @@ test("a write in one checkout reaches the other checkout's subscriptions", async
   const worktree = await checkout({ notes: notesApp });
 
   const subscribed = result(await client.request("subscribe", { dir: main.dir, subscription: "t2", name: "notes.texts" }));
-  const pushed = client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  const pushed = client.nextPush((push) => push.method === "data" && push.params.subscription === subscribed.subscription);
   result(await client.request("call", { dir: worktree.dir, name: "notes.notes.create", input: { text: "from the worktree" } }));
   expect((await pushed).params).toMatchObject({ revision: 2, result: ["from the worktree"] });
 });
@@ -182,7 +182,7 @@ test("plugins in two checkouts that name the same namespace share it, and a writ
   const two = await checkout({ list: todos });
 
   const subscribed = result(await client.request("subscribe", { dir: one.dir, subscription: "t2b", name: "notes.texts" }));
-  const pushed = client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  const pushed = client.nextPush((push) => push.method === "data" && push.params.subscription === subscribed.subscription);
   result(await client.request("call", { dir: two.dir, name: "list.notes.create", input: { text: "shared" } }));
   expect((await pushed).params).toMatchObject({ revision: 2, result: ["shared"] });
   expect((await stat(join(dataDir, "todos", "data.db"))).isFile()).toBe(true);
@@ -235,9 +235,9 @@ test("a reload runs the new code and pushes what changed", async () => {
 
   await writeFile(join(dir, "notes", "app.ts"), notesApp.replace("(n) => n.text", "(n) => n.text.toUpperCase()").replace("ctx.root", '"new"'));
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
-  await client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  await client.nextPush((push) => push.method === "data" && push.params.subscription === subscribed.subscription);
 
-  const reloaded = client.nextPush((push) => push.params.subscription === subscribed.subscription && push.params.revision === 3);
+  const reloaded = client.nextPush((push) => push.method === "data" && push.params.subscription === subscribed.subscription && push.params.revision === 3);
   result(await client.request("reload", { dir }));
   expect((await reloaded).params).toMatchObject({ result: ["A"] });
   expect(result(await client.request("call", { ...target, name: "notes.root" }))).toBe("new");
@@ -284,11 +284,11 @@ test("subscribing again under an id replaces it: one push per change", async () 
   const again = result(await client.request("subscribe", { ...target, subscription: "r1", name: "notes.texts" }));
   expect(again.revision).toBe(1);
 
-  const pushed = client.nextPush((push) => push.params.subscription === "r1");
+  const pushed = client.nextPush((push) => push.method === "data" && push.params.subscription === "r1");
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "a" } }));
   await pushed;
   await Bun.sleep(100);
-  expect(client.pushes.filter((push) => push.params.subscription === "r1")).toHaveLength(1);
+  expect(client.pushes.filter((push) => push.method === "data" && push.params.subscription === "r1")).toHaveLength(1);
 });
 
 test("an unsubscribe during the first run means it never starts", async () => {
@@ -314,7 +314,7 @@ test("rapid input changes under one id push only for the latest input", async ()
   await Promise.all([a, b]);
   expect(result(await again).result).toEqual([]);
 
-  const pushed = client.nextPush((push) => push.params.subscription === "f");
+  const pushed = client.nextPush((push) => push.method === "data" && push.params.subscription === "f");
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "b-only" } }));
   result(await client.request("call", { ...target, name: "notes.notes.create", input: { text: "apple" } }));
   expect((await pushed).params).toMatchObject({ result: ["apple"] });
@@ -410,7 +410,7 @@ test("a file dropped into a bucket refreshes a card's list, through the Worker's
 
   const subscribed = result(await client.request("subscribe", { dir, subscription: "b1", name: "clips.files.list" }));
   expect(subscribed.result).toEqual([]);
-  const pushed = client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  const pushed = client.nextPush((push) => push.method === "data" && push.params.subscription === subscribed.subscription);
   await mkdir(join(bucket, "dropped"));
   await writeFile(join(bucket, "dropped", "hello.txt"), "hi");
   await writeFile(join(bucket, "dropped", "meta.json"), `{"note": "from an agent"}`);
@@ -424,10 +424,10 @@ test("a stream's tail replays, then sends lines as they're appended", async () =
 
   const subscribed = result(await client.request("subscribe", { dir, subscription: "s1", name: "clips.log.tail", input: { key: "run-1" } }));
   expect(subscribed.stream).toBe(true);
-  const replayed = await client.nextPush((push) => push.params.subscription === subscribed.subscription);
+  const replayed = await client.nextPush((push) => push.method === "data" && push.params.subscription === subscribed.subscription);
   expect(replayed.params).toMatchObject({ items: [{ id: "run-1:0", data: { text: "a" } }] });
 
-  const appended = client.nextPush((push) => push.params.subscription === subscribed.subscription && push !== replayed);
+  const appended = client.nextPush((push) => push.method === "data" && push.params.subscription === subscribed.subscription && push !== replayed);
   result(await client.request("call", { dir, name: "clips.log.append", input: { key: "run-1", data: { text: "b" } } }));
   expect((await appended).params).toMatchObject({ items: [{ id: "run-1:1", data: { text: "b" } }] });
 });

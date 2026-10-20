@@ -54,7 +54,7 @@ func writeCrons(t *testing.T, s *Service, crons any) {
 
 func ticks(t *testing.T, s *Service, root string) int {
 	t.Helper()
-	got, err := s.Call(t.Context(), root, "ticker.count", nil, false, Origin{Caller: CallerCard})
+	got, err := s.Call(t.Context(), root, "ticker.count", nil, nil, false, Origin{Caller: CallerCard})
 	var n int
 	if err != nil || got.Error != nil || json.Unmarshal(got.Result, &n) != nil {
 		return -1
@@ -248,7 +248,7 @@ func TestCallsCarryTheirCaller(t *testing.T) {
 export default definePlugin({ methods: { caller: method(z.object({}), (_, ctx) => ctx.caller) } });
 `})
 	for _, caller := range []Caller{CallerCard, CallerAgent} {
-		got, err := s.Call(t.Context(), root, "who.caller", nil, true, Origin{Caller: caller})
+		got, err := s.Call(t.Context(), root, "who.caller", nil, nil, true, Origin{Caller: caller})
 		if err != nil || got.Error != nil || string(got.Result) != `"`+string(caller)+`"` {
 			t.Fatalf("caller %s: %s %+v %v", caller, got.Result, got.Error, err)
 		}

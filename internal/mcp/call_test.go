@@ -61,7 +61,7 @@ func (ts *toolServer) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	case "tools/list":
 		result = `{"tools":[
-			{"name":"list_projects","annotations":{"readOnlyHint":true}},
+			{"name":"list_projects","description":"List the projects.","inputSchema":{"type":"object","properties":{"search":{}}},"annotations":{"readOnlyHint":true}},
 			{"name":"rename","annotations":{"readOnlyHint":false,"destructiveHint":false}},
 			{"name":"delete_branch","title":"Delete branch"},
 			{"name":"fails","annotations":{"readOnlyHint":true}},
@@ -201,5 +201,30 @@ func TestKeysNameOnlyCallableServers(t *testing.T) {
 	}
 	if got := s.Keys(project); len(got) != 1 {
 		t.Errorf("a server without its key is named: %v", got)
+	}
+}
+
+// TestToolsDescribeOnlyWhenAsked keeps a card's listing to names and flags,
+// and gives a catalog what each tool does and takes.
+func TestToolsDescribeOnlyWhenAsked(t *testing.T) {
+	up := newToolServer(t, false)
+	s, project := connected(t, up)
+	find := func(described bool) ToolInfo {
+		for _, server := range s.Tools(t.Context(), project, described) {
+			for _, tool := range server.Tools {
+				if tool.Name == "list_projects" {
+					return tool
+				}
+			}
+		}
+		t.Fatalf("described=%v: no list_projects", described)
+		return ToolInfo{}
+	}
+	if plain := find(false); plain.Description != "" || plain.Input != nil {
+		t.Errorf("plain listing described the tool: %+v", plain)
+	}
+	described := find(true)
+	if described.Description != "List the projects." || !strings.Contains(string(described.Input), `"search"`) {
+		t.Errorf("described = %q %s, want its description and input schema", described.Description, described.Input)
 	}
 }

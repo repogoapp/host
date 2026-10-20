@@ -26,8 +26,16 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
    * runs, such as "Delete every item?". Methods without one run on tap.
    */
   confirm?: string;
+  /** Who may call it at the environment's own address; unset, no one. */
+  http?: HTTPAccess;
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>;
 };
+
+/**
+ * `key`: the host checks a key the caller sends. `none`: anyone reaches the
+ * method, which checks the caller itself, such as a provider's signature.
+ */
+export type HTTPAccess = "key" | "none";
 
 export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>;
 
@@ -64,11 +72,12 @@ export function definePlugin<T extends PluginDefinition>(plugin: T): T {
 export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   input: I,
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>,
-  options: { kind?: MethodKind; output?: O; description?: string; confirm?: string } = {},
+  options: { kind?: MethodKind; output?: O; description?: string; confirm?: string; http?: true | { auth: HTTPAccess } } = {},
 ): Method<I, O> {
   return {
     input, run, kind: options.kind ?? "mutation", output: options.output,
     description: options.description, confirm: options.confirm,
+    http: options.http === true ? "key" : options.http?.auth,
   };
 }
 

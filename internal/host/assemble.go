@@ -51,6 +51,7 @@ import (
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
 	"github.com/repogoapp/host/internal/tunnel"
+	"github.com/repogoapp/host/internal/uploads"
 	"github.com/repogoapp/host/internal/wsserver"
 )
 
@@ -198,7 +199,8 @@ func (h *Host) openDevices() error {
 	h.tunnels, err = tunnel.Open(tunnel.Config{
 		Path: h.state("tunnels.json"), Identity: h.devices.Identity(), Peers: h.devices,
 		Gateway: h.cfg.Gateway, Plaintext: h.cfg.GatewayPlaintext,
-		Changed: func(ev tunnel.Changed) { h.toEveryPhone(ev) }, OwnPort: h.info.Port, Log: h.log,
+		Changed: func(ev tunnel.Changed) { h.toEveryPhone(ev) }, OwnPort: h.info.Port,
+		Plugins: h.Services.Plugins, Log: h.log,
 	})
 	if err != nil {
 		return err
@@ -297,10 +299,12 @@ func (h *Host) openProjects() error {
 	projectFiles := files.New(files.Config{
 		Roots: files.Union(h.db, layout), Home: h.cfg.Home, Picks: h.db, Folders: layout,
 		Projects: h.cfg.Projects, Trash: files.TrashDir(runtime.GOOS, h.cfg.Home),
-		// The environment's own plugins and pages are every project's to read and watch.
+		// The environment's own plugins and pages are every project's to read and watch,
+		// and so is their data, so a card can open a bucket's file in the viewer.
 		ReadOnly: []files.ReadOnlyDir{
 			{Path: h.cfg.Attachments, MaxBytes: agent.MaxUploadBytes},
 			{Path: h.state("plugins"), MaxBytes: files.MaxFileBytes},
+			{Path: h.state("plugin-data"), MaxBytes: files.MaxFileBytes},
 		},
 	})
 	gitService := gitcore.New(projectFiles, h.log)
@@ -351,10 +355,17 @@ func (h *Host) openProjects() error {
 		return err
 	}
 
+	staged, err := uploads.Open(h.state("uploads"), h.log)
+	if err != nil {
+		return err
+	}
+	h.onClose(staged.Close)
+
 	s := &h.Services
 	s.Chats = chats
 	s.Schedules = schedules
 	s.Reminders = reminders
+	s.Uploads = staged
 	s.Files = projectFiles
 	// Every CLI in one inventory, in the order the Environment screen shows
 	// them: source control, then agents. Phones hear when a sign-in ends or

@@ -2,7 +2,7 @@ import type { Bucket } from "./buckets";
 import type { Collection } from "./collections";
 import type { Kv } from "./kv";
 import type { Stream } from "./streams";
-import type { MethodKind } from "./define";
+import type { HTTPAccess, MethodKind } from "./define";
 import type { Duration } from "./duration";
 
 /** An alert for the user's phones: what it says, and the page a tap opens. */
@@ -23,6 +23,8 @@ export type ManifestMethod = {
   description: string | null;
   /** What a card asks before running it; null runs on tap. */
   confirm: string | null;
+  /** Who may call it at the environment's own address; null, no one. */
+  http: HTTPAccess | null;
   /** JSON Schema of the input, and of the output when the method declares one. */
   input: unknown;
   output: unknown;
@@ -71,7 +73,7 @@ export type Manifest = {
 // What every method and handler receives. Kept small on purpose: it is the
 // whole surface an agent has to learn.
 /** Who started a call: a tap or a card's query, an agent's `plugin_call`, a cron, or plugin code with none of those behind it. */
-export type Caller = "card" | "agent" | "cron" | "code";
+export type Caller = "card" | "agent" | "cron" | "code" | "http";
 
 /** How `ctx.agent` runs a chat: which agent, in which project, and how long to wait for its answer. */
 export type AgentOptions = {

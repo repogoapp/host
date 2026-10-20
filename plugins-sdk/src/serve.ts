@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Caller, CronEntry, CronStatus } from "./context";
 import { toCallError, type CallError } from "./errors";
 import type { DataPush, FromWorker, HostCall, LogPush, NotifyPush, Reply, Request, ToWorker } from "./protocol";
+import type { UploadedFile } from "./uploads";
 
 // The plugins server: one process for every project on this machine, listening on
 // a Unix socket the host connects to. Each project checkout's plugins run in their
@@ -21,10 +22,11 @@ export type ServeOptions = {
 const pluginsDir = z.string().refine(isAbsolute, "dir is an absolute path");
 const target = z.object({ dir: pluginsDir, root: z.string().refine(isAbsolute, "root is an absolute path").optional() });
 const named = target.extend({ name: z.string().min(1), input: z.unknown().optional() });
+const uploadedFile = z.object({ id: z.string(), name: z.string(), type: z.string(), size: z.number(), path: z.string() });
 
 const requestSchema = z.discriminatedUnion("method", [
   z.object({ id: z.number(), method: z.literal("list"), params: target }),
-  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ confirmed: z.boolean().optional(), caller: z.enum(["card", "agent", "cron", "code"]).optional(), chat: z.string().optional() }) }),
+  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ files: z.array(uploadedFile).optional(), confirmed: z.boolean().optional(), caller: z.enum(["card", "agent", "cron", "code", "http"]).optional(), chat: z.string().optional() }) }),
   z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
   z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
   z.object({ id: z.number(), method: z.literal("reload"), params: target }),
@@ -118,7 +120,7 @@ class Checkout {
     return "error" in answer ? answer : { statuses: answer.result as CronStatus[] };
   }
 
-  request(message: { type: "list" } | { type: "crons"; crons: CronEntry[] } | { type: "call"; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string; chat?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
+  request(message: { type: "list" } | { type: "crons"; crons: CronEntry[] } | { type: "call"; name: string; input: unknown; files?: UploadedFile[]; confirmed: boolean; caller: Caller; root?: string; chat?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
     const id = ++this.nextID;
     return new Promise((resolve) => {
       this.waiting.set(id, resolve);
@@ -306,7 +308,7 @@ export async function serve(options: ServeOptions) {
           request.method === "list"
             ? await checkout.request({ type: "list" })
             : await checkout.request({
-              type: "call", name: request.params.name, input: request.params.input ?? {},
+              type: "call", name: request.params.name, input: request.params.input ?? {}, files: request.params.files,
               confirmed: request.params.confirmed ?? false, caller: request.params.caller ?? "code", root: request.params.root, chat: request.params.chat,
             });
         return { id, ...answer };

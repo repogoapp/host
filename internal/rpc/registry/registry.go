@@ -56,11 +56,13 @@ import (
 	toolsrpc "github.com/repogoapp/host/internal/rpc/tools"
 	tunnelsrpc "github.com/repogoapp/host/internal/rpc/tunnels"
 	"github.com/repogoapp/host/internal/rpc/turns"
+	uploadsrpc "github.com/repogoapp/host/internal/rpc/uploads"
 	"github.com/repogoapp/host/internal/schedule"
 	"github.com/repogoapp/host/internal/shipping"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
 	"github.com/repogoapp/host/internal/tunnel"
+	uploadscore "github.com/repogoapp/host/internal/uploads"
 )
 
 // Config is what the host has to offer. Every field is required: New refuses
@@ -130,6 +132,8 @@ type Config struct {
 	Browser *repogomcp.Browser
 	// Plugins runs project plugins; off on a release, where every plugins.* call says so.
 	Plugins *pluginscore.Service
+	// Uploads stages the files a phone sends for a plugin call.
+	Uploads *uploadscore.Store
 
 	// EnvSources is the dotenv files bound here.
 	EnvSources *envsource.Sources
@@ -178,11 +182,12 @@ func New(cfg Config) (*rpc.Router, error) {
 	actionsrpc.Register(r, actionsrpc.Deps{Actions: cfg.Actions})
 	mcprpc.Register(r, mcprpc.Deps{MCP: cfg.MCP})
 	browserrpc.Register(r, browserrpc.Deps{Browser: cfg.Browser})
-	pluginsrpc.Register(r, pluginsrpc.Deps{Plugins: cfg.Plugins})
+	pluginsrpc.Register(r, pluginsrpc.Deps{Plugins: cfg.Plugins, Uploads: cfg.Uploads})
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
 	remindersrpc.Register(r, remindersrpc.Deps{Reminders: cfg.Reminders})
+	uploadsrpc.Register(r, uploadsrpc.Deps{Uploads: cfg.Uploads})
 	chats.Register(r, chats.Deps{Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire})
 	return r, nil
 }

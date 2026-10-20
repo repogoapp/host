@@ -25,6 +25,8 @@ import (
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/git"
+	"github.com/repogoapp/host/internal/outcome"
+	"github.com/repogoapp/host/internal/uploads"
 )
 
 // Folder is where a project keeps its plugins, from its checkout's top.
@@ -179,7 +181,8 @@ func (s *Service) targets(path string) ([]Target, error) {
 	}
 	root := checkout(path)
 	var out []Target
-	if dir := filepath.Join(root, filepath.FromSlash(Folder)); isDir(dir) {
+	// At the home folder, .repogo/plugins is the environment's own folder.
+	if dir := filepath.Join(root, filepath.FromSlash(Folder)); isDir(dir) && dir != s.cfg.Global {
 		out = append(out, Target{Dir: dir})
 	}
 	if isDir(s.cfg.Global) {
@@ -205,6 +208,24 @@ func (s *Service) targetOf(path, method string) (Target, error) {
 		}
 	}
 	return targets[0], nil
+}
+
+// Dir is the folder of a plugin path's project can use, the project's own
+// shadowing the environment's. It needs no runtime: it is for writing the
+// plugin's files, not calling it.
+func (s *Service) Dir(path, plugin string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
+	}
+	if plugin == "" || plugin != filepath.Base(plugin) || strings.HasPrefix(plugin, ".") {
+		return "", errkind.ErrInvalid.Errorf("plugins: %q is not a plugin name", plugin)
+	}
+	for _, dir := range []string{filepath.Join(checkout(path), filepath.FromSlash(Folder)), s.cfg.Global} {
+		if _, err := os.Stat(filepath.Join(dir, plugin, "app.ts")); err == nil {
+			return filepath.Join(dir, plugin), nil
+		}
+	}
+	return "", errkind.ErrNotFound.Errorf("no plugin %q here", plugin)
 }
 
 func isDir(path string) bool {
@@ -239,14 +260,17 @@ func (s *Service) recentErrors(ctx context.Context) map[string]int {
 	return counts
 }
 
-// Call runs one method, a query or a mutation. A method with a confirm
-// answers CONFIRM instead of running until confirmed says the user agreed.
-func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, confirmed bool, by Origin) (Answer, error) {
+// Call runs one method, a query or a mutation, with files the phone uploaded
+// as its input's files. A method with a confirm answers CONFIRM instead of
+// running until confirmed says the user agreed.
+func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, files []uploads.File, confirmed bool, by Origin) (outcome.Answer, error) {
 	t, err := s.targetOf(path, name)
 	if err != nil {
-		return Answer{}, err
+		return outcome.Answer{}, err
 	}
-	return s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: orEmpty(input), Confirmed: confirmed, Caller: by.Caller, Chat: by.Chat})
+	return s.ask(ctx, t, "call", callParams{
+		Target: t, Name: name, Input: orEmpty(input), Files: files, Confirmed: confirmed, Caller: by.Caller, Chat: by.Chat,
+	})
 }
 
 // Subscribe keeps a device's query or stream under the device's id, replacing
@@ -360,6 +384,7 @@ type callParams struct {
 	Target
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
+	Files     []uploads.File  `json:"files,omitempty"`
 	Confirmed bool            `json:"confirmed,omitempty"`
 	Caller    Caller          `json:"caller,omitempty"`
 	Chat      string          `json:"chat,omitempty"`
@@ -370,19 +395,19 @@ type subscribeParams struct {
 	Subscription string `json:"subscription"`
 }
 
-func (s *Service) ask(ctx context.Context, t Target, method string, params any) (Answer, error) {
+func (s *Service) ask(ctx context.Context, t Target, method string, params any) (outcome.Answer, error) {
 	srv, err := s.ready(ctx, t)
 	if err != nil {
-		return Answer{}, err
+		return outcome.Answer{}, err
 	}
 	result, pluginErr, err := srv.request(ctx, method, params)
 	if err != nil {
-		return Answer{}, err
+		return outcome.Answer{}, err
 	}
 	if pluginErr != nil {
-		return Answer{Error: pluginErr.toError()}, nil
+		return outcome.Answer{Error: pluginErr.toError()}, nil
 	}
-	return Answer{Result: result}, nil
+	return outcome.Answer{Result: result}, nil
 }
 
 // ready is the running server, started if need be, with t's plugins current: an

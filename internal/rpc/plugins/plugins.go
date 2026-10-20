@@ -6,12 +6,15 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/repogoapp/host/internal/outcome"
 	pluginscore "github.com/repogoapp/host/internal/plugins"
 	"github.com/repogoapp/host/internal/rpc"
+	uploadscore "github.com/repogoapp/host/internal/uploads"
 )
 
 type Deps struct {
 	Plugins *pluginscore.Service
+	Uploads *uploadscore.Store
 }
 
 // CallParams names a method of one of a project's plugins, as `<plugin>.<method>`.
@@ -23,6 +26,9 @@ type CallParams struct {
 	// Confirmed is the user's yes to the method's confirm question; without
 	// it, a method that has one answers CONFIRM instead of running.
 	Confirmed bool `json:"confirmed,omitempty"`
+	// Uploads are files the device staged with uploads.write, which the method
+	// gets as input.files; the host resolves them, so a phone never names a path.
+	Uploads []string `json:"uploads,omitempty"`
 }
 
 // SubscribeParams names a query to keep running, as `<plugin>.<method>`, under
@@ -69,11 +75,20 @@ func (d Deps) logs(ctx context.Context, _ rpc.Caller, p LogsParams) (LogsResult,
 	return LogsResult{Lines: lines}, err
 }
 
-func (d Deps) call(ctx context.Context, _ rpc.Caller, p CallParams) (pluginscore.Answer, error) {
+func (d Deps) call(ctx context.Context, c rpc.Caller, p CallParams) (outcome.Answer, error) {
 	if p.Method == "" {
-		return pluginscore.Answer{}, rpc.ErrInvalidParams
+		return outcome.Answer{}, rpc.ErrInvalidParams
 	}
-	return d.Plugins.Call(ctx, p.Project, p.Method, p.Input, p.Confirmed, pluginscore.Origin{Caller: pluginscore.CallerCard})
+	var files []uploadscore.File
+	if len(p.Uploads) > 0 {
+		held, release, err := d.Uploads.Hold(c.Device, p.Project, p.Uploads)
+		if err != nil {
+			return outcome.Answer{}, err
+		}
+		defer release()
+		files = held
+	}
+	return d.Plugins.Call(ctx, p.Project, p.Method, p.Input, files, p.Confirmed, pluginscore.Origin{Caller: pluginscore.CallerCard})
 }
 
 // subscribe runs a query now and again whenever a write changes its answer,

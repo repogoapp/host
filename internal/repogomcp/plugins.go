@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/outcome"
 	"github.com/repogoapp/host/internal/plugins"
 )
 
@@ -73,13 +74,13 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 	}
 	// A confirm guards what can't be undone from agents as from taps: an agent's
 	// permissions may let every tool call through, so the user's yes is its own step.
-	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, p.Confirmed, plugins.Origin{Caller: plugins.CallerAgent, Chat: turn.ChatID})
+	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, p.Confirmed, plugins.Origin{Caller: plugins.CallerAgent, Chat: turn.ChatID})
 	return pluginResult(answer, err)
 }
 
 // pluginResult passes a plugin's answer to the agent as is. A failed call keeps its
 // code and field errors, so the agent can correct its input.
-func pluginResult(answer plugins.Answer, err error) toolResult {
+func pluginResult(answer outcome.Answer, err error) toolResult {
 	if err != nil {
 		if errors.Is(err, plugins.ErrNoPlugins) || errors.Is(err, plugins.ErrOff) {
 			return failed("RepoGo " + err.Error())

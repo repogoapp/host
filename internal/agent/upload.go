@@ -3,12 +3,11 @@ package agent
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/uploads"
 )
 
 // A phone has no way onto this disk but the message itself, so the bytes come
@@ -62,7 +61,7 @@ func SaveUploads(in []Upload) ([]Attachment, error) {
 	batch := uuid.NewString()
 	out := make([]Attachment, 0, len(in))
 	for _, a := range in {
-		name := uploadName(a.Name, a.MimeType)
+		name := uploads.CleanName(a.Name, a.MimeType)
 		path, err := apphome.MkdirAll(attachmentsDir, batch, name)
 		if err != nil {
 			return nil, err
@@ -77,40 +76,4 @@ func SaveUploads(in []Upload) ([]Attachment, error) {
 		out = append(out, Attachment{Name: name, MimeType: mime, Path: path})
 	}
 	return out, nil
-}
-
-// uploadName keeps the name the user saw, minus anything that would move the
-// file out of its directory or make a shell choke on the path.
-func uploadName(name, mimeType string) string {
-	name = filepath.Base(strings.TrimSpace(name))
-	name = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || unicode.IsControl(r) {
-			return '_'
-		}
-		return r
-	}, name)
-	if name == "" || name == "." || name == ".." {
-		name = "attachment" + extensionFor(mimeType)
-	}
-	return name
-}
-
-func extensionFor(mimeType string) string {
-	switch mimeType {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
-	case "image/heic":
-		return ".heic"
-	case "application/pdf":
-		return ".pdf"
-	case "text/plain":
-		return ".txt"
-	}
-	return ""
 }

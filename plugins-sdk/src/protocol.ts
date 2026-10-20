@@ -2,6 +2,7 @@ import type { Caller, CronEntry } from "./context";
 import type { CallError } from "./errors";
 import type { LogRecord } from "./logs";
 import type { Manifest, SentNotice } from "./runtime";
+import type { UploadedFile } from "./uploads";
 
 // What the host and the plugins server say to each other over the socket: one JSON
 // object per line. A request carries an `id` and gets one reply with that `id`;
@@ -16,8 +17,11 @@ export type Target = { dir: string; root?: string };
 
 export type Request =
   | { id: number; method: "list"; params: Target }
-  /** `confirmed`: the user has answered the method's `confirm`, or the caller isn't a tap; `chat` is the agent's, for its log lines. */
-  | { id: number; method: "call"; params: Target & { name: string; input?: unknown; confirmed?: boolean; caller?: Caller; chat?: string } }
+  /**
+   * `confirmed`: the user has answered the method's `confirm`, or the caller isn't a tap; `chat` is the agent's,
+   * for its log lines; `files` are the phone's uploads the host resolved, which become the input's `files`.
+   */
+  | { id: number; method: "call"; params: Target & { name: string; input?: unknown; files?: UploadedFile[]; confirmed?: boolean; caller?: Caller; chat?: string } }
   /** `subscription` is the caller's id, so a push can't arrive before the caller
    *  knows it; subscribing again under an id replaces it. */
   | { id: number; method: "subscribe"; params: Target & { subscription: string; name: string; input?: unknown } }
@@ -69,7 +73,7 @@ export type ToWorker =
   /** The folder's schedules; the reply is each one's status. */
   | { type: "crons"; id: number; crons: CronEntry[] }
   | { type: "list"; id: number }
-  | { type: "call"; id: number; name: string; input: unknown; confirmed: boolean; caller: Caller; root?: string; chat?: string }
+  | { type: "call"; id: number; name: string; input: unknown; files?: UploadedFile[]; confirmed: boolean; caller: Caller; root?: string; chat?: string }
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown; root?: string }
   | { type: "unsubscribe"; subscription: string }
   /** Another Worker wrote these tags. */

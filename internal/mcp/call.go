@@ -8,37 +8,26 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/repogoapp/host/internal/outcome"
+	"github.com/repogoapp/host/internal/par"
 )
-
-// Answer is a tool's result as a card reads it, or its refusal as data: the
-// shape plugins.call answers in, so a card treats both alike.
-type Answer struct {
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *Failure        `json:"error,omitempty"`
-}
-
-// Failure is a refusal to show: CONFIRM (ask, then call again confirmed),
-// NOT_READ_ONLY (a read naming a tool that writes) or TOOL_ERROR.
-type Failure struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
 
 // Call runs one tool of a server switched on for project, named by the key
 // an agent knows it by. A read runs only read-only tools; a destructive tool
 // answers CONFIRM until confirmed says the user agreed.
-func (s *Service) Call(ctx context.Context, project, server, toolName string, input json.RawMessage, read, confirmed bool) (Answer, error) {
+func (s *Service) Call(ctx context.Context, project, server, toolName string, input json.RawMessage, read, confirmed bool) (outcome.Answer, error) {
 	n, err := s.named(ctx, project, server)
 	if err != nil {
-		return Answer{}, err
+		return outcome.Answer{}, err
 	}
 	t, ok, err := s.toolOf(ctx, n, toolName)
 	if err != nil {
-		return Answer{}, err
+		return outcome.Answer{}, err
 	}
 	switch {
 	case !ok:
-		return Answer{}, ErrNotFound.Errorf("%s has no tool %s", n.record.Label, toolName)
+		return outcome.Answer{}, ErrNotFound.Errorf("%s has no tool %s", n.record.Label, toolName)
 	case read && !t.readOnly():
 		return refusal("NOT_READ_ONLY", fmt.Sprintf("%s changes data, so a card runs it from a Button, not a Data", toolName)), nil
 	case !read && t.destructive() && !confirmed:
@@ -53,7 +42,7 @@ func (s *Service) Call(ctx context.Context, project, server, toolName string, in
 		return refusal("TOOL_ERROR", refused.Message), nil
 	}
 	if err != nil {
-		return Answer{}, err
+		return outcome.Answer{}, err
 	}
 	return answerOf(raw)
 }
@@ -70,7 +59,7 @@ func (s *Service) named(ctx context.Context, project, server string) (named, err
 
 // answerOf is a tool's result: its structured content when it has some, else
 // its text, as JSON when the text is JSON and as a string when it is not.
-func answerOf(raw json.RawMessage) (Answer, error) {
+func answerOf(raw json.RawMessage) (outcome.Answer, error) {
 	var result struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -80,7 +69,7 @@ func answerOf(raw json.RawMessage) (Answer, error) {
 		IsError           bool            `json:"isError"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return Answer{}, fmt.Errorf("mcp: unreadable tool result: %w", err)
+		return outcome.Answer{}, fmt.Errorf("mcp: unreadable tool result: %w", err)
 	}
 	var texts []string
 	for _, c := range result.Content {
@@ -96,17 +85,19 @@ func answerOf(raw json.RawMessage) (Answer, error) {
 		return refusal("TOOL_ERROR", text), nil
 	}
 	if s := bytes.TrimSpace(result.StructuredContent); len(s) > 0 && !bytes.Equal(s, []byte("null")) {
-		return Answer{Result: s}, nil
+		return outcome.Answer{Result: s}, nil
 	}
 	if text != "" && json.Valid([]byte(text)) {
-		return Answer{Result: json.RawMessage(text)}, nil
+		return outcome.Answer{Result: json.RawMessage(text)}, nil
 	}
 	quoted, err := json.Marshal(text)
-	return Answer{Result: quoted}, err
+	return outcome.Answer{Result: quoted}, err
 }
 
-func refusal(code, message string) Answer {
-	return Answer{Error: &Failure{Code: code, Message: message}}
+// refusal is a tool's answer when it didn't run or failed: CONFIRM (ask, then
+// call again confirmed), NOT_READ_ONLY (a read naming a tool that writes) or TOOL_ERROR.
+func refusal(code, message string) outcome.Answer {
+	return outcome.Answer{Error: &outcome.Failure{Code: code, Message: message}}
 }
 
 // ServerTools is a server switched on for a project and its tools, as an agent
@@ -119,28 +110,34 @@ type ServerTools struct {
 }
 
 // ToolInfo is one tool: only a read-only one feeds a card's Data, and one that
-// asks first gets the user's yes before a Button runs it.
+// asks first gets the user's yes before a Button runs it. Description and
+// Input, its JSON Schema, are there only when described.
 type ToolInfo struct {
-	Name      string `json:"name"`
-	ReadOnly  bool   `json:"read_only"`
-	AsksFirst bool   `json:"asks_first"`
+	Name        string          `json:"name"`
+	ReadOnly    bool            `json:"read_only"`
+	AsksFirst   bool            `json:"asks_first"`
+	Description string          `json:"description,omitempty"`
+	Input       json.RawMessage `json:"input,omitempty"`
 }
 
 // Tools lists the tools of every server switched on for cwd's project, by
-// name. A server that can't be reached says why instead of failing the rest.
-func (s *Service) Tools(ctx context.Context, cwd string) []ServerTools {
-	out := []ServerTools{}
-	for _, n := range s.onFor(ctx, cwd) {
+// name, each server at once. One that can't be reached says why instead of
+// failing the rest; described adds what each tool does and takes.
+func (s *Service) Tools(ctx context.Context, cwd string, described bool) []ServerTools {
+	return par.Map(s.onFor(ctx, cwd), 0, func(n named) ServerTools {
 		entry := ServerTools{Server: n.key, Label: n.record.Label, Tools: []ToolInfo{}}
 		tools, err := s.toolsOf(ctx, n, false)
 		if err != nil {
 			entry.Error = err.Error()
 		}
 		for _, t := range tools {
-			entry.Tools = append(entry.Tools, ToolInfo{Name: t.Name, ReadOnly: t.readOnly(), AsksFirst: t.destructive()})
+			info := ToolInfo{Name: t.Name, ReadOnly: t.readOnly(), AsksFirst: t.destructive()}
+			if described {
+				info.Description, info.Input = t.Description, t.InputSchema
+			}
+			entry.Tools = append(entry.Tools, info)
 		}
 		slices.SortFunc(entry.Tools, func(a, b ToolInfo) int { return strings.Compare(a.Name, b.Name) })
-		out = append(out, entry)
-	}
-	return out
+		return entry
+	})
 }

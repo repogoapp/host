@@ -38,10 +38,12 @@ type rpcError struct {
 
 func (e *rpcError) Error() string { return e.Message }
 
-// tool is what a card's call needs from a server's tool list.
+// tool is what a card's call and a voice catalog need from a server's tool list.
 type tool struct {
-	Name        string `json:"name"`
-	Title       string `json:"title"`
+	Name        string          `json:"name"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
 	Annotations struct {
 		Title           string `json:"title"`
 		ReadOnlyHint    *bool  `json:"readOnlyHint"`

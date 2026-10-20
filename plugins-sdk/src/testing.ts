@@ -6,6 +6,7 @@ import type { PluginDefinition } from "./define";
 import { MethodError } from "./errors";
 import { captureConsole, releaseConsole, type LogRecord } from "./logs";
 import { Runtime } from "./runtime";
+import type { UploadedFile } from "./uploads";
 
 // Plugins run for a test as the host runs them: real collections, kv, streams
 // and buckets in a temporary folder, the same checks, confirms and crons.
@@ -17,6 +18,8 @@ export type TestCall = {
   root?: string;
   /** The chat an agent calls from, kept on the call's log lines. */
   chat?: string;
+  /** Files as an `<Upload>` sends them, given to the method as `input.files`. */
+  files?: UploadedFile[];
 };
 
 export type TestRuntime = {

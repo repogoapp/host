@@ -14,6 +14,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/outcome"
 	"github.com/repogoapp/host/internal/plugins"
 )
 
@@ -117,11 +118,11 @@ func TestPluginsToolsComeWithTheRuntime(t *testing.T) {
 
 // A failed call keeps the plugin's code and field errors for the agent to act on.
 func TestPluginResultKeepsThePluginsErrorShape(t *testing.T) {
-	got := pluginResult(plugins.Answer{Error: &plugins.Failure{Code: "VALIDATION", Message: "Check the highlighted fields.", FieldErrors: map[string]string{"/status": "Invalid option"}}}, nil)
+	got := pluginResult(outcome.Answer{Error: &outcome.Failure{Code: "VALIDATION", Message: "Check the highlighted fields.", FieldErrors: map[string]string{"/status": "Invalid option"}}}, nil)
 	if !got.IsError || !strings.Contains(got.Content[0].Text, `"/status"`) {
 		t.Fatalf("%+v", got)
 	}
-	got = pluginResult(plugins.Answer{Result: json.RawMessage(`{"id":"p1"}`)}, nil)
+	got = pluginResult(outcome.Answer{Result: json.RawMessage(`{"id":"p1"}`)}, nil)
 	if got.IsError || !strings.Contains(got.Content[0].Text, `"p1"`) {
 		t.Fatalf("%+v", got)
 	}

@@ -1183,6 +1183,7 @@ Params:
 - `method` string
 - `input` json (omitted when empty) (nullable)
 - `confirmed` bool (omitted when empty)
+- `uploads` [string] (omitted when empty) (nullable)
 
 Result:
 
@@ -1797,6 +1798,38 @@ Result:
 - `session_id` string (omitted when empty)
 - `error` string (omitted when empty)
 - `approval` object{Approval} (omitted when empty) (nullable)
+
+## `uploads.write`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `project` string: The project whose plugin the file is for
+- `id` string: A UUID the phone picks for the upload
+- `name` string
+- `type` string: The file's MIME type
+- `size` int: The whole file's bytes
+- `offset` int: Where this chunk starts
+- `data` base64
+- `done` bool (omitted when empty): This chunk ends the file
+
+Result:
+
+- `received` int
+- `complete` bool
+
+## `uploads.remove`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `id` string
+
+Result:
+
+- `ok` bool
 
 ## `usage.history`
 

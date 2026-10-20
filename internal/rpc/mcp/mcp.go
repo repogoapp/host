@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 
 	mcpcore "github.com/repogoapp/host/internal/mcp"
+	"github.com/repogoapp/host/internal/outcome"
 	"github.com/repogoapp/host/internal/rpc"
 )
 
@@ -135,9 +136,9 @@ func (d Deps) remove(_ context.Context, _ rpc.Caller, a ServerParams) (rpc.Ack, 
 	return rpc.OK, d.MCP.Remove(a.ID)
 }
 
-func (d Deps) call(ctx context.Context, _ rpc.Caller, a CallParams) (mcpcore.Answer, error) {
+func (d Deps) call(ctx context.Context, _ rpc.Caller, a CallParams) (outcome.Answer, error) {
 	if a.Project == "" || a.Server == "" || a.Tool == "" {
-		return mcpcore.Answer{}, rpc.ErrInvalidParams
+		return outcome.Answer{}, rpc.ErrInvalidParams
 	}
 	return d.MCP.Call(ctx, a.Project, a.Server, a.Tool, a.Input, a.Read, a.Confirmed)
 }

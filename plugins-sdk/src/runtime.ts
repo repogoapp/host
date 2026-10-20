@@ -10,7 +10,7 @@ import { parseDuration } from "./duration";
 import type { AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
-import type { PluginDefinition, MethodKind } from "./define";
+import type { HTTPAccess, PluginDefinition, MethodKind } from "./define";
 import { MethodError, toCallError } from "./errors";
 import { EventBus } from "./events";
 import { bucketMethods, kvMethods, streamMethods, type Generated } from "./generated";
@@ -19,6 +19,7 @@ import { logContext, record, runWith, type LogContext } from "./logs";
 import type { Store, StoreKind, StoreOptions } from "./store";
 import { defaultRetain, Stream } from "./streams";
 import { currentAccess, recordRead, tracked } from "./tracking";
+import { callFiles, type UploadedFile } from "./uploads";
 
 export type RegisteredMethod = {
   name: string;
@@ -26,6 +27,7 @@ export type RegisteredMethod = {
   kind: MethodKind;
   description?: string;
   confirm?: string;
+  http?: HTTPAccess;
   input: z.ZodType;
   output?: z.ZodType;
   /** `raw` is the input as sent, before defaults filled it in. */
@@ -236,6 +238,7 @@ export class Runtime {
         kind: method.kind,
         description: method.description,
         confirm: method.confirm,
+        http: method.http,
         input: method.input,
         output: method.output,
         run: async (input) => method.run(input, ctx),
@@ -259,7 +262,14 @@ export class Runtime {
    * `root` (the caller's project, for the environment's own plugins) and `caller`
    * pass on to the code the method calls.
    */
-  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string; caller?: Caller; chat?: string } = {}): Promise<CallResult> {
+  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string; caller?: Caller; chat?: string; files?: UploadedFile[] } = {}): Promise<CallResult> {
+    // The host's files become the input's, and stay trusted for the calls this one makes.
+    if (options.files) {
+      const { files, ...rest } = options;
+      const fields = (input ?? {}) as Record<string, unknown>;
+      if (Object.hasOwn(fields, "files")) throw new MethodError("VALIDATION", "files comes from the upload; leave it out of the input.");
+      return callFiles.run(files, () => this.call(name, { ...fields, files }, rest));
+    }
     if (options.root && options.root !== this.callRoot.getStore()) {
       const { root, ...rest } = options;
       return this.callRoot.run(root, () => this.call(name, input, rest));
@@ -494,6 +504,7 @@ export class Runtime {
           kind: method.kind,
           description: method.description ?? null,
           confirm: method.confirm ?? null,
+          http: method.http ?? null,
           input: z.toJSONSchema(method.input, { io: "input", unrepresentable: "any" }),
           output: method.output ? z.toJSONSchema(method.output, { io: "output", unrepresentable: "any" }) : null,
         })),

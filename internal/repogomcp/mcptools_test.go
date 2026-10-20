@@ -85,9 +85,19 @@ func TestMCPToolsListsTheProjectsServers(t *testing.T) {
 	if err := json.Unmarshal([]byte(got.Content[0].Text), &listing); err != nil {
 		t.Fatalf("%v: %s", err, got.Content[0].Text)
 	}
-	want := `[{team_docs Team Docs [{publish false true} {search true false}] }]`
-	if fmt.Sprint(listing.Servers) != want {
-		t.Fatalf("servers = %v, want %s", listing.Servers, want)
+	var lines []string
+	for _, server := range listing.Servers {
+		for _, tool := range server.Tools {
+			lines = append(lines, fmt.Sprintf("%s (%s) %s read_only=%v asks_first=%v", server.Server, server.Label, tool.Name, tool.ReadOnly, tool.AsksFirst))
+		}
+	}
+	want := "team_docs (Team Docs) publish read_only=false asks_first=true, team_docs (Team Docs) search read_only=true asks_first=false"
+	if strings.Join(lines, ", ") != want {
+		t.Fatalf("servers = %v, want %s", lines, want)
+	}
+	// Cards need names and flags; a voice catalog is what describes each tool.
+	if text := got.Content[0].Text; strings.Contains(text, `"description"`) || strings.Contains(text, `"input"`) {
+		t.Fatalf("mcp_tools described its tools: %s", text)
 	}
 	if !strings.Contains(s.instructions(project), "mcp_tools") || strings.Contains(s.instructions(other), "mcp_tools") {
 		t.Fatal("the instructions name mcp_tools where it isn't offered")

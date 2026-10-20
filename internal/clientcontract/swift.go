@@ -79,6 +79,8 @@ var methodExports = map[string]bool{
 	"turns.list": true, "turns.get": true, "turns.stop": true, "turns.respond": true,
 	"turns.edit_queued": true, "turns.remove_queued": true, "turns.send_queued": true,
 
+	"uploads.write": true, "uploads.remove": true,
+
 	"usage.history": true,
 }
 
@@ -429,6 +431,7 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/envsource":    "env",
 	"github.com/repogoapp/host/internal/files":        "fs",
 	"github.com/repogoapp/host/internal/rpc":          "shared",
+	"github.com/repogoapp/host/internal/outcome":      "shared",
 	"github.com/repogoapp/host/internal/rpc/mcp":      "mcp",
 	"github.com/repogoapp/host/internal/mcp":          "mcp",
 	"github.com/repogoapp/host/internal/rpc/tunnels":  "tunnels",
@@ -440,6 +443,9 @@ var typeFamilies = map[string]string{
 
 	"github.com/repogoapp/host/internal/rpc/reminders": "reminders",
 	"github.com/repogoapp/host/internal/reminder":      "reminders",
+
+	"github.com/repogoapp/host/internal/rpc/uploads": "uploads",
+	"github.com/repogoapp/host/internal/uploads":     "uploads",
 }
 
 func (g *swiftGen) assignNames() {

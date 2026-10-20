@@ -16,8 +16,8 @@ func TestSignatureNamesTheTopLevelFields(t *testing.T) {
 		`null`:                              "",
 	}
 	for schema, want := range cases {
-		if got := signature(json.RawMessage(schema)); got != want {
-			t.Errorf("signature(%s) = %q, want %q", schema, got, want)
+		if got := Signature(json.RawMessage(schema)); got != want {
+			t.Errorf("Signature(%s) = %q, want %q", schema, got, want)
 		}
 	}
 }

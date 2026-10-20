@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/outcome"
 )
 
 // The `plugins` tool answers small by default, a line per method, since most
@@ -77,6 +78,7 @@ type manifestPlugin struct {
 		Kind        string          `json:"kind"`
 		Description string          `json:"description"`
 		Confirm     string          `json:"confirm"`
+		HTTP        string          `json:"http"`
 		Input       json.RawMessage `json:"input"`
 		Output      json.RawMessage `json:"output"`
 	} `json:"methods"`
@@ -100,22 +102,18 @@ func (p listedPlugin) dir() string {
 // List answers the `plugins` tool for a folder: every plugin in a line per
 // method, or with plugin set, that one in full. crons.json is read again
 // first, so an edit shows.
-func (s *Service) List(ctx context.Context, path, plugin string) (Answer, error) {
+func (s *Service) List(ctx context.Context, path, plugin string) (outcome.Answer, error) {
 	if s.cfg.Crons != "" {
 		s.reconcile(ctx)
 	}
 	found, failure, err := s.manifests(ctx, path)
 	if err != nil || failure != nil {
-		return Answer{Error: failure}, err
+		return outcome.Answer{Error: failure}, err
 	}
 	errors := s.recentErrors(ctx)
 	all := pages(checkout(path), s.cfg.Global)
 	if plugin == "" {
-		listing := Listing{Plugins: []Listed{}, Crons: s.Crons()}
-		for _, p := range found {
-			listing.Plugins = append(listing.Plugins, listed(p, errors[errorsKey(p.target.Dir, p.Name)], all))
-		}
-		return encode(listing)
+		return encode(Listing{Plugins: listedAll(found, errors, all), Crons: s.Crons()})
 	}
 	i := slices.IndexFunc(found, func(p listedPlugin) bool { return p.Name == plugin })
 	if i < 0 {
@@ -123,15 +121,36 @@ func (s *Service) List(ctx context.Context, path, plugin string) (Answer, error)
 		for i, p := range found {
 			names[i] = p.Name
 		}
-		return Answer{}, errkind.ErrNotFound.Errorf("plugins: there's no plugin %q here; there are %s", plugin, strings.Join(names, ", "))
+		return outcome.Answer{}, errkind.ErrNotFound.Errorf("plugins: there's no plugin %q here; there are %s", plugin, strings.Join(names, ", "))
 	}
 	p := found[i]
 	return encode(detail(p, errors[errorsKey(p.target.Dir, p.Name)], all, s.cronsOf(p)))
 }
 
+// Plugins is every plugin a folder can use with a line per method, as the
+// `plugins` tool lists them; a Worker's own failure comes back as an error.
+func (s *Service) Plugins(ctx context.Context, path string) ([]Listed, error) {
+	found, failure, err := s.manifests(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if failure != nil {
+		return nil, fmt.Errorf("plugins: %s", failure.Message)
+	}
+	return listedAll(found, s.recentErrors(ctx), pages(checkout(path), s.cfg.Global)), nil
+}
+
+func listedAll(found []listedPlugin, errors map[string]int, all []Page) []Listed {
+	out := []Listed{}
+	for _, p := range found {
+		out = append(out, listed(p, errors[errorsKey(p.target.Dir, p.Name)], all))
+	}
+	return out
+}
+
 // manifests is every plugin a folder can use; a project plugin hides an
 // environment one of its name. A Worker's own failure comes back as it said it.
-func (s *Service) manifests(ctx context.Context, path string) ([]listedPlugin, *Failure, error) {
+func (s *Service) manifests(ctx context.Context, path string) ([]listedPlugin, *outcome.Failure, error) {
 	targets, err := s.targets(path)
 	if err != nil {
 		return nil, nil, err
@@ -163,7 +182,7 @@ func (s *Service) manifests(ctx context.Context, path string) ([]listedPlugin, *
 func listed(p listedPlugin, errors int, all []Page) Listed {
 	out := Listed{Name: p.Name, Dir: p.dir(), Errors: errors, Page: indexPage(p.Name, all), Description: p.Description, Methods: []ListedMethod{}}
 	for _, m := range p.Methods {
-		out.Methods = append(out.Methods, ListedMethod{Name: m.Name, Kind: m.Kind, Asks: m.Confirm != "", Input: signature(m.Input), Description: m.Description})
+		out.Methods = append(out.Methods, ListedMethod{Name: m.Name, Kind: m.Kind, Asks: m.Confirm != "", Input: Signature(m.Input), Description: m.Description})
 	}
 	return out
 }
@@ -224,9 +243,9 @@ func indexPage(plugin string, all []Page) string {
 	return first
 }
 
-// signature is a schema's top-level fields in order, optional ones ending in
+// Signature is a schema's top-level fields in order, optional ones ending in
 // `?`; "" for an input with none, or one that isn't an object.
-func signature(schema json.RawMessage) string {
+func Signature(schema json.RawMessage) string {
 	var s struct {
 		Properties json.RawMessage `json:"properties"`
 		Required   []string        `json:"required"`
@@ -282,12 +301,12 @@ func present(raw json.RawMessage) json.RawMessage {
 
 // encode is compact JSON, unescaped, so a page's target reads as the agent
 // writes it: `?a=1&b=2`.
-func encode(v any) (Answer, error) {
+func encode(v any) (outcome.Answer, error) {
 	var result bytes.Buffer
 	encoder := json.NewEncoder(&result)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(v); err != nil {
-		return Answer{}, err
+		return outcome.Answer{}, err
 	}
-	return Answer{Result: bytes.TrimSpace(result.Bytes())}, nil
+	return outcome.Answer{Result: bytes.TrimSpace(result.Bytes())}, nil
 }
