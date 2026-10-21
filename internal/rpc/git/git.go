@@ -51,8 +51,13 @@ func (d Deps) branches(ctx context.Context, _ rpc.Caller, a PathParams) (Branche
 	return BranchesResult{Branches: branches}, err
 }
 
+// A plain folder answers zero totals, not an error.
 func (d Deps) diff(ctx context.Context, _ rpc.Caller, a PathParams) (gitcore.ChangeSet, error) {
-	return d.Git.Diff(ctx, a.Path)
+	set, err := d.Git.Diff(ctx, a.Path)
+	if set == nil {
+		return gitcore.ChangeSet{}, err
+	}
+	return *set, err
 }
 
 func (d Deps) patch(ctx context.Context, _ rpc.Caller, a PatchParams) (gitcore.Patch, error) {

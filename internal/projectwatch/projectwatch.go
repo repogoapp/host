@@ -54,7 +54,7 @@ var ErrTooManyPaths = errkind.New(errkind.Invalid, "projectwatch: too many paths
 type Git interface {
 	Contain(path string) (string, error)
 	Status(ctx context.Context, paths []string) ([]git.Status, error)
-	WorkingDiff(ctx context.Context, path string) (*git.ChangeSet, error)
+	Diff(ctx context.Context, path string) (*git.ChangeSet, error)
 	Ignored(ctx context.Context, dir string, paths []string) (map[string]bool, error)
 }
 
@@ -428,7 +428,7 @@ func (m *Manager) poll(ctx context.Context, path string) {
 // working reads the totals and persists them before they are announced, so a
 // list read after the push agrees with it. nil for a plain folder.
 func (m *Manager) working(ctx context.Context, path string) *git.ChangeSet {
-	diff, err := m.git.WorkingDiff(ctx, path)
+	diff, err := m.git.Diff(ctx, path)
 	if ctx.Err() != nil {
 		return nil
 	}

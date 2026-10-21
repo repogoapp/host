@@ -113,7 +113,7 @@ func (s *Service) Repos(ctx context.Context, owner, query string, limit int) ([]
 	}
 	// No `defaultBranchRef`: GitHub resolves it per repository, which tripled
 	// the call (about 2 s to 5 s for 130 repos). A checkout reads its own
-	// default from `origin/HEAD` (git.DefaultBranch) in milliseconds.
+	// default from `origin/HEAD` (git.branches) in milliseconds.
 	args = append(args, "--limit", fmt.Sprint(limit), "--json",
 		"nameWithOwner,name,owner,description,isPrivate,pushedAt")
 

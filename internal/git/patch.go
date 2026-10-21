@@ -34,16 +34,17 @@ func (s *Service) Patch(ctx context.Context, path, base, head, file string) (Pat
 	if file == "" {
 		return Patch{}, fmt.Errorf("%w: a file is required", ErrInvalidMutation)
 	}
-	if base == "" {
-		base = "HEAD"
+	// A repo with no commits yet diffs against the empty tree, as Changes does.
+	if base == "" || base == "HEAD" {
+		if base, err = diffBase(ctx, dir); err != nil {
+			return Patch{}, err
+		}
 	}
 	for _, rev := range []string{base, head} {
 		if err := CheckRevision(rev); err != nil {
 			return Patch{}, err
 		}
 	}
-	var out Patch
-
 	// No colour, no pager, and no rename detection surprises: the client
 	// renders this, so it wants the plain form.
 	args := []string{"diff", "--no-color", "--end-of-options", base}
@@ -52,35 +53,27 @@ func (s *Service) Patch(ctx context.Context, path, base, head, file string) (Pat
 	}
 	args = append(args, "--", file)
 
-	raw, err := run(ctx, dir, args...)
+	text, err := run(ctx, dir, args...)
 	if err != nil {
-		return out, err
+		return Patch{}, err
 	}
-
-	if len(raw) > maxPatchBytes {
-		raw = raw[:maxPatchBytes]
-		out.Truncated = true
-	}
-	out.Text = raw
 
 	// An untracked file has no diff against anything git knows, and most of a
 	// working tree is untracked while a chat is running.
-	if strings.TrimSpace(out.Text) == "" && head == "" {
+	if strings.TrimSpace(text) == "" && head == "" {
 		// --no-index reads the disk, not the index, so a symlinked folder could
 		// lead it out of the project; the same containment every path gets.
 		if _, err := s.paths.Contain(filepath.Join(dir, file)); err != nil {
-			return out, err
+			return Patch{}, err
 		}
-		added, err := runDiff(ctx, dir, "diff", "--no-color", "--no-index", "--", devNull, file)
-		if err == nil {
-			out.Text = added
-			if len(out.Text) > maxPatchBytes {
-				out.Text = out.Text[:maxPatchBytes]
-				out.Truncated = true
-			}
+		if added, err := runDiff(ctx, dir, "diff", "--no-color", "--no-index", "--", devNull, file); err == nil {
+			text = added
 		}
 	}
-	return out, nil
+	if len(text) > maxPatchBytes {
+		return Patch{Text: text[:maxPatchBytes], Truncated: true}, nil
+	}
+	return Patch{Text: text}, nil
 }
 
 // runDiff keeps the output of a diff that reported differences: non-empty

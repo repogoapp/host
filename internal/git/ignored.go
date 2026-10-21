@@ -17,7 +17,7 @@ func (s *Service) Ignored(ctx context.Context, dir string, paths []string) (map[
 	if err != nil {
 		return nil, err
 	}
-	if _, err := run(ctx, dir, "rev-parse", "--is-inside-work-tree"); err != nil {
+	if !isRepo(ctx, dir) {
 		return ignored, nil
 	}
 	// -n prints every path, matched or not, so success is exit 0 and an empty

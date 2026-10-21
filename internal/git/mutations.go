@@ -12,7 +12,7 @@ import (
 
 var (
 	ErrInvalidMutation = errkind.New(errkind.Invalid, "invalid git operation")
-	ErrDetached        = errkind.New(errkind.Invalid, "git: this checkout is not on a branch")
+	errDetached        = errkind.New(errkind.Invalid, "git: this checkout is not on a branch")
 	ErrHasOrigin       = errkind.New(errkind.Invalid, "git: this repository already has an origin remote")
 )
 
@@ -31,11 +31,11 @@ func (s *Service) mutationRoot(ctx context.Context, path string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	root, err := run(ctx, dir, "rev-parse", "--show-toplevel")
+	root, err := toplevel(ctx, dir)
 	if err != nil {
 		return "", err
 	}
-	return s.paths.Contain(strings.TrimSpace(root))
+	return s.paths.Contain(root)
 }
 
 func branchName(ctx context.Context, dir, branch string) error {
@@ -79,7 +79,7 @@ func (s *Service) Pull(ctx context.Context, path string) error {
 	if err = cleanTree(ctx, dir); err != nil {
 		return err
 	}
-	_, err = RunTimeout(ctx, dir, networkTimeout, "pull", "--ff-only", "--no-rebase")
+	_, err = runTimeout(ctx, dir, networkTimeout, "pull", "--ff-only", "--no-rebase")
 	return err
 }
 
@@ -93,7 +93,7 @@ func (s *Service) ResetHard(ctx context.Context, path, branch string) error {
 	if err = branchName(ctx, dir, branch); err != nil {
 		return err
 	}
-	if _, err = RunTimeout(ctx, dir, networkTimeout, "fetch", "origin", "+refs/heads/"+branch+":refs/remotes/origin/"+branch); err != nil {
+	if _, err = runTimeout(ctx, dir, networkTimeout, "fetch", "origin", "+refs/heads/"+branch+":refs/remotes/origin/"+branch); err != nil {
 		return err
 	}
 	_, err = run(ctx, dir, "reset", "--hard", "refs/remotes/origin/"+branch, "--")
@@ -141,8 +141,13 @@ func (s *Service) CreateBranch(ctx context.Context, path, name, fromRef string) 
 	if err != nil {
 		return fmt.Errorf("%w: base reference does not name a commit", ErrInvalidMutation)
 	}
-	if err = cleanTree(ctx, dir); err != nil {
-		return err
+	// From where HEAD stands, the switch carries local changes onto the new
+	// branch, which is how a review moves its work off the trunk. Elsewhere
+	// they could clash, so the tree must be clean.
+	if head, _ := resolve(ctx, dir, "HEAD"); head != strings.TrimSpace(sha) {
+		if err = cleanTree(ctx, dir); err != nil {
+			return err
+		}
 	}
 	_, err = run(ctx, dir, "switch", "-c", name, strings.TrimSpace(sha))
 	return err
@@ -162,10 +167,10 @@ func (s *Service) CommitPush(ctx context.Context, path, message string) (CommitP
 	if result.Branch, err = CurrentBranch(ctx, dir); err != nil {
 		return result, fmt.Errorf("%w: switch to a branch before committing", ErrInvalidMutation)
 	}
-	if _, err = run(ctx, dir, "remote", "get-url", "origin"); err != nil {
+	if !hasOrigin(ctx, dir) {
 		return result, fmt.Errorf("%w: attach origin before committing and pushing", ErrInvalidMutation)
 	}
-	head, _, err := s.Commit(ctx, dir, message)
+	head, err := commitAll(ctx, dir, message)
 	if err != nil {
 		return result, err
 	}
@@ -177,27 +182,37 @@ func (s *Service) CommitPush(ctx context.Context, path, message string) (CommitP
 	return result, nil
 }
 
-// PrepareOrigin readies a contained folder for a new origin, as AttachRemote does:
-// a repository of its own on branch, with no origin yet.
+// commitAll stages everything (`add -A`: the worktree is ours and holds one
+// chat's work) and commits it under the user's own identity, answering HEAD.
+func commitAll(ctx context.Context, dir, message string) (string, error) {
+	if _, err := run(ctx, dir, "add", "-A"); err != nil {
+		return "", fmt.Errorf("git: add: %w", err)
+	}
+	// Nothing staged is not a failure: a chat whose work is already committed
+	// still ships, it just has nothing to add first.
+	if _, err := run(ctx, dir, "diff", "--cached", "--quiet"); err != nil {
+		if _, err := run(ctx, dir, "commit", "-m", message); err != nil {
+			return "", fmt.Errorf("git: commit: %w", err)
+		}
+	}
+	return resolve(ctx, dir, "HEAD")
+}
+
+// PrepareOrigin readies a folder for a new origin: a repository of its own on
+// branch, so a folder inside another checkout is inited rather than giving the
+// parent an origin.
 func (s *Service) PrepareOrigin(ctx context.Context, dir, branch string) error {
 	s.mutation.Lock()
 	defer s.mutation.Unlock()
-	return prepareOrigin(ctx, dir, branch)
-}
-
-// prepareOrigin inits a folder inside another checkout rather than giving the
-// parent an origin.
-func prepareOrigin(ctx context.Context, dir, branch string) error {
 	if err := branchName(ctx, dir, branch); err != nil {
 		return err
 	}
-	root, err := run(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil || !samePath(strings.TrimSpace(root), dir) {
+	if root, err := toplevel(ctx, dir); err != nil || !samePath(root, dir) {
 		if _, err = run(ctx, dir, "init", "-b", branch); err != nil {
 			return err
 		}
 	}
-	if _, err = run(ctx, dir, "remote", "get-url", "origin"); err == nil {
+	if hasOrigin(ctx, dir) {
 		return ErrHasOrigin
 	}
 	return nil
@@ -210,7 +225,7 @@ func samePath(a, b string) bool {
 	return errA == nil && errB == nil && ra == rb
 }
 
-// CurrentBranch is the branch HEAD names, unborn included; ErrDetached when it names none.
+// CurrentBranch is the branch HEAD names, unborn included; errDetached when it names none.
 func CurrentBranch(ctx context.Context, dir string) (string, error) {
 	out, err := run(ctx, dir, "branch", "--show-current")
 	if err != nil {
@@ -219,11 +234,11 @@ func CurrentBranch(ctx context.Context, dir string) (string, error) {
 	if branch := strings.TrimSpace(out); branch != "" {
 		return branch, nil
 	}
-	return "", ErrDetached
+	return "", errDetached
 }
 
 // Push sends HEAD to origin as branch and tracks it.
 func (s *Service) Push(ctx context.Context, dir, branch string) error {
-	_, err := RunTimeout(ctx, dir, networkTimeout, "push", "--porcelain", "--set-upstream", "origin", "HEAD:refs/heads/"+branch)
+	_, err := runTimeout(ctx, dir, networkTimeout, "push", "--porcelain", "--set-upstream", "origin", "HEAD:refs/heads/"+branch)
 	return err
 }

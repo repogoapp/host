@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/repogoapp/host/internal/files"
@@ -26,21 +27,7 @@ func repo(t *testing.T) (svc *git.Service, dir string) {
 		t.Fatal(err)
 	}
 	dir = filepath.Join(base, "project")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, args := range [][]string{
-		{"init", "--initial-branch=main"},
-		{"config", "user.email", "test@example.com"},
-		{"config", "user.name", "Test"},
-		{"config", "commit.gpgsign", "false"},
-	} {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
+	initRepo(t, dir)
 	write(t, dir, "README.md", "hello\n")
 	commit(t, dir, "first")
 
@@ -361,5 +348,122 @@ func TestBranchesRefusesAPathOutsideEveryProject(t *testing.T) {
 	svc, _ := repo(t)
 	if _, err := svc.Branches(context.Background(), "/etc"); !errors.Is(err, files.ErrOutsideRoots) {
 		t.Errorf("Branches(/etc) = %v, want ErrOutsideRoots", err)
+	}
+}
+
+// A submodule and a nested checkout are each one row marked repo, slash-free,
+// so the phone can open them as projects; a plain or ignored folder is not.
+func TestChangesMarksChildRepos(t *testing.T) {
+	svc, dir := repo(t)
+
+	upstream := filepath.Join(filepath.Dir(dir), "upstream")
+	initRepo(t, upstream)
+	write(t, upstream, "lib.go", "package lib\n")
+	commit(t, upstream, "lib")
+	run(t, dir, "-c", "protocol.file.allow=always", "submodule", "add", upstream, "sub")
+	commit(t, dir, "submodule")
+	write(t, filepath.Join(dir, "sub"), "lib.go", "package lib\n\nfunc A() {}\n")
+
+	initRepo(t, filepath.Join(dir, "nested"))
+	write(t, filepath.Join(dir, "nested"), "a.txt", "a\n")
+	if err := os.MkdirAll(filepath.Join(dir, "plain"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "plain"), "b.txt", "b\n")
+	write(t, dir, ".gitignore", "ignored/\n")
+	initRepo(t, filepath.Join(dir, "ignored"))
+	write(t, filepath.Join(dir, "ignored"), "c.txt", "c\n")
+
+	changes, err := svc.Changes(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	byPath := map[string]git.FileChange{}
+	for _, c := range changes {
+		byPath[c.Path] = c
+	}
+	for _, name := range []string{"sub", "nested"} {
+		if !byPath[name].Repo {
+			t.Errorf("%s = %+v, want repo (all: %+v)", name, byPath[name], changes)
+		}
+	}
+	for _, name := range []string{"plain/b.txt", ".gitignore"} {
+		if got, ok := byPath[name]; !ok || got.Repo {
+			t.Errorf("%s = %+v, want a plain row (all: %+v)", name, got, changes)
+		}
+	}
+	for _, name := range []string{"nested/", "ignored", "ignored/"} {
+		if _, ok := byPath[name]; ok {
+			t.Errorf("%s listed (all: %+v)", name, changes)
+		}
+	}
+}
+
+func initRepo(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "--initial-branch=main"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+		{"config", "commit.gpgsign", "false"},
+	} {
+		run(t, dir, args...)
+	}
+}
+
+// A project inside a larger checkout lists, totals and diffs its own folder,
+// every path relative to it, whether git tracks the file or not.
+func TestASubfolderProjectReadsItsOwnFolder(t *testing.T) {
+	_, root := repo(t)
+	sub := filepath.Join(root, "app")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, sub, "tracked.txt", "one\n")
+	commit(t, root, "app")
+	write(t, sub, "tracked.txt", "one\ntwo\n")
+	write(t, sub, "new.txt", "new\n")
+	write(t, root, "outside.txt", "not the project's\n")
+	svc := git.New(files.New(files.Config{Roots: files.StaticRoots{sub}}), slog.New(slog.DiscardHandler))
+	ctx := context.Background()
+
+	changes, err := svc.Changes(ctx, sub)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	paths := map[string]int{}
+	for _, c := range changes {
+		paths[c.Path] = c.Additions
+	}
+	if len(paths) != 2 || paths["tracked.txt"] != 1 || paths["new.txt"] != 1 {
+		t.Errorf("changes = %+v, want tracked.txt +1 and new.txt +1", changes)
+	}
+	if set, err := svc.Diff(ctx, sub); err != nil || set == nil || set.FilesChanged != 2 || set.Additions != 2 {
+		t.Errorf("diff = %+v, %v, want 2 files +2", set, err)
+	}
+	patch, err := svc.Patch(ctx, sub, "HEAD", "", "tracked.txt")
+	if err != nil || !strings.Contains(patch.Text, "+two") {
+		t.Errorf("patch = %q, %v, want +two", patch.Text, err)
+	}
+}
+
+// Before the first commit a staged file still lists and still diffs.
+func TestARepoWithNoCommitsDiffsAgainstTheEmptyTree(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(base, "fresh")
+	initRepo(t, dir)
+	write(t, dir, "a.txt", "a\n")
+	run(t, dir, "add", "a.txt")
+	svc := git.New(files.New(files.Config{Roots: files.StaticRoots{dir}}), slog.New(slog.DiscardHandler))
+
+	patch, err := svc.Patch(context.Background(), dir, "HEAD", "", "a.txt")
+	if err != nil || !strings.Contains(patch.Text, "+a") {
+		t.Errorf("patch = %q, %v, want +a", patch.Text, err)
 	}
 }

@@ -5,7 +5,8 @@
       "code": "code",
       "additions": 1,
       "deletions": 1,
-      "binary": true
+      "binary": true,
+      "repo": true
     }
   ]
 }

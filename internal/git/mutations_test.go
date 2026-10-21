@@ -22,10 +22,12 @@ func TestMutationsPreserveDirtyWorkAndValidateBranches(t *testing.T) {
 	if err := svc.SwitchBranch(ctx, dir, "main"); err != nil {
 		t.Fatal(err)
 	}
+	write(t, dir, "other.txt", "moves main past feature\n")
+	commit(t, dir, "ahead")
 	write(t, dir, "README.md", "unsaved\n")
 	for _, call := range []func() error{
 		func() error { return svc.SwitchBranch(ctx, dir, "feature") },
-		func() error { return svc.CreateBranch(ctx, dir, "dirty", "HEAD") },
+		func() error { return svc.CreateBranch(ctx, dir, "dirty", "feature") },
 		func() error { return svc.Pull(ctx, dir) },
 		func() error { return svc.CreateBranch(ctx, dir, "--orphan", "HEAD") },
 		func() error { return svc.SwitchBranch(ctx, dir, "@{-1}") },
@@ -38,6 +40,16 @@ func TestMutationsPreserveDirtyWorkAndValidateBranches(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(dir, "README.md"))
 	if err != nil || string(data) != "unsaved\n" {
 		t.Fatalf("dirty work lost: %q, %v", data, err)
+	}
+
+	// From HEAD the work moves onto the new branch: the review's Create
+	// Branch & PR on the trunk.
+	if err := svc.CreateBranch(ctx, dir, "carried", "HEAD"); err != nil {
+		t.Fatalf("branch from HEAD with local changes: %v", err)
+	}
+	data, err = os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil || string(data) != "unsaved\n" {
+		t.Fatalf("work not carried: %q, %v", data, err)
 	}
 }
 

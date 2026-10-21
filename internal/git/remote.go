@@ -5,16 +5,6 @@ import (
 	"strings"
 )
 
-// Remote is `owner/repo` for one checkout. Separate from the status batch
-// because every project needs it and it rarely changes; empty for a plain folder.
-func (s *Service) Remote(ctx context.Context, path string) (string, error) {
-	dir, err := s.paths.Contain(path)
-	if err != nil {
-		return "", err
-	}
-	return ParseRemote(origin(ctx, dir)), nil
-}
-
 // OwnerRepo is the checkout's origin as owner and name; both empty without one.
 func OwnerRepo(ctx context.Context, dir string) (owner, name string) {
 	owner, name, _ = strings.Cut(ParseRemote(origin(ctx, dir)), "/")

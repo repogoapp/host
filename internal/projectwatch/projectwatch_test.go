@@ -44,7 +44,7 @@ func (f *fakeGit) Contain(path string) (string, error) {
 	return path, nil
 }
 
-func (f *fakeGit) WorkingDiff(context.Context, string) (*git.ChangeSet, error) {
+func (f *fakeGit) Diff(context.Context, string) (*git.ChangeSet, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	set := f.diff

@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,10 +33,10 @@ const (
 	// an agent.
 	batchWorkers = 8
 
-	// MaxBranches bounds one listing. A long-lived repo has thousands of remote
+	// maxBranches bounds one listing. A long-lived repo has thousands of remote
 	// refs and nobody picks one by scrolling; the list is sorted by most recent
 	// commit, so the cap falls on branches nobody has touched in years.
-	MaxBranches = 200
+	maxBranches = 200
 )
 
 var ErrTooManyPaths = errkind.New(errkind.Invalid, "git: too many paths in one request")
@@ -71,30 +73,6 @@ type Status struct {
 	Error string `json:"error,omitempty"`
 }
 
-// Commit stages everything (`add -A`: the worktree is ours and holds one chat's
-// work) and records it under the user's own identity. Reports whether there was
-// anything to commit.
-func (s *Service) Commit(ctx context.Context, path, message string) (string, bool, error) {
-	dir, err := s.paths.Contain(path)
-	if err != nil {
-		return "", false, err
-	}
-	if _, err := run(ctx, dir, "add", "-A"); err != nil {
-		return "", false, fmt.Errorf("git: add: %w", err)
-	}
-	// Nothing staged is not a failure: a chat whose work is already committed
-	// still ships, it just has nothing to add first.
-	if _, err := run(ctx, dir, "diff", "--cached", "--quiet"); err == nil {
-		head, _ := resolve(ctx, dir, "HEAD")
-		return head, false, nil
-	}
-	if _, err := run(ctx, dir, "commit", "-m", message); err != nil {
-		return "", false, fmt.Errorf("git: commit: %w", err)
-	}
-	head, err := resolve(ctx, dir, "HEAD")
-	return head, true, err
-}
-
 // FileChange is one changed file.
 type FileChange struct {
 	Path string `json:"path"`
@@ -107,6 +85,10 @@ type FileChange struct {
 	Additions int  `json:"additions"`
 	Deletions int  `json:"deletions"`
 	Binary    bool `json:"binary,omitempty"`
+
+	// Repo marks the root of another repository, a submodule or a nested
+	// checkout: its own changes are read with this path as the project.
+	Repo bool `json:"repo,omitempty"`
 }
 
 // Branch is one branch a chat could fork from. Local and remote in one type: a
@@ -163,12 +145,12 @@ func (s *Service) status(ctx context.Context, path string) Status {
 		return st
 	}
 
-	root, err := run(ctx, dir, "rev-parse", "--show-toplevel")
+	root, err := toplevel(ctx, dir)
 	if err != nil {
 		// Not a repo is the ordinary case for a plain folder, not a failure.
 		return st
 	}
-	st.Repo, st.Root = true, strings.TrimSpace(root)
+	st.Repo, st.Root = true, root
 
 	// Two invocations: `--abbrev-ref` is a mode that applies to every revision
 	// after it, so asking for both in one call returns the branch name twice.
@@ -186,7 +168,7 @@ func (s *Service) status(ctx context.Context, path string) Status {
 	}
 
 	// The origin is deliberately not read here: a status batch runs for fifty
-	// projects every sweep, and `Service.Remote` answers it on a cached path.
+	// projects every sweep.
 
 	// Fails when the branch has no upstream, which is normal and not worth
 	// reporting: zero ahead and zero behind is the honest answer.
@@ -203,17 +185,8 @@ func (s *Service) status(ctx context.Context, path string) Status {
 		st.Error = err.Error()
 		return st
 	}
-	records := strings.Split(porcelain, "\x00")
-	for i := 0; i < len(records); i++ {
-		line := records[i]
-		if len(line) < 4 {
-			continue
-		}
-		index, worktree := line[0], line[1]
-		// A rename or copy is followed by its old path, which is not a second file.
-		if strings.ContainsAny(line[:2], "RC") {
-			i++
-		}
+	for _, record := range porcelainRecords(porcelain) {
+		index, worktree := record.code[0], record.code[1]
 		switch {
 		case index == '?' && worktree == '?':
 			st.Untracked++
@@ -240,42 +213,37 @@ func (s *Service) Changes(ctx context.Context, path string) ([]FileChange, error
 		return nil, err
 	}
 
-	// -z, or a quoted path misses its numstat line. Untracked files come from
-	// `untrackedFiles`, one per file with its lines as `workingSet` counts them.
-	porcelain, err := run(ctx, dir, "status", "--porcelain=v1", "-z", "--untracked-files=no")
+	// Status names paths from the repo's root; the prefix makes them the
+	// folder's own, as numstat's --relative and ls-files already are.
+	prefix, err := run(ctx, dir, "rev-parse", "--show-prefix")
 	if err != nil {
 		return nil, err
 	}
-	codes := map[string]string{}
+	prefix = strings.TrimSpace(prefix)
+	// -z, or a quoted path misses its numstat line. Untracked files come from
+	// `untrackedFiles`, one per file with its lines as `Diff` counts them.
+	porcelain, err := run(ctx, dir, "status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ".")
+	if err != nil {
+		return nil, err
+	}
+	changes := map[string]*FileChange{}
 	order := []string{}
-	records := strings.Split(porcelain, "\x00")
-	for i := 0; i < len(records); i++ {
-		record := records[i]
-		if len(record) < 4 {
-			continue
-		}
-		code, name := record[:2], record[3:]
-		// A rename or copy is followed by its old path; the new one exists.
-		if strings.ContainsAny(code, "RC") {
-			i++
-		}
-		if _, seen := codes[name]; !seen {
+	for _, record := range porcelainRecords(porcelain) {
+		name := strings.TrimPrefix(record.path, prefix)
+		if _, seen := changes[name]; !seen {
 			order = append(order, name)
+			changes[name] = &FileChange{Path: name}
 		}
-		codes[name] = code
+		changes[name].Code = record.code
 	}
 
-	changes := make(map[string]*FileChange, len(order))
-	for _, name := range order {
-		changes[name] = &FileChange{Path: name, Code: codes[name]}
-	}
 	// HEAD covers staged and unstaged in one pass; without it a staged file
 	// reports zero changed lines, which reads as "nothing happened".
 	base, err := diffBase(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
-	if stats, err := run(ctx, dir, "diff", "--no-ext-diff", "--numstat", "-z", base, "--"); err == nil {
+	if stats, err := numstat(ctx, dir, base); err == nil {
 		applyNumstat(stats, changes)
 	}
 	untracked, err := untrackedFiles(ctx, dir)
@@ -287,7 +255,48 @@ func (s *Service) Changes(ctx context.Context, path string) ([]FileChange, error
 	for _, name := range order {
 		out = append(out, *changes[name])
 	}
-	return append(out, untracked...), nil
+	out = append(out, untracked...)
+	markRepos(dir, out)
+	return out, nil
+}
+
+// porcelainRecord is one path from `status --porcelain=v1 -z`, with its
+// two-letter code.
+type porcelainRecord struct {
+	code, path string
+}
+
+// porcelainRecords skips the old path that follows a rename or copy: the new
+// one is the file.
+func porcelainRecords(out string) []porcelainRecord {
+	var records []porcelainRecord
+	fields := strings.Split(out, "\x00")
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		if len(field) < 4 {
+			continue
+		}
+		records = append(records, porcelainRecord{code: field[:2], path: field[3:]})
+		if strings.ContainsAny(field[:2], "RC") {
+			i++
+		}
+	}
+	return records
+}
+
+// markRepos flags the rows that hold their own `.git`: a folder in a nested
+// checkout, a file in a submodule. One lstat per changed row, no git process;
+// a nested repo's slash from ls-files is dropped so both kinds read alike.
+func markRepos(dir string, files []FileChange) {
+	for i := range files {
+		name := strings.TrimSuffix(files[i].Path, "/")
+		info, err := os.Lstat(filepath.Join(dir, name, ".git"))
+		if err != nil || !(info.IsDir() || info.Mode().IsRegular()) {
+			continue
+		}
+		files[i].Path = name
+		files[i].Repo = true
+	}
 }
 
 // Branches lists what a chat could fork from, most recently committed first.
@@ -366,25 +375,10 @@ func (s *Service) Branches(ctx context.Context, path string) ([]Branch, error) {
 	// default, and the one you are standing on. Hoisted, order otherwise kept.
 	sort.SliceStable(branches, func(i, j int) bool { return rank(branches[i]) < rank(branches[j]) })
 
-	if len(branches) > MaxBranches {
-		branches = branches[:MaxBranches]
+	if len(branches) > maxBranches {
+		branches = branches[:maxBranches]
 	}
 	return branches, nil
-}
-
-// DefaultBranch is whatever `origin/HEAD` points at, under its local name.
-// Empty when there is no origin or the clone never recorded a HEAD, which the
-// caller must tell apart from an answer.
-func (s *Service) DefaultBranch(ctx context.Context, path string) string {
-	dir, err := s.paths.Contain(path)
-	if err != nil {
-		return ""
-	}
-	out, err := run(ctx, dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-	if err != nil {
-		return ""
-	}
-	return withoutRemote(strings.TrimSpace(out))
 }
 
 func rank(b Branch) int {
@@ -398,13 +392,6 @@ func rank(b Branch) int {
 	}
 }
 
-// BranchFolder is a branch name usable as one folder: `feat/x` would nest.
-// Empty when nothing usable is left.
-func BranchFolder(branch string) string {
-	name := strings.NewReplacer("/", "-", " ", "-", ":", "-").Replace(branch)
-	return strings.Trim(name, "-.")
-}
-
 // withoutRemote drops the remote from `origin/release/1.2`, leaving the branch
 // name — which may itself contain slashes, so only the first segment goes.
 func withoutRemote(name string) string {
@@ -413,7 +400,7 @@ func withoutRemote(name string) string {
 }
 
 // applyNumstat folds `git diff --numstat -z` output into the change set, by
-// the same parse `workingSet` totals, so a rename lands on its new path.
+// the same parse `Diff` totals, so a rename lands on its new path.
 func applyNumstat(stats string, changes map[string]*FileChange) {
 	for _, stat := range numstatFiles(stats) {
 		change, ok := changes[stat.Path]

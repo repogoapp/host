@@ -18,58 +18,41 @@ type ChangeSet struct {
 	Deletions    int `json:"deletions"`
 }
 
-// Diff answers what is uncommitted in a project.
-func (s *Service) Diff(ctx context.Context, path string) (ChangeSet, error) {
-	dir, err := s.paths.Contain(path)
-	if err != nil {
-		return ChangeSet{}, err
-	}
-	if _, err := run(ctx, dir, "rev-parse", "--is-inside-work-tree"); err != nil {
-		return ChangeSet{}, nil // A plain folder has no diff, and that is not an error.
-	}
-	return workingSet(ctx, dir)
-}
-
-// WorkingDiff reads totals for the whole checkout, including when path is a subfolder.
-func (s *Service) WorkingDiff(ctx context.Context, path string) (*ChangeSet, error) {
+// Diff totals what is uncommitted in a project's folder, which may sit
+// inside a larger checkout; nil for a plain folder.
+func (s *Service) Diff(ctx context.Context, path string) (*ChangeSet, error) {
 	dir, err := s.paths.Contain(path)
 	if err != nil {
 		return nil, err
 	}
-	root, err := run(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return nil, err
+	if !isRepo(ctx, dir) {
+		return nil, nil
 	}
-	set, err := workingSet(ctx, strings.TrimSpace(root))
-	if err != nil {
-		return nil, err
-	}
-	return &set, nil
-}
-
-// workingSet is everything uncommitted. `diff HEAD` covers staged and unstaged
-// together; untracked files are counted separately because `git diff` cannot
-// see them.
-func workingSet(ctx context.Context, dir string) (ChangeSet, error) {
-	var set ChangeSet
 	base, err := diffBase(ctx, dir)
 	if err != nil {
-		return set, err
+		return nil, err
 	}
-	stats, err := run(ctx, dir, "diff", "--no-ext-diff", "--numstat", "-z", base, "--")
+	stats, err := numstat(ctx, dir, base)
 	if err != nil {
-		return set, err
+		return nil, err
 	}
 	untracked, err := untrackedFiles(ctx, dir)
 	if err != nil {
-		return set, err
+		return nil, err
 	}
+	var set ChangeSet
 	for _, change := range append(numstatFiles(stats), untracked...) {
 		set.FilesChanged++
 		set.Additions += change.Additions
 		set.Deletions += change.Deletions
 	}
-	return set, nil
+	return &set, nil
+}
+
+// numstat is everything changed against base, staged and unstaged together,
+// with paths relative to dir and only under it, as `ls-files` lists them.
+func numstat(ctx context.Context, dir, base string) (string, error) {
+	return run(ctx, dir, "diff", "--no-ext-diff", "--numstat", "-z", "--relative", base, "--")
 }
 
 // numstatFiles parses `--numstat -z`: "added\tremoved\tpath" records. A rename
