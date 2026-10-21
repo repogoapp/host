@@ -505,6 +505,7 @@ Every method, handler and cron gets `ctx`:
 | `host(method, params)` | Runs one of the host's methods that agents and cards may call (`git.status`, `chats.list`, `actions.run`, …); others fail with `FORBIDDEN` |
 | `mcp(server, tool, input)` | Runs a tool of an MCP server the user connected in RepoGo and switched on for the calling project; see below |
 | `notify({ title, body, page?, collapse? })` | Alerts every paired phone; a tap opens `page`, and alerts sharing `collapse` replace each other |
+| `activity({ id, title, body?, page?, symbol?, tint?, label?, compactLabel?, progress?, timer?, status? })` | Shows or updates a Live Activity on every paired phone; see below |
 | `agent(prompt, { agent, project?, title?, timeout? })` | Starts a chat with `prompt` and waits for the agent's whole answer: `{ chatId, text }`; see below |
 | `emit(event, payload)` | Sends `<plugin>.<event>` to handlers |
 | `signal` | Aborts when a stream's card goes |
@@ -532,6 +533,47 @@ calling chat when an agent called the plugin. It waits up to `timeout`
 (10 minutes unless said) and then throws, naming the chat, which keeps
 running. The same two host methods are there by hand: `ctx.host("chats.start", …)`
 and `ctx.host("chats.wait", …)`, for a chat you want to link to rather than wait for.
+
+### Live Activities
+
+`ctx.activity` puts a card on the Lock Screen and in the Dynamic Island.
+Its `title`, `body` and `page` are a notice's, and the plugin sets
+everything else too. Send the whole state each time: the same `id` updates
+it, a field left out takes its default, and `status: "done"` or `"failed"`
+ends it with that state, left up for 15 minutes:
+
+```ts
+deploy: method(z.object({ project: z.string() }), async ({ project }, ctx) => {
+  const steps = ["Build", "Test", "Deploy", "Verify"];
+  const page = `.repogo/tabs/deploys.ui?project=${project}`;
+  const show = (current: number, body: string) =>
+    ctx.activity({ id: `deploy:${project}`, title: `Deploying ${project}`, body, page,
+      symbol: "shippingbox", progress: { kind: "steps", steps, current } });
+  await show(0, "Building");
+  // …
+  await ctx.activity({ id: `deploy:${project}`, title: `${project} is live`, body: "web.app", page,
+    status: "done", symbol: "globe", tint: "blue", label: "Live",
+    progress: { kind: "steps", steps, current: steps.length } });
+}),
+```
+
+| Field | Unless said |
+| --- | --- |
+| `body` | No line under the title |
+| `page` | A tap opens the app |
+| `symbol` | `circle.dotted`; a check once done, a cross once failed |
+| `tint` | White; green once done, red once failed |
+| `label` | "2 of 4", "40%", "Done" or "Failed"; `""` hides it |
+| `compactLabel` | The `label`, else "2/4" or "40%" |
+| `progress` | None. `{ kind: "steps", steps, current }` draws a segment per step, the ones before `current` complete; `{ kind: "bar", value }` a bar from 0 to 1 |
+| `timer` | `{ kind: "elapsed" }` from the first start. `{ kind: "countdown", endsAt }` counts down to a Unix ms time and ends nothing; `{ kind: "none" }` hides it |
+
+- The phones get the latest state at most every 5 seconds; a start and an end go at once.
+- A state that comes to more than Apple's 4 KB as a push is refused.
+- A plugin shows at most two at once; one left without an update for an hour stops counting.
+- A query can't call it, as it can't write.
+- The text reaches Apple and RepoGo's relay as is, as a `notify` alert's does: keep secrets out of it.
+
 
 ### MCP servers
 

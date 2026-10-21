@@ -255,6 +255,9 @@ func (h *Host) Start() {
 	if h.activities != nil {
 		h.spawn(func(ctx context.Context) { h.activities.Run(ctx) })
 	}
+	if h.pushLink != nil {
+		h.spawn(func(ctx context.Context) { h.Services.Activities.Run(ctx, h.pushLink) })
+	}
 }
 
 // everyMinute calls each tick at start and then on every minute boundary

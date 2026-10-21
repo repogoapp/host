@@ -181,23 +181,21 @@ const (
 	PushToStart = "start"
 	// PushActivity is the update token of the Live Activity running.
 	PushActivity = "activity"
+	// PushStepsStart is the token that starts a plugin's step activity.
+	PushStepsStart = "steps_start"
+	// PushSteps is one step activity's update token, saved by its key with
+	// RegisterStepsPush.
+	PushSteps = "steps"
 )
 
 // RegisterPush saves one of the phone's tokens by kind. An empty token
 // removes it, so an ended activity needs no other call.
 func (s *Store) RegisterPush(id ID, kind string, target PushTarget) error {
-	if err := target.validate(kind); err != nil {
-		return err
+	if kind == PushSteps {
+		return fmt.Errorf("%w: a steps token is saved by its activity's key", errkind.ErrInvalid)
 	}
-	if target.Token != "" {
-		peer, err := s.Peer(id)
-		if err != nil {
-			return err
-		}
-		msg := PushGrantMessage(s.identity.ID, target.Token, target.Environment, target.GrantedAt)
-		if _, err := VerifyPushProof(peer.Public, msg, target.Grant); err != nil {
-			return ErrBadGrant
-		}
+	if err := s.checkPush(id, kind, target); err != nil {
+		return err
 	}
 	return s.updatePush(id, func(p *Peer) {
 		field := pushField(p, kind)
@@ -216,6 +214,65 @@ func (s *Store) RegisterPush(id ID, kind string, target PushTarget) error {
 			s.release(id, kind, target)
 		}
 	})
+}
+
+// RegisterStepsPush saves the update token of the step activity key names;
+// an empty token removes it.
+func (s *Store) RegisterStepsPush(id ID, key string, target PushTarget) error {
+	if key == "" || len(key) > maxActivityKey {
+		return fmt.Errorf("%w: a steps token needs its activity's key, at most %d bytes", errkind.ErrInvalid, maxActivityKey)
+	}
+	if err := s.checkPush(id, PushSteps, target); err != nil {
+		return err
+	}
+	return s.updatePush(id, func(p *Peer) {
+		steps := maps.Clone(p.Steps)
+		if target.Token == "" {
+			delete(steps, key)
+		} else {
+			target.At = time.Now().UnixMilli()
+			if old, ok := steps[key]; ok && old.Token == target.Token {
+				target.At = old.At
+			}
+			if steps == nil {
+				steps = map[string]PushTarget{}
+			}
+			steps[key] = target
+		}
+		p.Steps = steps
+	})
+}
+
+// ForgetStepsPush drops a step activity's dead token, unless the phone has
+// replaced it meanwhile.
+func (s *Store) ForgetStepsPush(id ID, key, token string) error {
+	return s.updatePush(id, func(p *Peer) {
+		if old, ok := p.Steps[key]; ok && old.Token == token {
+			steps := maps.Clone(p.Steps)
+			delete(steps, key)
+			p.Steps = steps
+		}
+	})
+}
+
+// checkPush validates a token and, unless it is the empty "forget it",
+// the grant the phone signed for it.
+func (s *Store) checkPush(id ID, kind string, target PushTarget) error {
+	if err := target.validate(kind); err != nil {
+		return err
+	}
+	if target.Token == "" {
+		return nil
+	}
+	peer, err := s.Peer(id)
+	if err != nil {
+		return err
+	}
+	msg := PushGrantMessage(s.identity.ID, target.Token, target.Environment, target.GrantedAt)
+	if _, err := VerifyPushProof(peer.Public, msg, target.Grant); err != nil {
+		return ErrBadGrant
+	}
+	return nil
 }
 
 // SetClient saves what a device says it is. The phone says it on every
@@ -257,12 +314,17 @@ func pushField(p *Peer, kind string) **PushTarget {
 		return &p.PushToStart
 	case PushActivity:
 		return &p.Activity
+	case PushStepsStart:
+		return &p.StepsStart
 	}
 	return &p.Push
 }
 
 // maxInstallID bounds the one free-form string a phone stores here.
 const maxInstallID = 64
+
+// maxActivityKey bounds a step activity's key: its plugin and id.
+const maxActivityKey = 256
 
 // The services a push token belongs to: Apple's for iOS, Firebase Cloud
 // Messaging for Android.
@@ -276,8 +338,8 @@ const maxFCMToken = 1024
 
 func (t PushTarget) validate(kind string) error {
 	switch {
-	case kind != "" && kind != PushToStart && kind != PushActivity:
-		return fmt.Errorf("%w: kind must be start, activity or empty", errkind.ErrInvalid)
+	case kind != "" && kind != PushToStart && kind != PushActivity && kind != PushStepsStart && kind != PushSteps:
+		return fmt.Errorf("%w: kind must be start, activity, steps_start, steps or empty", errkind.ErrInvalid)
 	case len(t.InstallID) > maxInstallID:
 		return fmt.Errorf("%w: install_id is too long", errkind.ErrInvalid)
 	case t.Token == "":

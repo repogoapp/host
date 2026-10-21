@@ -43,8 +43,11 @@ type RegisterPushParams struct {
 	Grant       []byte `json:"grant,omitempty"`
 	GrantedAt   int64  `json:"granted_at,omitempty"`
 	// Kind "start" is the token that starts the Live Activity and "activity"
-	// the running one's; empty is the device's alert token.
+	// the running one's; "steps_start" and "steps" are a plugin's step
+	// activity's. Empty is the device's alert token.
 	Kind string `json:"kind"`
+	// Activity is the step activity a "steps" token updates.
+	Activity string `json:"activity,omitempty"`
 }
 
 // Device is one paired device as the Environment screen lists it. Its push
@@ -92,7 +95,13 @@ func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams
 		Token: a.Token, Service: a.Service, Environment: a.Environment, InstallID: a.InstallID,
 		Grant: a.Grant, GrantedAt: a.GrantedAt,
 	}
-	if err := d.Store.RegisterPush(c.Device, a.Kind, target); err != nil {
+	var err error
+	if a.Kind == device.PushSteps {
+		err = d.Store.RegisterStepsPush(c.Device, a.Activity, target)
+	} else {
+		err = d.Store.RegisterPush(c.Device, a.Kind, target)
+	}
+	if err != nil {
 		return rpc.Ack{}, err
 	}
 	if d.PushChanged != nil {

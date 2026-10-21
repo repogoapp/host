@@ -15,6 +15,70 @@ export type Notice = {
   collapse?: string;
 };
 
+/** A Live Activity's color: the cards' named colors, less `secondary`. */
+export type ActivityTint =
+  | "primary" | "accent" | "success" | "warning" | "danger"
+  | "blue" | "green" | "orange" | "red" | "purple" | "pink" | "teal" | "yellow" | "gray";
+
+/** A segment per step, or one bar. */
+export type ActivityProgress =
+  | {
+      kind: "steps";
+      /** 1 to 8 names of at most 24 characters. */
+      steps: string[];
+      /** The active step, 0 to `steps.length`; the ones before it are complete. */
+      current: number;
+    }
+  | {
+      kind: "bar";
+      /** 0 to 1. */
+      value: number;
+    };
+
+/** The card's clock, which the phone ticks with no pushes. */
+export type ActivityTimer =
+  | {
+      kind: "elapsed";
+      /** Unix ms; the activity's first start unless said. */
+      startedAt?: number;
+    }
+  | {
+      kind: "countdown";
+      /** Unix ms; reaching it ends nothing. */
+      endsAt: number;
+    }
+  | { kind: "none" };
+
+/**
+ * A Live Activity on the user's phones, sent whole each time: the same `id`
+ * updates it, a field left out takes its default, and status `done` or
+ * `failed` ends it with this state.
+ */
+export type Activity = {
+  /** The activity's id within the plugin, at most 64 bytes. */
+  id: string;
+  /** At most 60 characters, as a notice's title. */
+  title: string;
+  /** At most 120 characters, as a notice's body. */
+  body?: string;
+  /** A page target of the calling project, `.repogo/tabs/deploys.ui?project=web`; a tap opens it. */
+  page?: string;
+  /** An SF Symbol name, `shippingbox`; `circle.dotted`, or a check or a cross once ended, unless said. */
+  symbol?: string;
+  /** Colors the symbol, the progress and the label; white, or green or red once ended, unless said. */
+  tint?: ActivityTint;
+  /** The card's value, at most 24 characters; "2 of 4", "40%" or the status unless said, and "" hides it. */
+  label?: string;
+  /** The Dynamic Island's value, at most 10 characters; the label, or "2/4", unless said. */
+  compactLabel?: string;
+  /** No progress unless said. */
+  progress?: ActivityProgress;
+  /** Elapsed since the first start unless said. */
+  timer?: ActivityTimer;
+  /** `running` unless said; `done` and `failed` end it. */
+  status?: "running" | "done" | "failed";
+};
+
 /** One method as `ctx.plugins()` and the agent's `plugins` tool list it. */
 export type ManifestMethod = {
   /** `<plugin>.<method>`, the name `ctx.call` takes. */
@@ -122,6 +186,12 @@ export type Context = {
   signal: AbortSignal;
   /** Sends an alert to every phone paired with this environment. */
   notify: (notice: Notice) => void;
+  /**
+   * Shows or updates a Live Activity on every paired phone:
+   * `await ctx.activity({ id: "deploy", title: "Deploying", progress: { kind: "steps", steps: ["Build", "Ship"], current: 0 } })`.
+   * A plugin shows at most two at once.
+   */
+  activity: (activity: Activity) => Promise<void>;
   /**
    * Starts a chat with `prompt` and waits for the agent's whole answer:
    * `await ctx.agent("Why is the build failing?", { agent: "claude" })`.

@@ -35,6 +35,7 @@ import (
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	actionsrpc "github.com/repogoapp/host/internal/rpc/actions"
+	activitiesrpc "github.com/repogoapp/host/internal/rpc/activities"
 	agentsrpc "github.com/repogoapp/host/internal/rpc/agents"
 	browserrpc "github.com/repogoapp/host/internal/rpc/browser"
 	catalogrpc "github.com/repogoapp/host/internal/rpc/catalog"
@@ -62,6 +63,7 @@ import (
 	uploadsrpc "github.com/repogoapp/host/internal/rpc/uploads"
 	"github.com/repogoapp/host/internal/schedule"
 	"github.com/repogoapp/host/internal/shipping"
+	"github.com/repogoapp/host/internal/stepactivity"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
 	"github.com/repogoapp/host/internal/tunnel"
@@ -154,6 +156,8 @@ type Config struct {
 
 	// Reminders is the one-shot alerts agents set for the user.
 	Reminders *reminder.Reminders
+	// Activities is the step Live Activities plugins show on the phones.
+	Activities *stepactivity.Driver
 
 	Log *slog.Logger
 }
@@ -198,6 +202,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
 	remindersrpc.Register(r, remindersrpc.Deps{Reminders: cfg.Reminders})
+	activitiesrpc.Register(r, activitiesrpc.Deps{Activities: cfg.Activities})
 	uploadsrpc.Register(r, uploadsrpc.Deps{Uploads: cfg.Uploads})
 	chats.Register(r, chats.Deps{Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire})
 	return r, nil

@@ -112,6 +112,7 @@ var unchecked = map[string]string{
 	"catalog.read":      "probes every agent CLI as host.setup does; covered with fakes in the catalog family suite",
 
 	"devices.register_push": "paired-device token storage; loopback callers are denied",
+	"activities.set":        "plugins only, keyed by the calling plugin; covered in internal/stepactivity and its rpc family",
 	"devices.hello":         "paired-device record update; loopback callers are denied",
 
 	"pair.complete":        "admits a device; driven end to end by bench/e2e instead",

@@ -76,6 +76,27 @@ Result:
 - `text` string
 - `truncated` bool
 
+## `activities.set`
+
+Params:
+
+- `id` string: The activity's id within the plugin; the same id updates it
+- `project` string (omitted when empty): The project whose page a tap opens
+- `title` string
+- `body` string (omitted when empty)
+- `page` string (omitted when empty): The project page a tap opens
+- `symbol` string (omitted when empty): An SF Symbol name; the status's symbol when empty
+- `tint` string (omitted when empty): A named color; the status's color when empty
+- `label` string (omitted when empty) (nullable): The card's value, "2 of 4"; empty hides it, null derives it
+- `compact_label` string (omitted when empty) (nullable): The island's value, "2/4"; null takes the label or derives it
+- `progress` object{Progress} (omitted when empty) (nullable): Segments or a bar; null shows neither
+- `timer` object{Timer} (omitted when empty) (nullable): Elapsed from the start when null
+- `status` string (omitted when empty): running, done or failed; done and failed end it
+
+Result:
+
+- `ok` bool
+
 ## `agents.list`
 
 Tool (read): The agents a chat in a project can start with, for chats.start: each one's models, default model, the efforts (reasoning_level) each model accepts, and its modes and permission modes.
@@ -548,6 +569,7 @@ Params:
 - `grant` base64 (omitted when empty) (nullable)
 - `granted_at` int (omitted when empty)
 - `kind` string
+- `activity` string (omitted when empty)
 
 Result:
 

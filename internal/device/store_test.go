@@ -375,3 +375,52 @@ func TestRegisterPushKeepsAnFCMToken(t *testing.T) {
 		t.Fatalf("another token's grant: %v, want ErrBadGrant", err)
 	}
 }
+
+// Each step activity keeps its own token, by key; a Peer read before a
+// change keeps the tokens it had.
+func TestRegisterStepsPushByKey(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "device.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := addPhone(t, s, "Phone")
+	grant := func(token string) PushTarget {
+		return key.GrantPush(s.Identity().ID, PushTarget{Service: PushAPNs, Token: token, Environment: "sandbox"})
+	}
+	if err := s.RegisterPush(key.ID, PushSteps, grant("ab")); !errors.Is(err, errkind.ErrInvalid) {
+		t.Errorf("steps without a key: %v", err)
+	}
+	if err := s.RegisterStepsPush(key.ID, "", grant("ab")); !errors.Is(err, errkind.ErrInvalid) {
+		t.Errorf("empty key: %v", err)
+	}
+	if err := s.RegisterStepsPush(key.ID, "p/a", PushTarget{Service: PushAPNs, Token: "ab", Environment: "sandbox"}); !errors.Is(err, errkind.ErrInvalid) {
+		t.Errorf("no grant: %v", err)
+	}
+	for k, token := range map[string]string{"p/a": "aa", "p/b": "bb"} {
+		if err := s.RegisterStepsPush(key.ID, k, grant(token)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, _ := s.Peer(key.ID)
+	if err := s.ForgetStepsPush(key.ID, "p/a", "ff"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ForgetStepsPush(key.ID, "p/a", "aa"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RegisterStepsPush(key.ID, "p/b", PushTarget{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Steps) != 2 {
+		t.Errorf("an earlier read changed: %+v", before.Steps)
+	}
+	if p, _ := s.Peer(key.ID); len(p.Steps) != 0 {
+		t.Errorf("steps %+v", p.Steps)
+	}
+	if err := s.RegisterPush(key.ID, PushStepsStart, grant("cc")); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Peer(key.ID); p.StepsStart == nil || p.StepsStart.Token != "cc" {
+		t.Errorf("steps start %+v", p.StepsStart)
+	}
+}

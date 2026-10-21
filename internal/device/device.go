@@ -79,6 +79,11 @@ type Peer struct {
 	// the update token of the one running.
 	PushToStart *PushTarget `json:"push_to_start,omitempty"`
 	Activity    *PushTarget `json:"activity,omitempty"`
+	// StepsStart starts a plugin's step activity on the phone; Steps is each
+	// running one's update token, by the activity's key. Steps is replaced,
+	// never written in place, so a Peer read earlier keeps its own.
+	StepsStart *PushTarget           `json:"steps_start,omitempty"`
+	Steps      map[string]PushTarget `json:"steps,omitempty"`
 }
 
 // Client is what a device says it is. Pairing gives the platform; each

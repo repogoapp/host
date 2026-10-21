@@ -7,7 +7,7 @@ import { Collection } from "./collections";
 import { checkTimezone, nextDue, parseSchedule, type Schedule } from "./cron";
 import { Database } from "./database";
 import { parseDuration } from "./duration";
-import type { AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
+import type { Activity, AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
 import type { HTTPAccess, PluginDefinition, MethodKind } from "./define";
@@ -233,6 +233,11 @@ export class Runtime {
         assertWritable("notifications");
         const sent = { ...notice, plugin: name, root: runtime.callRoot.getStore() ?? runtime.root };
         for (const listener of runtime.noticeListeners) listener(sent);
+      },
+      activity: async (activity) => {
+        assertWritable("activities");
+        if (!runtime.host) throw new MethodError("INTERNAL", "ctx.activity runs only under the RepoGo host.");
+        await runtime.host(name, "activities.set", activityParams(activity, ctx.root));
       },
       agent: (prompt, options) => this.agent(name, ctx, prompt, options ?? {}),
       // The console is captured under the running plugin, so this adds nothing to it.
@@ -686,6 +691,21 @@ function mcpFailure(server: string, tool: string, error: { code: string; message
       return new MethodError("FORBIDDEN", `${server}.${tool} may destroy data, so it runs only from a method with a confirm.`);
   }
   return new MethodError("INTERNAL", error.message);
+}
+
+/** `activities.set`'s params: the activity in the wire's snake_case, with the calling project. */
+function activityParams(activity: Activity, project: string) {
+  const { compactLabel, timer, ...rest } = activity;
+  return {
+    ...rest,
+    compact_label: compactLabel,
+    timer: timer && {
+      kind: timer.kind,
+      started_at: timer.kind === "elapsed" ? timer.startedAt : undefined,
+      ends_at: timer.kind === "countdown" ? timer.endsAt : undefined,
+    },
+    project,
+  };
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {

@@ -49,6 +49,7 @@ import (
 	"github.com/repogoapp/host/internal/schedule"
 	"github.com/repogoapp/host/internal/session"
 	"github.com/repogoapp/host/internal/shipping"
+	"github.com/repogoapp/host/internal/stepactivity"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
 	"github.com/repogoapp/host/internal/tunnel"
@@ -213,6 +214,7 @@ func (h *Host) openDevices() error {
 	s.Pairer = h.pairer
 	s.Online = h.online
 	s.PushChanged = h.pushChanged
+	s.Activities = stepactivity.New(h.devices, h.log)
 	// Resolved late: the listener has not picked a port yet.
 	s.Addr = func() string { addr, _ := h.invite.Load().(string); return addr }
 	s.Fetcher = forward.NewFetcher(h.log)
@@ -443,11 +445,14 @@ func (h *Host) openTransports() error {
 	return nil
 }
 
-// pushChanged has the Live Activity look again when a phone's card token
+// pushChanged has the Live Activities look again when a phone's card token
 // comes or goes, as when a reinstall clears it.
 func (h *Host) pushChanged(kind string) {
 	if h.activities != nil && (kind == device.PushToStart || kind == device.PushActivity) {
 		h.activities.TokensChanged()
+	}
+	if kind == device.PushStepsStart || kind == device.PushSteps {
+		h.Services.Activities.TokensChanged()
 	}
 }
 

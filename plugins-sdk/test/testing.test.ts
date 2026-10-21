@@ -103,3 +103,31 @@ test("ctx.mcp needs the host", async () => {
   await expect(app.call("lone.read")).rejects.toMatchObject({ code: "INTERNAL", message: "ctx.mcp runs only under the RepoGo host." });
   await app.close();
 });
+
+test("ctx.activity sets the activity through the host in snake_case, with the calling project", async () => {
+  const deploys = definePlugin({
+    methods: {
+      deploy: method(z.object({}), async (_, ctx) => {
+        await ctx.activity({
+          id: "web", title: "Deploying web", progress: { kind: "steps", steps: ["Build", "Ship"], current: 1 },
+          compactLabel: "1/2", timer: { kind: "countdown", endsAt: 1_700_000_000_000 }, page: ".repogo/tabs/deploys.ui",
+        });
+      }),
+      peek: method(z.object({}), async (_, ctx) => { await ctx.activity({ id: "web", title: "Peeking" }); }, { kind: "query" }),
+    },
+  });
+  const calls: { method: string; params: unknown }[] = [];
+  const app = await testRuntime({ deploys }, { host: (method, params) => { calls.push({ method, params }); return { ok: true }; } });
+  await app.call("deploys.deploy");
+  expect(calls).toEqual([{
+    method: "activities.set",
+    params: {
+      id: "web", title: "Deploying web", progress: { kind: "steps", steps: ["Build", "Ship"], current: 1 },
+      compact_label: "1/2", timer: { kind: "countdown", ends_at: 1_700_000_000_000 }, page: ".repogo/tabs/deploys.ui",
+      project: expect.any(String),
+    },
+  }]);
+  await expect(app.call("deploys.peek")).rejects.toBeInstanceOf(MethodError);
+  expect(calls.length).toBe(1);
+  await app.close();
+});
