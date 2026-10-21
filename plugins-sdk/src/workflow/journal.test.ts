@@ -9,7 +9,7 @@ import { RunJournal } from "./journal";
 import { JournalError, type EventInput, type JournalEvent } from "./events";
 import { maxRecordBytes, type JournalStorage } from "./storage";
 
-const started: EventInput = { type: "run.started", workflow: "report", buildId: "build-a", input: { url: "https://example.com" }, timeoutMs: 30 * 86_400_000 };
+const started: EventInput = { type: "run.started", workflow: "report", input: { url: "https://example.com" }, timeoutMs: 30 * 86_400_000 };
 const journalPolicy = stepPolicy({ kind: "query", attempts: 100 });
 const epoch = "2026-01-01T00:00:00.000Z";
 const clock = () => new Date(epoch);
@@ -46,7 +46,7 @@ async function open(path: string) {
 
 
 
-test("reopening reconstructs results and the pinned build without trusting a snapshot", async () => {
+test("reopening reconstructs results and the run's identity without trusting a snapshot", async () => {
   const path = await directory();
   const journal = await open(path);
   await journal.append(started);
@@ -71,9 +71,9 @@ test("snapshots and returned events cannot mutate the journal's state", async ()
   const event = await journal.append(started);
   const snapshot = journal.state;
   snapshot.steps.fetch = { status: "failed", attempt: 99, limit: 100, policy: journalPolicy, result: null, error: null, nextAttemptAt: null };
-  snapshot.buildId = "build-b";
-  if (event.type === "run.started") event.buildId = "build-c";
-  expect(journal.state.buildId).toBe("build-a");
+  snapshot.workflow = "other";
+  if (event.type === "run.started") event.workflow = "changed";
+  expect(journal.state.workflow).toBe("report");
   expect(journal.state.steps).toEqual({});
 });
 
@@ -150,7 +150,7 @@ test("a committed append stays successful if only the snapshot fails", async () 
   storage.failSnapshot = false;
   await journal.close();
   expect(JSON.parse(storage.snapshot).lastSeq).toBe(1);
-  expect((await recover(storage)).state.buildId).toBe("build-a");
+  expect((await recover(storage)).state.workflow).toBe("report");
 });
 
 test("state and acknowledgement wait until the append has flushed", async () => {

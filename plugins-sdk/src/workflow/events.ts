@@ -11,7 +11,7 @@ const Failure = z.object({ message: z.string(), code: z.string().optional() }).s
 const Step = { stepId: StepID, attempt: Attempt };
 
 export const EventInputSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("run.started"), workflow: ID, buildId: ID, input: z.json(), timeoutMs: DurationMsSchema, location: RunLocationSchema.optional() }).strict(),
+  z.object({ type: z.literal("run.started"), workflow: ID, input: z.json(), timeoutMs: DurationMsSchema, location: RunLocationSchema.optional() }).strict(),
   z.object({ type: z.literal("sleep.scheduled"), sleepId: SleepID, durationMs: DurationMsSchema }).strict(),
   z.object({ type: z.literal("sleep.completed"), sleepId: SleepID }).strict(),
   z.object({ type: z.literal("step.started"), ...Step, policy: StepPolicySchema }).strict(),
@@ -26,6 +26,9 @@ export const EventInputSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run.cancelled") }).strict(),
   z.object({ type: z.literal("run.expired"), reason: z.string().min(1) }).strict(),
   z.object({ type: z.literal("run.unknown"), error: Failure }).strict(),
+  // The code no longer matches the recorded steps; the run waits for Restart or Cancel.
+  z.object({ type: z.literal("run.attention"), error: Failure }).strict(),
+  z.object({ type: z.literal("run.restarted") }).strict(),
 ]);
 
 const Envelope = z.object({ version: z.literal(1), seq: z.number().int().positive(), at: z.iso.datetime() }).strict();

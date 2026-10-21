@@ -7,7 +7,7 @@ import { TestClock } from "./fixtures/clock";
 import { stepPolicy } from "./policy";
 import type { JSONValue } from "./events";
 
-const identity = { workflow: "report", buildId: "sleep-a", input: null };
+const identity = { workflow: "report", input: null };
 const journals: RunJournal[] = [];
 const clocks: TestClock[] = [];
 afterEach(async () => {
@@ -112,7 +112,7 @@ test.each([0, -1, NaN, Infinity, "0s", "bad", "366d"])("invalid initial sleep re
   expect(journal.state.sleeps).toEqual({});
 });
 
-test.each(["omit", "replace", "reorder"])("shared replay order refuses changed operations: %s", async mode => {
+test.each(["omit", "replace", "reorder"])("shared replay order puts changed operations in attention: %s", async mode => {
   const { journal, clock } = await open();
   await expect(runWorkflow(journal, identity, async (_, ctx) => { await ctx.step.run("first", () => 1); await ctx.sleep("1s"); return 1; })).rejects.toMatchObject({ code: "WAITING" });
   clock.advance(1000);
@@ -122,8 +122,9 @@ test.each(["omit", "replace", "reorder"])("shared replay order refuses changed o
     await ctx.step.run("first", () => ++effects);
     if (mode === "replace") return ctx.step.run("wrong", () => ++effects);
     return 1;
-  })).rejects.toMatchObject({ code: "FAILED" });
+  })).rejects.toMatchObject({ code: "ATTENTION" });
   expect(effects).toBe(0);
+  expect(journal.state.status).toBe("attention");
 });
 
 test.each(["nested", "concurrent", "unawaited", "caught"])("sleep uses the same sequential and sticky guards as steps: %s", async mode => {

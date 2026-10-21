@@ -1,7 +1,7 @@
 # Workflow core
 
-The durable workflow implementation: journal, replay, attempts, lifecycle,
-immutable builds and service ownership. Plugin authors use the public
+The durable workflow implementation: journal, replay, attempts, lifecycle
+and service ownership. Experimental: its contract may still change. Plugin authors use the public
 `workflow` helper documented in the SDK README; they do not append events.
 
 ```ts
@@ -11,7 +11,7 @@ import { stepPolicy } from "./policy";
 const journal = await RunJournal.open(runDirectory);
 try {
   await journal.append({
-    type: "run.started", workflow: "report", buildId: "build-a", input: null,
+    type: "run.started", workflow: "report", input: null,
     timeoutMs: 30 * 86_400_000,
   });
   await journal.append({ type: "step.started", stepId: "fetch", attempt: 1, policy: stepPolicy() });
@@ -64,15 +64,15 @@ with `bun test src/workflow` from the SDK folder.
 ## Sequential runner
 
 `runWorkflow` is an internal executor over an already owned journal. It does not
-close that journal or load code: its caller must supply the exact executable
-identified by `buildId`. The service supplies the pinned executable and owns executor processes.
+close that journal or load code: its caller supplies the handler, which is the
+plugin's current code. The service owns executor processes.
 
 ```ts
 import { runWorkflow } from "./runner";
 
 const result = await runWorkflow(
   journal,
-  { workflow: "report", buildId: "fixture-a", input: { customer: "one" } },
+  { workflow: "report", input: { customer: "one" } },
   async (input, { step }) => {
     const customer = await step.run("customer", async () => ({ name: "Ada" }));
     return await step.run("report", () => ({ title: customer.name }));
@@ -84,13 +84,16 @@ Await every step, use unique stable names and keep side effects inside callbacks
 The handler replays from its beginning; ordinary code outside steps executes again.
 The reducer records operation order explicitly, including numeric step names
 and automatically identified sleeps. Replay must
-visit completed steps in that order before adding new ones. Reordered, omitted,
-duplicate, nested or overlapping steps fail the run. A caught step error still
+visit completed steps in that order before adding new ones. A reordered or
+omitted step means the code changed since the run started: the run records
+`run.attention` and waits, not terminal and not relaunched, until `run.restarted`
+clears its progress or it is cancelled. Duplicate, nested or overlapping steps
+fail the run. A caught step error still
 stops further dispatch. Automatic retries require an explicitly declared query.
 
 A reopened run between steps reuses saved JSON results without calling those
 callbacks. A completed run returns its saved final result without calling its
-handler. Identity must match the recorded workflow, build and input. The generic
+handler. Identity must match the recorded workflow and input. The generic
 return types rely on the caller supplying that same code and result contract.
 
 An interrupted mutation makes the run `unknown` before any handler executes;
@@ -109,8 +112,8 @@ its callback. Unawaited-step detection is best effort; authors must await steps.
 The executor waits for an outstanding callback before reporting an unawaited-step
 failure or releasing its in-process ownership. It cannot forcibly stop a callback;
 a callback that never settles keeps that executor occupied. Timeouts and
-cancellation are cooperative. Immutable builds and host recovery/discovery
-belong to later layers. Callers must not append events to, or close, a journal
+cancellation are cooperative. The service owns host recovery and discovery.
+Callers must not append events to, or close, a journal
 while its executor is running.
 
 
@@ -130,8 +133,8 @@ const result = await runWorkflow(journal, identity, async (input, { step }) => {
 }, { timeout: "30d", signal: cancellation.signal });
 ```
 
-Import `NonRetryable` from `./runner` alongside `runWorkflow`. These remain
-internal modules, without production plugin registration or host scheduling.
+Import `NonRetryable` from `./runner` alongside `runWorkflow` in core code.
+Plugin authors import `NonRetryable` from `@repogo/plugins`.
 
 Attempts are total invocations, starting at one; the default is one. Mutations
 are the default kind and cannot request more than one attempt. Query callbacks
@@ -149,7 +152,7 @@ It identifies the waiting step, consumed attempt and due time; the journal stays
 `waiting`. This control signal is not a business failure: do not notify failure
 or run side effects from a catch outside steps. Catching it cannot complete the
 run or dispatch later steps. A caller resumes the same run by invoking
-`runWorkflow` again at or after its due time, with the same build and handler.
+`runWorkflow` again at or after its due time, with the same handler.
 Before that time, the handler is not invoked and no event is appended. This
 layer holds no worker or timer during backoff; service discovery and its timer
 resume the run when due.
@@ -191,26 +194,29 @@ use a virtual clock and manually settled callbacks; they contain no real sleeps.
 ## Service and executable ownership
 
 `service.ts` is owned by the plugin server rather than checkout workers. Each
-run executes in its own subprocess from `builds/<hash>/worker.js`. Process exit
-releases SQLite locks reliably. `snapshot-worker.ts` is also shipped beside the
-plugin runtime so releases can build executables without a project SDK install.
-The artifact includes the SDK and sibling plugins; no live-source fallback is
-allowed. ABI and digest validation precede execution. Bun remains the host's
-installed runtime; its version is recorded in the artifact manifest.
+run executes in its own subprocess, `executor.ts` (shipped beside the plugin
+runtime as `workflow-executor.js`), which loads the run's plugin folder from
+source: a run always executes the current code, and the journal's replay checks
+it against what the run recorded. Process exit releases SQLite locks reliably.
 
 The catalog indexes bounded summaries and service availability timestamps.
 `run.started.location` supplies identity and policy so missing index entries can
 be reconstructed from journals. The service checks offline limits before
 refreshing availability; an active executor separately detects long clock gaps.
 An unavailable journal blocks the run and does not create a replacement.
-Retention is anchored to the terminal event. Garbage collection runs under the
-same serial ownership as starts and never deletes a referenced executable.
+Retention is anchored to the terminal event. Cleanup removes the journal before
+its catalog reference, so failed deletion remains retryable. Discovery
+runs under the same serial ownership as starts.
 
 Cancellation is flushed before an active owner acknowledges it. Shutdown sends
 suspension, waits briefly, then terminates subprocesses that ignore abort; it
 does not record cancellation. Query recovery consumes an interrupted attempt;
 mutation recovery records uncertainty. Manual retry durably extends only a
-safely failed query's budget without changing its original policy or build.
+safely failed query's budget without changing its original policy. Cancel all
+cancels each unfinished run of a workflow in the project, optionally one status.
+If a callback returns a valid result during cooperative suspension before its
+attempt timeout, that result is committed before pausing. Recovery reuses it.
+Cancellation and expiry still prevent further dispatch and completion of the run.
 
 `availability.ts` supplies a passive, injectable network signal: no nonlocal
 assigned address means known disconnection; unknown observations preserve a

@@ -46,7 +46,7 @@ export async function invokeAttempt<T extends JSONValue>(
       }
       catch (error) { caught = { error }; }
     }
-    if (signal.aborted) return { type: "stopped", invoked };
+    if (signal.aborted && (!invoked || caught)) return { type: "stopped", invoked };
     if (clock.now() >= deadlineAt) timedOut = true;
     if (timedOut) {
       const error = { code: "TIMEOUT", message: `Step ${stepId} attempt ${attempt} timed out.` };

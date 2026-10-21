@@ -14,7 +14,7 @@ import { executeStep, scheduleRetry, type ExecutionEnvironment } from "./retry";
 export { RunnerError, RunWaiting, NonRetryable } from "./errors";
 export type { StepContext } from "./attempts";
 export type { StepOptions } from "./policy";
-export type RunIdentity = { workflow: string; buildId: string; input: JSONValue };
+export type RunIdentity = { workflow: string; input: JSONValue };
 export type WorkflowSteps = {
   run<T extends JSONValue>(name: string, callback: (ctx: StepContext) => T | Promise<T>, options?: StepOptions): Promise<T>;
 };
@@ -23,7 +23,7 @@ export type RunOptions = { timeout?: Duration; maxOffline?: Duration; signal?: A
 
 const owners = new WeakSet<RunJournal>();
 
-/** Internal executor; callers supply the exact code identified by buildId and own journal closure. */
+/** Internal executor over the current code; callers own journal closure. */
 export async function runWorkflow<T extends JSONValue>(
   journal: RunJournal, identity: RunIdentity,
   handler: (input: JSONValue, ctx: RunContext) => T | Promise<T>, options: RunOptions = {},
@@ -40,9 +40,10 @@ export async function runWorkflow<T extends JSONValue>(
     if (state.status === "pending") {
       await journal.append(start);
       state = journal.state;
-    } else if (state.workflow !== start.workflow || state.buildId !== start.buildId || !isDeepStrictEqual(state.input, start.input)) {
-      throw new RunnerError("IDENTITY", "Workflow, build and input must match the recorded run.");
+    } else if (state.workflow !== start.workflow || !isDeepStrictEqual(state.input, start.input)) {
+      throw new RunnerError("IDENTITY", "Workflow and input must match the recorded run.");
     }
+    if (state.status === "attention") throw new RunnerError("ATTENTION", state.error!.message, state.error);
     if (state.status === "completed") return structuredClone(state.result) as T;
     if (state.status === "failed" || state.status === "unknown") throw outcomeError(state.status, state.error!);
     if (state.status === "cancelled" || state.status === "expired") throw terminalError(state.status);
@@ -129,7 +130,7 @@ async function execute<T extends JSONValue>(
   };
   function claim(name: string) {
     if (seen.has(name)) throw new RunnerError("REPLAY", `Operation ${name} was called more than once.`);
-    if (cursor < history.length && history[cursor] !== name) throw new RunnerError("REPLAY", `Expected operation ${history[cursor]}, received ${name}.`);
+    if (cursor < history.length && history[cursor] !== name) throw changed(`expected ${history[cursor]}, but the code ran ${name}`);
     seen.add(name);
     cursor += 1;
   }
@@ -186,8 +187,13 @@ async function execute<T extends JSONValue>(
   await lifetime.close();
   if (storageFailed) throw storageError;
   await settleControl(journal, lifetime);
-  if (!stopped && cursor < history.length) stopped = new RunnerError("REPLAY", `Workflow omitted recorded operation ${history[cursor]}.`);
+  if (!stopped && cursor < history.length) stopped = changed(`${history[cursor]} was recorded, but the code no longer runs it`);
   if (stopped instanceof RunWaiting) throw stopped;
+  if (stopped instanceof RunnerError && stopped.code === "CHANGED" && !uncertain) {
+    const recorded = failure(stopped);
+    await append({ type: "run.attention", error: recorded });
+    throw new RunnerError("ATTENTION", recorded.message, recorded);
+  }
   if (stopped) {
     const recorded = failure(stopped);
     await append({ type: uncertain ? "run.unknown" : "run.failed", error: recorded });
@@ -211,6 +217,11 @@ async function execute<T extends JSONValue>(
     }
     throw error;
   }
+}
+
+/** The code no longer matches the run's recorded steps: an edit, not a bug, so the run waits for the user. */
+function changed(detail: string) {
+  return new RunnerError("CHANGED", `The workflow changed since this run started: ${detail}. Restart the run or cancel it.`);
 }
 
 async function settleControl(journal: RunJournal, lifetime: RunLifetime): Promise<void> {

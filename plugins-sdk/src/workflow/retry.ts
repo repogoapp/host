@@ -54,7 +54,8 @@ export async function executeStep<T extends JSONValue>(
   }
   const outcome = await invokeAttempt(callback, name, attempt, policy, limit, environment.clock, lifetime.controller.signal);
   lifetime.check();
-  if (outcome.type === "stopped" || lifetime.reason) {
+  const completedBeforePause = outcome.type === "completed" && lifetime.reason === "paused";
+  if (outcome.type === "stopped" || (lifetime.reason && !completedBeforePause)) {
     if (outcome.type === "stopped" && !outcome.invoked && lifetime.reason !== "paused") {
       const error = { code: lifetime.reason === "expired" ? "EXPIRED" : "CANCELLED", message: "Workflow stopped before dispatch." };
       await append({ type: "step.failed", stepId: name, attempt, error });
@@ -89,5 +90,7 @@ export async function executeStep<T extends JSONValue>(
     if (error instanceof JournalError && error.code === "LIMIT") return await invalidResult(`Step ${name} result exceeds the journal limit.`);
     throw error;
   }
+  lifetime.check();
+  if (lifetime.reason === "paused") throw new RunnerError("PAUSED", "Workflow executor suspended.");
   return (committed as Extract<JournalEvent, { type: "step.completed" }>).result as T;
 }

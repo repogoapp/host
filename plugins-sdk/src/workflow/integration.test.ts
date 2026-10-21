@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import "../self";
 import { Runtime } from "../runtime";
 import { WorkflowService } from "./service";
@@ -51,7 +52,8 @@ function until(service: WorkflowService, id: string, predicate: (summary: RunSum
   });
 }
 
-test("public workflow methods pin imports and sibling calls while old and new runs use different code", async () => {
+// A run executes the current code: recorded steps keep their results, later ones see the edit.
+test("an edit mid-run continues on the new code where the recorded steps still match", async () => {
   const f = await fixture();
   const { service, runtime } = await open(f);
   const start = (await runtime.call("reports.report.start", { input: { name: "first" }, key: "first" })).result as RunSummary;
@@ -64,17 +66,16 @@ test("public workflow methods pin imports and sibling calls while old and new ru
   service.start();
   await completed;
   const old = (await runtime.call("reports.report.get", { id: start.id })).result as any;
-  expect(old.result).toEqual({ name: "first", version: "A", sibling: "A" });
+  expect(old.result).toEqual({ name: "first", version: "A", sibling: "B" });
   expect((await runtime.call("reports.report.start", { input: { name: "first" }, key: "first" })).result).toMatchObject({ id: start.id });
   await expect(runtime.call("reports.report.start", { input: { name: "different" }, key: "first" })).rejects.toThrow("different input");
   const next = (await runtime.call("reports.report.start", { input: { name: "second" } })).result as RunSummary;
   const finished = until(service, next.id, summary => summary.status === "completed");
   await finished;
-  expect(next.buildId).not.toBe(start.buildId);
   expect(((await runtime.call("reports.report.get", { id: next.id })).result as any).result).toEqual({ name: "second", version: "B", sibling: "B" });
 }, 15000);
 
-test("a service restart resumes a pinned waiting run even when the mutable plugin source is gone", async () => {
+test("a service restart resumes a waiting run", async () => {
   const f = await fixture();
   let service = await WorkflowService.open(f.dataDir, callbacks);
   const runtime = await Runtime.open({ dataDir: f.dataDir, root: f.root, workflows: request => service.request(request) });
@@ -83,7 +84,6 @@ test("a service restart resumes a pinned waiting run even when the mutable plugi
   const waiting = until(service, start.id, summary => summary.status === "waiting");
   await service.tick(); await waiting;
   await service.close();
-  await rm(f.dir, { recursive: true, force: true });
   service = await WorkflowService.open(f.dataDir, callbacks);
   closing.push(async () => { runtime.close(); await service.close(); });
   const completed = until(service, start.id, summary => summary.status === "completed");
@@ -120,7 +120,7 @@ test("missing journals block execution without recreating history or blocking he
   const complete = until(service, next.id, s => s.status === "completed"); service.start(); await complete;
 }, 15000);
 
-test("offline expiry precedes dispatch and retention removes journals and unused builds", async () => {
+test("offline expiry precedes dispatch and retention removes journals", async () => {
   const f = await fixture(); let now = Date.now();
   const service = await WorkflowService.open(f.dataDir, callbacks, { clock: { now: () => now, schedule: () => () => {} } });
   const runtime = await Runtime.open({ dataDir: f.dataDir, root: f.root, workflows: request => service.request(request) });
@@ -130,8 +130,74 @@ test("offline expiry precedes dispatch and retention removes journals and unused
   expect((await runtime.call("reports.report.get", { id: start.id })).result).toMatchObject({ status: "expired", steps: [] });
   now += 30 * 86400_000; await service.tick();
   expect((await runtime.call("reports.report.list")).result).toEqual({ items: [], cursor: null });
-  await expect(readFile(join(f.dataDir, ".workflows", "builds", start.buildId, "worker.js"))).rejects.toThrow();
+  await expect(readFile(join(f.dataDir, "fixture.reports", "workflows", start.id, "events.jsonl"))).rejects.toThrow();
 });
+
+test.skipIf(process.getuid?.() === 0 || process.platform === "win32")("failed retention cleanup keeps its catalog reference and retries", async () => {
+  const f = await fixture(); let now = Date.now();
+  const service = await WorkflowService.open(f.dataDir, callbacks, { clock: { now: () => now, schedule: () => () => {} } });
+  const runtime = await Runtime.open({ dataDir: f.dataDir, root: f.root, workflows: request => service.request(request) });
+  await runtime.loadDir(f.dir); closing.push(async () => { runtime.close(); await service.close(); });
+  const run = (await runtime.call("reports.report.start", { input: { name: "cleanup" } })).result as RunSummary;
+  now += 14 * 86400_000; await service.tick();
+  now += 30 * 86400_000;
+  const directory = join(f.dataDir, "fixture.reports", "workflows");
+  await chmod(directory, 0o500);
+  try {
+    await service.tick();
+    expect((await runtime.call("reports.report.list")).result).toMatchObject({ items: [{ id: run.id, status: "expired" }] });
+    const { Database } = await import("bun:sqlite");
+    const database = new Database(join(f.dataDir, ".workflows", "catalog.db"), { readonly: true });
+    try { expect(database.query("select seen from availability where id = 1").get()).toEqual({ seen: now }); }
+    finally { database.close(); }
+  } finally { await chmod(directory, 0o700); }
+  await service.tick();
+  expect((await runtime.call("reports.report.list")).result).toEqual({ items: [], cursor: null });
+});
+
+/** The fixture's workflow with its first step renamed: an edit the recorded run can't follow. */
+const renamed = `import { definePlugin, workflow, z } from "@repogo/plugins";
+export default definePlugin({ namespace: "fixture.reports", workflows: {
+  report: workflow(z.object({ name: z.string() }), async ({ name }, ctx) => {
+    const version = await ctx.step.run("renamed", () => "B");
+    return { name, version };
+  }),
+} });`;
+
+test("an edit the recorded steps can't follow needs attention, and restart runs it on the new code", async () => {
+  const f = await fixture();
+  const { service, runtime } = await open(f);
+  const start = (await runtime.call("reports.report.start", { input: { name: "edited" }, key: "edited" })).result as RunSummary;
+  const waiting = until(service, start.id, summary => summary.status === "waiting");
+  await service.tick(); await waiting;
+  await writeFile(join(f.dir, "reports", "app.ts"), renamed);
+  const attention = until(service, start.id, summary => summary.status === "attention");
+  service.start(); await attention;
+  const detail = (await runtime.call("reports.report.get", { id: start.id })).result as any;
+  expect(detail.error.message).toContain("The workflow changed since this run started: expected saved, but the code ran renamed");
+  await service.tick();
+  expect((await runtime.call("reports.report.get", { id: start.id })).result).toMatchObject({ status: "attention" });
+  const completed = until(service, start.id, summary => summary.status === "completed");
+  expect((await runtime.call("reports.report.restart", { id: start.id })).result).toMatchObject({ id: start.id, status: "running" });
+  await completed;
+  expect(((await runtime.call("reports.report.get", { id: start.id })).result as any).result).toEqual({ name: "edited", version: "B" });
+  // The key still names the same run.
+  expect((await runtime.call("reports.report.start", { input: { name: "edited" }, key: "edited" })).result).toMatchObject({ id: start.id });
+  await expect(runtime.call("reports.report.restart", { id: start.id })).rejects.toThrow("needs attention");
+}, 15000);
+
+test("cancel all cancels the workflow's unfinished runs, or only those in one status", async () => {
+  const f = await sleepingFixture("1h");
+  const { service, runtime } = await open(f);
+  const runs: RunSummary[] = [];
+  for (const name of ["one", "two"]) runs.push((await runtime.call("reports.report.start", { input: { name } })).result as RunSummary);
+  const waits = runs.map(run => until(service, run.id, s => s.status === "waiting"));
+  await service.tick(); await Promise.all(waits);
+  expect((await runtime.call("reports.report.cancelAll", { status: "attention" })).result).toEqual({ cancelled: 0 });
+  expect((await runtime.call("reports.report.cancelAll", {})).result).toEqual({ cancelled: 2 });
+  for (const run of runs) expect((await runtime.call("reports.report.get", { id: run.id })).result).toMatchObject({ status: "cancelled" });
+  expect((await runtime.call("reports.report.cancelAll", {})).result).toEqual({ cancelled: 0 });
+}, 15000);
 
 test("active cancellation persists intent and prevents manual retry", async () => {
   const f = await fixture();
@@ -159,7 +225,7 @@ test("the file-backed developer helper runs public lifecycle methods", async () 
   expect(await app.wait("reports.report", run.id)).toMatchObject({ status: "completed", result: { name: "helper", version: "A", sibling: "A" } });
 });
 
-test("input transforms are applied to raw input once by the pinned handler", async () => {
+test("input transforms are applied to raw input once by the handler", async () => {
   const f = await fixture();
   await writeFile(join(f.dir, "reports", "app.ts"), `import { definePlugin, workflow, z } from "@repogo/plugins";
 export default definePlugin({ namespace: "fixture.reports", workflows: {
@@ -197,7 +263,7 @@ test("an executor refuses a journal deleted after admission without recreating h
   const metadata = journal.state.metadata;
   await journal.close(); await rm(join(directory, "events.jsonl"));
   const errors: string[] = [];
-  const worker = Bun.spawn([process.execPath, "--no-env-file", join(f.dataDir, ".workflows", "builds", summary.buildId, "worker.js")], {
+  const worker = Bun.spawn([process.execPath, "--no-env-file", fileURLToPath(new URL("./executor.ts", import.meta.url))], {
     stdin: "ignore", stdout: "ignore", stderr: "ignore", ipc: message => { if (message.type === "error") errors.push(message.message); },
   });
   worker.send({ type: "start", run: metadata, directory, dataDir: f.dataDir });
@@ -257,7 +323,7 @@ export default definePlugin({ namespace: "fixture.reports", kv: { counts: z.numb
   return f;
 }
 
-test("public ctx.sleep survives service restart and source removal without repeating step one", async () => {
+test("public ctx.sleep survives service restart without repeating step one", async () => {
   const f = await sleepingFixture();
   let service = await WorkflowService.open(f.dataDir, callbacks);
   const runtime = await Runtime.open({ dataDir: f.dataDir, root: f.root, workflows: request => service.request(request) });
@@ -273,7 +339,6 @@ test("public ctx.sleep survives service restart and source removal without repea
   const state = await RunJournal.openExisting(join(f.dataDir, "fixture.reports", "workflows", start.id));
   expect(state.state.sleeps["@sleep:2"].wakeAt).toBe(waiting.nextAttemptAt!);
   await state.close();
-  await rm(f.dir, { recursive: true, force: true });
   service = await WorkflowService.open(f.dataDir, callbacks);
   const completed = until(service, start.id, s => s.status === "completed");
   service.start(); await completed;

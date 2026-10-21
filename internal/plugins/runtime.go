@@ -27,11 +27,11 @@ func Unpack(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	snapshot, err := bundled.ReadFile("runtime/snapshot-worker.js")
+	executor, err := bundled.ReadFile("runtime/workflow-executor.js")
 	if err != nil {
 		return "", err
 	}
-	contents := append(append(append([]byte{}, run...), worker...), snapshot...)
+	contents := append(append(append([]byte{}, run...), worker...), executor...)
 	sum := sha256.Sum256(contents)
 	folder := filepath.Join(dir, hex.EncodeToString(sum[:6]))
 	entry := filepath.Join(folder, "run.js")
@@ -42,7 +42,7 @@ func Unpack(dir string) (string, error) {
 		return "", err
 	}
 	// Executors first: run.js present means the folder is complete.
-	if err := writeFile(filepath.Join(folder, "snapshot-worker.js"), snapshot); err != nil {
+	if err := writeFile(filepath.Join(folder, "workflow-executor.js"), executor); err != nil {
 		return "", err
 	}
 	if err := writeFile(filepath.Join(folder, "worker.js"), worker); err != nil {

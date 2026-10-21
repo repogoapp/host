@@ -20,8 +20,8 @@
     "LICENSE.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.ts src/testing.ts --target=bun --outdir dist --splitting --external zod && tsc -p tsconfig.build.json && bun build src/workflow/snapshot-worker.ts --target=bun --outfile dist/snapshot-worker.js",
-    "build:runtime": "bun build src/run.ts src/worker.ts --target=bun --outdir ../internal/plugins/runtime && bun build src/workflow/snapshot-worker.ts --target=bun --outfile ../internal/plugins/runtime/snapshot-worker.js",
+    "build": "rm -rf dist && bun build src/index.ts src/testing.ts --target=bun --outdir dist --splitting --external zod && tsc -p tsconfig.build.json && bun build src/workflow/executor.ts --target=bun --outfile dist/workflow-executor.js",
+    "build:runtime": "bun build src/run.ts src/worker.ts --target=bun --outdir ../internal/plugins/runtime && bun build src/workflow/executor.ts --target=bun --outfile ../internal/plugins/runtime/workflow-executor.js",
     "prepack": "cp ../LICENSE.md LICENSE.md && bun run build",
     "test": "bun test",
     "typecheck": "tsc --noEmit"

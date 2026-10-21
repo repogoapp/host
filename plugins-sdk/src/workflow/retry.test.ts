@@ -7,7 +7,7 @@ import { NonRetryable, runWorkflow, type RunContext, type StepContext, type Step
 import { stepPolicy } from "./policy";
 import type { JSONValue } from "./events";
 
-const identity = { workflow: "report", buildId: "fixture-a", input: null };
+const identity = { workflow: "report", input: null };
 const journals: RunJournal[] = [];
 const clocks: TestClock[] = [];
 const releases: (() => void)[] = [];
@@ -379,20 +379,27 @@ test("manual retry extends only the failed query budget and preserves the comple
   expect(prefix).toBe(1);
 });
 
-test("executor suspension aborts cooperatively without recording user cancellation", async () => {
-  const { journal } = await open();
+test.each(["query", "mutation"] as const)("executor suspension preserves a finished %s result for replay", async kind => {
+  const { journal, storage, clock } = await open();
   const started = deferred(false);
   const suspend = new AbortController();
-  const execution = tracked(runWorkflow(journal, identity, async (_, { step }) => step.run("query", async ({ signal }) => {
+  let calls = 0;
+  const handler = async (_: JSONValue, { step }: RunContext) => step.run("work", async ({ signal }) => {
+    calls++;
     started.resolve(true);
     await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
-    return "late";
-  }, { kind: "query", attempts: 2 }), { suspend: suspend.signal }));
+    return "saved";
+  }, { kind });
+  const execution = tracked(runWorkflow(journal, identity, handler, { suspend: suspend.signal }));
   await started.promise;
   suspend.abort();
   await expect(execution).rejects.toMatchObject({ code: "PAUSED" });
   expect(journal.state.cancelRequested).toBe(false);
-  expect(journal.state.steps.query.status).toBe("running");
+  expect(journal.state.steps.work.status).toBe("completed");
+  await journal.close();
+  const reopened = (await open(storage, clock)).journal;
+  expect(await runWorkflow(reopened, identity, handler)).toBe("saved");
+  expect(calls).toBe(1);
 });
 
 test("an active executor expires across a long environment sleep before accepting a late result", async () => {

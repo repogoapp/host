@@ -19,9 +19,8 @@ export type SleepState = { status: "waiting" | "completed"; durationMs: number; 
 export type RunState = {
   version: 2;
   lastSeq: number;
-  status: "pending" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "expired" | "unknown";
+  status: "pending" | "running" | "waiting" | "attention" | "completed" | "failed" | "cancelled" | "expired" | "unknown";
   workflow: string | null;
-  buildId: string | null;
   input: JSONValue;
   currentStep: string | null;
   operationOrder: string[];
@@ -31,6 +30,8 @@ export type RunState = {
   error: JournalFailure | null;
   expiryReason: string | null;
   deadlineAt: string | null;
+  /** The run's lifetime, which a restart starts again. */
+  timeoutMs: number | null;
   cancelRequested: boolean;
   updatedAt: string | null;
   endedAt: string | null;
@@ -39,8 +40,8 @@ export type RunState = {
 
 export function initialState(): RunState {
   return {
-    version: 2, lastSeq: 0, status: "pending", workflow: null, buildId: null, input: null,
-    currentStep: null, operationOrder: [], steps: {}, sleeps: {}, result: null, error: null, expiryReason: null, deadlineAt: null, cancelRequested: false, updatedAt: null, endedAt: null, metadata: null,
+    version: 2, lastSeq: 0, status: "pending", workflow: null, input: null,
+    currentStep: null, operationOrder: [], steps: {}, sleeps: {}, result: null, error: null, expiryReason: null, deadlineAt: null, timeoutMs: null, cancelRequested: false, updatedAt: null, endedAt: null, metadata: null,
   };
 }
 
@@ -50,7 +51,7 @@ export function applyEvent(state: RunState, event: JournalEvent): RunState {
   const next = { ...state, lastSeq: event.seq, updatedAt: event.at };
   if (event.type === "run.started") {
     if (state.status !== "pending") refuse("The run already started.");
-    return { ...next, metadata: event.location ? { ...event.location, workflow: event.workflow, buildId: event.buildId, input: event.input, timeoutMs: event.timeoutMs, createdAt: event.at } : null, status: "running", workflow: event.workflow, buildId: event.buildId, input: event.input, deadlineAt: deadlineFrom(event.at, event.timeoutMs) };
+    return { ...next, metadata: event.location ? { ...event.location, workflow: event.workflow, input: event.input, timeoutMs: event.timeoutMs, createdAt: event.at } : null, status: "running", workflow: event.workflow, input: event.input, timeoutMs: event.timeoutMs, deadlineAt: deadlineFrom(event.at, event.timeoutMs) };
   }
   if (event.type === "run.retryRequested") {
     const step = Object.hasOwn(state.steps, event.stepId) ? state.steps[event.stepId]! : null;
@@ -65,7 +66,23 @@ export function applyEvent(state: RunState, event: JournalEvent): RunState {
       [event.stepId]: { ...step!, status: "waiting", limit, nextAttemptAt: event.at },
     } };
   }
+  if (event.type === "run.restarted") {
+    if (state.status !== "attention") refuse("Only a run that needs attention can restart.");
+    // Progress and the run's lifetime start over, on the current code.
+    const deadlineAt = state.timeoutMs === null ? state.deadlineAt : deadlineFrom(event.at, state.timeoutMs);
+    return { ...next, status: "running", error: null, currentStep: null, operationOrder: [], steps: {}, sleeps: {}, deadlineAt };
+  }
+  if (state.status === "attention") {
+    if (event.type === "run.cancelRequested") return { ...next, cancelRequested: true };
+    if (event.type === "run.cancelled") return { ...next, endedAt: event.at, status: "cancelled" };
+    if (event.type === "run.expired") return { ...next, endedAt: event.at, status: "expired", expiryReason: event.reason };
+    refuse("The run needs attention: restart or cancel it.");
+  }
   if (state.status !== "running" && state.status !== "waiting") refuse("The run is not active.");
+  if (event.type === "run.attention") {
+    if (Object.values(state.steps).some(step => step.status === "running")) refuse("A step is running.");
+    return { ...next, status: "attention", error: event.error };
+  }
   if (event.type === "run.cancelRequested") return { ...next, cancelRequested: true };
   if (event.type === "run.completed") {
     if (state.cancelRequested) refuse("Cancellation prevents run completion.");

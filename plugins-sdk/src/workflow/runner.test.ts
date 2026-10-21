@@ -6,10 +6,13 @@ import { fileURLToPath } from "node:url";
 import { stepPolicy } from "./policy";
 import { RunJournal } from "./journal";
 import { runWorkflow } from "./runner";
+import type { JSONValue } from "./events";
+import { TestClock } from "./fixtures/clock";
+import { describe } from "./summary";
 import type { JournalStorage } from "./storage";
 
 const journalPolicy = stepPolicy();
-const identity = { workflow: "report", buildId: "fixture-a", input: { customer: "one" } };
+const identity = { workflow: "report", input: { customer: "one" } };
 const journals: RunJournal[] = [];
 const directories: string[] = [];
 const children: ReturnType<typeof Bun.spawn>[] = [];
@@ -34,6 +37,12 @@ async function prefix(journal: RunJournal, names: string[]) {
     await journal.append({ type: "step.completed", stepId, attempt: 1, result: { saved: stepId } });
   }
 }
+
+test.each(["constructor", "toString", "__proto__"])("step details preserve the kind of %s", async name => {
+  const { journal } = await open();
+  await runWorkflow(journal, identity, async (_, { step }) => step.run(name, () => "saved"));
+  expect(describe(journal.state).steps).toMatchObject([{ id: name, kind: "step", status: "completed" }]);
+});
 
 test("sequential callbacks see durable starts and return isolated saved results", async () => {
   const { journal } = await open();
@@ -91,7 +100,6 @@ test("a completed run returns its recorded result without invoking the handler",
 });
 
 test.each([
-  { ...identity, buildId: "fixture-b" },
   { ...identity, workflow: "other" },
   { ...identity, input: { customer: "two" } },
 ])("identity changes refuse execution without changing history: %j", async changed => {
@@ -101,16 +109,59 @@ test.each([
   expect(journal.state.lastSeq).toBe(1);
 });
 
-test.each(["reordered", "omitted", "duplicate"])("%s steps fail replay without repeating callbacks", async mode => {
+// Code that no longer matches the recorded steps was edited: the run waits for Restart or Cancel.
+test.each(["reordered", "omitted"])("%s steps put the run in attention without repeating callbacks", async mode => {
   const { journal } = await open();
   await prefix(journal, ["10", "2"]);
   await expect(runWorkflow(journal, identity, async (_, { step }) => {
     if (mode === "reordered") return await step.run("2", () => { throw new Error("must not repeat"); });
     await step.run("10", () => null);
-    if (mode === "duplicate") return await step.run("10", () => null);
     return null;
+  })).rejects.toMatchObject({ code: "ATTENTION", failure: { code: "CHANGED" } });
+  expect(journal.state.status).toBe("attention");
+  expect(journal.state.error?.message).toContain("The workflow changed since this run started");
+  // Running it again changes nothing until it restarts.
+  await expect(runWorkflow(journal, identity, () => null)).rejects.toMatchObject({ code: "ATTENTION" });
+  expect(journal.state.status).toBe("attention");
+});
+
+test("a duplicate step name fails the run: a bug, not an edit", async () => {
+  const { journal } = await open();
+  await prefix(journal, ["10", "2"]);
+  await expect(runWorkflow(journal, identity, async (_, { step }) => {
+    await step.run("10", () => null);
+    return await step.run("10", () => null);
   })).rejects.toMatchObject({ code: "FAILED", failure: { code: "REPLAY" } });
   expect(journal.state.status).toBe("failed");
+});
+
+test("an edit that keeps the recorded steps continues on the new code", async () => {
+  const { journal } = await open();
+  await prefix(journal, ["fetch"]);
+  const result = await runWorkflow(journal, identity, async (_, { step }) => {
+    const saved = await step.run<JSONValue>("fetch", () => { throw new Error("must not repeat"); });
+    return await step.run("report", () => ({ from: saved, version: "edited" }));
+  });
+  expect(result).toEqual({ from: { saved: "fetch" }, version: "edited" });
+  expect(journal.state.status).toBe("completed");
+});
+
+test("restart starts a run that needs attention over on the current code, with a fresh deadline", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "repogo-runner-"));
+  directories.push(directory);
+  const clock = new TestClock();
+  const journal = await RunJournal.open(directory, clock);
+  journals.push(journal);
+  await prefix(journal, ["old"]);
+  await expect(runWorkflow(journal, identity, async (_, { step }) => step.run("new", () => null))).rejects.toMatchObject({ code: "ATTENTION" });
+  const deadline = journal.state.deadlineAt!;
+  clock.advance(60_000);
+  await journal.append({ type: "run.restarted" });
+  expect(journal.state).toMatchObject({ status: "running", operationOrder: [], steps: {}, error: null });
+  expect(Date.parse(journal.state.deadlineAt!) - Date.parse(deadline)).toBe(60_000);
+  let ran = 0;
+  expect(await runWorkflow(journal, identity, async (_, { step }) => step.run("new", () => ++ran))).toBe(1);
+  expect(journal.state.status).toBe("completed");
 });
 
 test("a caught callback failure still fails the run and prevents subsequent effects", async () => {

@@ -74,7 +74,7 @@ func TestTheBundledRuntimeRunsAProjectsPlugins(t *testing.T) {
 }
 
 func TestBundledRuntimeExecutesADurableWorkflow(t *testing.T) {
-	if _, err := bundled.ReadFile("runtime/snapshot-worker.js"); err != nil {
+	if _, err := bundled.ReadFile("runtime/workflow-executor.js"); err != nil {
 		t.Skip("this build carries no workflow executor")
 	}
 	if _, err := bunPath(); err != nil {
@@ -115,7 +115,7 @@ export default definePlugin({ namespace: "test.reports", workflows: {
 	if err != nil {
 		t.Fatal(err)
 	}
-	testwait.For(t, "the pinned executor to finish", func() bool {
+	testwait.For(t, "the executor to finish", func() bool {
 		got, err := s.Call(t.Context(), root, "reports.report.get", params, nil, true, Origin{Caller: CallerCard})
 		if err != nil || got.Error != nil {
 			t.Fatalf("get: %+v, %v", got, err)

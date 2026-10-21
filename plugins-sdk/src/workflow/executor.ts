@@ -1,18 +1,23 @@
+import "../self";
 import { isDeepStrictEqual } from "node:util";
-import type { PluginDefinition } from "../define";
 import { captureConsole } from "../logs";
 import { MethodError, toCallError } from "../errors";
 import { Runtime } from "../runtime";
 import { tracked } from "../tracking";
 import { RunJournal } from "./journal";
 import { runWorkflow } from "./runner";
-import type { SnapshotMessage, SnapshotStart } from "./contracts";
+import type { ExecutorMessage, ExecutorStart } from "./contracts";
 import { describe, summarize } from "./summary";
-export * from "../index";
 
-export function runSnapshot(plugins: Record<string, PluginDefinition>) {
+// One run, in its own process: the service starts it with the run and ends it
+// to cancel. It loads the plugin folder from source, so a run always executes
+// the current code; the journal's replay checks that code against the run.
+
+runExecutor();
+
+function runExecutor() {
   if (!process.send) throw new Error("Workflow executors require an IPC parent.");
-  const post = (message: SnapshotMessage) => process.send!(message);
+  const post = (message: ExecutorMessage) => process.send!(message);
   const waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   let next = 0;
   let launched = false;
@@ -25,7 +30,7 @@ export function runSnapshot(plugins: Record<string, PluginDefinition>) {
     setTimeout(() => process.exit(1), 1000).unref();
   });
   captureConsole(entry => post({ type: "log", records: [entry] }));
-  process.on("message", async (message: SnapshotStart | { type: "cancel" } | { type: "suspend" } | { type: "hosted"; id: number; result?: unknown; error?: { code: string; message: string } }) => {
+  process.on("message", async (message: ExecutorStart | { type: "cancel" } | { type: "suspend" } | { type: "hosted"; id: number; result?: unknown; error?: { code: string; message: string } }) => {
     if (message.type === "suspend") { suspend.abort(); return; }
     if (message.type === "cancel") { cancel.abort(); return; }
     if (message.type === "hosted") {
@@ -47,7 +52,7 @@ export function runSnapshot(plugins: Record<string, PluginDefinition>) {
       } });
       runtime.onInvalidate(tags => post({ type: "invalidated", tags }));
       runtime.onNotify(notice => post({ type: "notice", notice }));
-      for (const [name, definition] of Object.entries(plugins)) await runtime.add(name, definition);
+      await runtime.loadDir(run.dir);
       journal = await RunJournal.openExisting(message.directory);
       if (journal.state.status === "pending" || !isDeepStrictEqual(journal.state.metadata, run)) throw new Error("The workflow journal does not match its execution identity.");
       const opened = journal;
@@ -55,12 +60,12 @@ export function runSnapshot(plugins: Record<string, PluginDefinition>) {
       const remove = journal.onChange(publish);
       try {
         const execution = await tracked(false, tags => post({ type: "invalidated", tags }), () => runWorkflow(opened,
-          { workflow: run.workflow, buildId: run.buildId, input: run.input as any },
+          { workflow: run.workflow, input: run.input as any },
           async (input, context) => await runtime!.executeWorkflow(run.plugin, run.workflow, input, { ...context, root: run.root, runId: run.id, caller: run.caller }) as any,
           { signal: cancel.signal, suspend: suspend.signal, timeout: run.timeoutMs, maxOffline: run.maxOfflineMs },
         ));
         if (execution.access.writes.size) post({ type: "invalidated", tags: [...execution.access.writes] });
-        if (!execution.ok && !["PAUSED", "WAITING", "FAILED", "UNKNOWN", "CANCELLED", "EXPIRED"].includes((execution.error as { code?: string })?.code ?? "")) throw execution.error;
+        if (!execution.ok && !["PAUSED", "WAITING", "ATTENTION", "FAILED", "UNKNOWN", "CANCELLED", "EXPIRED"].includes((execution.error as { code?: string })?.code ?? "")) throw execution.error;
       } finally { remove(); }
       publish();
     } catch (error) { failed = true; post({ type: "error", message: toCallError(error).message }); }

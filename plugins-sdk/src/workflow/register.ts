@@ -15,8 +15,9 @@ export function workflowMethods(
   bridge: WorkflowBridge | undefined, directory: () => string | null,
 ): RegisteredMethod[] {
   const invoke = (operation: WorkflowRequest["operation"], input: unknown) => {
-    if (!bridge || !directory()) throw new MethodError("INTERNAL", "Durable workflows run through the plugins service with source files.");
-    return bridge({ operation, dir: directory()!, plugin, namespace, workflow: name, root: ctx.root, caller: ctx.caller, input: input as Record<string, unknown>, settings: workflowSettings(definition) });
+    const dir = directory();
+    if (!bridge || !dir) throw new MethodError("INTERNAL", "Durable workflows run through the plugins service with source files.");
+    return bridge({ operation, dir, plugin, namespace, workflow: name, root: ctx.root, caller: ctx.caller, input: input as Record<string, unknown>, settings: workflowSettings(definition) });
   };
   const id = z.object({ id: z.string().uuid() }).strict();
   const spec = (method: WorkflowRequest["operation"], kind: "query" | "mutation", input: z.ZodType, description: string, confirm?: string, output?: z.ZodType): RegisteredMethod => ({
@@ -33,8 +34,10 @@ export function workflowMethods(
     spec("list", "query", z.object({ limit: z.number().int().min(1).max(100).default(20), status: z.string().optional(), cursor: z.string().optional() }).strict(), "List workflow runs", undefined, z.object({ items: z.array(RunSummarySchema), cursor: z.string().nullable() })),
     spec("get", "query", id, "Get one workflow run"),
     spec("start", "mutation", z.object({ input: definition.input, key: z.string().min(1).max(200).optional() }).strict(), definition.description ?? "Start a durable workflow", definition.confirm, RunSummarySchema),
-    spec("retry", "mutation", id, "Retry a safely failed query on its original build", undefined, RunSummarySchema),
+    spec("retry", "mutation", id, "Retry a safely failed query step", undefined, RunSummarySchema),
+    spec("restart", "mutation", id, "Start a run that needs attention over from the beginning, on the current code", undefined, RunSummarySchema),
     spec("cancel", "mutation", id, "Request cancellation of a workflow", undefined, RunSummarySchema),
+    spec("cancelAll", "mutation", z.object({ status: z.string().optional() }).strict(), "Cancel every unfinished run, or only those in one status", undefined, z.object({ cancelled: z.number().int() })),
   ];
 }
 

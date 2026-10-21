@@ -6,7 +6,7 @@ export class NonRetryable extends Error {
 
 export class RunnerError extends Error {
   constructor(
-    readonly code: "FAILED" | "BUSY" | "IDENTITY" | "REPLAY" | "STEP" | "UNKNOWN" | "CANCELLED" | "EXPIRED" | "PAUSED" | "USAGE" | "WAITING",
+    readonly code: "FAILED" | "BUSY" | "IDENTITY" | "REPLAY" | "CHANGED" | "ATTENTION" | "STEP" | "UNKNOWN" | "CANCELLED" | "EXPIRED" | "PAUSED" | "USAGE" | "WAITING",
     message: string,
     readonly failure: JournalFailure | null = null,
   ) { super(message); this.name = "RunnerError"; }

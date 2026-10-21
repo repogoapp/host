@@ -323,6 +323,9 @@ the same namespace and store can still read and write it.
 
 ## Workflows
 
+> **Experimental.** Workflows are new and may change in ways that need edits
+> to your plugins: their methods, statuses and options aren't settled yet.
+
 A workflow keeps progress across host restarts. Define it beside `methods`;
 `workflow(input, run, options)` follows the same shape as `method`:
 
@@ -354,10 +357,12 @@ export default definePlugin({
 For a plugin folder named `reports`, the host generates:
 
 - `reports.report.list({ limit?, status?, cursor? })`: bounded summaries and a next cursor.
-- `reports.report.get({ id })`: one summary, input, result, error and the latest 20 steps.
+- `reports.report.get({ id })`: one summary, input, result, error and the latest 20 operations (steps and sleeps).
 - `reports.report.start({ input, key? })`: persist and queue a run; returns its summary immediately.
 - `reports.report.cancel({ id })`: persist cancellation intent and abort active work.
-- `reports.report.retry({ id })`: retry a safely failed query on its original build.
+- `reports.report.cancelAll({ status? })`: cancel every unfinished run in the project, or only those in one status; returns `{ cancelled }`.
+- `reports.report.retry({ id })`: retry a safely failed query step.
+- `reports.report.restart({ id })`: start a run that needs attention over from the beginning, on the current code.
 
 These use the existing plugin methods, `ctx.call`, cards and subscriptions.
 The namespace is required. `confirm` on the workflow confirms its start;
@@ -369,7 +374,7 @@ workflow while its run is retained; reusing it with different input fails.
 Await each step and use a unique, stable name. Keep effects inside step callbacks:
 the handler runs from the beginning after recovery, and completed callbacks
 return their recorded JSON instead of running again. Steps are sequential;
-nesting, overlap, omission and reordering fail. Return JSON, including an
+nesting, overlap and reusing a name fail the run. Return JSON, including an
 explicit `null` for a step with no result. Large payloads belong in buckets;
 a journal record is limited to 1 MiB, a run journal to 64 MiB. `get` omits
 input or final results above 16 KiB and sets their truncation flags.
@@ -408,13 +413,22 @@ roll back remote effects. Manual retry only extends the budget of a failed
 query, keeps its completed prefix and original lifetime, and rejects cancelled,
 expired, unknown, permanent-failure and invalid-result runs.
 
-At start, the host builds a content-addressed executable containing the plugin,
-its imports, sibling plugins and the SDK. Old runs keep their original code;
-new runs capture edits. Dependencies must bundle into one module (maximum
-32 MiB): computed imports, native/external assets and source-relative runtime
-paths are rejected. Use `ctx.root` for project files. Those files, environment
-variables, installed CLIs and credentials remain live; they are not snapshots.
-Nested workflow starts from a pinned executor are not supported.
+### When you edit a workflow
+
+A run always executes the plugin's current code, loaded from its folder as a
+method call is; nothing is frozen at start. When a run resumes after an edit,
+its finished steps still return their recorded results, so:
+
+- An edit that keeps the recorded steps in the same order, such as a fix
+  inside a step or a new step at the end, carries on with the new code.
+- An edit the recorded steps can't follow, such as a renamed, removed or
+  reordered step, stops the run in `attention`: not finished, and not run
+  again on its own. Its `error` says which step it expected. `restart` starts
+  it over on the current code, running finished steps again, with the same id,
+  key and input and a fresh `timeout`. `cancel` or
+  `cancelAll({ status: "attention" })` drops it.
+
+Nested workflow starts from inside a run are not supported.
 
 The host resumes work without an open phone or page. `timeout` is a wall-clock
 run lifetime, including waits. `maxOffline` expires work when the environment
@@ -422,18 +436,23 @@ or workflow service has been unavailable for that long. A persistent network
 outage is also tracked when the environment has no nonlocal network address;
 this passive check does not probe external services or prove internet access.
 Individual API failures use the step's retry budget. The host records expiry on its next wake.
-Shutdown suspends work without recording user cancellation. Required builds
-stay until all referencing runs pass terminal `retention`; cleanup removes
-those journals and then unreferenced builds. Admission refuses new runs above
-its storage budget rather than evicting active history. Missing/corrupt journals
-or incompatible builds block execution instead of running mutable source.
+Shutdown suspends work without recording user cancellation. A finished run's
+journal stays until its `retention` passes. Admission refuses new runs above
+its storage budget rather than evicting active history. Missing or corrupt
+journals block execution. The default environment-wide budget is 512 MiB.
+Each unfinished, blocked or attention run reserves 130 MiB for its journal and
+one snapshot of its state, including while sleeping. This admits at most three
+unfinished runs, fewer when retained history consumes the remaining space;
+admission reports storage full. Checkpoint replacement temporarily keeps both
+snapshots, so peak disk use can exceed that reservation. The admission budget
+is not a free-disk guarantee.
 
 For integration tests, import `testWorkflowRuntime` from
 `@repogo/plugins/testing` and pass the fixture's plugins directory. It uses real
-temporary storage and pinned subprocesses. Call the same lifecycle methods,
+temporary storage and a subprocess per run, as the host does. Call the same lifecycle methods,
 use `await app.wait("reports.report", id)` to await a terminal/blocked run, and
 `await app.close()` afterward. The in-memory `testRuntime({ plugin })` helper
-cannot freeze closures and does not execute durable workflows.
+does not execute durable workflows.
 
 
 ## Crons
@@ -573,7 +592,6 @@ deploy: method(z.object({ project: z.string() }), async ({ project }, ctx) => {
 - A plugin shows at most two at once; one left without an update for an hour stops counting.
 - A query can't call it, as it can't write.
 - The text reaches Apple and RepoGo's relay as is, as a `notify` alert's does: keep secrets out of it.
-
 
 ### MCP servers
 
