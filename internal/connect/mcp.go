@@ -60,6 +60,10 @@ func (s *Service) startMCP(ctx context.Context, f *flow, label, note, help strin
 func (s *Service) submitMCP(ctx context.Context, f flow, value string) (*Step, error) {
 	switch f.Step.ID {
 	case "api_key":
+		// Checked here: the MCP service spends its probe before refusing an empty key.
+		if strings.TrimSpace(value) == "" {
+			return nil, ErrInvalid.Errorf("paste the API key")
+		}
 		_, err := s.d.MCP.Connect(f.probeID, value)
 		return nil, err
 	case "client_id":
@@ -69,7 +73,8 @@ func (s *Service) submitMCP(ctx context.Context, f flow, value string) (*Step, e
 }
 
 // signIn starts the server's OAuth and keeps the state its redirect brings
-// back on the live flow, so Callback can find it.
+// back on the live flow, for Callback to check; a claim makes this the one
+// submit acting on it.
 func (s *Service) signIn(ctx context.Context, f *flow, clientID string) (*Step, error) {
 	page, state, err := s.d.MCP.OAuthStart(ctx, f.probeID, clientID, f.loopback)
 	if err != nil {
@@ -85,7 +90,7 @@ func (s *Service) signIn(ctx context.Context, f *flow, clientID string) (*Step, 
 	}
 	s.mu.Unlock()
 	f.state = state
-	return &Step{ID: "sign_in", Kind: StepBrowser, URL: page, Redirect: redirect}, nil
+	return &Step{ID: stepSignIn, Kind: StepBrowser, URL: page, Redirect: redirect}, nil
 }
 
 func clientIDStep(why, help string) *Step {

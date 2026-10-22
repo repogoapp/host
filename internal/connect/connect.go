@@ -7,6 +7,9 @@ package connect
 import (
 	"context"
 	"crypto/rand"
+	"errors"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,6 +61,11 @@ type Deps struct {
 	SharedEnv string
 	// Contain proves a path lives inside a known project.
 	Contain func(path string) (string, error)
+	// Home is the folder a `file:` path must stay under.
+	Home string
+	// Ignored is git's answer to which paths it ignores, for the warning
+	// that a key could be committed.
+	Ignored func(ctx context.Context, dir string, paths []string) (map[string]bool, error)
 	MCP     MCPs
 	CLIs    CLIs
 	// Changed is told each flow as it starts, moves and ends.
@@ -93,7 +101,7 @@ func (Changed) Method() string { return "connect.changed" }
 // Want is a target a caller asks about.
 type Want struct {
 	Target string `json:"target" doc:"What is connected: env:<NAME>, mcp:<url> or cli:<tool>"`
-	Scope  string `json:"scope,omitempty" doc:"For an env key, its file: plugin:<name>, plugins, source:<handle> or project:<.env file>"`
+	Scope  string `json:"scope,omitempty" doc:"For an env key, its file: file:<path>, plugin:<name>, plugins or source:<handle>"`
 }
 
 // Connection is a target's state: whether it is connected, never with what.
@@ -134,7 +142,7 @@ func (s *Service) List(ctx context.Context, project string, wants []Want) []Conn
 			}
 		}
 		if err != nil {
-			c.Status, c.Reason = Unavailable, err.Error()
+			c.Status, c.Reason = Unavailable, reason(err)
 		}
 		out = append(out, c)
 	}
@@ -162,7 +170,7 @@ func (s *Service) Start(ctx context.Context, p StartParams) (Flow, error) {
 	}
 	switch t.Kind {
 	case KindEnv:
-		err = s.startEnv(f, p.Note, help)
+		err = s.startEnv(ctx, f, p.Note, help)
 	case KindMCP:
 		err = s.startMCP(ctx, f, p.Label, p.Note, help)
 	case KindCLI:
@@ -184,15 +192,7 @@ func (s *Service) Start(ctx context.Context, p StartParams) (Flow, error) {
 // Submit answers a flow's waiting step. A value the target refuses leaves the
 // flow waiting for another; one that fails otherwise ends it.
 func (s *Service) Submit(ctx context.Context, flowID, stepID, value string) (Flow, error) {
-	s.mu.Lock()
-	expired := s.sweepLocked()
-	f, err := waitingLocked(s.flows, flowID, stepID)
-	var snapshot flow
-	if err == nil {
-		snapshot = *f
-	}
-	s.mu.Unlock()
-	s.ended(expired)
+	f, snapshot, err := s.claim(flowID, stepID)
 	if err != nil {
 		return Flow{}, err
 	}
@@ -204,52 +204,67 @@ func (s *Service) Submit(ctx context.Context, flowID, stepID, value string) (Flo
 	case KindMCP:
 		next, err = s.submitMCP(ctx, snapshot, value)
 	case KindCLI:
-		// The CLI's own exit says how the sign-in went (CLIEnded).
-		if err := s.d.CLIs.LoginComplete(ctx, snapshot.target.CLI, value); err != nil {
-			return s.advance(f, stepID, nil, err), nil
+		if strings.TrimSpace(value) == "" {
+			err = ErrInvalid.Errorf("paste the code the page shows")
+			break
 		}
-		return s.Get(flowID)
+		// The CLI's own exit says how the sign-in went (CLIEnded); its output
+		// is never the reason, as it can echo what was typed.
+		if s.d.CLIs.LoginComplete(ctx, snapshot.target.CLI, value) != nil {
+			err = errSignIn
+		}
+		return s.advance(f, stepID, nil, err), nil
 	}
 	if errkind.Of(err) == errkind.Invalid {
+		s.release(f)
 		return Flow{}, err
 	}
 	return s.advance(f, stepID, next, err), nil
 }
 
-// Callback hands an MCP server's OAuth redirect to the flow its state names.
-// The first callback claims the flow; a second has nothing to exchange.
-func (s *Service) Callback(ctx context.Context, state, code, providerErr string) (Flow, error) {
+// claim takes a waiting step for one submit or callback, under the lock, and
+// returns a copy to act on outside it. A second claim waits for advance.
+func (s *Service) claim(flowID, stepID string) (*flow, flow, error) {
 	s.mu.Lock()
 	expired := s.sweepLocked()
-	var f *flow
-	for _, candidate := range s.flows {
-		if state != "" && candidate.state == state {
-			f = candidate
-		}
-	}
-	var err error
-	switch {
-	case f == nil:
-		err = ErrNotFound.Errorf("no sign-in is waiting for this redirect")
-	case f.State != Waiting || f.claimed:
-		err = ErrInvalid.Errorf("this sign-in has already been used")
-	default:
-		f.claimed = true
-	}
-	var stepID, probeID string
+	f, err := waitingLocked(s.flows, flowID, stepID)
+	var snapshot flow
 	if err == nil {
-		stepID, probeID = f.Step.ID, f.probeID
+		f.working = true
+		snapshot = *f
 	}
 	s.mu.Unlock()
 	s.ended(expired)
+	return f, snapshot, err
+}
+
+// release hands a claimed step back, still waiting, after a value it refused.
+func (s *Service) release(f *flow) {
+	s.mu.Lock()
+	f.working = false
+	s.mu.Unlock()
+}
+
+// Callback hands an MCP server's OAuth redirect to its flow, which must be
+// waiting on its sign-in with the state the redirect carries. The first
+// callback claims it; a second finds it taken.
+func (s *Service) Callback(ctx context.Context, flowID, state, code, providerErr string) (Flow, error) {
+	f, snapshot, err := s.claim(flowID, stepSignIn)
 	if err != nil {
 		return Flow{}, err
 	}
-	if providerErr != "" {
-		return s.advance(f, stepID, nil, ErrInvalid.Errorf("%s", providerErr)), nil
+	if state == "" || state != snapshot.state {
+		s.release(f)
+		return Flow{}, ErrInvalid.Errorf("this redirect is from another sign-in")
 	}
-	_, err = s.d.MCP.OAuthFinish(ctx, probeID, code, state)
-	return s.advance(f, stepID, nil, err), nil
+	switch {
+	case providerErr != "":
+		// The provider's words can carry anything; its code alone says why.
+		err = ErrInvalid.Errorf("The sign-in was declined or failed (%s)", safeCode(providerErr))
+	default:
+		_, err = s.d.MCP.OAuthFinish(ctx, snapshot.probeID, code, state)
+	}
+	return s.advance(f, stepSignIn, nil, err), nil
 }
 
 // Get is a flow as it stands, for a phone that missed how it ended.
@@ -274,14 +289,18 @@ func (s *Service) Cancel(flowID string) error {
 	s.mu.Lock()
 	stopped := s.sweepLocked()
 	f, ok := s.flows[flowID]
-	if ok && f.State == Waiting {
+	working := ok && f.working
+	if ok && f.State == Waiting && !working {
 		f.end(Cancelled, "", s.d.Now())
 		stopped = append(stopped, f)
 	}
 	s.mu.Unlock()
 	s.ended(stopped)
-	if !ok {
+	switch {
+	case !ok:
 		return ErrNotFound
+	case working:
+		return ErrInvalid.Errorf("it's saving; wait for it to finish")
 	}
 	return nil
 }
@@ -291,12 +310,13 @@ func (s *Service) Cancel(flowID string) error {
 func (s *Service) advance(f *flow, stepID string, next *Step, err error) Flow {
 	s.mu.Lock()
 	moved := f.State == Waiting && f.Step != nil && f.Step.ID == stepID
+	f.working = false
 	switch {
 	case !moved:
 	case err != nil:
-		f.end(Failed, err.Error(), s.d.Now())
+		f.end(Failed, reason(err), s.d.Now())
 	case next != nil:
-		f.Step, f.claimed = next, false
+		f.Step = next
 	default:
 		f.end(Succeeded, "", s.d.Now())
 	}
@@ -329,11 +349,24 @@ func (s *Service) sweepLocked() []*flow {
 // stops the CLI sign-in nobody will finish.
 func (s *Service) ended(flows []*flow) {
 	for _, f := range flows {
-		if f.target.Kind == KindCLI {
+		if f.target.Kind == KindCLI && !s.loginShared(f.target.CLI) {
 			s.d.CLIs.LoginCancel(f.target.CLI)
 		}
 		s.changed(f.Flow)
 	}
+}
+
+// loginShared is whether another flow still waits on a CLI's sign-in, which
+// the CLI runs once for all of them.
+func (s *Service) loginShared(kind string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.flows {
+		if f.target.Kind == KindCLI && f.target.CLI == kind && f.State == Waiting {
+			return true
+		}
+	}
+	return false
 }
 
 // waitingLocked is the flow whose step stepID is waiting for the user.
@@ -346,8 +379,36 @@ func waitingLocked(flows map[string]*flow, flowID, stepID string) (*flow, error)
 		return nil, ErrInvalid.Errorf("this flow has %s", f.State)
 	case f.Step == nil || f.Step.ID != stepID:
 		return nil, ErrInvalid.Errorf("no step %q is waiting", stepID)
+	case f.working:
+		return nil, ErrInvalid.Errorf("it's already saving")
 	}
 	return f, nil
+}
+
+// errSignIn is a CLI sign-in that ended without signing in, worded here
+// because the CLI's own output can echo what was typed.
+var errSignIn = errkind.New(errkind.Unavailable, "The sign-in didn't finish. Try again.")
+
+// safeCode keeps an OAuth error code (access_denied) and nothing else.
+func safeCode(code string) string {
+	if oauthCode.MatchString(code) {
+		return code
+	}
+	return "unknown"
+}
+
+var oauthCode = regexp.MustCompile(`^[a-z_]{1,64}$`)
+
+// reason is err as the phone shows it: the detail, without its kind's words.
+func reason(err error) string {
+	var kinded *errkind.Error
+	if errors.Is(err, errSignIn) {
+		return errSignIn.Error()
+	}
+	if errors.As(err, &kinded) {
+		return strings.TrimPrefix(err.Error(), kinded.Error()+": ")
+	}
+	return err.Error()
 }
 
 func (s *Service) changed(f Flow) {

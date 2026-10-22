@@ -41,45 +41,53 @@ func (s *Service) startCLI(ctx context.Context, f *flow) error {
 		f.end(Succeeded, "", s.d.Now())
 		return nil
 	}
+	// Stored before the login starts, so a CLI that finishes at once still
+	// ends this flow through CLIEnded.
+	s.mu.Lock()
+	s.flows[f.ID] = f
+	s.mu.Unlock()
 	code, err := s.d.CLIs.LoginStart(ctx, f.target.CLI)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err != nil {
+		delete(s.flows, f.ID)
 		return err
+	}
+	if f.State != Waiting {
+		return nil
 	}
 	switch code.Style {
 	case clilogin.StylePaste:
 		f.Step = &Step{ID: "code", Kind: StepPaste, Label: "Code", URL: code.URL,
 			Note: "Sign in on the page, then paste the code it shows."}
 	case clilogin.StyleCallback:
-		f.Step = &Step{ID: "sign_in", Kind: StepBrowser, URL: code.URL, Redirect: RedirectLocalhost}
+		f.Step = &Step{ID: stepSignIn, Kind: StepBrowser, URL: code.URL, Redirect: RedirectLocalhost}
 	default:
-		f.Step = &Step{ID: "sign_in", Kind: StepBrowser, URL: code.URL, UserCode: code.UserCode}
+		f.Step = &Step{ID: stepSignIn, Kind: StepBrowser, URL: code.URL, UserCode: code.UserCode}
 	}
 	return nil
 }
 
 // CLIEnded is told when a CLI's sign-in ends, however it was started, and ends
-// the flow waiting on it.
+// every flow waiting on it: the CLI runs one sign-in for all of them.
 func (s *Service) CLIEnded(kind string, ok bool) {
 	s.mu.Lock()
-	var waiting []*flow
+	var ended []Flow
 	for _, f := range s.flows {
-		if f.target.Kind == KindCLI && f.target.CLI == kind && f.State == Waiting {
-			waiting = append(waiting, f)
+		if f.target.Kind != KindCLI || f.target.CLI != kind || f.State != Waiting {
+			continue
 		}
+		f.working = false
+		if ok {
+			f.end(Succeeded, "", s.d.Now())
+		} else {
+			f.end(Failed, errSignIn.Error(), s.d.Now())
+		}
+		ended = append(ended, f.Flow)
 	}
 	s.mu.Unlock()
-	for _, f := range waiting {
-		var err error
-		if !ok {
-			err = ErrInvalid.Errorf("The sign-in didn't finish. Try again.")
-		}
-		s.mu.Lock()
-		stepID := ""
-		if f.Step != nil {
-			stepID = f.Step.ID
-		}
-		s.mu.Unlock()
-		s.advance(f, stepID, nil, err)
+	for _, f := range ended {
+		s.changed(f)
 	}
 }
 

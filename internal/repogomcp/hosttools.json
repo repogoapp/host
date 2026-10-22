@@ -468,7 +468,7 @@
           "items": {
             "properties": {
               "scope": {
-                "description": "For an env key, its file: plugin:\u003cname\u003e, plugins, source:\u003chandle\u003e or project:\u003c.env file\u003e",
+                "description": "For an env key, its file: file:\u003cpath\u003e, plugin:\u003cname\u003e, plugins or source:\u003chandle\u003e",
                 "type": "string"
               },
               "target": {

@@ -395,7 +395,7 @@ func (h *Host) openProjects() error {
 	s.EnvSources = envSources
 	s.Connect = connect.New(connect.Deps{
 		Sources: envSources, PluginDir: s.Plugins.Dir, SharedEnv: filepath.Join(h.state("plugins"), ".env"),
-		Contain: projectFiles.Contain, MCP: h.mcps, CLIs: s.Tools,
+		Contain: projectFiles.Contain, Home: h.cfg.Home, Ignored: gitService.Ignored, MCP: h.mcps, CLIs: s.Tools,
 		Changed: func(c connect.Changed) { h.toEveryPhone(c) }, Now: time.Now,
 	})
 	s.Tools.OnLoginEnd(s.Connect.CLIEnded)

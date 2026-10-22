@@ -39,6 +39,9 @@ const (
 	RedirectLoopback = "loopback"
 )
 
+// stepSignIn is the browser step of an OAuth or CLI sign-in.
+const stepSignIn = "sign_in"
+
 // maxNote bounds the explanation a caller adds to a step.
 const maxNote = 500
 
@@ -47,7 +50,7 @@ const maxNote = 500
 type StartParams struct {
 	Project string `json:"project" doc:"The project the card or agent is in"`
 	Target  string `json:"target" doc:"What to connect: env:<NAME>, mcp:<url> or cli:<tool>"`
-	Scope   string `json:"scope,omitempty" doc:"Which file an env key goes in: plugin:<name>, plugins, source:<handle> or project:<.env file>"`
+	Scope   string `json:"scope,omitempty" doc:"Which file an env key goes in: file:<path> (in the project, or ~/…), plugin:<name>, plugins or source:<handle>"`
 	Label   string `json:"label,omitempty" doc:"The name an MCP server is listed and called by"`
 	Note    string `json:"note,omitempty" doc:"A line on where to find the value"`
 	HelpURL string `json:"help_url,omitempty" doc:"An https page where the value is found"`
@@ -89,6 +92,9 @@ type Step struct {
 	Redirect string `json:"redirect,omitempty"`
 	// Replaces says a value is set already, so the phone asks before replacing it.
 	Replaces bool `json:"replaces"`
+	// Warning is the host's caution about where a value goes, such as a file
+	// git would commit.
+	Warning string `json:"warning,omitempty"`
 }
 
 // flow is a Flow with what only the host keeps.
@@ -103,8 +109,11 @@ type flow struct {
 	probeID  string
 	loopback bool
 	state    string
-	// claimed is set once a callback took the flow, so a second can't.
-	claimed bool
+	// working is set while a submit or callback acts on the step, so a second
+	// one, or a cancel, can't run alongside it.
+	working bool
+	// envPath is the file the sheet showed, so the value goes exactly there.
+	envPath string
 }
 
 func (f *flow) end(state, reason string, at time.Time) {

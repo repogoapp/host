@@ -83,7 +83,7 @@ func vocabulary(root string) []check {
 		{method: "reminders.delete", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "connect.list", params: map[string]any{"project": root, "targets": []map[string]string{{"target": "env:KEY", "scope": "plugins"}}}, key: "connections"},
 		{method: "connect.get", params: map[string]any{"flow_id": "missing"}, key: "flow"},
-		{method: "connect.start", params: map[string]any{"project": missing, "target": "env:KEY", "scope": "project:.env"}, key: "flow"},
+		{method: "connect.start", params: map[string]any{"project": missing, "target": "env:KEY", "scope": "file:.env"}, key: "flow"},
 		{method: "connect.submit", params: map[string]any{"flow_id": "missing", "step_id": "secret", "value": "v"}, key: "flow"},
 		{method: "connect.callback", params: map[string]any{"state": "missing", "code": "c"}, key: "flow"},
 		{method: "connect.cancel", params: map[string]any{"flow_id": "missing"}, key: "ok"},

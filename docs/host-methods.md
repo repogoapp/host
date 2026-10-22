@@ -484,7 +484,7 @@ Params:
 
 - `project` string: The project the card or agent is in
 - `target` string: What to connect: env:<NAME>, mcp:<url> or cli:<tool>
-- `scope` string (omitted when empty): Which file an env key goes in: plugin:<name>, plugins, source:<handle> or project:<.env file>
+- `scope` string (omitted when empty): Which file an env key goes in: file:<path> (in the project, or ~/…), plugin:<name>, plugins or source:<handle>
 - `label` string (omitted when empty): The name an MCP server is listed and called by
 - `note` string (omitted when empty): A line on where to find the value
 - `help_url` string (omitted when empty): An https page where the value is found
@@ -512,6 +512,7 @@ Detached: runs to completion if the caller disconnects.
 
 Params:
 
+- `flow_id` string
 - `state` string
 - `code` string (omitted when empty)
 - `error` string (omitted when empty)

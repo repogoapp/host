@@ -1,9 +1,13 @@
 package connect
 
 import (
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/repogoapp/host/internal/files"
 )
 
 // The kinds of target: a key in a dotenv file, an MCP server, a CLI's sign-in.
@@ -30,15 +34,14 @@ type envKey struct {
 
 // scope is which dotenv file a key lives in, as a card names it.
 type scope struct {
-	Kind string // plugin, plugins, source or project
-	Name string // the plugin, the source's handle, or the project's .env file
+	Kind string // file, plugin, plugins or source
+	Name string // the path, the plugin, or the source's handle
 }
 
 var (
-	envName     = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-	pluginName  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
-	projectFile = regexp.MustCompile(`^\.env[A-Za-z0-9._-]*$`)
-	cliKind     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	envName    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	pluginName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+	cliKind    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 )
 
 func parseTarget(raw, rawScope string) (target, error) {
@@ -85,9 +88,9 @@ func parseScope(raw string) (scope, error) {
 		return scope{Kind: kind}, nil
 	case kind == "plugin" && pluginName.MatchString(name):
 	case kind == "source" && name != "":
-	case kind == "project" && projectFile.MatchString(name):
+	case kind == "file" && strings.TrimSpace(name) != "" && !strings.ContainsRune(name, 0):
 	default:
-		return scope{}, ErrInvalid.Errorf("scope must be plugin:<name>, plugins, source:<handle> or project:<.env file>")
+		return scope{}, ErrInvalid.Errorf("scope must be file:<path>, plugin:<name>, plugins or source:<handle>")
 	}
 	return scope{Kind: kind, Name: name}, nil
 }
@@ -99,9 +102,16 @@ type envFile struct {
 	Destination string
 }
 
-// resolve finds a scope's file here; nothing a caller sends is used as a path.
+// resolve finds a scope's file here. A `file:` path is the caller's choice,
+// so the sheet shows it whole; every other scope is the host's to find.
 func (s *Service) resolve(project string, sc scope) (envFile, error) {
 	switch sc.Kind {
+	case "file":
+		path, err := s.filePath(project, sc.Name)
+		if err != nil {
+			return envFile{}, err
+		}
+		return envFile{Path: path, Destination: s.tilde(path)}, nil
 	case "plugin":
 		dir, err := s.d.PluginDir(project, sc.Name)
 		if err != nil {
@@ -117,12 +127,81 @@ func (s *Service) resolve(project string, sc scope) (envFile, error) {
 			}
 		}
 		return envFile{}, ErrNotFound.Errorf("no env source %q", sc.Name)
-	case "project":
-		root, err := s.d.Contain(project)
-		if err != nil {
-			return envFile{}, err
-		}
-		return envFile{Path: filepath.Join(root, sc.Name), Destination: sc.Name + " in " + filepath.Base(root)}, nil
 	}
 	return envFile{}, ErrInvalid.Errorf("unknown scope %q", sc.Kind)
+}
+
+// filePath is a `file:` path on this machine, its folders' links resolved:
+// relative to the project and staying inside it, or `~/…` and absolute paths
+// staying under the home folder.
+func (s *Service) filePath(project, name string) (string, error) {
+	var path, within string
+	switch {
+	case strings.HasPrefix(name, "~/"):
+		path = filepath.Join(s.d.Home, name[2:])
+	case filepath.IsAbs(name):
+		path = filepath.Clean(name)
+	default:
+		root, err := s.d.Contain(project)
+		if err != nil {
+			return "", err
+		}
+		if within, err = resolveExisting(root); err != nil {
+			return "", err
+		}
+		path = filepath.Join(root, name)
+		if path == root {
+			return "", errRefused.Errorf("%s is the project, not a file in it", name)
+		}
+	}
+	dir, err := resolveExisting(filepath.Dir(path))
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case within != "" && !files.Within(within, dir):
+		return "", errRefused.Errorf("%s is outside the project", name)
+	case !files.Within(s.home(), dir):
+		return "", errRefused.Errorf("%s is outside your home folder", name)
+	}
+	return filepath.Join(dir, filepath.Base(path)), nil
+}
+
+// tilde writes a path under the home folder as ~/…, as people read it.
+func (s *Service) tilde(path string) string {
+	home := s.home()
+	if rel, err := filepath.Rel(home, path); err == nil && files.Within(home, path) {
+		return "~/" + rel
+	}
+	return path
+}
+
+// resolveExisting resolves the links of dir's nearest folder that exists,
+// keeping the rest, which writing will create. Only a missing folder is
+// stepped over; any other failure is refused.
+func resolveExisting(dir string) (string, error) {
+	rest := ""
+	for {
+		resolved, err := filepath.EvalSymlinks(dir)
+		switch {
+		case err == nil:
+			return filepath.Join(resolved, rest), nil
+		case !errors.Is(err, fs.ErrNotExist):
+			return "", errRefused.Errorf("can't read %s", filepath.Base(dir))
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return filepath.Join(dir, rest), nil
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = parent
+	}
+}
+
+// home is the home folder with its links resolved, as resolved paths are compared to it.
+func (s *Service) home() string {
+	if resolved, err := filepath.EvalSymlinks(s.d.Home); err == nil {
+		return resolved
+	}
+	return s.d.Home
 }

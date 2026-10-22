@@ -21,17 +21,22 @@ type fixture struct {
 	s       *Service
 	mcp     *fakeMCP
 	clis    *fakeCLIs
+	home    string
 	project string
 	plugin  string // the stripe plugin's folder
 	shared  string
 	now     time.Time
 	events  []Flow
+	// ignored is what git ignores, by path relative to its repository.
+	ignored map[string]bool
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	home := t.TempDir()
 	f := &fixture{
+		home:    home,
+		ignored: map[string]bool{},
 		project: filepath.Join(home, "app"),
 		plugin:  filepath.Join(home, "plugins", "stripe"),
 		shared:  filepath.Join(home, "plugins", ".env"),
@@ -64,6 +69,10 @@ func newFixture(t *testing.T) *fixture {
 				return "", errkind.ErrDenied.Errorf("not a project")
 			}
 			return path, nil
+		},
+		Home: home,
+		Ignored: func(_ context.Context, _ string, paths []string) (map[string]bool, error) {
+			return f.ignored, nil
 		},
 		Changed: func(c Changed) { f.events = append(f.events, c.Flow) },
 		Now:     func() time.Time { return f.now },
@@ -136,7 +145,7 @@ func TestSubmitReplacesTheKeyAndKeepsTheRest(t *testing.T) {
 	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	flow := f.start(t, "env:OPENAI_KEY", "project:.env.local")
+	flow := f.start(t, "env:OPENAI_KEY", "file:.env.local")
 	if !flow.Step.Replaces {
 		t.Fatal("a set key should say it is replaced")
 	}
@@ -188,15 +197,17 @@ func TestStartRefusesWhatItCantResolve(t *testing.T) {
 		{"env:KEY", ""},
 		{"env:KEY", "plugin:../x"},
 		{"env:KEY", "plugin:missing"},
-		{"env:KEY", "project:../.env"},
-		{"env:KEY", "project:secrets.txt"},
+		{"env:KEY", "file:../.env"},
+		{"env:KEY", "file:/etc/hosts"},
+		{"env:KEY", "file:."},
+		{"env:KEY", "project:.env"},
 		{"env:KEY", "source:missing"},
 	} {
 		if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: c.target, Scope: c.scope}); err == nil {
 			t.Errorf("%s in %q: started", c.target, c.scope)
 		}
 	}
-	if _, err := f.s.Start(ctx, StartParams{Project: "/elsewhere", Target: "env:KEY", Scope: "project:.env"}); err == nil {
+	if _, err := f.s.Start(ctx, StartParams{Project: "/elsewhere", Target: "env:KEY", Scope: "file:.env"}); err == nil {
 		t.Error("a folder that is not a project: started")
 	}
 	if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: "env:KEY", Scope: "plugins", HelpURL: "http://x.test"}); err == nil {
@@ -247,7 +258,7 @@ func TestALinkIsNeverWritten(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(f.project, ".env")); err != nil {
 		t.Fatal(err)
 	}
-	flow := f.start(t, "env:KEY", "project:.env")
+	flow := f.start(t, "env:KEY", "file:.env")
 	done, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, "v")
 	if err != nil {
 		t.Fatal(err)
@@ -299,5 +310,98 @@ func TestSubmitNamesItsStep(t *testing.T) {
 	}
 	if _, err := f.s.Submit(ctx, "missing", flow.Step.ID, "v"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("submit = %v", err)
+	}
+}
+
+func TestFilePathsInTheProjectAndUnderHome(t *testing.T) {
+	f := newFixture(t)
+	flow := f.start(t, "env:DATABASE_URL", "file:apps/web/.env.local")
+	if !strings.HasSuffix(flow.Destination, "app/apps/web/.env.local") || !strings.HasPrefix(flow.Destination, "~/") {
+		t.Fatalf("destination = %q", flow.Destination)
+	}
+	if _, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, "postgres://x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(f.project, "apps", "web", ".env.local")); got != "DATABASE_URL=postgres://x\n" {
+		t.Fatalf("file = %q", got)
+	}
+
+	flow = f.start(t, "env:STRIPE_KEY", "file:~/work/api/.dev.vars")
+	if flow.Destination != "~/work/api/.dev.vars" {
+		t.Fatalf("destination = %q", flow.Destination)
+	}
+	if _, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, "sk"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(f.home, "work", "api", ".dev.vars")); got != "STRIPE_KEY=sk\n" {
+		t.Fatalf("file = %q", got)
+	}
+}
+
+func TestALinkedFolderOutOfHomeIsRefused(t *testing.T) {
+	f := newFixture(t)
+	if err := os.Symlink(t.TempDir(), filepath.Join(f.project, "out")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: "env:KEY", Scope: "file:out/.env"}); err == nil {
+		t.Fatal("wrote through a link out of home")
+	}
+}
+
+func TestWarnsWhenGitWouldCommitTheFile(t *testing.T) {
+	f := newFixture(t)
+	if err := os.Mkdir(filepath.Join(f.project, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if flow := f.start(t, "env:KEY", "file:.env"); flow.Step.Warning == "" {
+		t.Fatal("no warning for a file git would commit")
+	}
+	f.ignored[".env"] = true
+	if flow := f.start(t, "env:KEY", "file:.env"); flow.Step.Warning != "" {
+		t.Fatalf("warning for an ignored file: %q", flow.Step.Warning)
+	}
+	if flow := f.start(t, "env:KEY", "plugins"); flow.Step.Warning != "" {
+		t.Fatalf("warning outside a repository: %q", flow.Step.Warning)
+	}
+}
+
+func TestAProjectLinkToAnotherFolderIsOutsideTheProject(t *testing.T) {
+	f := newFixture(t)
+	other := filepath.Join(f.home, "other")
+	if err := os.Mkdir(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, filepath.Join(f.project, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: "env:KEY", Scope: "file:linked/.env"}); err == nil {
+		t.Fatal("wrote through a project link to another folder")
+	}
+}
+
+func TestAPathThatChangesAfterStartIsRefused(t *testing.T) {
+	f := newFixture(t)
+	web := filepath.Join(f.project, "web")
+	if err := os.Mkdir(web, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	flow := f.start(t, "env:KEY", "file:web/.env")
+	// The folder is swapped for a link to somewhere else under home.
+	elsewhere := filepath.Join(f.home, "elsewhere")
+	if err := os.Mkdir(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(web); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, web); err != nil {
+		t.Fatal(err)
+	}
+	done, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, "v")
+	if err != nil || done.State != Failed {
+		t.Fatalf("submit = %+v, %v", done, err)
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, ".env")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the value went to where the link points")
 	}
 }

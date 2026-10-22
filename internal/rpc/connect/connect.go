@@ -37,10 +37,11 @@ type SubmitParams struct {
 	Value  string `json:"value"`
 }
 
-// CallbackParams is what an OAuth redirect brought back; state names the flow.
+// CallbackParams is what an OAuth redirect brought back to a flow.
 type CallbackParams struct {
-	State string `json:"state"`
-	Code  string `json:"code,omitempty"`
+	FlowID string `json:"flow_id"`
+	State  string `json:"state"`
+	Code   string `json:"code,omitempty"`
 	// Error is the provider's own, when the user declined or it failed.
 	Error string `json:"error,omitempty"`
 }
@@ -79,7 +80,7 @@ func (d Deps) submit(ctx context.Context, _ rpc.Caller, a SubmitParams) (FlowRes
 }
 
 func (d Deps) callback(ctx context.Context, _ rpc.Caller, a CallbackParams) (FlowResult, error) {
-	f, err := d.Connect.Callback(ctx, a.State, a.Code, a.Error)
+	f, err := d.Connect.Callback(ctx, a.FlowID, a.State, a.Code, a.Error)
 	return FlowResult{Flow: f}, err
 }
 
