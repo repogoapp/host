@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -23,6 +24,10 @@ type fakeMCP struct {
 	finished []string // codes OAuthFinish exchanged
 	enabled  []string
 	connects int
+	another  int      // ProbeAnother calls
+	again    []string // connections ProbeAgain signed in again
+	// refuseStart has OAuthStart fail, as a server refusing registration does.
+	refuseStart bool
 	// entered and gate, when set, hold Connect until the test lets it go.
 	entered chan struct{}
 	gate    chan struct{}
@@ -32,6 +37,16 @@ func (m *fakeMCP) List(string) mcp.Listing { return mcp.Listing{Servers: m.serve
 
 func (m *fakeMCP) Probe(_ context.Context, url, label, project string) (mcp.Probe, error) {
 	return mcp.Probe{ProbeID: "probe", URL: url, Auth: m.auth, NeedsManualClient: m.manual}, nil
+}
+
+func (m *fakeMCP) ProbeAgain(ctx context.Context, id, project string) (mcp.Probe, error) {
+	m.again = append(m.again, id)
+	return m.Probe(ctx, "", "", project)
+}
+
+func (m *fakeMCP) ProbeAnother(ctx context.Context, url, label, project string) (mcp.Probe, error) {
+	m.another++
+	return m.Probe(ctx, url, label, project)
 }
 
 func (m *fakeMCP) Connect(probeID, apiKey string) (mcp.Server, error) {
@@ -49,6 +64,9 @@ func (m *fakeMCP) Connect(probeID, apiKey string) (mcp.Server, error) {
 
 func (m *fakeMCP) OAuthStart(_ context.Context, probeID, clientID string, loopback bool) (string, string, error) {
 	m.clientID, m.loopback = clientID, loopback
+	if m.refuseStart && clientID == "" {
+		return "", "", errkind.ErrInvalid.Errorf("this server could not register RepoGo")
+	}
 	return "https://linear.app/oauth/authorize?state=st", "st", nil
 }
 
@@ -61,7 +79,7 @@ func (m *fakeMCP) OAuthFinish(_ context.Context, probeID, code, state string) (m
 }
 
 func (m *fakeMCP) SetEnabled(id, project string, enabled bool) error {
-	m.enabled = append(m.enabled, id+" "+project)
+	m.enabled = append(m.enabled, fmt.Sprintf("%s %s %t", id, project, enabled))
 	return nil
 }
 
@@ -75,6 +93,13 @@ type fakeCLIs struct {
 	started func()
 	// refuse is what LoginComplete answers, as a CLI's last line.
 	refuse error
+	// loggedOut is each CLI Logout was asked to sign out.
+	loggedOut []string
+}
+
+func (c *fakeCLIs) Logout(_ context.Context, kind string) (clitool.UpdateResult, error) {
+	c.loggedOut = append(c.loggedOut, kind)
+	return clitool.UpdateResult{Kind: kind, OK: true}, nil
 }
 
 func (c *fakeCLIs) Get(_ context.Context, kind string) (clitool.Install, bool) {
@@ -351,5 +376,104 @@ func TestACLIsOutputIsNeverTheReason(t *testing.T) {
 	done, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, "pasted-secret-123")
 	if err != nil || done.State != Failed || strings.Contains(done.Reason, "pasted-secret") {
 		t.Fatalf("submit = %+v, %v", done, err)
+	}
+}
+
+func TestDisconnectSignsACLIOutAndSwitchesAServerOffHere(t *testing.T) {
+	f := newFixture(t)
+	f.clis.installs["github"] = clitool.Install{Name: "GitHub", Installed: true, Authed: true}
+	cli := f.begin(t, StartParams{Target: "cli:github"})
+	if done, err := f.s.Disconnect(ctx, cli.ID); err != nil || done.State != Disconnected || len(f.clis.loggedOut) != 1 {
+		t.Fatalf("cli = %+v, %v; logged out %v", done, err, f.clis.loggedOut)
+	}
+
+	f.mcp.servers = []mcp.Server{{ID: "lin", Label: "Linear", URL: "https://mcp.linear.app/mcp", Projects: []string{f.project}}}
+	server := f.begin(t, StartParams{Target: linear})
+	if done, err := f.s.Disconnect(ctx, server.ID); err != nil || done.State != Disconnected {
+		t.Fatalf("mcp = %+v, %v", done, err)
+	}
+	if want := "lin " + f.project + " false"; len(f.mcp.enabled) != 1 || f.mcp.enabled[0] != want {
+		t.Fatalf("enabled = %v", f.mcp.enabled)
+	}
+}
+
+func TestAServerOnForAFolderAboveIsntReportedOff(t *testing.T) {
+	f := newFixture(t)
+	f.mcp.servers = []mcp.Server{{ID: "lin", Label: "Linear", URL: "https://mcp.linear.app/mcp", Projects: []string{f.home}}}
+	server := f.begin(t, StartParams{Target: linear})
+	if _, err := f.s.Disconnect(ctx, server.ID); err == nil {
+		t.Fatal("reported off while a folder above keeps it on")
+	}
+	if got, _ := f.s.Get(server.ID); got.State != Succeeded {
+		t.Fatalf("state = %s", got.State)
+	}
+}
+
+func TestAServerAlsoOnAboveIsntReportedOff(t *testing.T) {
+	f := newFixture(t)
+	f.mcp.servers = []mcp.Server{{ID: "lin", Label: "Linear", URL: "https://mcp.linear.app/mcp", Projects: []string{f.project, f.home}}}
+	server := f.begin(t, StartParams{Target: linear})
+	if _, err := f.s.Disconnect(ctx, server.ID); err == nil || len(f.mcp.enabled) != 0 {
+		t.Fatalf("reported off while a folder above keeps it on: %v, %v", err, f.mcp.enabled)
+	}
+}
+
+func TestAnotherAccountProbesAgainBesideTheFirst(t *testing.T) {
+	f := newFixture(t)
+	f.mcp.auth = mcp.AuthAPIKey
+	f.mcp.servers = []mcp.Server{{ID: "lin", Label: "Linear", URL: "https://mcp.linear.app/mcp", Projects: []string{f.project}}}
+	if flow := f.begin(t, StartParams{Target: linear}); flow.State != Succeeded {
+		t.Fatalf("already connected = %+v", flow)
+	}
+	again := f.begin(t, StartParams{Target: linear, Account: "again"})
+	if again.State != Waiting || f.mcp.another != 0 {
+		t.Fatalf("signing in again = %+v", again)
+	}
+	flow := f.begin(t, StartParams{Target: linear, Account: "another", Label: "Linear (work)"})
+	if flow.State != Waiting || flow.Step == nil || f.mcp.another != 1 {
+		t.Fatalf("another account = %+v after %d probes", flow, f.mcp.another)
+	}
+
+	f.mcp.servers = append(f.mcp.servers, mcp.Server{ID: "lin2", Label: "Linear (work)", URL: "https://mcp.linear.app/mcp",
+		Projects: []string{f.project}})
+	got := f.s.List(ctx, f.project, []Want{{Target: linear}})
+	if got[0].Status != Connected || got[0].Destination != "Linear, Linear (work)" {
+		t.Fatalf("list = %+v", got)
+	}
+	both := f.begin(t, StartParams{Target: linear})
+	if _, err := f.s.Disconnect(ctx, both.ID); err == nil {
+		t.Fatal("switched off one of two accounts without saying which")
+	}
+}
+
+func TestALoopbackServerSignsInBeforeAskingForAClient(t *testing.T) {
+	f := newFixture(t)
+	f.mcp.auth, f.mcp.manual = mcp.AuthOAuth, true
+	flow := f.begin(t, StartParams{Target: "mcp:https://mcp.vercel.com", Loopback: true})
+	if flow.Step == nil || flow.Step.ID != stepSignIn || !f.mcp.loopback {
+		t.Fatalf("start = %+v", flow)
+	}
+	f.mcp.refuseStart = true
+	if flow := f.begin(t, StartParams{Target: "mcp:https://mcp.vercel.com", Loopback: true}); flow.Step == nil || flow.Step.ID != "client_id" {
+		t.Fatalf("refused registration = %+v", flow)
+	}
+}
+
+func TestSigningInAgainPicksTheAccountOnHere(t *testing.T) {
+	f := newFixture(t)
+	f.mcp.auth = mcp.AuthAPIKey
+	f.mcp.servers = []mcp.Server{
+		{ID: "lin", Label: "Linear", URL: "https://mcp.linear.app/mcp", Projects: []string{"/other"}},
+		{ID: "lin2", Label: "Linear (work)", URL: "https://mcp.linear.app/mcp", Projects: []string{f.project}},
+	}
+	if flow := f.begin(t, StartParams{Target: linear, Account: "again"}); flow.State != Waiting || len(f.mcp.again) != 1 || f.mcp.again[0] != "lin2" {
+		t.Fatalf("again = %+v, %v", flow, f.mcp.again)
+	}
+	f.mcp.servers[1].Projects = nil
+	if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: linear, Account: "again"}); err == nil {
+		t.Fatal("signed in again without knowing which account")
+	}
+	if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: linear}); err == nil || len(f.mcp.enabled) != 0 {
+		t.Fatalf("switched on one of two accounts: %v, %v", err, f.mcp.enabled)
 	}
 }

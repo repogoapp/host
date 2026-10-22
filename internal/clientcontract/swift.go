@@ -33,7 +33,7 @@ var methodExports = map[string]bool{
 	"chats.subscribe": true, "chats.unsubscribe": true, "chats.queue": true, "chats.handoff": true,
 
 	"connect.list": true, "connect.get": true, "connect.start": true, "connect.submit": true,
-	"connect.callback": true, "connect.cancel": true,
+	"connect.callback": true, "connect.cancel": true, "connect.disconnect": true,
 
 	"devices.list": true, "devices.hello": true, "devices.register_push": true, "devices.revoke": true,
 

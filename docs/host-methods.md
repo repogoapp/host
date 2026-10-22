@@ -489,6 +489,7 @@ Params:
 - `note` string (omitted when empty): A line on where to find the value
 - `help_url` string (omitted when empty): An https page where the value is found
 - `loopback` bool (omitted when empty): The MCP server only accepts a localhost redirect
+- `account` string (omitted when empty): For an MCP server already connected: again or another
 
 Result:
 
@@ -530,6 +531,18 @@ Params:
 Result:
 
 - `ok` bool
+
+## `connect.disconnect`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `flow_id` string: The flow's id, as connect.start gave it
+
+Result:
+
+- `flow` object{Flow}
 
 ## `devices.list`
 

@@ -1,0 +1,22 @@
+{
+  "flow": {
+    "id": "id",
+    "target": "target",
+    "scope": "scope",
+    "state": "state",
+    "destination": "destination",
+    "step": {
+      "id": "id",
+      "kind": "kind",
+      "label": "label",
+      "name": "name",
+      "note": "note",
+      "help_url": "help_url",
+      "url": "url",
+      "user_code": "user_code",
+      "redirect": "redirect",
+      "warning": "warning"
+    },
+    "reason": "reason"
+  }
+}

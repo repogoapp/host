@@ -40,6 +40,8 @@ type MCPs interface {
 	Probe(ctx context.Context, rawURL, label, project string) (mcp.Probe, error)
 	Connect(probeID, apiKey string) (mcp.Server, error)
 	OAuthStart(ctx context.Context, probeID, clientID string, loopback bool) (authorizeURL, state string, err error)
+	ProbeAnother(ctx context.Context, rawURL, label, project string) (mcp.Probe, error)
+	ProbeAgain(ctx context.Context, id, project string) (mcp.Probe, error)
 	OAuthFinish(ctx context.Context, probeID, code, state string) (mcp.Server, error)
 	SetEnabled(id, project string, enabled bool) error
 }
@@ -50,6 +52,7 @@ type CLIs interface {
 	LoginStart(ctx context.Context, kind string) (clilogin.Code, error)
 	LoginComplete(ctx context.Context, kind, code string) error
 	LoginCancel(kind string)
+	Logout(ctx context.Context, kind string) (clitool.UpdateResult, error)
 }
 
 type Deps struct {
@@ -172,7 +175,7 @@ func (s *Service) Start(ctx context.Context, p StartParams) (Flow, error) {
 	case KindEnv:
 		err = s.startEnv(ctx, f, p.Note, help)
 	case KindMCP:
-		err = s.startMCP(ctx, f, p.Label, p.Note, help)
+		err = s.startMCP(ctx, f, p.Label, p.Note, help, p.Account)
 	case KindCLI:
 		err = s.startCLI(ctx, f)
 	}
@@ -305,6 +308,68 @@ func (s *Service) Cancel(flowID string) error {
 	return nil
 }
 
+// Disconnect undoes a connected flow: signs its CLI out on this environment,
+// switches its MCP server off for the project, or removes its env key. A
+// second call answers with the same ending.
+func (s *Service) Disconnect(ctx context.Context, flowID string) (Flow, error) {
+	s.mu.Lock()
+	f, ok := s.flows[flowID]
+	var err error
+	switch {
+	case !ok:
+		err = ErrNotFound
+	case f.State == Disconnected:
+		out := f.Flow
+		s.mu.Unlock()
+		return out, nil
+	case f.State != Succeeded:
+		err = ErrInvalid.Errorf("only a connected flow can be disconnected")
+	case f.working:
+		err = ErrInvalid.Errorf("it's already disconnecting")
+	default:
+		f.working = true
+	}
+	var snapshot flow
+	if err == nil {
+		snapshot = *f
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return Flow{}, err
+	}
+
+	switch snapshot.target.Kind {
+	case KindEnv:
+		err = s.disconnectEnv(snapshot)
+	case KindMCP:
+		err = s.disconnectMCP(snapshot)
+	case KindCLI:
+		err = s.disconnectCLI(ctx, snapshot)
+	}
+
+	s.mu.Lock()
+	f.working = false
+	if err == nil {
+		f.State, f.ended = Disconnected, s.d.Now()
+	}
+	out := f.Flow
+	s.mu.Unlock()
+	if err != nil {
+		return Flow{}, err
+	}
+	s.changed(out)
+	return out, nil
+}
+
+// Tick expires flows nobody finished, on the host's minute ticker, so a
+// sign-in left open stops its CLI even when no call comes in.
+func (s *Service) Tick(_ context.Context, _ time.Time) {
+	s.mu.Lock()
+	expired := s.sweepLocked()
+	s.mu.Unlock()
+	s.ended(expired)
+}
+
 // advance moves a flow on from stepID: to next, or to its end with err as its
 // reason. A flow that ended meanwhile (cancelled, expired) keeps that ending.
 func (s *Service) advance(f *flow, stepID string, next *Step, err error) Flow {
@@ -334,6 +399,10 @@ func (s *Service) sweepLocked() []*flow {
 	now := s.d.Now()
 	var expired []*flow
 	for id, f := range s.flows {
+		// A flow mid-save or mid-disconnect keeps going; it ends with its own answer.
+		if f.working {
+			continue
+		}
 		switch {
 		case f.State == Waiting && now.Sub(f.started) >= waitFor:
 			f.end(Expired, "", now)

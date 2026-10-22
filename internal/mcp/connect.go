@@ -31,6 +31,9 @@ type pending struct {
 	label   string
 	project string
 	expires time.Time
+	// id is the connection this signs in again, decided at probe time; empty
+	// is a new connection.
+	id string
 
 	// Set by OAuthStart; the verifier never leaves the host.
 	redirect string
@@ -47,10 +50,55 @@ type Probe struct {
 	RegistrationError string   `json:"registration_error,omitempty"`
 }
 
-// Probe discovers what url needs and keeps the result. label names the
-// connection (a preset's name reads better than a hostname) and project is
-// where the user is connecting from: the server starts switched on there.
+// Probe discovers what url needs; label names the connection and project is
+// where it starts switched on. Finishing reconnects the URL's connection, if
+// there is one; a URL with several accounts is refused, as which is the user's.
 func (s *Service) Probe(ctx context.Context, rawURL, label, project string) (Probe, error) {
+	target, err := normalizeURL(rawURL)
+	if err != nil {
+		return Probe{}, err
+	}
+	s.mu.Lock()
+	var ids []string
+	for _, r := range s.servers {
+		if r.URL == target {
+			ids = append(ids, r.ID)
+		}
+	}
+	s.mu.Unlock()
+	if len(ids) > 1 {
+		return Probe{}, ErrInvalid.Errorf("this server has several accounts; sign the one you mean in again from its row")
+	}
+	var id string
+	if len(ids) == 1 {
+		id = ids[0]
+	}
+	return s.probe(ctx, target, label, project, id)
+}
+
+// ProbeAnother is Probe for another account on a server already connected:
+// finishing it adds a connection of its own.
+func (s *Service) ProbeAnother(ctx context.Context, rawURL, label, project string) (Probe, error) {
+	return s.probe(ctx, rawURL, label, project, "")
+}
+
+// ProbeAgain is Probe for one connection whose credential needs replacing:
+// finishing it signs that connection in again, keeping its name and projects.
+func (s *Service) ProbeAgain(ctx context.Context, id, project string) (Probe, error) {
+	s.mu.Lock()
+	i := s.indexLocked(id)
+	var r record
+	if i >= 0 {
+		r = s.servers[i]
+	}
+	s.mu.Unlock()
+	if i < 0 {
+		return Probe{}, ErrNotFound
+	}
+	return s.probe(ctx, r.URL, r.Label, project, id)
+}
+
+func (s *Service) probe(ctx context.Context, rawURL, label, project, id string) (Probe, error) {
 	target, err := normalizeURL(rawURL)
 	if err != nil {
 		return Probe{}, err
@@ -59,16 +107,17 @@ func (s *Service) Probe(ctx context.Context, rawURL, label, project string) (Pro
 	if err != nil {
 		return Probe{}, err
 	}
-	id := token()
+	handle := token()
 	s.mu.Lock()
 	for k, v := range s.pending {
 		if time.Now().After(v.expires) {
 			delete(s.pending, k)
 		}
 	}
-	s.pending[id] = &pending{probe: p, label: strings.TrimSpace(label), project: project, expires: time.Now().Add(probeTTL)}
+	s.pending[handle] = &pending{probe: p, label: strings.TrimSpace(label), project: project,
+		expires: time.Now().Add(probeTTL), id: id}
 	s.mu.Unlock()
-	return Probe{ProbeID: id, URL: p.url, Auth: p.auth, NeedsManualClient: p.manual, RegistrationError: p.refuse}, nil
+	return Probe{ProbeID: handle, URL: p.url, Auth: p.auth, NeedsManualClient: p.manual, RegistrationError: p.refuse}, nil
 }
 
 // Connect finishes a none or API-key probe. An OAuth server is created by
@@ -88,7 +137,7 @@ func (s *Service) Connect(probeID, apiKey string) (Server, error) {
 	}
 	r := s.newRecord(p)
 	r.Secret = apiKey
-	return s.put(r)
+	return s.put(r, p.id != "")
 }
 
 // OAuthStart builds the authorize URL. clientID is the user's own, for an
@@ -197,7 +246,7 @@ func (s *Service) OAuthFinish(ctx context.Context, probeID, code, state string) 
 	r := s.newRecord(p)
 	r.OAuth = p.oauth
 	r.Secret, r.Refresh, r.ExpiresAt = tok.access, tok.refresh, tok.expiresAt
-	return s.put(r)
+	return s.put(r, p.id != "")
 }
 
 func (s *Service) newRecord(p *pending) record {
@@ -209,8 +258,12 @@ func (s *Service) newRecord(p *pending) record {
 	if strings.TrimSpace(p.project) != "" {
 		projects = append(projects, Root(p.project))
 	}
+	id := p.id
+	if id == "" {
+		id = newServerID()
+	}
 	return record{
-		Server: Server{ID: serverID(p.url), Label: label, URL: p.url, Projects: projects},
+		Server: Server{ID: id, Label: label, URL: p.url, Projects: projects},
 		Auth:   p.auth,
 	}
 }

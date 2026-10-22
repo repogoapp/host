@@ -8,7 +8,7 @@
 package mcp
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"net/http"
 	"net/url"
@@ -248,18 +248,30 @@ func (s *Service) update(id string, fn func(*record)) error {
 	})
 }
 
-// put adds a connection, or replaces the one for the same URL whole:
-// re-adding is reconnecting, so nothing of the old credential may linger.
-func (s *Service) put(r record) (Server, error) {
-	return r.Server, s.commit(func() error {
+// put adds a connection, or reconnects one: nothing of the old credential is
+// kept, but its name and projects are. A reconnect whose connection was
+// removed meanwhile is refused rather than brought back.
+func (s *Service) put(r record, reconnect bool) (Server, error) {
+	err := s.commit(func() error {
 		if i := s.indexLocked(r.ID); i >= 0 {
+			old := s.servers[i]
+			r.Label = old.Label
+			for _, p := range r.Projects {
+				if !slices.Contains(old.Projects, p) {
+					old.Projects = append(old.Projects, p)
+				}
+			}
+			r.Projects = old.Projects
 			s.servers[i] = r
 			delete(s.sessions, r.ID)
+		} else if reconnect {
+			return ErrNotFound
 		} else {
 			s.servers = append(s.servers, r)
 		}
 		return nil
 	})
+	return r.Server, err
 }
 
 func (s *Service) indexLocked(id string) int {
@@ -286,11 +298,12 @@ func (s *Service) commit(change func() error) error {
 	return nil
 }
 
-// serverID is a function of the URL, so re-adding one updates it in place and
-// a chat's live agent, which captured the old entry, keeps the same name.
-func serverID(u string) string {
-	sum := sha256.Sum256([]byte(u))
-	return hex.EncodeToString(sum[:8])
+// newServerID is a connection's id: random, so one server can hold several
+// accounts. It never changes, so a chat's live agent keeps the same name.
+func newServerID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // normalizeURL accepts what a person pastes: a bare host gets https. Plain

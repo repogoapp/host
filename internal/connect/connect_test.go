@@ -102,7 +102,7 @@ func read(t *testing.T, path string) string {
 func TestSubmitWritesTheKeyAndNeverReportsIt(t *testing.T) {
 	f := newFixture(t)
 	flow := f.start(t, "env:STRIPE_SECRET_KEY", "plugin:stripe")
-	if flow.State != Waiting || flow.Step == nil || flow.Step.Kind != StepSecret || flow.Step.Replaces {
+	if flow.State != Waiting || flow.Step == nil || flow.Step.Kind != StepSecret {
 		t.Fatalf("start = %+v", flow)
 	}
 	if flow.Destination != "The stripe plugin's .env" {
@@ -138,21 +138,18 @@ func TestSubmitWritesTheKeyAndNeverReportsIt(t *testing.T) {
 	}
 }
 
-func TestSubmitReplacesTheKeyAndKeepsTheRest(t *testing.T) {
+func TestSubmitFillsAnEmptyKeyAndKeepsTheRest(t *testing.T) {
 	f := newFixture(t)
 	path := filepath.Join(f.project, ".env.local")
-	before := "# keys\nexport OPENAI_KEY=old\nDATABASE_URL=postgres://x\nOPENAI_KEY=older\n"
+	before := "# keys\nexport OPENAI_KEY=\nDATABASE_URL=postgres://x\nOPENAI_KEY=\n"
 	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	flow := f.start(t, "env:OPENAI_KEY", "file:.env.local")
-	if !flow.Step.Replaces {
-		t.Fatal("a set key should say it is replaced")
-	}
 	if _, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, "sk new#1"); err != nil {
 		t.Fatal(err)
 	}
-	want := "# keys\nOPENAI_KEY='sk new#1'\nDATABASE_URL=postgres://x\n# OPENAI_KEY=older\n"
+	want := "# keys\nOPENAI_KEY='sk new#1'\nDATABASE_URL=postgres://x\n# OPENAI_KEY=\n"
 	if got := read(t, path); got != want {
 		t.Fatalf("file = %q, want %q", got, want)
 	}
@@ -403,5 +400,99 @@ func TestAPathThatChangesAfterStartIsRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(elsewhere, ".env")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("the value went to where the link points")
+	}
+}
+
+func TestASetKeyOpensConnectedAndCanBeRemoved(t *testing.T) {
+	f := newFixture(t)
+	path := filepath.Join(f.project, ".env")
+	if err := os.WriteFile(path, []byte("A=1\nKEY=secret\nB=2\nexport KEY=again\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flow := f.start(t, "env:KEY", "file:.env")
+	if flow.State != Succeeded || flow.Step != nil {
+		t.Fatalf("start = %+v", flow)
+	}
+	done, err := f.s.Disconnect(ctx, flow.ID)
+	if err != nil || done.State != Disconnected {
+		t.Fatalf("disconnect = %+v, %v", done, err)
+	}
+	if got := read(t, path); got != "A=1\nB=2\n" {
+		t.Fatalf("file = %q", got)
+	}
+	if again, err := f.s.Disconnect(ctx, flow.ID); err != nil || again.State != Disconnected {
+		t.Fatalf("again = %+v, %v", again, err)
+	}
+}
+
+func TestOnlyAConnectedFlowDisconnects(t *testing.T) {
+	f := newFixture(t)
+	flow := f.start(t, "env:KEY", "plugins")
+	if _, err := f.s.Disconnect(ctx, flow.ID); err == nil {
+		t.Fatal("a waiting flow disconnected")
+	}
+	if _, err := f.s.Disconnect(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing = %v", err)
+	}
+}
+
+func TestTickExpiresButNeverMidSave(t *testing.T) {
+	f := newFixture(t)
+	idle := f.start(t, "env:A", "plugins")
+	saving := f.start(t, "env:B", "plugins")
+	f.s.mu.Lock()
+	f.s.flows[saving.ID].working = true
+	f.s.mu.Unlock()
+	f.now = f.now.Add(waitFor)
+	f.s.Tick(ctx, f.now)
+	f.s.mu.Lock()
+	idleState, savingState := f.s.flows[idle.ID].State, f.s.flows[saving.ID].State
+	f.s.mu.Unlock()
+	if idleState != Expired || savingState != Waiting {
+		t.Fatalf("idle %s, saving %s", idleState, savingState)
+	}
+}
+
+func TestRemovingAKeyWhoseFolderMovedIsRefused(t *testing.T) {
+	f := newFixture(t)
+	web := filepath.Join(f.project, "web")
+	if err := os.Mkdir(web, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(web, ".env"), []byte("KEY=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flow := f.start(t, "env:KEY", "file:web/.env")
+	elsewhere := filepath.Join(f.home, "elsewhere")
+	if err := os.Mkdir(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, ".env"), []byte("KEY=keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(web, filepath.Join(f.project, "web-old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, web); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Disconnect(ctx, flow.ID); err == nil {
+		t.Fatal("removed a key through a swapped folder")
+	}
+	if got := read(t, filepath.Join(elsewhere, ".env")); got != "KEY=keep\n" {
+		t.Fatalf("the link's file changed: %q", got)
+	}
+}
+
+func TestTheSweepLeavesAWorkingFlowAlone(t *testing.T) {
+	f := newFixture(t)
+	flow := f.start(t, "env:OTHER", "plugins")
+	f.s.mu.Lock()
+	f.s.flows[flow.ID].working = true
+	f.s.mu.Unlock()
+	f.now = f.now.Add(waitFor + kept)
+	f.s.Tick(ctx, f.now)
+	if _, err := f.s.Get(flow.ID); err != nil {
+		t.Fatalf("a working flow was swept: %v", err)
 	}
 }

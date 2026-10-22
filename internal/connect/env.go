@@ -28,9 +28,24 @@ func (s *Service) startEnv(ctx context.Context, f *flow, note, help string) erro
 	}
 	name := f.target.Env.Name
 	f.Destination, f.envPath = file.Destination, file.Path
+	// Set already: the sheet opens on Connected, where it can be removed.
+	if hasKey(file.Path, name) {
+		f.end(Succeeded, "", s.d.Now())
+		return nil
+	}
 	f.Step = &Step{ID: "secret", Kind: StepSecret, Label: name, Name: name, Note: note, HelpURL: help,
-		Replaces: hasKey(file.Path, name), Warning: s.committable(ctx, file.Path)}
+		Warning: s.committable(ctx, file.Path)}
 	return nil
+}
+
+// disconnectEnv removes the key's lines from the file the flow saved to.
+func (s *Service) disconnectEnv(f flow) error {
+	if err := s.samePath(f); err != nil {
+		return err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return removeKey(f.envPath, f.target.Env.Name)
 }
 
 // committable warns when git would pick the file up: it is tracked, or not
@@ -56,16 +71,24 @@ func (s *Service) submitEnv(f flow, value string) error {
 	if err != nil {
 		return err
 	}
-	// The value goes where the sheet said, or nowhere: a path that now
-	// resolves elsewhere (a folder swapped for a link) is refused.
+	if err := s.samePath(f); err != nil {
+		return err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return writeKey(f.envPath, f.target.Env.Name, line)
+}
+
+// samePath refuses a file that now resolves somewhere other than where the
+// sheet said (a folder swapped for a link), so a write or removal goes there
+// or nowhere.
+func (s *Service) samePath(f flow) error {
 	file, err := s.resolve(f.project, f.target.Env.Scope)
 	if err != nil {
 		return err
 	}
 	if file.Path != f.envPath {
-		return errRefused.Errorf("where this was going to be saved has changed; start again")
+		return errRefused.Errorf("where this is saved has changed; start again")
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	return writeKey(f.envPath, f.target.Env.Name, line)
+	return nil
 }

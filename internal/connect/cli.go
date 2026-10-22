@@ -68,6 +68,19 @@ func (s *Service) startCLI(ctx context.Context, f *flow) error {
 	return nil
 }
 
+// disconnectCLI signs the CLI out on this environment, for every project.
+func (s *Service) disconnectCLI(ctx context.Context, f flow) error {
+	res, err := s.d.CLIs.Logout(ctx, f.target.CLI)
+	if err != nil || !res.OK {
+		return errSignOut
+	}
+	return nil
+}
+
+// errSignOut is a sign-out the CLI refused, worded here for the same reason
+// as errSignIn.
+var errSignOut = errkind.New(errkind.Unavailable, "The sign-out didn't finish. Try again.")
+
 // CLIEnded is told when a CLI's sign-in ends, however it was started, and ends
 // every flow waiting on it: the CLI runs one sign-in for all of them.
 func (s *Service) CLIEnded(kind string, ok bool) {

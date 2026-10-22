@@ -70,6 +70,35 @@ func writeKey(path, name, line string) error {
 	return writeFile(path, []byte(strings.Join(lines, "\n")+"\n"))
 }
 
+// removeKey drops every line that sets name from path and keeps the rest; a
+// missing file or key is already removed.
+func removeKey(path, name string) error {
+	b, err := readEnv(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var kept []string
+	removed := false
+	for _, l := range strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") {
+		if setsKey(l, name) {
+			removed = true
+			continue
+		}
+		kept = append(kept, l)
+	}
+	if !removed {
+		return nil
+	}
+	out := strings.Join(kept, "\n")
+	if out != "" {
+		out += "\n"
+	}
+	return writeFile(path, []byte(out))
+}
+
 // setsKey is whether a line sets name, as envsource.Parse reads it.
 func setsKey(line, name string) bool {
 	line = strings.TrimPrefix(strings.TrimSpace(line), "export ")

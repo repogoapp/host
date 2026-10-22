@@ -12,6 +12,8 @@ const (
 	Failed    = "failed"
 	Cancelled = "cancelled"
 	Expired   = "expired"
+	// Disconnected is a connected flow the user then signed out of or removed.
+	Disconnected = "disconnected"
 )
 
 // How the phone draws a step.
@@ -57,6 +59,10 @@ type StartParams struct {
 	// Loopback is the phone's own knowledge of a server that only accepts
 	// localhost redirects, from its presets.
 	Loopback bool `json:"loopback,omitempty" doc:"The MCP server only accepts a localhost redirect"`
+	// Account is, for an MCP server already connected, "again" to sign it in
+	// afresh (a credential revoked or expired) or "another" to add a second
+	// account beside it; empty opens the connection there.
+	Account string `json:"account,omitempty" doc:"For an MCP server already connected: again or another"`
 }
 
 // Flow is one attempt to connect a target, as the phone draws it.
@@ -64,7 +70,7 @@ type Flow struct {
 	ID     string `json:"id"`
 	Target string `json:"target"`
 	Scope  string `json:"scope"`
-	// State is waiting, succeeded, failed, cancelled or expired.
+	// State is waiting, succeeded, failed, cancelled, expired or disconnected.
 	State string `json:"state"`
 	// Destination is where the value goes, as the host words it.
 	Destination string `json:"destination"`
@@ -90,8 +96,6 @@ type Step struct {
 	UserCode string `json:"user_code,omitempty"`
 	// Redirect is how a browser step ends: "", localhost, app or loopback.
 	Redirect string `json:"redirect,omitempty"`
-	// Replaces says a value is set already, so the phone asks before replacing it.
-	Replaces bool `json:"replaces"`
 	// Warning is the host's caution about where a value goes, such as a file
 	// git would commit.
 	Warning string `json:"warning,omitempty"`

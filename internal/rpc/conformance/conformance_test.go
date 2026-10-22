@@ -87,6 +87,7 @@ func vocabulary(root string) []check {
 		{method: "connect.submit", params: map[string]any{"flow_id": "missing", "step_id": "secret", "value": "v"}, key: "flow"},
 		{method: "connect.callback", params: map[string]any{"state": "missing", "code": "c"}, key: "flow"},
 		{method: "connect.cancel", params: map[string]any{"flow_id": "missing"}, key: "ok"},
+		{method: "connect.disconnect", params: map[string]any{"flow_id": "missing"}, key: "flow"},
 		{method: "env.sources.list", key: "sources"},
 		{method: "env.sources.set", params: map[string]any{"handle": "readme", "path": file}, key: "source"},
 		{method: "env.sources.remove", params: map[string]any{"handle": "missing"}, key: "ok"},

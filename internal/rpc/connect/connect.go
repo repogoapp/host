@@ -58,6 +58,8 @@ func Register(r *rpc.Router, d Deps) {
 	// Detached: the code is spent once the token endpoint has it.
 	rpc.Add(r, "connect.callback", d.callback, rpc.Detached)
 	rpc.Add(r, "connect.cancel", d.cancel)
+	// Detached: a sign-out or removal half done would leave the card wrong.
+	rpc.Add(r, "connect.disconnect", d.disconnect, rpc.Detached)
 }
 
 func (d Deps) list(ctx context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {
@@ -81,6 +83,11 @@ func (d Deps) submit(ctx context.Context, _ rpc.Caller, a SubmitParams) (FlowRes
 
 func (d Deps) callback(ctx context.Context, _ rpc.Caller, a CallbackParams) (FlowResult, error) {
 	f, err := d.Connect.Callback(ctx, a.FlowID, a.State, a.Code, a.Error)
+	return FlowResult{Flow: f}, err
+}
+
+func (d Deps) disconnect(ctx context.Context, _ rpc.Caller, a FlowParams) (FlowResult, error) {
+	f, err := d.Connect.Disconnect(ctx, a.FlowID)
 	return FlowResult{Flow: f}, err
 }
 

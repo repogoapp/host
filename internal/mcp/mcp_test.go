@@ -425,3 +425,109 @@ func TestEmptyListingUsesArrays(t *testing.T) {
 		t.Fatalf("required collections must be arrays: %+v", list)
 	}
 }
+
+// Reconnecting a URL keeps its connection; another account sits beside it,
+// with an id and a key of its own.
+func TestAnotherAccountIsItsOwnConnection(t *testing.T) {
+	s := open(t)
+	url := openServer(t).URL
+	ctx := context.Background()
+	connect := func(probe func(context.Context, string, string, string) (Probe, error), label string) Server {
+		t.Helper()
+		p, err := probe(ctx, url, label, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv, err := s.Connect(p.ProbeID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return srv
+	}
+	first := connect(s.Probe, "Docs")
+	again := connect(s.Probe, "Docs")
+	if again.ID != first.ID || len(s.List("").Servers) != 1 {
+		t.Fatalf("a reconnect made another connection: %s, %s", first.ID, again.ID)
+	}
+	second := connect(s.ProbeAnother, "Docs (work)")
+	if second.ID == first.ID || len(s.List("").Servers) != 2 {
+		t.Fatalf("another account replaced the first: %s, %s", first.ID, second.ID)
+	}
+	keys := map[string]bool{}
+	for _, n := range keyed(s.servers) {
+		keys[n.key] = true
+	}
+	if len(keys) != 2 {
+		t.Fatalf("keys = %v", keys)
+	}
+}
+
+// Signing one account in again keeps its name and its projects, and leaves
+// the other account alone.
+func TestSigningInAgainKeepsTheConnection(t *testing.T) {
+	s := open(t)
+	url := openServer(t).URL
+	ctx := context.Background()
+	p, _ := s.Probe(ctx, url, "Docs", "")
+	first, _ := s.Connect(p.ProbeID, "")
+	p, _ = s.ProbeAnother(ctx, url, "Docs (2)", "")
+	second, _ := s.Connect(p.ProbeID, "")
+	a, b := t.TempDir(), t.TempDir()
+	for _, project := range []string{a, b} {
+		if err := s.SetEnabled(second.ID, project, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Rename(second.ID, "Docs (work)"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := s.ProbeAgain(ctx, second.ID, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.Connect(p.ProbeID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != second.ID || again.Label != "Docs (work)" || len(again.Projects) != 2 {
+		t.Fatalf("again = %+v", again)
+	}
+	if got := s.List("").Servers; len(got) != 2 || got[0].ID != first.ID {
+		t.Fatalf("servers = %+v", got)
+	}
+	if _, err := s.ProbeAgain(ctx, "missing", a); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing = %v", err)
+	}
+}
+
+// Which account a probe signs in is decided when it starts: a URL with two
+// is refused, and a reconnect whose account was removed meanwhile fails.
+func TestAProbeNamesItsAccountAtTheStart(t *testing.T) {
+	s := open(t)
+	url := openServer(t).URL
+	ctx := context.Background()
+	p, _ := s.Probe(ctx, url, "Docs", "")
+	first, _ := s.Connect(p.ProbeID, "")
+	p, _ = s.ProbeAnother(ctx, url, "Docs (2)", "")
+	if _, err := s.Connect(p.ProbeID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Probe(ctx, url, "Docs", ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a probe of a URL with two accounts: %v", err)
+	}
+
+	p, err := s.ProbeAgain(ctx, first.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Connect(p.ProbeID, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a removed account came back: %v", err)
+	}
+	if len(s.List("").Servers) != 1 {
+		t.Fatalf("servers = %+v", s.List("").Servers)
+	}
+}
