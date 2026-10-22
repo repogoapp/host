@@ -214,3 +214,21 @@ func (i *Identity) GrantPush(host ID, target PushTarget) PushTarget {
 	target.Grant, _ = json.Marshal(PushProof{Signature: i.Sign(PushGrantMessage(host, target.Token, target.Environment, target.GrantedAt))})
 	return target
 }
+
+// Recipients is who hears a change to what every device lists: each paired
+// device, online or not (an offline one catches up on its next list), and
+// each attached client that is no peer, such as the desktop app on this machine.
+func Recipients(peers []Peer, attached []ID) []ID {
+	ids := make([]ID, 0, len(peers)+len(attached))
+	paired := make(map[ID]bool, len(peers))
+	for _, peer := range peers {
+		ids = append(ids, peer.ID)
+		paired[peer.ID] = true
+	}
+	for _, id := range attached {
+		if !paired[id] {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}

@@ -48,6 +48,18 @@ func (m *Mux) Detach(d device.ID, t Transport) {
 	}
 }
 
+// Attached is every device a transport has claimed: the clients with a
+// socket on this host, local ones included; phones on the relay are not.
+func (m *Mux) Attached() []device.ID {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]device.ID, 0, len(m.routes))
+	for id := range m.routes {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // Send delivers to the device's attached transport, else the fallback.
 func (m *Mux) Send(to device.ID, method string, payload []byte) error {
 	m.mu.RLock()

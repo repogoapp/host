@@ -16,9 +16,11 @@ type Peers interface {
 }
 
 // Announcer is the one path for every way a chat row can move: the store
-// says which rows a commit touched, and every paired device hears them.
+// says which rows a commit touched, and every paired device hears them, as
+// does every client on this machine (the desktop app), which is no peer.
 type Announcer struct {
 	peers      Peers
+	locals     func() []device.ID
 	emit       *emit.Emitter
 	db         *store.Store
 	modelLabel func(agent.Kind, string) string
@@ -26,9 +28,9 @@ type Announcer struct {
 	log        *slog.Logger
 }
 
-func NewAnnouncer(peers Peers, em *emit.Emitter, db *store.Store, modelLabel func(agent.Kind, string) string,
-	agentIcon func(cwd, projectAgent string) string, log *slog.Logger) *Announcer {
-	return &Announcer{peers: peers, emit: em, db: db, modelLabel: modelLabel, agentIcon: agentIcon, log: log}
+func NewAnnouncer(peers Peers, locals func() []device.ID, em *emit.Emitter, db *store.Store,
+	modelLabel func(agent.Kind, string) string, agentIcon func(cwd, projectAgent string) string, log *slog.Logger) *Announcer {
+	return &Announcer{peers: peers, locals: locals, emit: em, db: db, modelLabel: modelLabel, agentIcon: agentIcon, log: log}
 }
 
 // Announce sends each changed row as it reads after the commit, and each
@@ -54,9 +56,9 @@ func (a *Announcer) Attention(at Attention) {
 }
 
 func (a *Announcer) send(ev emit.Event) {
-	for _, peer := range a.peers.Peers() {
-		if err := a.emit.To(peer.ID, ev); err != nil {
-			a.log.Debug("chat list update not delivered", "device", peer.ID, "err", err)
+	for _, id := range device.Recipients(a.peers.Peers(), a.locals()) {
+		if err := a.emit.To(id, ev); err != nil {
+			a.log.Debug("chat list update not delivered", "device", id, "err", err)
 		}
 	}
 }

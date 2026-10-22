@@ -195,10 +195,26 @@ func (c *sentCapture) Send(to device.ID, method string, _ []byte) error {
 
 // Attention is not a room's: every paired device hears it, watching the chat
 // or not.
+func noLocals() []device.ID { return nil }
+
+// A client on this machine is no peer, yet lists chats: it hears each row move.
+func TestAnnounceReachesLocalClients(t *testing.T) {
+	a, local := device.ID("aa"), device.ID("desktop")
+	cap := &sentCapture{sent: map[device.ID][]string{}}
+	NewAnnouncer(twoPeers{ids: []device.ID{a}}, func() []device.ID { return []device.ID{a, local} },
+		emit.New(cap, slog.Default()), nil, noLabel, noIcon, slog.Default()).
+		Announce(store.Change{Removed: []store.ChatID{"claude:s2"}})
+	for _, id := range []device.ID{a, local} {
+		if got := cap.sent[id]; len(got) != 1 || got[0] != "chats.removed" {
+			t.Errorf("%s got %v, want one chats.removed", id, got)
+		}
+	}
+}
+
 func TestAttentionReachesEveryPairedDevice(t *testing.T) {
 	a, b := device.ID("aa"), device.ID("bb")
 	cap := &sentCapture{sent: map[device.ID][]string{}}
-	NewAnnouncer(twoPeers{ids: []device.ID{a, b}}, emit.New(cap, slog.Default()), nil, noLabel, noIcon, slog.Default()).
+	NewAnnouncer(twoPeers{ids: []device.ID{a, b}}, noLocals, emit.New(cap, slog.Default()), nil, noLabel, noIcon, slog.Default()).
 		Attention(Attention{ChatID: "claude:s1", Kind: AttentionFinished})
 	for _, id := range []device.ID{a, b} {
 		if got := cap.sent[id]; len(got) != 1 || got[0] != "chats.attention" {
@@ -220,7 +236,7 @@ func TestAnnounceSendsRowsAndRemovalsToEveryPairedDevice(t *testing.T) {
 	if err := db.SetStatus("claude:s1", "/tmp/s1", agent.ChatIdle, time.Now(), store.TurnObservation{}); err != nil {
 		t.Fatal(err)
 	}
-	NewAnnouncer(twoPeers{ids: []device.ID{a, b}}, emit.New(cap, slog.Default()), db, noLabel, noIcon, slog.Default()).
+	NewAnnouncer(twoPeers{ids: []device.ID{a, b}}, noLocals, emit.New(cap, slog.Default()), db, noLabel, noIcon, slog.Default()).
 		Announce(store.Change{Changed: []store.ChatID{"claude:s1", "claude:gone"}, Removed: []store.ChatID{"claude:s2"}})
 	for _, id := range []device.ID{a, b} {
 		if got := cap.sent[id]; len(got) != 2 || got[0] != "chats.changed" || got[1] != "chats.removed" {

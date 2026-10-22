@@ -97,7 +97,7 @@ func (h *Host) openAgents() error {
 		return err
 	}
 	h.onClose(h.agents.Close)
-	h.mcps, err = mcp.Open(h.state("mcp.json"), func(ev mcp.Changed) { h.toEveryPhone(ev) })
+	h.mcps, err = mcp.Open(h.state("mcp.json"), func(ev mcp.Changed) { h.toEveryDevice(ev) })
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (h *Host) openTools() error {
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
 		Global: h.state("plugins"), Crons: h.state("crons.json"), LogsPath: h.state("plugin-logs.db"),
 		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
-		Logged: func(ev pluginscore.Logged) { h.toEveryPhone(ev) },
+		Logged: func(ev pluginscore.Logged) { h.toEveryDevice(ev) },
 		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
 		Host:   h.pluginHost,
 		Log:    h.log,
@@ -195,13 +195,13 @@ func (h *Host) openDevices() error {
 	// socket if it has one, else the relay, the fallback when there is one.
 	h.Pushes = emit.NewMux()
 	h.emitter = emit.New(h.Pushes, h.log)
-	h.devices.OnRevoke(func(device.ID) { h.toEveryPhone(devicesrpc.Changed{}) })
+	h.devices.OnRevoke(func(device.ID) { h.toEveryDevice(devicesrpc.Changed{}) })
 
 	// Public tunnels: dialled only while one is open; every phone sees the list.
 	h.tunnels, err = tunnel.Open(tunnel.Config{
 		Path: h.state("tunnels.json"), Identity: h.devices.Identity(), Peers: h.devices,
 		Gateway: h.cfg.Gateway, Plaintext: h.cfg.GatewayPlaintext,
-		Changed: func(ev tunnel.Changed) { h.toEveryPhone(ev) }, OwnPort: h.info.Port,
+		Changed: func(ev tunnel.Changed) { h.toEveryDevice(ev) }, OwnPort: h.info.Port,
 		Plugins: h.Services.Plugins, Log: h.log,
 	})
 	if err != nil {
@@ -249,7 +249,7 @@ func (h *Host) openChats() error {
 		h.log.Info("settled orphaned turns", "chats", n)
 	}
 
-	h.announcer = chatlive.NewAnnouncer(h.devices, h.emitter, h.db, h.Services.AgentCatalog.ModelLabel, h.agents.ProjectAgentIcon, h.log)
+	h.announcer = chatlive.NewAnnouncer(h.devices, h.Pushes.Attached, h.emitter, h.db, h.Services.AgentCatalog.ModelLabel, h.agents.ProjectAgentIcon, h.log)
 	h.syncer = chatsync.New(h.sessions, h.db, h.log)
 	// h.live streams the manager's turns, so it comes after; no turn runs before New returns.
 	h.mgr = agent.NewManager(h.log, agent.Hooks{
@@ -319,7 +319,7 @@ func (h *Host) openProjects() error {
 	}
 	acts, err := actions.New(actions.Deps{
 		Paths: projectFiles, Store: h.db, Terminals: terminals, EnvSources: envSources,
-		Changed: func(snap actions.Snapshot) { h.toEveryPhone(snap) },
+		Changed: func(snap actions.Snapshot) { h.toEveryDevice(snap) },
 		Logs:    h.state("action-runs"), Log: h.log,
 	})
 	if err != nil {
@@ -345,7 +345,7 @@ func (h *Host) openProjects() error {
 
 	schedules, err := schedule.New(schedule.Deps{
 		Self: h.devices.Identity().ID, Store: h.db, Chats: chats, Files: projectFiles, Agents: h.agents.Kinds(),
-		Changed: func(c schedule.Changed) { h.toEveryPhone(c) }, Log: h.log,
+		Changed: func(c schedule.Changed) { h.toEveryDevice(c) }, Log: h.log,
 	})
 	if err != nil {
 		return err
@@ -396,7 +396,7 @@ func (h *Host) openProjects() error {
 	s.Connect = connect.New(connect.Deps{
 		Sources: envSources, PluginDir: s.Plugins.Dir, SharedEnv: filepath.Join(h.state("plugins"), ".env"),
 		Contain: projectFiles.Contain, Home: h.cfg.Home, Ignored: gitService.Ignored, MCP: h.mcps, CLIs: s.Tools,
-		Changed: func(c connect.Changed) { h.toEveryPhone(c) }, Now: time.Now,
+		Changed: func(c connect.Changed) { h.toEveryDevice(c) }, Now: time.Now,
 	})
 	s.Tools.OnLoginEnd(s.Connect.CLIEnded)
 	s.Home = h.cfg.Home
@@ -474,14 +474,14 @@ func (h *Host) relayConnected() bool { return h.link != nil && h.link.Connected(
 // setupChanged tells every phone the setup state: a sign-in or an install
 // outlives its caller, and changes what the CLI offers, so catalogs are re-read.
 func (h *Host) setupChanged() {
-	h.toEveryPhone(hostsetup.Snapshot(h.ctx, hostsetup.Sources{
+	h.toEveryDevice(hostsetup.Snapshot(h.ctx, hostsetup.Sources{
 		Host: h.info, GitHub: h.Services.GitHub, Tools: h.Services.Tools, Catalog: h.Services.AgentCatalog,
 	}, true))
 }
 
 // batteryChanged tells every paired phone the battery moved; a low one wakes them.
 func (h *Host) batteryChanged(b power.Battery) {
-	h.toEveryPhone(b)
+	h.toEveryDevice(b)
 	if h.alerts != nil {
 		h.alerts.Battery(h.ctx, b)
 	}

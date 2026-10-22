@@ -328,16 +328,17 @@ func (h *Host) projectsChanged(c store.ProjectChange) {
 	for i := range c.Changed {
 		c.Changed[i].HostID = host
 	}
-	h.toEveryPhone(projectsync.Changed{Projects: c.Changed, Removed: c.Removed})
+	h.toEveryDevice(projectsync.Changed{Projects: c.Changed, Removed: c.Removed})
 }
 
-// toEveryPhone pushes ev to each paired device and counts those it reached;
-// one that is offline catches up on its next list.
-func (h *Host) toEveryPhone(ev emit.Event) int {
+// toEveryDevice pushes ev to each paired device and each client on this
+// machine, and counts those it reached; one that is offline catches up on
+// its next list.
+func (h *Host) toEveryDevice(ev emit.Event) int {
 	sent := 0
-	for _, peer := range h.devices.Peers() {
-		if err := h.emitter.To(peer.ID, ev); err != nil {
-			h.log.Debug("update not delivered", "event", ev.Method(), "device", peer.ID, "err", err)
+	for _, id := range device.Recipients(h.devices.Peers(), h.Pushes.Attached()) {
+		if err := h.emitter.To(id, ev); err != nil {
+			h.log.Debug("update not delivered", "event", ev.Method(), "device", id, "err", err)
 			continue
 		}
 		sent++
