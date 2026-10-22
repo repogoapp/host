@@ -15,7 +15,7 @@ import (
 // client types, for a phone-local host that decodes params and encodes results.
 // Params decode as Go does: a missing field takes its zero value.
 func Serving(specs []rpc.Spec, catalog []hostemit.Event, methods, events []string) string {
-	g, eventGen, _ := methodsGen(specs)
+	g, eventGen, _ := methodsGen(specs, nil)
 	served := map[string]bool{}
 	for _, name := range methods {
 		if !methodExports[name] {

@@ -15,7 +15,7 @@ import (
 // Swift, as kotlinx.serialization classes. Kotlin can't add a nested type from a
 // second file, so the event types Swift keeps in HostEvents.swift are here too.
 func Kotlin(specs []rpc.Spec) string {
-	g, events, _ := methodsGen(specs)
+	g, events, _ := methodsGen(specs, nil)
 	k := kotlinGen{names: g.names}
 	members := map[string]*strings.Builder{}
 	member := func(family string) *strings.Builder {

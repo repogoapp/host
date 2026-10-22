@@ -90,12 +90,16 @@ var methodExports = map[string]bool{
 }
 
 // methodsGen generates the client's method types: the bodies of types the event
-// file does not own, and each family's method constants.
-func methodsGen(specs []rpc.Spec) (*swiftGen, *swiftGen, map[string]string) {
+// file does not own, and each family's method constants. exported picks the
+// methods; nil takes methodExports, the phone's.
+func methodsGen(specs []rpc.Spec, exported func(string) bool) (*swiftGen, *swiftGen, map[string]string) {
+	if exported == nil {
+		exported = func(name string) bool { return methodExports[name] }
+	}
 	g := &swiftGen{names: map[reflect.Type]string{}, dirs: map[reflect.Type]int{}}
 	var exports []rpc.Spec
 	for _, s := range specs {
-		if methodExports[s.Name] {
+		if exported(s.Name) {
 			exports = append(exports, s)
 			g.methods = append(g.methods, s)
 			g.collect(s.Params, map[reflect.Type]bool{})
@@ -139,7 +143,7 @@ func methodsGen(specs []rpc.Spec) (*swiftGen, *swiftGen, map[string]string) {
 }
 
 func Methods(specs []rpc.Spec) string {
-	g, events, members := methodsGen(specs)
+	g, events, members := methodsGen(specs, nil)
 	for _, name := range g.order {
 		body, ok := g.bodies[name]
 		if !ok {
@@ -453,8 +457,10 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/rpc/reminders": "reminders",
 	"github.com/repogoapp/host/internal/reminder":      "reminders",
 
-	"github.com/repogoapp/host/internal/rpc/uploads": "uploads",
-	"github.com/repogoapp/host/internal/uploads":     "uploads",
+	"github.com/repogoapp/host/internal/rpc/uploads":  "uploads",
+	"github.com/repogoapp/host/internal/rpc/pairing":  "pair",
+	"github.com/repogoapp/host/internal/stepactivity": "activities",
+	"github.com/repogoapp/host/internal/uploads":      "uploads",
 }
 
 func (g *swiftGen) assignNames() {
