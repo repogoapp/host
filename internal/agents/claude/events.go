@@ -334,7 +334,7 @@ func (s *liveSession) blockLocked(id string, index int, b claudecode.ContentBloc
 
 func liveToolName(name string) string {
 	switch name {
-	case "Task", "Agent":
+	case "Task", "Agent", "Workflow":
 		return name
 	case "Bash", "PowerShell", "BashOutput", "KillShell":
 		return "execute"

@@ -121,6 +121,13 @@ Stateful, key `streaming`: the last one is handed to a device joining the room; 
 - `epoch` string
 - `revision` int
 
+## `chats.subagents`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `chat_id` string
+- `calls` [object{SubagentCall}]
+
 ## `chats.tool`
 
 Signal: not replayed; a missed one is recovered by refetching.

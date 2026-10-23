@@ -41,6 +41,7 @@ func Register(r *rpc.Router, d Deps) {
 		rpc.Read, rpc.LiveOn("chats.changed"))
 	// Every prompt's index, so the scrubber reaches prompts not yet paged in.
 	rpc.Add(r, "chats.subagent", d.subagent)
+	rpc.Add(r, "chats.workflow", d.workflow)
 	// A tool sheet's calls whole, and each again as its rows land while open.
 	rpc.Add(r, "chats.tools_subscribe", d.toolsSubscribe)
 	rpc.Add(r, "chats.tools_unsubscribe", d.toolsUnsubscribe)
@@ -93,17 +94,33 @@ func (d Deps) messages(_ context.Context, _ rpc.Caller, a MessagesParams) (chatw
 	return d.Wire.Page(page), nil
 }
 
-// subagent is in the same event shape as chats.messages.
+// subagent is in the same event shape as chats.messages. With agent_id it is
+// that agent of the workflow call_id started.
 func (d Deps) subagent(_ context.Context, _ rpc.Caller, a SubagentParams) (SubagentResult, error) {
-	sub, err := d.Chats.Subagent(a.ChatID, a.CallID)
+	sub, rows, err := d.Chats.Subagent(a.ChatID, a.CallID, a.AgentID)
 	if err != nil {
 		return SubagentResult{}, err
 	}
-	rows := store.MessagesOf(sub.Events)
 	return SubagentResult{
 		Kind: sub.Kind, Name: sub.Name,
 		Events: d.Wire.Messages(a.ChatID.Kind(), rows), Tools: d.Wire.Details(a.ChatID.Kind(), rows),
 	}, nil
+}
+
+// workflow is a Workflow call's agents, each as its row on the run's page draws it.
+func (d Deps) workflow(_ context.Context, _ rpc.Caller, a WorkflowParams) (WorkflowResult, error) {
+	subs, err := d.Chats.Subagents(a.ChatID, a.CallID)
+	if err != nil {
+		return WorkflowResult{}, err
+	}
+	agents := make([]WorkflowAgent, 0, len(subs))
+	for _, s := range subs {
+		agents = append(agents, WorkflowAgent{
+			ID: s.Key, Label: s.Label, Phase: s.Phase, Done: s.Done,
+			StartedAt: s.StartedAt, UpdatedAt: s.UpdatedAt, Result: s.Result,
+		})
+	}
+	return WorkflowResult{Agents: agents}, nil
 }
 
 func (d Deps) toolsSubscribe(_ context.Context, c rpc.Caller, a ToolsSubscribeParams) (ToolsSubscribeResult, error) {

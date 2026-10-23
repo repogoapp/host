@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	// bytedance/sonic rather than encoding/json: transcript parsing is the
 	// host's biggest CPU cost and this decoder measured several times faster
@@ -27,6 +28,11 @@ type Sessions struct {
 	// every line is a sidechain; in a main file those lines are skipped. Parsing
 	// needs no home, so a zero Sessions with only this set parses.
 	Sidechain bool
+
+	// Each transcript's Workflow runs by the call that launched them;
+	// children.go.
+	runMu sync.Mutex
+	runs  map[string]runCache
 }
 
 // NewSessions reads the transcripts under home, Claude's config directory.

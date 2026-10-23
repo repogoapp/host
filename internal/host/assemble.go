@@ -271,7 +271,9 @@ func (h *Host) openChats() error {
 		Sessions: h.sessions, Store: h.db, Emit: h.emitter, Turns: h.mgr, Log: h.log,
 		Attention: h.announcer.Attention,
 		Wire:      wire,
+		Children:  h.syncer,
 	})
+	h.syncer.OnChildren(h.live.ChildrenChanged)
 	// Terminal turns stream through the MessageDisplay hook; Stop closes them.
 	h.bridge, err = notify.NewBridge(h.state("notify"), h.recordHook, h.live.Display, h.agents.Hooks...)
 	if err != nil {

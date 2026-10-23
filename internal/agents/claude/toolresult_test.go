@@ -10,8 +10,8 @@ import (
 	"github.com/repogoapp/host/internal/session"
 )
 
-// The fixture's last five lines carry the CLI's toolUseResult in the shapes it
-// writes: a shell run with stderr, a failed run, a Write, a search, a fetch.
+// The fixture's last six lines carry the CLI's toolUseResult in the shapes it
+// writes: a shell run with stderr, a failed run, a Write, a search, a fetch, a question.
 func TestClaudeReadsToolUseResult(t *testing.T) {
 	two := 2
 	want := map[string]struct {
@@ -24,6 +24,10 @@ func TestClaudeReadsToolUseResult(t *testing.T) {
 		"c4": {"File created", &agent.ToolResult{Created: true}},
 		"c5": {"Web search results", &agent.ToolResult{DurationMS: 1500, URLs: []agent.ToolURL{{Title: "Go", URL: "https://go.dev"}}}},
 		"c6": {"page", &agent.ToolResult{DurationMS: 2341, HTTPStatus: 200}},
+		"c7": {
+			`Your questions have been answered: "Which, \"exactly\"?"="Both, A". You can now continue with these answers in mind.`,
+			&agent.ToolResult{Answers: map[string]string{`Which, "exactly"?`: "Both, A"}},
+		},
 	}
 	f, err := os.Open("testdata/transcript.jsonl")
 	if err != nil {

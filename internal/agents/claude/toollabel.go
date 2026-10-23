@@ -9,10 +9,11 @@ import (
 )
 
 // ToolRow is a Claude tool call on the chat lane (chatwire.Labeler): its
-// label, a TodoWrite's list, a subagent's type, and whether a subagent was
-// launched to run in the background.
+// label, a TodoWrite's list, a subagent's type, and whether a subagent or a
+// workflow was launched to run in the background.
 func (p *Provider) ToolRow(call agent.ToolCall) chatwire.Tool {
-	background := strings.HasPrefix(call.Output, "Async agent launched")
+	background := strings.HasPrefix(call.Output, "Async agent launched") ||
+		strings.HasPrefix(call.Output, "Workflow launched")
 	if call.Name == "" {
 		return chatwire.Tool{Background: background}
 	}
@@ -51,6 +52,8 @@ func label(name string, args map[string]any) toollabel.Label {
 		return toollabel.WebFetch(args)
 	case "Task", "Agent":
 		return toollabel.Subagent(args)
+	case "Workflow":
+		return toollabel.Workflow(args)
 	case "TaskCreate":
 		subject := toollabel.Preview(toollabel.String(args, "subject"), 48, "task")
 		return toollabel.New("checklist", "Creating task: "+subject, "Created task", "Task creation attempted")

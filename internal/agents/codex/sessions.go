@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -23,6 +24,17 @@ import (
 type Sessions struct {
 	home  string
 	cache *session.PeekCache[peekResult]
+
+	// What List saw of each thread's spawned agents, by parent thread, and
+	// each parent's spawn_agent results; children.go.
+	childMu  sync.Mutex
+	children map[string][]childRollout
+	spawns   map[string]spawnCache
+
+	// The last scan of the newest folders for spawned rollouts; children.go.
+	recentMu sync.Mutex
+	recent   map[string][]childRollout
+	recentAt time.Time
 }
 
 // NewSessions reads the rollouts under home, Codex's config directory. Parsing
@@ -51,6 +63,7 @@ func (c *Sessions) List() ([]session.Meta, error) {
 	// The YYYY/MM/DD nesting is an implementation detail of how Codex files
 	// rollouts; walking is more robust than reconstructing the date layout.
 	var files []session.PeekFile
+	children := map[string][]childRollout{}
 	err := filepath.WalkDir(sessions, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
 			return nil
@@ -65,7 +78,12 @@ func (c *Sessions) List() ([]session.Meta, error) {
 
 	for i, peeked := range session.PeekEach(files, c.peek) {
 		path, info := files[i].Path, files[i].Info
-		if peeked.id == "" || peeked.subagent != nil {
+		if sub := peeked.subagent; sub != nil {
+			children[sub.ParentThread] = append(children[sub.ParentThread],
+				childRollout{codexSubagent: *sub, size: info.Size(), modTime: info.ModTime()})
+			continue
+		}
+		if peeked.id == "" {
 			continue
 		}
 		m := byID[peeked.id]
@@ -95,6 +113,10 @@ func (c *Sessions) List() ([]session.Meta, error) {
 		}
 		m.Settings = m.Settings.Or(peeked.settings)
 	}
+
+	c.childMu.Lock()
+	c.children = children
+	c.childMu.Unlock()
 
 	for _, id := range order {
 		m := byID[id]

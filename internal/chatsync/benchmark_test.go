@@ -41,8 +41,8 @@ func BenchmarkLocalSync(b *testing.B) {
 					b.StopTimer()
 					root := b.TempDir()
 					logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-					var list, parse, write time.Duration
-					var sessions, synced, events int
+					var list, parse, write, kids time.Duration
+					var sessions, synced, events, children int
 					b.ReportAllocs()
 					for i := 0; i < b.N; i++ {
 						dir := filepath.Join(root, "cache")
@@ -82,6 +82,8 @@ func BenchmarkLocalSync(b *testing.B) {
 						list += stats.list
 						parse += stats.parse
 						write += stats.write
+						kids += stats.kids
+						children += stats.children
 						sessions += stats.total
 						synced += stats.synced
 						events += stats.events
@@ -90,6 +92,8 @@ func BenchmarkLocalSync(b *testing.B) {
 					b.ReportMetric(float64(list)/n/1e6, "list-ms/op")
 					b.ReportMetric(float64(parse)/n/1e6, "parse-ms/op")
 					b.ReportMetric(float64(write)/n/1e6, "write-ms/op")
+					b.ReportMetric(float64(kids)/n/1e6, "children-ms/op")
+					b.ReportMetric(float64(children)/n, "chats-with-children/op")
 					b.ReportMetric(float64(sessions)/n, "sessions/op")
 					b.ReportMetric(float64(synced)/n, "synced/op")
 					b.ReportMetric(float64(events)/n, "events/op")

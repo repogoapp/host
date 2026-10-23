@@ -29,6 +29,14 @@ const coalesce = 250 * time.Millisecond
 // flushPage is one pushed page, the same cap a client's forward read uses.
 const flushPage = 500
 
+// childPoll is how often a watched chat's subagents are checked while they
+// write, and childIdle the longest wait once they have gone quiet: their
+// files are not the chat's, so its watch does not see them.
+const (
+	childPoll = time.Second
+	childIdle = 8 * time.Second
+)
+
 // sessionWait bounds how long a subscriber to a chat this host just started
 // waits for the provider to write its first line.
 const sessionWait = 2 * time.Minute
@@ -47,6 +55,15 @@ type Deps struct {
 
 	// Wire builds pushed pages as the phone receives them, as chats.messages does.
 	Wire *chatwire.Builder
+
+	// Children syncs a chat's subagents into Store and names the calls whose
+	// agents changed.
+	Children ChildSyncer
+}
+
+// ChildSyncer is chatsync.Syncer's per-chat child sync.
+type ChildSyncer interface {
+	SyncChildren(session.Meta) ([]string, error)
 }
 
 type Manager struct {
@@ -56,6 +73,7 @@ type Manager struct {
 	db       *store.Store
 	wire     *chatwire.Builder
 	log      *slog.Logger
+	children ChildSyncer
 
 	turns TurnStream
 
@@ -75,6 +93,9 @@ type Manager struct {
 	now        func() time.Time
 
 	mu sync.Mutex
+
+	// Held from reading a chat's subagent calls to sending them; sendSubagents.
+	subagentsMu sync.Mutex
 
 	// The file tail each device has open. One per device: a tailer is not
 	// left running for every chat ever opened.
@@ -116,6 +137,7 @@ type tail struct {
 func New(ctx context.Context, d Deps) *Manager {
 	return &Manager{
 		ctx: ctx, sessions: d.Sessions, db: d.Store, emit: d.Emit, turns: d.Turns, log: d.Log, wire: d.Wire,
+		children: d.Children,
 		onAttention: d.Attention,
 
 		tails:       map[device.ID]*tail{},
@@ -232,7 +254,7 @@ func (m *Manager) run(ctx context.Context, caller device.ID, chatID store.ChatID
 	if !m.awaitSession(ctx, chatID) {
 		return
 	}
-	_, events, err := m.sessions.Watch(ctx, chatID.SessionID())
+	meta, events, err := m.sessions.Watch(ctx, chatID.SessionID())
 	if err != nil {
 		m.log.Warn("chatlive: cannot watch", "chat", chatID, "err", err)
 		return
@@ -248,6 +270,7 @@ func (m *Manager) run(ctx context.Context, caller device.ID, chatID store.ChatID
 	m.mu.Unlock()
 
 	cursor := sinceIdx
+	go m.watchChildren(ctx, caller, chatID, meta)
 	for {
 		select {
 		case <-ctx.Done():
@@ -314,6 +337,68 @@ func drain(ctx context.Context, events <-chan agent.Event) bool {
 			// streaming turn still gets a push every `coalesce`.
 		case <-timer.C:
 			return true
+		}
+	}
+}
+
+// watchChildren keeps a watched chat's subagents synced, apart from its rows
+// so a slow pass never holds them up. The device hears where they stand now;
+// every later change reaches all watchers through ChildrenChanged.
+func (m *Manager) watchChildren(ctx context.Context, caller device.ID, chatID store.ChatID, meta session.Meta) {
+	if _, err := m.children.SyncChildren(meta.Restat()); err != nil {
+		m.log.Debug("chatlive: could not sync subagents", "chat", chatID, "err", err)
+	}
+	m.sendSubagents(chatID, []device.ID{caller})
+
+	wait := childPoll
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		changed, err := m.children.SyncChildren(meta.Restat())
+		if err != nil {
+			m.log.Debug("chatlive: could not sync subagents", "chat", chatID, "err", err)
+		}
+		// Quiet children are checked less often, up to childIdle.
+		if len(changed) > 0 {
+			wait = childPoll
+		} else {
+			wait = min(wait*2, childIdle)
+		}
+		timer.Reset(wait)
+	}
+}
+
+// ChildrenChanged tells every device watching chatID where its calls' agents
+// stand: a sweep or any watcher's pass may be the one that saw the change.
+func (m *Manager) ChildrenChanged(chatID store.ChatID) {
+	m.sendSubagents(chatID, m.emit.Members(chatRoom(chatID)))
+}
+
+// sendSubagents sends devices the chat's calls that started agents, none
+// included, so a device back from a reconnect lets go of what ended. One send
+// at a time, so an older read never reaches a device after a newer one.
+func (m *Manager) sendSubagents(chatID store.ChatID, devices []device.ID) {
+	if len(devices) == 0 {
+		return
+	}
+	m.subagentsMu.Lock()
+	defer m.subagentsMu.Unlock()
+	calls, err := m.db.SubagentCalls(chatID)
+	if err != nil {
+		return
+	}
+	push := Subagents{ChatID: string(chatID), Calls: make([]SubagentCall, 0, len(calls))}
+	for _, c := range calls {
+		push.Calls = append(push.Calls, SubagentCall{CallID: c.CallID, Agents: c.Agents, Done: c.Done, Revision: c.Revision})
+	}
+	for _, d := range devices {
+		if err := m.emit.To(d, push); err != nil {
+			m.log.Debug("chatlive: could not push subagents", "chat", chatID, "device", d, "err", err)
 		}
 	}
 }

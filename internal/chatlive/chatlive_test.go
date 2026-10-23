@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/repogoapp/host/internal/agents/claude"
+	"github.com/repogoapp/host/internal/chatsync"
 	"github.com/repogoapp/host/internal/chatwire"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
@@ -21,12 +22,29 @@ import (
 
 // A recording publisher, so a test can assert what a device would have received.
 type capture struct {
-	mu    sync.Mutex
-	pages []chatwire.Page
-	tools []Tool
+	mu        sync.Mutex
+	pages     []chatwire.Page
+	tools     []Tool
+	subagents []subagentsPush
 }
 
-func (c *capture) Send(_ device.ID, method string, payload []byte) error {
+// subagentsPush is one chats.subagents push and the device it went to.
+type subagentsPush struct {
+	device device.ID
+	push   Subagents
+}
+
+func (c *capture) Send(d device.ID, method string, payload []byte) error {
+	if method == "chats.subagents" {
+		var push Subagents
+		if err := json.Unmarshal(payload, &push); err != nil {
+			return err
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.subagents = append(c.subagents, subagentsPush{device: d, push: push})
+		return nil
+	}
 	if method == "chats.tool" {
 		var tool Tool
 		if err := json.Unmarshal(payload, &tool); err != nil {
@@ -56,6 +74,22 @@ func (c *capture) received() []chatwire.Page {
 	return append([]chatwire.Page(nil), c.pages...)
 }
 
+func (c *capture) receivedSubagents() []Subagents {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]Subagents, 0, len(c.subagents))
+	for _, p := range c.subagents {
+		out = append(out, p.push)
+	}
+	return out
+}
+
+func (c *capture) receivedSubagentsTo() []subagentsPush {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]subagentsPush(nil), c.subagents...)
+}
+
 func (c *capture) receivedTools() []Tool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -68,8 +102,14 @@ func newManager(t *testing.T, sessions *session.Store, db *store.Store, pub emit
 		Sessions: sessions, Store: db, Emit: emit.New(pub, slog.Default()), Turns: turns, Log: slog.Default(),
 		Attention: func(Attention) {},
 		Wire:      chatwire.New(nil),
+		Children:  noChildren{},
 	})
 }
+
+// noChildren is a ChildSyncer for chats that start no agents.
+type noChildren struct{}
+
+func (noChildren) SyncChildren(session.Meta) ([]string, error) { return nil, nil }
 
 // liveHome is a temporary Claude home holding one session, live-1, and the
 // store that reads it.
@@ -397,4 +437,75 @@ func TestWatchedToolsArePushedWhole(t *testing.T) {
 	if n := len(pub.receivedTools()); n != 1 {
 		t.Errorf("a closed sheet still received %d more pushes", n-1)
 	}
+}
+
+// Every device watching a chat hears where its agents stand when it
+// subscribes, and again whenever any pass syncs a change: a sweep that reads
+// an agent's write first must not leave a watcher behind.
+func TestWatchedChatsSubagentsArePushedToEveryWatcher(t *testing.T) {
+	_, sessions := liveHome(t, userLine("look into it"))
+	db, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	metas, _ := sessions.List()
+	events, _ := sessions.Events(metas[0])
+	if err := db.Sync(metas[0], events); err != nil {
+		t.Fatal(err)
+	}
+	subs := filepath.Join(strings.TrimSuffix(metas[0].Path, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subs, "agent-a9.meta.json"), []byte(`{"agentType":"Explore","toolUseId":"toolu_task"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(subs, "agent-a9.jsonl")
+	if err := os.WriteFile(transcript, []byte(userLine("Find it.")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pub := &capture{}
+	syncer := chatsync.New(sessions, db, slog.Default())
+	m := New(t.Context(), Deps{
+		Sessions: sessions, Store: db, Emit: emit.New(pub, slog.Default()), Turns: &fakeTurns{}, Log: slog.Default(),
+		Attention: func(Attention) {},
+		Wire:      chatwire.New(nil),
+		Children:  syncer,
+	})
+	syncer.OnChildren(m.ChildrenChanged)
+	phone, ipad := device.ID("00112233445566778899aabbccddeeff"), device.ID("ffeeddccbbaa99887766554433221100")
+	for _, d := range []device.ID{phone, ipad} {
+		if _, err := m.Subscribe(d, "claude:live-1", 1); err != nil {
+			t.Fatal(err)
+		}
+		defer m.Unsubscribe(d)
+	}
+	testwait.For(t, "each device's subscribe push", func() bool { return len(pub.receivedSubagents()) >= 2 })
+	first := pub.receivedSubagents()[0]
+	if first.ChatID != "claude:live-1" || len(first.Calls) != 1 || first.Calls[0].CallID != "toolu_task" || first.Calls[0].Agents != 1 {
+		t.Fatalf("first push = %+v, want toolu_task with one agent", first)
+	}
+	before := first.Calls[0].Revision
+
+	f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(userLine("Found it.") + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	// The sweep reads the write before either device's own pass does.
+	syncer.Once(t.Context())
+	testwait.For(t, "both devices told of the write", func() bool {
+		told := map[device.ID]bool{}
+		for _, p := range pub.receivedSubagentsTo() {
+			if len(p.push.Calls) == 1 && p.push.Calls[0].Revision > before {
+				told[p.device] = true
+			}
+		}
+		return told[phone] && told[ipad]
+	})
 }

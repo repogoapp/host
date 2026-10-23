@@ -1,5 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Agent {
@@ -79,6 +80,9 @@ pub struct ToolResult {
     pub urls: Vec<ToolUrl>,
     #[serde(skip_serializing_if = "is_zero")]
     pub http_status: i64,
+    // A BTreeMap, so its keys are written sorted, as Go writes a map's.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub answers: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -160,6 +164,10 @@ pub fn f<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
 
 pub fn v<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Vec<T>, D::Error> {
     Ok(Option::<Vec<T>>::deserialize(d)?.unwrap_or_default())
+}
+
+pub fn m<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, String>, D::Error> {
+    Ok(Option::<BTreeMap<String, String>>::deserialize(d)?.unwrap_or_default())
 }
 
 // A present null is kept as the literal `null`, the way json.RawMessage does.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/repogoapp/host/internal/agent"
@@ -84,7 +85,7 @@ func TestClaudeIgnoresANoticeWithoutAReport(t *testing.T) {
 	}
 }
 
-func TestClaudeSubagentReadsTheAgentsOwnTranscript(t *testing.T) {
+func TestClaudeChildrenReadTheAgentsOwnTranscript(t *testing.T) {
 	dir := t.TempDir()
 	main := filepath.Join(dir, "s1.jsonl")
 	jsonl(t, main, claudeText("user", "look into it", false))
@@ -100,30 +101,31 @@ func TestClaudeSubagentReadsTheAgentsOwnTranscript(t *testing.T) {
 		[]byte(`{"agentType":"Explore","description":"Find the parser","toolUseId":"toolu_task"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A compaction writes a sidecar with no call; it is no call's work.
+	if err := os.WriteFile(filepath.Join(subs, "agent-acompact.meta.json"), []byte(`{"agentType":"compact"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	sub, err := (&claude.Sessions{}).Subagent(session.Meta{ID: "s1", Path: main}, "toolu_task")
+	c := &claude.Sessions{}
+	meta := session.Meta{ID: "s1", Path: main}
+	children, err := c.Children(meta)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sub.Kind != "Explore" {
-		t.Errorf("kind = %q, want Explore", sub.Kind)
+	if len(children) != 1 || children[0].Key != "a9" || children[0].CallID != "toolu_task" || children[0].Kind != "Explore" {
+		t.Fatalf("children = %+v, want a9 of toolu_task", children)
+	}
+	events, err := c.ChildEvents(meta, children[0])
+	if err != nil {
+		t.Fatal(err)
 	}
 	var kinds []agent.EventKind
-	for _, e := range sub.Events {
+	for _, e := range events {
 		kinds = append(kinds, e.Kind)
 	}
 	want := []agent.EventKind{agent.EventUserMessage, agent.EventToolCall, agent.EventText}
-	if len(kinds) != len(want) {
+	if !slices.Equal(kinds, want) {
 		t.Fatalf("events = %v, want %v", kinds, want)
-	}
-	for i := range want {
-		if kinds[i] != want[i] {
-			t.Fatalf("events = %v, want %v", kinds, want)
-		}
-	}
-
-	if _, err := (&claude.Sessions{}).Subagent(session.Meta{ID: "s1", Path: main}, "toolu_other"); err != session.ErrNotFound {
-		t.Errorf("unknown call: err = %v, want session.ErrNotFound", err)
 	}
 }
 
@@ -162,14 +164,57 @@ func TestCodexSubagentRollouts(t *testing.T) {
 		t.Fatalf("listed %+v, want only the parent, with its own rollout", metas)
 	}
 
-	sub, err := c.Subagent(metas[0], "call_spawn")
+	children, err := c.Children(metas[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sub.Name != "Laplace" || sub.Kind != "locate" {
-		t.Errorf("name, kind = %q, %q; want Laplace, locate", sub.Name, sub.Kind)
+	if len(children) != 1 {
+		t.Fatalf("children = %+v, want the one spawned thread", children)
 	}
-	if len(sub.Events) != 1 || sub.Events[0].Text != "Found it in codex.go." {
-		t.Fatalf("events = %+v, want only the child's own reply", sub.Events)
+	child := children[0]
+	if child.Key != "019f-child" || child.CallID != "call_spawn" || child.Name != "Laplace" || child.Kind != "locate" {
+		t.Errorf("child = %+v, want 019f-child of call_spawn, Laplace, locate", child)
+	}
+	events, err := c.ChildEvents(metas[0], child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Text != "Found it in codex.go." {
+		t.Fatalf("events = %+v, want only the child's own reply", events)
+	}
+	// A rollout of the thread that can't be read fails the read, rather than
+	// storing part of the thread as the whole.
+	child.Files = append(child.Files, session.ChildFile{Path: filepath.Join(day, "missing.jsonl")})
+	if _, err := c.ChildEvents(metas[0], child); err == nil {
+		t.Error("a missing rollout read as a whole thread")
+	}
+}
+
+// Only a spawn_agent call's result links a thread: another tool printing the
+// same task path is not the call that started it.
+func TestCodexChildLinksOnlyToItsSpawn(t *testing.T) {
+	home := t.TempDir()
+	day := filepath.Join(home, "sessions", "2026", "09", "24")
+	parent := "019f-parent"
+	jsonl(t, filepath.Join(day, "rollout-2026-09-24T10-00-00-"+parent+".jsonl"),
+		map[string]any{"type": "session_meta", "payload": map[string]any{"session_id": parent, "id": parent, "cwd": "/w", "source": "cli"}},
+		map[string]any{"type": "response_item", "payload": map[string]any{"type": "function_call", "name": "spawn_agent", "call_id": "call_spawn", "arguments": `{"task_name":"locate"}`}},
+		map[string]any{"type": "response_item", "payload": map[string]any{"type": "function_call_output", "call_id": "call_spawn", "output": `{"task_name":"/root/locate"}`}},
+		map[string]any{"type": "response_item", "payload": map[string]any{"type": "function_call", "name": "shell", "call_id": "call_cat", "arguments": `{"command":["cat","out.json"]}`}},
+		map[string]any{"type": "response_item", "payload": map[string]any{"type": "function_call_output", "call_id": "call_cat", "output": `{"task_name":"/root/locate"}`}},
+	)
+	jsonl(t, filepath.Join(day, "rollout-2026-09-24T10-00-05-019f-child.jsonl"),
+		map[string]any{"type": "session_meta", "payload": map[string]any{
+			"id": "019f-child", "cwd": "/w", "parent_thread_id": parent, "thread_source": "subagent", "agent_path": "/root/locate",
+		}},
+	)
+	c := codex.NewSessions(home)
+	metas, err := c.List()
+	if err != nil || len(metas) != 1 {
+		t.Fatalf("listed %+v, %v", metas, err)
+	}
+	children, err := c.Children(metas[0])
+	if err != nil || len(children) != 1 || children[0].CallID != "call_spawn" {
+		t.Fatalf("children = %+v, %v; want the thread linked to call_spawn", children, err)
 	}
 }

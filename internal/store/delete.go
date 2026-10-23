@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-// Delete drops one chat: its events, its search row, its row, and the user's
-// marks and handle.
+// Delete drops one chat: its events, its subagents, its search row, its row,
+// and the user's marks and handle.
 // The provider file is already gone by the time this is called.
 func (s *Store) Delete(id ChatID) error {
 	kind, sessionID, err := id.parts()
@@ -19,6 +19,9 @@ func (s *Store) Delete(id ChatID) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM events WHERE sid IN (SELECT sid FROM sessions WHERE agent = ? AND session_id = ?)`, kind, sessionID); err != nil {
+		return err
+	}
+	if err := dropSubagents(tx, kind, sessionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(deleteSearchRow, kind, sessionID); err != nil {
@@ -75,6 +78,9 @@ func (s *Store) Prune(keep map[string]bool) (int, error) {
 	for _, id := range stale {
 		kind, sessionID, _ := id.split()
 		if _, err := tx.Exec(`DELETE FROM events WHERE sid IN (SELECT sid FROM sessions WHERE agent = ? AND session_id = ?)`, kind, sessionID); err != nil {
+			return 0, err
+		}
+		if err := dropSubagents(tx, kind, sessionID); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(deleteSearchRow, kind, sessionID); err != nil {

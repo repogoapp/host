@@ -91,6 +91,25 @@ func (s Settings) Or(fallback Settings) Settings {
 	return s
 }
 
+// Restat is m with its size and last write read from its files again, for a
+// watch that holds one Meta while the files grow.
+func (m Meta) Restat() Meta {
+	var size int64
+	var updated time.Time
+	for _, path := range m.Files() {
+		info, err := os.Stat(path)
+		if err != nil {
+			return m
+		}
+		size += info.Size()
+		if info.ModTime().After(updated) {
+			updated = info.ModTime()
+		}
+	}
+	m.SizeBytes, m.UpdatedAt = size, updated
+	return m
+}
+
 // Files returns the segments in read order.
 func (m Meta) Files() []string {
 	if len(m.Paths) > 0 {

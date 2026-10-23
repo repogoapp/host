@@ -148,6 +148,7 @@ var unchecked = map[string]string{
 	"chats.wait":           "needs a running turn; covered in internal/agent",
 	"chats.handoff":        "opens a terminal window on the Mac; the command is covered in internal/handoff",
 	"chats.subagent":       "needs a session on disk; covered in the session package",
+	"chats.workflow":       "needs a session on disk; covered in the agents package",
 	"chats.send":           "would run an agent",
 	"chats.subscribe":      "needs the live push lane",
 

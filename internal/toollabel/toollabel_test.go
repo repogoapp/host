@@ -130,6 +130,19 @@ func TestSubagentTitle(t *testing.T) {
 	}
 }
 
+// A workflow is named by its script's meta, else the saved workflow it runs.
+func TestWorkflowLabel(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{`{"script":"export const meta = {\n  name: 'tiny-sample',\n  phases: [{ title: 'Map' }],\n}"}`, "Ran tiny-sample"},
+		{`{"name":"review-changes"}`, "Ran review-changes"},
+		{`{}`, "Ran a workflow"},
+	} {
+		if got := Workflow(args(t, tc.input)).Labels.Completed; got != tc.want {
+			t.Errorf("Workflow(%s) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
 func TestTodosCount(t *testing.T) {
 	if got := Todos(args(t, `{"todos":[{"content":"a"}]}`)).Labels.Completed; got != "Updated 1 todo" {
 		t.Errorf("one: %q", got)

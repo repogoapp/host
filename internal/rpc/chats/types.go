@@ -87,6 +87,34 @@ type ToolsUnsubscribeParams struct {
 type SubagentParams struct {
 	ChatID store.ChatID `json:"chat_id"`
 	CallID string       `json:"call_id"`
+	// AgentID names an agent of the workflow CallID started; such an agent
+	// has no call of its own.
+	AgentID string `json:"agent_id,omitempty"`
+}
+
+type WorkflowParams struct {
+	ChatID store.ChatID `json:"chat_id"`
+	CallID string       `json:"call_id"`
+}
+
+// WorkflowResult is a Workflow call's agents in the order its run started them.
+type WorkflowResult struct {
+	Agents []WorkflowAgent `json:"agents" wire:"array"`
+}
+
+// WorkflowAgent is one agent of a workflow run, as its row draws it.
+type WorkflowAgent struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Phase string `json:"phase"`
+	// Done is set once the run recorded the agent's result.
+	Done bool `json:"done"`
+	// StartedAt and UpdatedAt are Unix milliseconds: its transcript's first
+	// line, and its last write.
+	StartedAt int64 `json:"started_at"`
+	UpdatedAt int64 `json:"updated_at"`
+	// Result is the agent's answer, cut short for the row.
+	Result string `json:"result"`
 }
 
 // SubagentResult is a subagent's steps: its type and name for the page's

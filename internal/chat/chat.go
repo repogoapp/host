@@ -28,12 +28,10 @@ type Sender interface {
 	Wait(ctx context.Context, turnID string) (agent.TurnStatus, string, error)
 }
 
-// Transcripts is the provider-file side of a chat: its session files and the
-// subagents its calls started.
+// Transcripts is the provider-file side of a chat: its session files.
 type Transcripts interface {
 	Delete(sessionID string) error
 	Rename(sessionID, title string) error
-	Subagent(sessionID, callID string) (session.Subagent, error)
 }
 
 // Deps is everything a chat touches. Every field is required.
@@ -157,14 +155,23 @@ func (s *Service) ToolCalls(id store.ChatID, callIDs []string) ([]store.Message,
 	return s.d.Cache.ToolCalls(id, callIDs)
 }
 
-// Subagent is the transcript of the subagent the call callID started. Read
-// from the provider's files on each call and not cached: it is opened rarely
-// and only from its row.
-func (s *Service) Subagent(id store.ChatID, callID string) (session.Subagent, error) {
+// Subagent is the transcript of an agent the call callID started, as the
+// cache holds it: with agentKey that agent of a workflow, else the call's
+// only one.
+func (s *Service) Subagent(id store.ChatID, callID, agentKey string) (store.Subagent, []store.Message, error) {
 	if id.SessionID() == "" || strings.TrimSpace(callID) == "" {
-		return session.Subagent{}, fmt.Errorf("%w: chat_id and call_id are required", errkind.ErrInvalid)
+		return store.Subagent{}, nil, fmt.Errorf("%w: chat_id and call_id are required", errkind.ErrInvalid)
 	}
-	return s.d.Transcripts.Subagent(id.SessionID(), callID)
+	return s.d.Cache.SubagentMessages(id, callID, agentKey)
+}
+
+// Subagents is every agent the call callID started, a workflow's in the
+// order its run started them.
+func (s *Service) Subagents(id store.ChatID, callID string) ([]store.Subagent, error) {
+	if id.SessionID() == "" || strings.TrimSpace(callID) == "" {
+		return nil, fmt.Errorf("%w: chat_id and call_id are required", errkind.ErrInvalid)
+	}
+	return s.d.Cache.Subagents(id, callID)
 }
 
 // Turn is what chats.send and chats.start both run, in the shape a queued

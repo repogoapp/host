@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -196,6 +197,20 @@ func Subagent(args map[string]any) Label {
 	title := Preview(subagentTitle(args), 40, "a subagent")
 	return New("person.2", "Running "+title, "Ran "+title, "Subagent failed: "+title)
 }
+
+// Workflow is a Claude Workflow call, titled by its script's name, or the
+// saved workflow's it runs.
+func Workflow(args map[string]any) Label {
+	name := trimmed(args, "name")
+	if match := workflowName.FindStringSubmatch(trimmed(args, "script")); match != nil {
+		name = match[1]
+	}
+	title := Preview(name, 40, "a workflow")
+	return New("person.3", "Running "+title, "Ran "+title, "Workflow failed: "+title)
+}
+
+// workflowName is the `name` in a workflow script's `meta` literal.
+var workflowName = regexp.MustCompile(`meta\s*=\s*\{[^}]*?\bname\s*:\s*['"\x60]([^'"\x60]+)['"\x60]`)
 
 // subagentTitle is what a subagent was asked to do, in a few words: Claude's
 // `description`, Codex's task name, else the prompt's first line.

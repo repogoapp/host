@@ -12,7 +12,7 @@ import (
 // holds the two together.
 
 func init() {
-	emit.Register(Appended{}, Tool{}, Streaming{}, Approval{}, Changed{}, Removed{}, Attention{})
+	emit.Register(Appended{}, Tool{}, Subagents{}, Streaming{}, Approval{}, Changed{}, Removed{}, Attention{})
 }
 
 // chatRoom is the room for one chat's watchers.
@@ -35,6 +35,25 @@ type Tool struct {
 }
 
 func (Tool) Method() string { return "chats.tool" }
+
+// Subagents is where each call's agents stand, sent to a device watching the
+// chat as it subscribes and whenever one writes: a workflow's row counts its
+// agents from it, and an open subagent or workflow page reads again.
+type Subagents struct {
+	ChatID string         `json:"chat_id"`
+	Calls  []SubagentCall `json:"calls" wire:"array"`
+}
+
+func (Subagents) Method() string { return "chats.subagents" }
+
+// SubagentCall is the agents one call started: how many, and how many the
+// run has a result for. Revision moves whenever any of them changes.
+type SubagentCall struct {
+	CallID   string `json:"call_id"`
+	Agents   int    `json:"agents"`
+	Done     int    `json:"done"`
+	Revision int64  `json:"revision"`
+}
 
 // Streaming is the whole text of an in-flight turn so far, not the piece
 // since last time, so duplicates and missed pushes self-heal. The last one

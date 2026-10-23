@@ -41,11 +41,10 @@ func (r *recorder) Wait(context.Context, string) (agent.TurnStatus, string, erro
 	return agent.TurnStatus{}, "", agent.ErrNotFound
 }
 
-// transcripts is a Transcripts that remembers deletions and serves one subagent.
+// transcripts is a Transcripts that remembers deletions and renames.
 type transcripts struct {
-	deleted         []string
-	renamed         []string
-	sessionID, call string
+	deleted []string
+	renamed []string
 }
 
 func (f *transcripts) Delete(sessionID string) error {
@@ -56,14 +55,6 @@ func (f *transcripts) Delete(sessionID string) error {
 func (f *transcripts) Rename(sessionID, title string) error {
 	f.renamed = append(f.renamed, sessionID+": "+title)
 	return nil
-}
-
-func (f *transcripts) Subagent(sessionID, callID string) (session.Subagent, error) {
-	f.sessionID, f.call = sessionID, callID
-	if callID != "toolu_task" {
-		return session.Subagent{}, session.ErrNotFound
-	}
-	return session.Subagent{Kind: "Explore", Events: []agent.Event{{Kind: agent.EventText, Text: "It is in claude.go."}}}, nil
 }
 
 // harness is the chat service with the Deps it was built from.
@@ -279,24 +270,48 @@ func TestDeleteRefusesAChatThisHostIsRunning(t *testing.T) {
 	}
 }
 
-func TestSubagentReadsTheChatsSession(t *testing.T) {
-	svc, _, files := newService(t, agent.KindClaude)
-	sub, err := svc.Subagent("claude:sess-1", "toolu_task")
+// A subagent is read from the cache, beside its chat: a call's only agent, or
+// one of a workflow's by key.
+func TestSubagentReadsTheCache(t *testing.T) {
+	svc, _, _ := newService(t, agent.KindClaude)
+	parent := session.Meta{Agent: agent.KindClaude, ID: "sess-1"}
+	children := []session.Child{
+		{Key: "a9", CallID: "toolu_task", Kind: "Explore"},
+		{Key: "w1", CallID: "toolu_wf", RunID: "wf_1", Label: "map:math", Phase: "Map", Order: 0, Done: true},
+		{Key: "w2", CallID: "toolu_wf", RunID: "wf_1", Label: "build", Phase: "Build", Order: 1},
+	}
+	events := map[string][]agent.Event{
+		"a9": {{Kind: agent.EventText, Text: "It is in claude.go."}},
+		"w2": {{Kind: agent.EventText, Text: "Working on it."}},
+	}
+	if _, err := svc.Cache.SyncSubagents(parent, children, events); err != nil {
+		t.Fatal(err)
+	}
+
+	sub, rows, err := svc.Subagent("claude:sess-1", "toolu_task", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if files.sessionID != "sess-1" || sub.Kind != "Explore" || len(sub.Events) != 1 {
-		t.Fatalf("read %q: %+v", files.sessionID, sub)
+	if sub.Kind != "Explore" || len(rows) != 1 || rows[0].Text != "It is in claude.go." {
+		t.Fatalf("subagent = %+v, %+v", sub, rows)
 	}
-	if _, err := svc.Subagent("claude:sess-1", "toolu_x"); !errors.Is(err, session.ErrNotFound) {
+	if _, rows, err := svc.Subagent("claude:sess-1", "toolu_wf", "w2"); err != nil || len(rows) != 1 || rows[0].Text != "Working on it." {
+		t.Fatalf("workflow agent w2 = %+v, %v", rows, err)
+	}
+	agents, err := svc.Subagents("claude:sess-1", "toolu_wf")
+	if err != nil || len(agents) != 2 || agents[0].Key != "w1" || !agents[0].Done || agents[1].Phase != "Build" {
+		t.Fatalf("workflow agents = %+v, %v", agents, err)
+	}
+
+	if _, _, err := svc.Subagent("claude:sess-1", "toolu_x", ""); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown call = %v, want not found", err)
 	}
 	for _, id := range []store.ChatID{"claude:", "nocolon"} {
-		if _, err := svc.Subagent(id, "toolu_task"); !(errkind.Of(err) == errkind.Invalid) {
+		if _, _, err := svc.Subagent(id, "toolu_task", ""); !(errkind.Of(err) == errkind.Invalid) {
 			t.Fatalf("%q = %v, want invalid", id, err)
 		}
 	}
-	if _, err := svc.Subagent("claude:sess-1", " "); !(errkind.Of(err) == errkind.Invalid) {
+	if _, _, err := svc.Subagent("claude:sess-1", " ", ""); !(errkind.Of(err) == errkind.Invalid) {
 		t.Fatalf("no call id = %v, want invalid", err)
 	}
 }

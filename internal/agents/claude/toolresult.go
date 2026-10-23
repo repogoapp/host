@@ -12,7 +12,7 @@ import (
 
 // claudeToolUseResult is the part of the CLI's `toolUseResult`, written beside
 // a tool_result, that a tool page draws. Which fields are set tells the tools
-// apart: Interrupted is only on a shell run.
+// apart: Interrupted is only on a shell run, Answers on a question.
 type claudeToolUseResult struct {
 	Type            string            `json:"type"`
 	Stdout          string            `json:"stdout"`
@@ -23,6 +23,7 @@ type claudeToolUseResult struct {
 	DurationMs      float64           `json:"durationMs"`
 	DurationSeconds float64           `json:"durationSeconds"`
 	Results         []json.RawMessage `json:"results"`
+	Answers         map[string]string `json:"answers"`
 }
 
 // toolResult reads a result's `toolUseResult`. A shell run that wrote to
@@ -50,9 +51,12 @@ func toolResult(raw json.RawMessage, output string, isError bool) (string, *agen
 			r.DurationMS = int64(u.DurationSeconds * 1000)
 		}
 		r.URLs = searchURLs(u.Results)
+		if len(u.Answers) > 0 {
+			r.Answers = u.Answers
+		}
 	}
 	if r.ExitCode == nil && r.DurationMS == 0 && !r.Interrupted && !r.TimedOut && r.Stderr == "" &&
-		!r.Created && len(r.URLs) == 0 && r.HTTPStatus == 0 {
+		!r.Created && len(r.URLs) == 0 && r.HTTPStatus == 0 && len(r.Answers) == 0 {
 		return output, nil
 	}
 	return output, &r

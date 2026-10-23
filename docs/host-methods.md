@@ -260,6 +260,7 @@ Params:
 
 - `chat_id` string
 - `call_id` string
+- `agent_id` string (omitted when empty)
 
 Result:
 
@@ -267,6 +268,17 @@ Result:
 - `name` string
 - `events` [object{Message}]
 - `tools` [object{ToolDetail}]
+
+## `chats.workflow`
+
+Params:
+
+- `chat_id` string
+- `call_id` string
+
+Result:
+
+- `agents` [object{WorkflowAgent}]
 
 ## `chats.tools_subscribe`
 

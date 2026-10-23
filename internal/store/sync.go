@@ -85,8 +85,8 @@ type Activity struct {
 func (s *Store) Epoch() string { return s.epoch }
 
 // openSync reads the cache's epoch, minting one for a new file, and seeds the
-// counter past every revision handed out: the highest on a row, or the floor a
-// deletion left, since a deleted row's revision no longer shows.
+// counter past every revision handed out: the highest on a chat or subagent
+// row, or the floor a deletion left, since a deleted row's no longer shows.
 func (s *Store) openSync() error {
 	var floor int64
 	err := s.db.QueryRow(`SELECT epoch, rev_floor FROM sync_meta`).Scan(&s.epoch, &floor)
@@ -100,7 +100,8 @@ func (s *Store) openSync() error {
 		return fmt.Errorf("store: open sync: %w", err)
 	}
 	var high int64
-	if err := s.db.QueryRow(`SELECT COALESCE(MAX(rev), 0) FROM sessions`).Scan(&high); err != nil {
+	if err := s.db.QueryRow(`SELECT MAX((SELECT COALESCE(MAX(rev), 0) FROM sessions),
+		(SELECT COALESCE(MAX(rev), 0) FROM subagents))`).Scan(&high); err != nil {
 		return err
 	}
 	s.rev.Store(max(high, floor))

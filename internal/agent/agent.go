@@ -213,6 +213,8 @@ type ToolResult struct {
 	Created     bool          `json:"created,omitempty"`
 	URLs        []ToolURL     `json:"urls,omitempty"`
 	HTTPStatus  int           `json:"http_status,omitempty"`
+	// Answers is each question's answer by its text, as the user gave it.
+	Answers map[string]string `json:"answers,omitempty"`
 }
 
 // ToolCommand is one command a Codex code cell ran.

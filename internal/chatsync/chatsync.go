@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/session"
 	"github.com/repogoapp/host/internal/store"
 )
@@ -15,6 +16,11 @@ import (
 // resweep is how often the full session list is re-examined; unchanged
 // sessions cost a stat each. It catches sessions no watcher reports.
 const resweep = 30 * time.Second
+
+// childrenActive is how recently a chat must have been written for a sweep to
+// look at its children again: a background agent writes only its own files
+// while its chat stays still, but not for days.
+const childrenActive = 48 * time.Hour
 
 // staleTurn is how long a turn run outside this host can go without a hook or
 // a transcript line before it reads as interrupted.
@@ -30,6 +36,13 @@ type Syncer struct {
 	// race each other's writes.
 	mu   sync.Mutex
 	wake chan struct{}
+
+	// One chat's children are written by one pass at a time: a sweep and a
+	// watching device's tick both sync them.
+	childMu sync.Mutex
+	// onChildren hears each chat whose children a pass changed, whichever
+	// pass it was, so every device watching it is told.
+	onChildren func(store.ChatID)
 
 	// Closed when a first sweep ends: until then a cache rebuilt at startup
 	// holds only some of the chats.
@@ -89,14 +102,14 @@ func (s *Syncer) Once(ctx context.Context) int {
 	}
 	s.log.Log(ctx, level, "chatsync: sweep completed",
 		"sessions", stats.synced, "total", stats.total, "events", stats.events,
-		"errors", stats.errors, "pruned", stats.pruned, "duration", stats.duration, "list_duration", stats.list,
-		"parse_duration", stats.parse, "write_duration", stats.write)
+		"errors", stats.errors, "pruned", stats.pruned, "children", stats.children, "duration", stats.duration, "list_duration", stats.list,
+		"parse_duration", stats.parse, "write_duration", stats.write, "children_duration", stats.kids)
 	return stats.synced
 }
 
 type syncStats struct {
-	synced, total, events, errors, pruned int
-	duration, list, parse, write          time.Duration
+	synced, total, events, errors, pruned, children int
+	duration, list, parse, write, kids              time.Duration
 }
 
 func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
@@ -140,6 +153,7 @@ func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
 		pending = pending[:0]
 	}
 
+	changed := map[string]bool{}
 	for _, m := range metas {
 		if ctx.Err() != nil {
 			return stats
@@ -149,6 +163,7 @@ func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
 		if fp, ok := fingerprints[store.Key(m)]; ok && store.Unchanged(fp, m) {
 			continue
 		}
+		changed[store.Key(m)] = true
 		started := time.Now()
 		events, err := s.sessions.Events(m)
 		stats.parse += time.Since(started)
@@ -164,6 +179,9 @@ func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
 		}
 	}
 	flush()
+	childStart := time.Now()
+	stats.children = s.sweepChildren(ctx, metas, changed)
+	stats.kids = time.Since(childStart)
 
 	// Only after a complete, uninterrupted listing: a provider that failed to
 	// enumerate, or a sweep cut short, would otherwise read as mass deletion.
@@ -187,4 +205,70 @@ func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
 		s.log.Info("chatsync: settled stale turns", "chats", settled)
 	}
 	return stats
+}
+
+// OnChildren sets who hears that a chat's children changed. Set before Run.
+func (s *Syncer) OnChildren(f func(store.ChatID)) { s.onChildren = f }
+
+// sweepChildren syncs the children of every chat that changed in this sweep
+// or was written lately, and reports how many chats' children moved.
+func (s *Syncer) sweepChildren(ctx context.Context, metas []session.Meta, changed map[string]bool) int {
+	moved := 0
+	for _, m := range metas {
+		if ctx.Err() != nil {
+			return moved
+		}
+		if !changed[store.Key(m)] && time.Since(m.UpdatedAt) > childrenActive {
+			continue
+		}
+		calls, err := s.SyncChildren(m)
+		if err != nil {
+			s.log.Debug("chatsync: could not sync children", "id", m.ID, "err", err)
+			continue
+		}
+		if len(calls) > 0 {
+			moved++
+		}
+	}
+	return moved
+}
+
+// SyncChildren brings one chat's children up to date, reparsing only those
+// whose files moved, and returns the calls whose agents changed. Watchers
+// hear of it after the lock is let go.
+func (s *Syncer) SyncChildren(meta session.Meta) ([]string, error) {
+	calls, err := s.syncChildren(meta)
+	if err == nil && len(calls) > 0 && s.onChildren != nil {
+		s.onChildren(store.ChatID(agent.ChatID(meta.Agent, meta.ID)))
+	}
+	return calls, err
+}
+
+func (s *Syncer) syncChildren(meta session.Meta) ([]string, error) {
+	s.childMu.Lock()
+	defer s.childMu.Unlock()
+	stored, err := s.db.ChildFingerprints(meta)
+	if err != nil {
+		return nil, err
+	}
+	children, err := s.sessions.Children(meta)
+	if err != nil {
+		return nil, err
+	}
+	if len(children) == 0 && len(stored) == 0 {
+		return nil, nil
+	}
+	events := map[string][]agent.Event{}
+	for _, child := range children {
+		if fp, ok := stored[child.Key]; ok && fp == child.Fingerprint() {
+			continue
+		}
+		fresh, err := s.sessions.ChildEvents(meta, child)
+		if err != nil {
+			s.log.Debug("chatsync: could not read a child", "id", meta.ID, "child", child.Key, "err", err)
+			continue
+		}
+		events[child.Key] = fresh
+	}
+	return s.db.SyncSubagents(meta, children, events)
 }

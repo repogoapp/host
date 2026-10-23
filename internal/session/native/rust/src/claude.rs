@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 
 use rayon::prelude::*;
@@ -535,6 +536,8 @@ struct ToolUseResult {
     duration_seconds: f64,
     #[serde(deserialize_with = "event::v")]
     results: Vec<Box<RawValue>>,
+    #[serde(deserialize_with = "event::m")]
+    answers: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -577,9 +580,10 @@ fn tool_result(raw: Option<&RawValue>, mut output: String, is_error: bool) -> (S
             let Ok(b) = serde_json::from_str::<SearchBlock>(raw) else { continue };
             r.urls.extend(b.content.into_iter().filter(|u| !u.url.is_empty()));
         }
+        r.answers = u.answers;
     }
     let empty = r.exit_code.is_none() && r.duration_ms == 0 && !r.interrupted && !r.timed_out && r.stderr.is_empty()
-        && !r.created && r.urls.is_empty() && r.http_status == 0;
+        && !r.created && r.urls.is_empty() && r.http_status == 0 && r.answers.is_empty();
     (output, if empty { None } else { Some(r) })
 }
 

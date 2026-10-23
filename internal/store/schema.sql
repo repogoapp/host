@@ -89,11 +89,59 @@ CREATE TABLE events (
   text TEXT,
   -- Tool calls stay as JSON: the shape is the agent's, it is only ever read
   -- whole, and normalizing it into columns would invent a schema we do not own.
+  -- Its result carries what the agent recorded beyond text, a question's answers too.
   tool TEXT,
   -- Unix milliseconds from the provider's own line, so a settled turn can be
   -- timed ("Worked for 1m 04s") without the host having watched it run.
   at   INTEGER,
   PRIMARY KEY (sid, idx)
+) WITHOUT ROWID;
+
+-- Work a chat's call started in files of its own: a subagent, or one agent
+-- of a workflow run. Kept apart from sessions so no chat list, count, sync
+-- or search reads one. See subagents.go.
+CREATE TABLE subagents (
+  id          INTEGER PRIMARY KEY,
+  parent_sid  INTEGER NOT NULL,
+  -- The provider's name for it within the parent: Claude's agent id, Codex's
+  -- thread id.
+  key         TEXT    NOT NULL,
+  -- The call that started it, '' until the provider can tell.
+  call_id     TEXT    NOT NULL DEFAULT '',
+  kind        TEXT    NOT NULL DEFAULT '',
+  name        TEXT    NOT NULL DEFAULT '',
+  -- A workflow agent's run, label and phase, its place in the run's start
+  -- order, and the result the run recorded, cut short.
+  run_id      TEXT    NOT NULL DEFAULT '',
+  label       TEXT    NOT NULL DEFAULT '',
+  phase       TEXT    NOT NULL DEFAULT '',
+  run_order   INTEGER NOT NULL DEFAULT 0,
+  done        INTEGER NOT NULL DEFAULT 0,
+  result      TEXT    NOT NULL DEFAULT '',
+  -- Unix milliseconds: its transcript's first line, and its files' last write.
+  started_at  INTEGER NOT NULL DEFAULT 0,
+  updated_at  INTEGER NOT NULL DEFAULT 0,
+  -- session.Child.Fingerprint as of the events below, so an unchanged child
+  -- is never reparsed.
+  fingerprint INTEGER NOT NULL DEFAULT 0,
+  -- Bumped on every write to the row or its events, and on its call's other
+  -- rows when one goes, so a device knows when to read the call again.
+  rev         INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (parent_sid, key)
+);
+
+CREATE INDEX idx_subagents_call ON subagents(parent_sid, call_id);
+
+-- A subagent's transcript, in the events table's shape.
+CREATE TABLE subagent_events (
+  subagent INTEGER NOT NULL,
+  idx      INTEGER NOT NULL,
+  kind     TEXT    NOT NULL,
+  turn     TEXT,
+  text     TEXT,
+  tool     TEXT,
+  at       INTEGER,
+  PRIMARY KEY (subagent, idx)
 ) WITHOUT ROWID;
 
 -- What chats.list's search looks in: one row per chat, rowid = sessions.sid,

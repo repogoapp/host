@@ -27,7 +27,7 @@ var methodExports = map[string]bool{
 	"catalog.read": true,
 
 	"chats.list": true, "chats.info": true, "chats.sync": true,
-	"chats.messages": true, "chats.subagent": true, "chats.tools_subscribe": true,
+	"chats.messages": true, "chats.subagent": true, "chats.workflow": true, "chats.tools_subscribe": true,
 	"chats.tools_unsubscribe": true, "chats.send": true, "chats.start": true, "chats.resolve": true,
 	"chats.pin": true, "chats.update": true, "chats.delete": true, "chats.stop": true,
 	"chats.subscribe": true, "chats.unsubscribe": true, "chats.queue": true, "chats.handoff": true,
@@ -772,6 +772,7 @@ func cleanName(n string) string {
 var EventExports = map[string]string{
 	"chats.appended": "Chats.Appended", "chats.streaming": "Chats.Streaming",
 	"chats.approval": "Chats.Approval", "chats.tool": "Chats.ToolChanged",
+	"chats.subagents":     "Chats.Subagents",
 	"fs.changed":          "FS.Changed",
 	"git.changed":         "Git.Changed",
 	"chats.changed":       "Chats.Chat",

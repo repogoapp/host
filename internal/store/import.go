@@ -282,6 +282,12 @@ func transcriptStatus(events []agent.Event) (agent.ChatStatus, int64) {
 const eventsPerStatement = 128
 
 func insertEvents(tx *sql.Tx, sid int64, events []agent.Event) error {
+	return insertRows(tx, `INSERT INTO events (sid, idx, kind, turn, text, tool, at) VALUES `, sid, events)
+}
+
+// insertRows writes events under owner with insert, the statement's head up
+// to VALUES: a chat's into events, a subagent's into subagent_events.
+func insertRows(tx *sql.Tx, insert string, owner int64, events []agent.Event) error {
 	const cols = 7
 	for start := 0; start < len(events); start += eventsPerStatement {
 		end := start + eventsPerStatement
@@ -291,7 +297,7 @@ func insertEvents(tx *sql.Tx, sid int64, events []agent.Event) error {
 		n := end - start
 
 		var b strings.Builder
-		b.WriteString(`INSERT INTO events (sid, idx, kind, turn, text, tool, at) VALUES `)
+		b.WriteString(insert)
 		for i := 0; i < n; i++ {
 			if i > 0 {
 				b.WriteByte(',')
@@ -310,7 +316,7 @@ func insertEvents(tx *sql.Tx, sid int64, events []agent.Event) error {
 			if events[i].At != 0 {
 				at = events[i].At
 			}
-			args = append(args, sid, i, string(events[i].Kind), turn, text, tool, at)
+			args = append(args, owner, i, string(events[i].Kind), turn, text, tool, at)
 		}
 		if _, err := tx.Exec(b.String(), args...); err != nil {
 			return err
