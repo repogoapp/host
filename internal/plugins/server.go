@@ -84,6 +84,7 @@ type Notice struct {
 	Body     string `json:"body"`
 	Page     string `json:"page"`
 	Collapse string `json:"collapse"`
+	URL      string `json:"url"`
 }
 
 // server is one running plugins server and the connection to it.

@@ -50,6 +50,14 @@ export async function tracked<T>(readOnly: boolean, announce: (tags: string[]) =
   }
 }
 
+/**
+ * Runs `work` read-only in a scope of its own, apart from the call that started
+ * it: what it reads isn't that call's, so a detached fetch can outlive it.
+ */
+export function isolated<T>(work: () => Promise<T>): Promise<T> {
+  return current.run({ reads: new Set(), writes: new Set(), readOnly: true, done: { value: false }, announce: () => {} }, work);
+}
+
 export function recordRead(tag: string) {
   current.getStore()?.reads.add(tag);
 }

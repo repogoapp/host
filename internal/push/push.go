@@ -167,11 +167,11 @@ func (n *Notifier) deliver(ctx context.Context, notice notify.Notice, a alert) {
 
 // PluginNotice is a plugin's alert: `plugins.Notice` as this package takes it.
 type PluginNotice struct {
-	Plugin, Root, Title, Body, Page, Collapse string
+	Plugin, Root, Title, Body, Page, Collapse, URL string
 }
 
 // Plugin pushes a plugin's alert to every paired phone. A tap opens the
-// project's page the notice names, with its parameters.
+// notice's link if it has one, else the project's page it names.
 func (n *Notifier) Plugin(ctx context.Context, notice PluginNotice) {
 	payload, _ := json.Marshal(map[string]any{
 		"aps": map[string]any{
@@ -182,6 +182,7 @@ func (n *Notifier) Plugin(ctx context.Context, notice PluginNotice) {
 		"host_id": n.store.Identity().ID,
 		"project": notice.Root,
 		"page":    notice.Page,
+		"url":     notice.URL,
 	})
 	collapse := notice.Collapse
 	if collapse == "" {

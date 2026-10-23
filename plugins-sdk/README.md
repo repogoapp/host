@@ -7,7 +7,7 @@ phone draw its data live and run its methods when you tap.
 
 - [Quick start](#quick-start)
 - [Where plugins live](#where-plugins-live)
-- [Methods](#methods): queries, mutations, streams
+- [Methods](#methods): queries, mutations, streams, cached queries
 - [Data](#data): namespaces, collections, kv, streams, buckets, uploads
 - [Workflows](#workflows)
 - [Crons](#crons)
@@ -119,6 +119,27 @@ tail: stream(z.object({ file: z.string() }), async function* ({ file }, ctx) {
   }
 }),
 ```
+
+A **cached** query is for answers that are slow to get, such as a CLI's list
+or another service's API. It answers at once with what it saved last time.
+When that answer is older than `fresh`, `run` goes again in the background,
+and a card showing it redraws only if the answer changed. With nothing saved
+yet, the first call waits for `run`, and its error is the card's.
+
+```ts
+projects: cached(z.object({ limit: z.number().int().min(1).max(200).default(100) }),
+  async ({ limit }) => listProjects(limit),
+  { fresh: "1m", shared: true, description: "Every project the login can see" }),
+```
+
+- Answers are kept per method, input and project (`ctx.root`). `shared: true`
+  keeps one for every project, for answers that don't depend on it.
+- `run` is read-only, like a query's, and has `timeout` (a minute unless it says).
+- A background check that fails keeps the saved answer, goes to the plugin's
+  logs, and is tried again after another `fresh`.
+- Answers live in the namespace's `data.db`, so a plugin with a cached method
+  needs a `namespace`. An answer over 1 MB is returned but not saved, and one
+  nobody has asked for in 30 days is deleted.
 
 ## Data
 
@@ -523,7 +544,7 @@ Every method, handler and cron gets `ctx`:
 | `plugins()` | The plugins in the same folder, with their methods |
 | `host(method, params)` | Runs one of the host's methods that agents and cards may call (`git.status`, `chats.list`, `actions.run`, …); others fail with `FORBIDDEN` |
 | `mcp(server, tool, input)` | Runs a tool of an MCP server the user connected in RepoGo and switched on for the calling project; see below |
-| `notify({ title, body, page?, collapse? })` | Alerts every paired phone; a tap opens `page`, and alerts sharing `collapse` replace each other |
+| `notify({ title, body, page?, url?, collapse? })` | Alerts every paired phone; a tap opens `url` (an `https` or `itms-services` link) if set, else `page`, and alerts sharing `collapse` replace each other |
 | `activity({ id, title, body?, page?, symbol?, tint?, label?, compactLabel?, progress?, timer?, status? })` | Shows or updates a Live Activity on every paired phone; see below |
 | `agent(prompt, { agent, project?, title?, timeout? })` | Starts a chat with `prompt` and waits for the agent's whole answer: `{ chatId, text }`; see below |
 | `emit(event, payload)` | Sends `<plugin>.<event>` to handlers |

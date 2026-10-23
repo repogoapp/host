@@ -11,6 +11,8 @@ export type Notice = {
   body: string;
   /** A page target, `.repogo/tabs/vercel.md?project=a`; a tap opens it. */
   page?: string;
+  /** An `https` or `itms-services` link a tap opens instead of the page, such as a build's install. */
+  url?: string;
   /** Alerts sharing a collapse id replace one another; defaults to the plugin and title. */
   collapse?: string;
 };

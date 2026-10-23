@@ -1,5 +1,7 @@
 import type { z } from "zod";
+import type { CacheOptions } from "./cache";
 import type { Context } from "./context";
+import { parseDuration, type Duration } from "./duration";
 import type { Workflow } from "./workflow/definition";
 import type { Retain } from "./streams";
 
@@ -29,6 +31,8 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
   confirm?: string;
   /** Who may call it at the environment's own address; unset, no one. */
   http?: HTTPAccess;
+  /** Set by `cached`: the query answers from what it saved, and checks again when that's old. */
+  cache?: CacheOptions;
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>;
 };
 
@@ -80,6 +84,25 @@ export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
     input, run, kind: options.kind ?? "mutation", output: options.output,
     description: options.description, confirm: options.confirm,
     http: options.http === true ? "key" : options.http?.auth,
+  };
+}
+
+/**
+ * A query that answers at once from what it saved last time, for answers that
+ * are slow to get: a CLI's list, another service's API. When the saved answer
+ * is older than `fresh`, `run` goes again in the background, and cards showing
+ * it redraw only if the answer changed. With nothing saved, the first call
+ * waits for `run`. Each project keeps its own answers unless `shared`.
+ * `run` is read-only, like a query's; it has `timeout` (a minute unless it says).
+ */
+export function cached<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
+  input: I,
+  run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>,
+  options: { fresh: Duration; shared?: boolean; timeout?: Duration; output?: O; description?: string },
+): Method<I, O> {
+  return {
+    input, run, kind: "query", output: options.output, description: options.description,
+    cache: { fresh: parseDuration(options.fresh), shared: options.shared ?? false, timeout: parseDuration(options.timeout ?? "1m") },
   };
 }
 

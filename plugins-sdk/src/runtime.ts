@@ -3,6 +3,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { Bucket } from "./buckets";
+import { AnswerCache, cacheKey } from "./cache";
 import { Collection } from "./collections";
 import { checkTimezone, nextDue, parseSchedule, type Schedule } from "./cron";
 import { Database } from "./database";
@@ -103,6 +104,8 @@ export class Runtime {
   readonly crons: CronJob[] = [];
   private contexts = new Map<string, Context>();
   private databases = new Map<string, Database>();
+  /** Each namespace's saved answers of `cached` methods. */
+  private answerCaches = new Map<string, AnswerCache>();
   /** Every kv, stream and bucket by tag, shared by the plugins that name it, with its schema's JSON. */
   private stores = new Map<string, { store: Store; schema: string }>();
   private invalidationListeners = new Set<InvalidationListener>();
@@ -162,7 +165,8 @@ export class Runtime {
       if (!stores.includes(store)) throw new Error(`plugin ${name} lists ${store} as private, but keeps no collection, kv, stream or bucket by that name`);
     }
     // Only data needs a file; plugins naming the same namespace share it on purpose.
-    const hasData = Object.keys(plugin.workflows ?? {}).length > 0 || declared.length > 0 || [plugin.buckets, plugin.kv, plugin.streams].some((stores) => Object.keys(stores ?? {}).length > 0);
+    const hasCache = Object.values(plugin.methods ?? {}).some((method) => method.cache);
+    const hasData = hasCache || Object.keys(plugin.workflows ?? {}).length > 0 || declared.length > 0 || [plugin.buckets, plugin.kv, plugin.streams].some((stores) => Object.keys(stores ?? {}).length > 0);
     // Named by hand, so where data goes is never a folder name's accident.
     const namespace = plugin.namespace ?? "";
     if (hasData && !namespace) throw new Error(`plugin ${name} keeps data, so it needs a namespace: "<project>.${name}" for one project's, "${name}" to share it`);
@@ -244,9 +248,12 @@ export class Runtime {
       log: (...args) => console.log(...args),
     };
 
+    const cache = hasCache ? await this.answerCache(namespace, file!) : null;
     for (const [methodName, method] of Object.entries(plugin.methods ?? {})) {
+      const fullName = `${name}.${methodName}`;
+      const options = method.cache;
       this.register({
-        name: `${name}.${methodName}`,
+        name: fullName,
         plugin: name,
         kind: method.kind,
         description: method.description,
@@ -254,7 +261,9 @@ export class Runtime {
         http: method.http,
         input: method.input,
         output: method.output,
-        run: async (input) => method.run(input, ctx),
+        run: options && cache
+          ? async (input) => cache.read(cacheKey(fullName, options.shared ? null : ctx.root, input), options, () => method.run(input, ctx))
+          : async (input) => method.run(input, ctx),
       });
     }
 
@@ -583,6 +592,15 @@ export class Runtime {
     database = await Database.open(join(this.dataDir, namespace, "data.db"));
     this.databases.set(namespace, database);
     return database;
+  }
+
+  private async answerCache(namespace: string, database: Database) {
+    let cache = this.answerCaches.get(namespace);
+    if (cache) return cache;
+    cache = new AnswerCache(database, namespace, (tags) => this.notifyInvalidated(tags));
+    await cache.setup();
+    this.answerCaches.set(namespace, cache);
+    return cache;
   }
 
   // One store per tag, set up when the first plugin names it; a second plugin
