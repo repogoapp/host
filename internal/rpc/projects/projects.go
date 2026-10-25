@@ -67,8 +67,9 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "projects.detect_icon", d.detectIcon)
 	// The user's marks on a listed project. Each answers the project's row and
 	// sends it to every other device as projects.changed.
-	rpc.Add(r, "projects.rename", d.rename)
-	rpc.Add(r, "projects.pin", d.pin)
+	rpc.Add(r, "projects.rename", d.rename, rpc.Tool("Rename a project, by its folder as projects.list gives it. "+
+		"A blank name clears the rename, back to the repository or folder name."), rpc.Write)
+	rpc.Add(r, "projects.pin", d.pin, rpc.Tool("Pin a project to the top of the project list, or unpin it."), rpc.Write)
 	// add is the folder picker's Select, making a folder it could only see a root.
 	// add and create answer the new project's row, listed at once.
 	rpc.Add(r, "projects.add", d.add)

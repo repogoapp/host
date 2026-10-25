@@ -1411,6 +1411,8 @@ Result:
 
 ## `projects.rename`
 
+Tool (write): Rename a project, by its folder as projects.list gives it. A blank name clears the rename, back to the repository or folder name.
+
 Params:
 
 - `path` string
@@ -1435,6 +1437,8 @@ Result:
 - `host_id` string
 
 ## `projects.pin`
+
+Tool (write): Pin a project to the top of the project list, or unpin it.
 
 Params:
 
