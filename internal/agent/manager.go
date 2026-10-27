@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -443,16 +444,39 @@ var ErrNotQueued = errkind.New(errkind.Invalid, "turn is no longer queued")
 // Stop cancels a running turn or drops a queued one.
 func (m *Manager) Stop(turnID string) error { return m.stop(turnID, false) }
 
-// StopChat stops the turn a chat is running here, an adopted one included.
-// ErrNotFound means none is: a turn in the user's terminal is theirs to stop.
+// StopChat stops the turn a chat is running here, an adopted one included,
+// and every turn, running or queued, of the chats its agent started: stopping
+// a chat stops the work it handed out. A child's turn names its parent from
+// the start, so one still waiting for its chat id stops too. ErrNotFound means
+// nothing was: a turn in the user's terminal is theirs to stop.
 func (m *Manager) StopChat(chatID string) error {
 	m.mu.Lock()
-	t := m.running[chatID]
+	own := m.running[chatID]
+	all := make([]*turn, 0, len(m.turns))
+	for _, t := range m.turns {
+		all = append(all, t)
+	}
 	m.mu.Unlock()
-	if t == nil {
+
+	stopped := false
+	for _, t := range all {
+		s := t.snapshot()
+		if s.Parent != chatID || (s.State != StateQueued && s.State != StateRunning) {
+			continue
+		}
+		if err := m.Stop(s.TurnID); err == nil {
+			stopped = true
+		} else if !errors.Is(err, ErrNotFound) {
+			m.log.Warn("stopping a child chat's turn failed", "chat", chatID, "turn", s.TurnID, "err", err)
+		}
+	}
+	if own == nil {
+		if stopped {
+			return nil
+		}
 		return ErrNotFound
 	}
-	return m.Stop(t.snapshot().TurnID)
+	return m.Stop(own.snapshot().TurnID)
 }
 
 // Respond answers a pending approval.

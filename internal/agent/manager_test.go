@@ -250,6 +250,52 @@ func TestAdoptedTurnQueuesSendsAndStops(t *testing.T) {
 	}
 }
 
+// Stopping a chat stops the chats its agent started, their queued turns
+// included, and leaves every other chat running. A parent with nothing of its
+// own running still stops its children.
+func TestStopChatStopsItsChildChats(t *testing.T) {
+	m := NewManager(discard(), quiet(), blockingAdapter{})
+	cwd := t.TempDir()
+	send := func(chatID, parent string) TurnStatus {
+		t.Helper()
+		st, err := m.Send(TurnRequest{ChatID: chatID, Cwd: cwd, Agent: KindClaude, Prompt: "go", Parent: parent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	parent := send("claude:parent", "")
+	child := send("claude:child", "claude:parent")
+	childNext := send("claude:child", "claude:parent")
+	stranger := send("claude:stranger", "")
+	defer m.Stop(stranger.TurnID)
+	if childNext.State != StateQueued {
+		t.Fatalf("second child turn %s, want queued", childNext.State)
+	}
+
+	if err := m.StopChat("claude:parent"); err != nil {
+		t.Fatal(err)
+	}
+	for name, id := range map[string]string{"parent": parent.TurnID, "child": child.TurnID, "queued child": childNext.TurnID} {
+		testwait.For(t, name+" to stop", func() bool {
+			st, _ := m.Status(id)
+			return st.State == StateStopped
+		})
+	}
+	if st, _ := m.Status(stranger.TurnID); st.State != StateRunning {
+		t.Fatalf("unrelated chat %s, want still running", st.State)
+	}
+
+	orphan := send("claude:child2", "claude:idle-parent")
+	if err := m.StopChat("claude:idle-parent"); err != nil {
+		t.Fatalf("parent with only a child running: %v, want nil", err)
+	}
+	testwait.For(t, "the idle parent's child to stop", func() bool {
+		st, _ := m.Status(orphan.TurnID)
+		return st.State == StateStopped
+	})
+}
+
 // replyingAdapter says something, calls a tool, answers, then finishes once
 // release closes.
 type replyingAdapter struct{ release chan struct{} }

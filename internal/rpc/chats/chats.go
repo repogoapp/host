@@ -61,7 +61,7 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "chats.delete", d.delete)
 	// stop is Stop on a chat rather than a turn, for a caller that knows the
 	// chat is running but not which turn.
-	rpc.Add(r, "chats.stop", d.stop, rpc.Tool("Stop a chat's running turn."), rpc.Write)
+	rpc.Add(r, "chats.stop", d.stop, rpc.Tool("Stop a chat's running turn and the turns of the chats its agent started."), rpc.Write)
 	rpc.Add(r, "chats.subscribe", d.subscribe)
 	rpc.Add(r, "chats.unsubscribe", d.unsubscribe)
 	// One chat's queued turns, fetched when its row's queue_revision moves: the row

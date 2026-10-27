@@ -406,7 +406,7 @@ Result:
 
 ## `chats.stop`
 
-Tool (write): Stop a chat's running turn.
+Tool (write): Stop a chat's running turn and the turns of the chats its agent started.
 
 Params:
 

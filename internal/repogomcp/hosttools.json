@@ -440,7 +440,7 @@
   {
     "name": "chats_stop",
     "method": "chats.stop",
-    "description": "Stop a chat's running turn.",
+    "description": "Stop a chat's running turn and the turns of the chats its agent started.",
     "read_only": false,
     "input_schema": {
       "properties": {
