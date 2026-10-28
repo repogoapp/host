@@ -141,6 +141,9 @@ func (s *Store) Write(c Chunk) (Progress, error) {
 	if received+int64(len(c.Data)) > m.Size {
 		return Progress{}, ErrInvalid.Errorf("the chunk runs past the file's %d bytes", m.Size)
 	}
+	if c.Done && received+int64(len(c.Data)) != m.Size {
+		return Progress{}, ErrInvalid.Errorf("the upload ended at %d of its %d bytes", received+int64(len(c.Data)), m.Size)
+	}
 	if len(c.Data) > 0 {
 		f, err := s.root.OpenFile(filepath.Join(c.ID, m.Name), os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
@@ -156,9 +159,6 @@ func (s *Store) Write(c Chunk) (Progress, error) {
 		received += int64(len(c.Data))
 	}
 	if c.Done {
-		if received != m.Size {
-			return Progress{}, ErrInvalid.Errorf("the upload ended at %d of its %d bytes", received, m.Size)
-		}
 		m.Complete = true
 	}
 	m.Touched = time.Now().UnixMilli()
