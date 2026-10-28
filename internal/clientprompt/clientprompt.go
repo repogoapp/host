@@ -18,6 +18,12 @@ var markdownV1 string
 //go:embed cards.md
 var cards string
 
+// cards_connect.md is drawing a Connect for a key or sign-in, copied the
+// same way; only the app opens its sheet.
+//
+//go:embed cards_connect.md
+var cardsConnect string
+
 // cards_data.md is the elements cards read and write live data with, and
 // cards_plugins.md, cards_mcp.md and cards_repogo.md its sources; copied the same way.
 //
@@ -58,10 +64,16 @@ func For(c device.Client, plugins Plugins, servers []string) string {
 	if c.Features["markdown"] < 1 {
 		return ""
 	}
-	prompt := markdownV1 + "\n" + cards
 	pluginCards := c.Features["plugins"] >= 1 && plugins != NoPlugins
 	mcpCards := c.Features["mcp"] >= 1 && len(servers) > 0
 	hostCards := c.Features["repogo"] >= 1
+	prompt := markdownV1 + "\n"
+	// Ahead of the elements, so it isn't lost: an agent asked for a key
+	// draws a Connect rather than asking for it in chat.
+	if hostCards {
+		prompt += cardsConnect + "\n"
+	}
+	prompt += cards
 	if pluginCards {
 		prompt += "\n" + apps
 	}

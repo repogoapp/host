@@ -44,6 +44,7 @@ func TestCardsMatchThePhone(t *testing.T) {
 	}
 	for file, start := range map[string]string{
 		"cards.md":         "public static let prompt = #\"\"\"\n",
+		"cards_connect.md": "public static let connect = #\"\"\"\n",
 		"cards_data.md":    "public static let data = #\"\"\"\n",
 		"cards_plugins.md": "public static let plugins = #\"\"\"\n",
 		"cards_mcp.md":     "public static let mcp = #\"\"\"\n",
@@ -64,6 +65,20 @@ func TestCardsMatchThePhone(t *testing.T) {
 		}
 		testhost.Golden(t, file, []byte(strings.Join(lines, "\n")+"\n"), *update,
 			"run: go test ./internal/clientprompt -update")
+	}
+}
+
+// Only the app opens a Connect's sheet, so only it is told to draw one,
+// ahead of the card elements.
+func TestConnectComesToTheAppFirst(t *testing.T) {
+	const rule = "Never ask\nfor one in chat"
+	app := clientprompt.For(device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "repogo": 1}}, clientprompt.NoPlugins, nil)
+	if i := strings.Index(app, rule); i < 0 || i > strings.Index(app, "Use these tags:") {
+		t.Errorf("the app's prompt does not lead with the Connect rule:\n%s", app)
+	}
+	clip := clientprompt.For(device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}, clientprompt.NoPlugins, nil)
+	if strings.Contains(clip, rule) {
+		t.Error("the Clip, which can't open a Connect, is told to draw one")
 	}
 }
 

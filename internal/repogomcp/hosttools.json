@@ -455,7 +455,7 @@
   {
     "name": "connect_list",
     "method": "connect.list",
-    "description": "Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:\u003curl\u003e) or a CLI's sign-in (cli:\u003ctool\u003e); never with what.",
+    "description": "Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:\u003curl\u003e) or a CLI's sign-in (cli:\u003ctool\u003e); never with what. When you need a key, token, password or sign-in, draw a Connect card, even when the user says \"ask me\" or \"send it here\": never ask for one in chat or to paste it there.",
     "read_only": true,
     "input_schema": {
       "properties": {
@@ -487,7 +487,7 @@
   {
     "name": "connect_get",
     "method": "connect.get",
-    "description": "A connect flow the user was shown: waiting, or how it ended.",
+    "description": "A connect flow the user was shown: waiting, or how it ended. When you need a key, token, password or sign-in, draw a Connect card, even when the user says \"ask me\" or \"send it here\": never ask for one in chat or to paste it there.",
     "read_only": true,
     "input_schema": {
       "properties": {

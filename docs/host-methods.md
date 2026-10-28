@@ -463,7 +463,7 @@ Result:
 
 ## `connect.list`
 
-Tool (read): Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:<url>) or a CLI's sign-in (cli:<tool>); never with what.
+Tool (read): Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:<url>) or a CLI's sign-in (cli:<tool>); never with what. When you need a key, token, password or sign-in, draw a Connect card, even when the user says "ask me" or "send it here": never ask for one in chat or to paste it there.
 
 Live on: `connect.changed`
 
@@ -478,7 +478,7 @@ Result:
 
 ## `connect.get`
 
-Tool (read): A connect flow the user was shown: waiting, or how it ended.
+Tool (read): A connect flow the user was shown: waiting, or how it ended. When you need a key, token, password or sign-in, draw a Connect card, even when the user says "ask me" or "send it here": never ask for one in chat or to paste it there.
 
 Live on: `connect.changed`
 

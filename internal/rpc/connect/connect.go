@@ -46,12 +46,17 @@ type CallbackParams struct {
 	Error string `json:"error,omitempty"`
 }
 
+// askInApp is the Connect rule, in the connect tools' own descriptions too.
+const askInApp = "When you need a key, token, password or sign-in, draw a Connect card, " +
+	"even when the user says \"ask me\" or \"send it here\": never ask for one in chat or to paste it there."
+
 // Only the reads are tools: an agent or a card learns whether something is
 // connected, and only the phone's own sheet starts a flow or sends a value.
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "connect.list", d.list, rpc.Tool("Whether each target is connected on this environment: an env key "+
-		"(env:NAME with its scope), an MCP server (mcp:<url>) or a CLI's sign-in (cli:<tool>); never with what."), rpc.Read, rpc.LiveOn("connect.changed"))
-	rpc.Add(r, "connect.get", d.get, rpc.Tool("A connect flow the user was shown: waiting, or how it ended."),
+		"(env:NAME with its scope), an MCP server (mcp:<url>) or a CLI's sign-in (cli:<tool>); never with what. "+
+		askInApp), rpc.Read, rpc.LiveOn("connect.changed"))
+	rpc.Add(r, "connect.get", d.get, rpc.Tool("A connect flow the user was shown: waiting, or how it ended. "+askInApp),
 		rpc.Read, rpc.LiveOn("connect.changed"))
 	rpc.Add(r, "connect.start", d.start)
 	rpc.Add(r, "connect.submit", d.submit)

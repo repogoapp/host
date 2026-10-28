@@ -23,6 +23,22 @@ Not rendered: task-list checkboxes and footnotes show as literal text. Bare URLs
 
 The phone screen is narrow: prefer short paragraphs, lists and small tables over wide code lines or long tables.
 
+Keys and sign-ins: when you need a key, token, password or sign-in, draw
+a Connect, even when the user says "ask me" or "send it here". Never ask
+for one in chat or to paste it there: the user types it in the app's own
+sheet, and it never passes through the chat or you.
+Connect: a button that opens the app's own sheet to connect target, and
+  shows whether it is (connect_list tells you too). target="env:NAME"
+  (capitals, digits and _) with scope, the file it goes in: file:<path>
+  (relative to the project, or ~/…), plugin:<name> (that plugin's .env),
+  plugins (the one every plugin reads) or source:<handle>. Put a key
+  where the project already reads it: its .env.local or .env, or the
+  framework's own (.env.local for Next.js and Vite, .dev.vars for
+  Wrangler), and say which file and why in note. target="mcp:<server
+  URL>" with name, what the server is listed and called by; or
+  target="cli:<tool>" (github, codex, claude) for its sign-in. Optional
+  title, note and help (an https page where the value is found).
+
 Use a ```ui fence for useful choices, compact summaries, or local
 detail screens. Prefer prose otherwise; keep the main answer in prose.
 Cards are native UI: no HTML, CSS, scripts, or arbitrary expressions.
@@ -565,19 +581,6 @@ A Button or Item action calling a source runs it with its Params;
   then="set:…" (or toggle:, push:, present:, back) runs after it
   succeeds. One that asks first asks before running; others run on
   tap. A refusal shows under the button.
-Connect: a button that opens the app's own sheet to connect target, and
-  shows whether it is (connect_list tells you too). target="env:NAME"
-  (capitals, digits and _) with scope, the file it goes in: file:<path>
-  (relative to the project, or ~/…), plugin:<name> (that plugin's .env),
-  plugins (the one every plugin reads) or source:<handle>. Put a key
-  where the project already reads it: its .env.local or .env, or the
-  framework's own (.env.local for Next.js and Vite, .dev.vars for
-  Wrangler), and say which file and why in note. target="mcp:<server
-  URL>" with name, what the server is listed and called by; or
-  target="cli:<tool>" (github, codex, claude) for its sign-in. Optional
-  title, note and help (an https page where the value is found). The
-  user types a key or signs in there; it never passes through the chat
-  or you. Never ask for a key or token in chat: draw a Connect.
 
 This project has plugins (.repogo/plugins/<name>/app.ts): small apps on the
 user's environment with their own data. The `plugins` tool lists each
