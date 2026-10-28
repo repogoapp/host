@@ -10,7 +10,8 @@ import (
 )
 
 // A chat's settings come back from its transcript, newest winning, with plan
-// read as the mode and the permission it replaced kept.
+// read as the mode and the permission it replaced kept. permission-mode lines
+// hold the mode the session started in, so they never win.
 func TestListReadsTurnSettings(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, "projects", "-w")
@@ -18,10 +19,13 @@ func TestListReadsTurnSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := []string{
-		`{"type":"user","cwd":"/w","permissionMode":"default","message":{"content":"hi"}}`,
+		`{"type":"permission-mode","permissionMode":"auto"}`,
+		`{"type":"user","cwd":"/w","permissionMode":"auto","message":{"content":"hi"}}`,
 		`{"type":"assistant","effort":"low","message":{"model":"claude-opus-5-5","usage":{"speed":"fast"}}}`,
-		`{"type":"permission-mode","permissionMode":"bypassPermissions"}`,
+		`{"type":"user","permissionMode":"bypassPermissions","message":{"content":"go"}}`,
+		`{"type":"permission-mode","permissionMode":"auto"}`,
 		`{"type":"user","permissionMode":"plan","message":{"content":"plan it"}}`,
+		`{"type":"permission-mode","permissionMode":"auto"}`,
 		`{"type":"assistant","effort":"xhigh","message":{"model":"claude-opus-5-5","usage":{"speed":"standard"}}}`,
 		`{"type":"assistant","isSidechain":true,"effort":"max","message":{"model":"claude-opus-5-5","usage":{"speed":"fast"}}}`,
 		`{"type":"permission-mode","isSidechain":true,"permissionMode":"acceptEdits"}`,
