@@ -8,21 +8,22 @@ import (
 	"testing"
 )
 
-// fakeList records its arguments and prints what `gh repo list --json` prints.
+// fakeList records its arguments and prints what `gh api /user/repos` prints:
+// one of the account's repos and one it collaborates on.
 const fakeList = `#!/bin/sh
 echo "$@" > "$FAKE_GH/args"
 cat <<'JSON'
 [
-  {"nameWithOwner":"octocat/old","name":"old","owner":{"login":"octocat"},"isPrivate":false,"pushedAt":"2025-01-01T00:00:00Z"},
-  {"nameWithOwner":"octocat/new","name":"new","owner":{"login":"octocat"},"isPrivate":true,"pushedAt":"2026-09-01T00:00:00Z"}
+  {"full_name":"octocat/old","name":"old","owner":{"login":"octocat"},"private":false,"pushed_at":"2025-01-01T00:00:00Z"},
+  {"full_name":"hubot/new","name":"new","owner":{"login":"hubot"},"private":true,"pushed_at":"2026-09-01T00:00:00Z","description":null}
 ]
 JSON
 `
 
-// The list is newest push first, marks what is already cloned, and does not
-// ask GitHub for each repository's default branch: that field alone tripled
-// the call, and a checkout reads its own from origin/HEAD.
-func TestReposNewestFirstWithoutDefaultBranch(t *testing.T) {
+// The list is newest push first, marks what is already cloned, and includes
+// repos the account collaborates on or reaches through an organization, which
+// `gh repo list` leaves out.
+func TestReposNewestFirstWithCollaborators(t *testing.T) {
 	gh := t.TempDir()
 	if err := os.WriteFile(filepath.Join(gh, "gh"), []byte(fakeList), 0o755); err != nil {
 		t.Fatal(err)
@@ -39,7 +40,7 @@ func TestReposNewestFirstWithoutDefaultBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(repos) != 2 || repos[0].Name != "new" || repos[1].Name != "old" {
+	if len(repos) != 2 || repos[0].NameWithOwner != "hubot/new" || repos[1].Name != "old" {
 		t.Fatalf("want new then old, got %+v", repos)
 	}
 	if repos[0].Path != "" || repos[1].Path == "" {
@@ -50,7 +51,7 @@ func TestReposNewestFirstWithoutDefaultBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(args), "defaultBranchRef") {
-		t.Fatalf("repo list asks for the default branch: %s", args)
+	if !strings.Contains(string(args), "affiliation=owner,collaborator,organization_member") {
+		t.Fatalf("repo list leaves out collaborator and organization repos: %s", args)
 	}
 }
