@@ -119,6 +119,9 @@ type Config struct {
 	// Home is where the folder picker browses outside the roots; empty, it
 	// cannot. See browse.go.
 	Home string
+	// Volumes is where drives mount (VolumesDir); the folder picker lists each
+	// at the top of home and browses it as it does home. Empty, it shows none.
+	Volumes string
 
 	Picks   Picker
 	Folders FolderMaker

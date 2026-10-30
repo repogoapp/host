@@ -300,9 +300,11 @@ func (h *Host) openProjects() error {
 	// The projects layout is a root source as well: a fresh clone has no chat in it yet.
 	layout := ghcore.NewLayout(h.cfg.Projects)
 	// Git, projects, terminals and actions all share Files' containment. The
-	// folder picker browses home and makes what it picks a root (h.db).
+	// folder picker browses home and the drives plugged in, and makes what it
+	// picks a root (h.db).
 	projectFiles := files.New(files.Config{
-		Roots: files.Union(h.db, layout), Home: h.cfg.Home, Picks: h.db, Folders: layout,
+		Roots: files.Union(h.db, layout), Home: h.cfg.Home, Volumes: files.VolumesDir(runtime.GOOS),
+		Picks: h.db, Folders: layout,
 		Projects: h.cfg.Projects, Trash: files.TrashDir(runtime.GOOS, h.cfg.Home),
 		// The environment's own plugins and pages are every project's to read and watch,
 		// and so is their data, so a card can open a bucket's file in the viewer.

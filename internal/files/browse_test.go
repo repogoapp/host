@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -175,5 +176,67 @@ func TestBrowseListsFilesAndHiddenUnderHome(t *testing.T) {
 		if _, _, err := svc.Browse(path, withHidden); err == nil {
 			t.Errorf("Browse(%s) with Hidden = nil, want refused", path)
 		}
+	}
+}
+
+// drives returns a picker whose volumes folder holds a drive with a project, a
+// dot folder, a hidden folder on the drive, and the startup disk's link to /.
+func drives(t *testing.T) (svc *files.Service, home, volumes string) {
+	t.Helper()
+	_, home, _ = picker(t)
+	volumes = filepath.Join(filepath.Dir(home), "Volumes")
+	for _, dir := range []string{
+		filepath.Join(volumes, "T7", "work", "app"), filepath.Join(volumes, "T7", ".Trashes"),
+		filepath.Join(volumes, ".timemachine"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("/", filepath.Join(volumes, "Macintosh HD")); err != nil {
+		t.Fatal(err)
+	}
+	return files.New(files.Config{Roots: files.StaticRoots{}, Home: home, Volumes: volumes}), home, volumes
+}
+
+func TestBrowseDirsOnlyStartsHomeWithTheDrives(t *testing.T) {
+	svc, _, volumes := drives(t)
+	_, entries, err := svc.Browse("", dirsOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(entries); len(got) != 2 || got[0] != "T7" || got[1] != "Desktop" {
+		t.Fatalf("home lists %v, want [T7 Desktop]", got)
+	}
+	if entries[0].Path != filepath.Join(volumes, "T7") {
+		t.Fatalf("drive path %s", entries[0].Path)
+	}
+	// The env source picker looks only under home.
+	if _, entries, err := svc.Browse("", files.BrowseOptions{Hidden: true}); err != nil || slices.Contains(names(entries), "T7") {
+		t.Fatalf("Hidden home lists %v, %v; want no drives", names(entries), err)
+	}
+}
+
+func TestBrowseDirsOnlyOpensADriveButNotItsHiddenFolders(t *testing.T) {
+	svc, _, volumes := drives(t)
+	drive := filepath.Join(volumes, "T7")
+	if _, entries, err := svc.Browse(drive, dirsOnly); err != nil || len(entries) != 1 || entries[0].Name != "work" {
+		t.Fatalf("Browse(drive) = %v, %v; want [work]", names(entries), err)
+	}
+	app := filepath.Join(drive, "work", "app")
+	if got, err := svc.Pickable(app); err != nil || got != app {
+		t.Fatalf("Pickable(drive app) = %q, %v", got, err)
+	}
+	for _, path := range []string{
+		volumes, filepath.Join(drive, ".Trashes"), filepath.Join(volumes, ".timemachine"),
+		filepath.Join(volumes, "Macintosh HD"), filepath.Join(volumes, "Macintosh HD", "Users"),
+	} {
+		if _, _, err := svc.Browse(path, dirsOnly); !errors.Is(err, files.ErrNotBrowsable) {
+			t.Errorf("Browse(%s) = %v, want ErrNotBrowsable", path, err)
+		}
+	}
+	// Hidden is the env source picker's, under home alone.
+	if _, _, err := svc.Browse(drive, files.BrowseOptions{Hidden: true}); !errors.Is(err, files.ErrNotBrowsable) {
+		t.Errorf("Hidden Browse(drive) = %v, want ErrNotBrowsable", err)
 	}
 }
