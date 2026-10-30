@@ -81,6 +81,8 @@ func (s *liveSession) send(ctx context.Context, req agent.TurnRequest, io agent.
 	s.changes = map[string]json.RawMessage{}
 	outcome := s.outcome
 	params := s.turnParams(req)
+	// The one requested, else the one thread/start said Codex runs.
+	model := s.model
 	s.mu.Unlock()
 	defer func() {
 		cancel()
@@ -90,7 +92,7 @@ func (s *liveSession) send(ctx context.Context, req agent.TurnRequest, io agent.
 		s.mu.Unlock()
 	}()
 	if io.Session != nil {
-		io.Session(s.id)
+		io.Session(s.id, model)
 	}
 	turn, err := s.client.TurnStart(turnCtx, params)
 	if err != nil {

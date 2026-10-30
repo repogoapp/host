@@ -78,13 +78,16 @@ func (s *liveSession) send(ctx context.Context, req agent.TurnRequest, io agent.
 	s.mu.Unlock()
 	defer finish()
 	if io.Session != nil {
-		io.Session(s.id)
+		io.Session(s.id, "")
 	}
 	configCtx, configCancel := context.WithTimeout(turnCtx, 20*time.Second)
 	err := s.applyConfig(configCtx, req.Config)
 	configCancel()
 	if err != nil {
 		return agent.Result{SessionID: s.id}, err
+	}
+	if _, model := s.selectedModel(); model != "" && io.Session != nil {
+		io.Session(s.id, model)
 	}
 	message := userMessage(req, s.id)
 	s.mu.Lock()
@@ -111,7 +114,7 @@ func (s *liveSession) join(ctx context.Context, io agent.TurnIO) (agent.Result, 
 	s.mu.Unlock()
 	defer finish()
 	if io.Session != nil {
-		io.Session(s.id)
+		io.Session(s.id, "")
 	}
 	return s.wait(ctx, outcome)
 }

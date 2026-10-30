@@ -193,16 +193,24 @@ func (m *Manager) statusChanged(status TurnStatus, activity ChatStatus, at time.
 	}
 }
 
-// noteSession records the provider's conversation id on the status and tells
-// the hook. A turn that opened the conversation is re-keyed to the provider's
-// name for it, which is the id every later send will queue on.
-func (m *Manager) noteSession(t *turn, sessionID string) {
+// noteSession records the provider's conversation id and re-keys new chats so
+// later sends queue on that id. The reported model replaces the requested one;
+// another report for the same session only updates the model.
+func (m *Manager) noteSession(t *turn, sessionID, model string) {
 	if sessionID == "" {
 		return
 	}
 	t.mu.Lock()
+	newModel := model != "" && model != t.status.Model
+	if newModel {
+		t.status.Model = model
+	}
 	if t.status.SessionID == sessionID {
+		status, activity := t.status, t.chatStatus
 		t.mu.Unlock()
+		if newModel {
+			m.statusChanged(status, activity, time.Now())
+		}
 		return
 	}
 	t.status.SessionID = sessionID
@@ -704,7 +712,7 @@ func (m *Manager) execute(t *turn, run func(context.Context, TurnRequest, TurnIO
 		Emit:     t.publish,
 		Activity: t.activity,
 		Ask:      m.asker(t),
-		Session:  func(id string) { m.noteSession(t, id) },
+		Session:  func(id, model string) { m.noteSession(t, id, model) },
 		TurnID:   t.status.TurnID,
 		Device:   t.req.Device,
 		Config:   t.req.Config,

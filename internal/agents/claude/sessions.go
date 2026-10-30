@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	// bytedance/sonic rather than encoding/json: transcript parsing is the
 	// host's biggest CPU cost and this decoder measured several times faster
@@ -96,6 +97,7 @@ func (c *Sessions) List() ([]session.Meta, error) {
 			ContextUsed: peeked.contextUsed,
 			ContextSize: peeked.contextSize,
 			Model:       peeked.model,
+			ModelAt:     peeked.modelAt,
 			Settings:    peeked.settings,
 		}
 	}
@@ -126,6 +128,7 @@ func (c *Sessions) peek(path string, info os.FileInfo) peekResult {
 	session.ScanTail(path, info.Size(), func(line []byte) bool {
 		var probe struct {
 			Type           string `json:"type"`
+			Timestamp      string `json:"timestamp"`
 			AITitle        string `json:"aiTitle"`
 			CustomTitle    string `json:"customTitle"`
 			IsSidechain    bool   `json:"isSidechain"`
@@ -162,6 +165,7 @@ func (c *Sessions) peek(path string, info os.FileInfo) peekResult {
 		// A "<synthetic>" row is the CLI's own reply, not a model's.
 		if probe.Type == "assistant" && !probe.IsSidechain && probe.Message.Model != "" && probe.Message.Model != "<synthetic>" {
 			out.model = probe.Message.Model
+			out.modelAt, _ = time.Parse(time.RFC3339Nano, probe.Timestamp)
 		}
 		if !probe.IsSidechain && probe.Message.Model != "<synthetic>" {
 			applyClaudeSettings(&out.settings, probe.Type, probe.PermissionMode, probe.Effort, probe.Message.Usage)
@@ -597,7 +601,8 @@ type peekResult struct {
 	contextSize int64
 
 	// The model of the newest request; see session.Meta.Model.
-	model string
+	model   string
+	modelAt time.Time
 
 	settings session.Settings
 }

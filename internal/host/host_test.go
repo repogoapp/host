@@ -32,7 +32,7 @@ type turnAdapter struct{ opened, speak chan struct{} }
 func (turnAdapter) Kind() agent.Kind { return agent.KindClaude }
 func (turnAdapter) Available() error { return nil }
 func (a turnAdapter) Send(ctx context.Context, _ agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
-	io.Session("s1")
+	io.Session("s1", "")
 	close(a.opened)
 	<-a.speak
 	io.Emit(agent.Event{Kind: agent.EventText, Text: "hi"})

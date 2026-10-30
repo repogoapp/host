@@ -19,9 +19,11 @@ type TurnObservation struct {
 	FinishedAt *time.Time
 
 	// What the turn was sent with, so a row the transcript has not filled
-	// yet can show its title and model from write 1 (see queries.go).
+	// yet can show its title from write 1 (see queries.go).
 	Prompt string
-	Model  string
+	// The model the turn runs, as the agent or the device named it. It
+	// replaces the row's from write 1, the transcript not showing it yet.
+	Model string
 	// The title a device started the chat with; it names the row ahead of
 	// the prompt's opening words.
 	Title string
@@ -44,15 +46,16 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 		return err
 	}
 	defer tx.Rollback()
-	var key string
+	var key, priorModelKey string
 	var started, finished sql.NullInt64
-	err = tx.QueryRow(`SELECT last_turn_key, last_turn_started_at, last_turn_finished_at
+	err = tx.QueryRow(`SELECT last_turn_key, last_turn_started_at, last_turn_finished_at, model_turn_key
 		FROM sessions WHERE agent = ? AND session_id = ?`, provider, sessionID).
-		Scan(&key, &started, &finished)
+		Scan(&key, &started, &finished, &priorModelKey)
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
 	fresh := err == sql.ErrNoRows
+	priorKey := key
 	key, started, finished = mergeTurn(key, started, finished, turn)
 	// A turn seen starting is a prompt just sent, from a device or a hook,
 	// ahead of the transcript line the next sweep will read.
@@ -66,12 +69,18 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 	if model == "default" {
 		model = ""
 	}
+	// Reserve the model until the transcript names this turn's own. Once
+	// released, later status reports for the same turn cannot reclaim it.
+	var modelKey string
+	if key == turn.Key && started.Valid && (priorKey != key || priorModelKey == key) {
+		modelKey = key
+	}
 	requested := turn.Title
 	if requested == "" {
 		requested = promptTitle(turn.Prompt)
 	}
 	_, err = tx.Exec(statusUpsert,
-		provider, sessionID, cwd, requested, model, string(turn.PermissionMode),
+		provider, sessionID, cwd, requested, model, modelKey, string(turn.PermissionMode),
 		at.UnixMilli(), at.UnixMilli(), status, at.UnixMilli(), key, started, finished, sent, s.rev.Add(1))
 	if err != nil {
 		return fmt.Errorf("store: update chat status: %w", err)

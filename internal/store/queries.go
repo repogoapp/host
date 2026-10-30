@@ -5,15 +5,15 @@
 // chats.changed to every device:
 //
 //  1. statusUpsert, as the turn starts (SetStatus): status, turn timing and
-//     last_message_at, plus the title (the device's, else the prompt's opening
-//     words) and the model the device asked for when the row has neither yet,
-//     and the permission the turn runs with. A new chat's card therefore shows
-//     them from the first push.
+//     last_message_at, the title (the device's, else the prompt's opening
+//     words) when the row has none yet, and the model and permission the turn
+//     runs with. A chat's card therefore shows them from the first push.
 //  2. sessionUpsert, once the agent has written the prompt to its transcript
 //     (SyncBatch): the events rows, and the title when the agent's files name
 //     one or the row has none.
 //  3. sessionUpsert, once the reply is in the transcript: summary, context,
-//     and the model the provider actually ran, which replaces the requested one.
+//     and the model the provider ran, once its model-bearing row is at least
+//     as recent as the live turn's start.
 //  4. statusUpsert, as the turn ends: status and the finish time.
 //
 // Steps 2 and 3 can land as one sweep when the file changes quickly.
@@ -22,8 +22,8 @@ package store
 // Writes 2 and 3 above. The generation bump is a parameter: it means "the
 // history you hold is gone", so an append, which a reader keeps, must not bump it.
 const sessionUpsert = `
-INSERT INTO sessions (agent, session_id, cwd, title, summary, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size, model, model_label, project_agent, permission_mode, mode, reasoning_level, fast_mode, last_message_at, rev)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO sessions (agent, session_id, cwd, title, summary, path, created_at, updated_at, size_bytes, event_count, content_hash, generation, synced_at, context_used, context_size, model, model_label, model_at, project_agent, permission_mode, mode, reasoning_level, fast_mode, last_message_at, rev)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(agent, session_id) DO UPDATE SET
   cwd = excluded.cwd, summary = excluded.summary, path = excluded.path,
   -- The agent's own title (a rename, its generated one) always wins. Opening
@@ -39,8 +39,9 @@ ON CONFLICT(agent, session_id) DO UPDATE SET
   -- a request, so its absence is a truncated segment, not an empty window.
   context_used = CASE WHEN excluded.context_used > 0 THEN excluded.context_used ELSE sessions.context_used END,
   context_size = CASE WHEN excluded.context_size > 0 THEN excluded.context_size ELSE sessions.context_size END,
-  model = CASE WHEN excluded.model != '' THEN excluded.model ELSE sessions.model END,
-  model_label = CASE WHEN excluded.model != '' THEN excluded.model_label ELSE sessions.model_label END,
+  model = CASE WHEN excluded.model != '' AND excluded.model_at >= sessions.model_at THEN excluded.model ELSE sessions.model END,
+  model_label = CASE WHEN excluded.model != '' AND excluded.model_at >= sessions.model_at THEN excluded.model_label ELSE sessions.model_label END,
+  model_at = CASE WHEN excluded.model != '' AND excluded.model_at >= sessions.model_at THEN excluded.model_at ELSE sessions.model_at END,
   project_agent = excluded.project_agent,
   permission_mode = CASE WHEN excluded.permission_mode != '' THEN excluded.permission_mode ELSE sessions.permission_mode END,
   mode = CASE WHEN excluded.mode != '' THEN excluded.mode ELSE sessions.mode END,
@@ -55,17 +56,21 @@ RETURNING sid, title, search_hash`
 // -1 never matches a file, so the next sweep parses it. A newer status_at wins;
 // an older one is a delayed report and must not roll the row back.
 const statusUpsert = `
-INSERT INTO sessions (agent, session_id, cwd, title, model, permission_mode, created_at, updated_at, size_bytes,
+INSERT INTO sessions (agent, session_id, cwd, title, model, model_turn_key, permission_mode, created_at, updated_at, size_bytes,
   event_count, synced_at, status, status_at, last_turn_key, last_turn_started_at, last_turn_finished_at, last_message_at, rev)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, -1, 0, 0, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, -1, 0, 0, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(agent, session_id) DO UPDATE SET
   status = CASE WHEN excluded.status_at >= sessions.status_at THEN excluded.status ELSE sessions.status END,
   status_at = MAX(sessions.status_at, excluded.status_at),
   cwd = CASE WHEN sessions.cwd = '' THEN excluded.cwd ELSE sessions.cwd END,
-  -- Only an empty row takes them: once the transcript names a title or model,
-  -- a request must not overwrite it, or the next sync would switch it back.
+  -- Only an empty row takes the title: once the transcript names one, a
+  -- request must not overwrite it, or the next sync would switch it back.
   title = CASE WHEN sessions.title = '' THEN excluded.title ELSE sessions.title END,
-  model = CASE WHEN sessions.model = '' THEN excluded.model ELSE sessions.model END,
+  -- The turn holding the row names the model it runs at once, and keeps it
+  -- until the transcript names that turn's model (see syncEntry).
+  model_label = CASE WHEN excluded.model_turn_key != '' AND excluded.model != '' AND excluded.model != sessions.model THEN '' ELSE sessions.model_label END,
+  model = CASE WHEN excluded.model != '' AND (excluded.model_turn_key != '' OR sessions.model = '') THEN excluded.model ELSE sessions.model END,
+  model_turn_key = CASE WHEN excluded.model_turn_key != '' THEN excluded.model_turn_key ELSE sessions.model_turn_key END,
   -- A hook or a turn's end names no permission and keeps the row's.
   permission_mode = CASE WHEN excluded.permission_mode != '' THEN excluded.permission_mode ELSE sessions.permission_mode END,
   last_turn_key = excluded.last_turn_key,

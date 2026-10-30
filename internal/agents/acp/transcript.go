@@ -51,6 +51,7 @@ type chatInfo struct {
 	Agent, Cwd, Session, Title string
 	// Model and ModelName are the newest turn's.
 	Model, ModelName string
+	ModelAt          time.Time
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
@@ -108,6 +109,7 @@ func readInfo(path string) (chatInfo, error) {
 			info.Title = l.Title
 		case lineModel:
 			info.Model, info.ModelName = l.Model, l.ModelName
+			info.ModelAt, _ = time.Parse(time.RFC3339Nano, l.At)
 		}
 	})
 	return info, err

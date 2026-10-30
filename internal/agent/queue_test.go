@@ -66,7 +66,7 @@ func (a recordingAdapter) Send(ctx context.Context, req TurnRequest, tio TurnIO)
 	a.ran <- req
 	if req.SessionID == "" && a.session != "" {
 		<-a.nameSession
-		tio.Session(a.session)
+		tio.Session(a.session, "")
 	}
 	<-ctx.Done()
 	return Result{}, ctx.Err()

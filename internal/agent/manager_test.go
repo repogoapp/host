@@ -204,7 +204,7 @@ type joiningAdapter struct {
 
 func (a joiningAdapter) OwnTurns(adopt func(chatID, cwd string)) { *a.adopt = adopt }
 func (a joiningAdapter) Join(ctx context.Context, _ string, io TurnIO) (Result, error) {
-	io.Session("own")
+	io.Session("own", "")
 	<-ctx.Done()
 	return Result{}, ctx.Err()
 }
@@ -341,5 +341,70 @@ func TestWaitReturnsTheLastMessageWhenTheTurnEnds(t *testing.T) {
 	}
 	if _, _, err := m.Wait(t.Context(), "no-such-turn"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("waiting on an unknown turn: %v, want ErrNotFound", err)
+	}
+}
+
+// openingAdapter opens a new conversation running model, then waits.
+type openingAdapter struct{ model string }
+
+func (openingAdapter) Kind() Kind       { return KindCodex }
+func (openingAdapter) Available() error { return nil }
+func (a openingAdapter) Send(ctx context.Context, _ TurnRequest, io TurnIO) (Result, error) {
+	io.Session("t1", a.model)
+	<-ctx.Done()
+	return Result{}, ctx.Err()
+}
+
+// A chat sent with the CLI's default model, or an alias, names the model the
+// agent runs from the status its row is first written with.
+func TestSessionModelFillsTheDefault(t *testing.T) {
+	for _, tc := range []struct{ requested, want string }{{"", "gpt-6-astra"}, {"gpt-6", "gpt-6-astra"}} {
+		statuses := make(chan TurnStatus, 8)
+		hooks := quiet()
+		hooks.Status = func(st TurnStatus, _ ChatStatus, _ time.Time) { statuses <- st }
+		m := NewManager(discard(), hooks, openingAdapter{model: "gpt-6-astra"})
+		st, err := m.Send(TurnRequest{ChatID: "codex:new", Cwd: t.TempDir(), Agent: KindCodex, Prompt: "hi",
+			Config: TurnConfig{Model: tc.requested}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := <-statuses
+		if first.SessionID != "t1" || first.Model != tc.want {
+			t.Fatalf("requested %q: first status %q model %q, want t1 with %q", tc.requested, first.SessionID, first.Model, tc.want)
+		}
+		m.Stop(st.TurnID)
+	}
+}
+
+// lateModelAdapter opens the conversation, then learns its model, as Claude
+// and ACP agents do once the turn's settings are applied.
+type lateModelAdapter struct{}
+
+func (lateModelAdapter) Kind() Kind       { return KindClaude }
+func (lateModelAdapter) Available() error { return nil }
+func (lateModelAdapter) Send(ctx context.Context, _ TurnRequest, io TurnIO) (Result, error) {
+	io.Session("s1", "")
+	io.Session("s1", "claude-opus-5-5")
+	<-ctx.Done()
+	return Result{}, ctx.Err()
+}
+
+// A model learned after the session opened reaches the chat row, replacing
+// the alias the device asked for.
+func TestLateSessionModelUpdatesTheStatus(t *testing.T) {
+	statuses := make(chan TurnStatus, 8)
+	hooks := quiet()
+	hooks.Status = func(st TurnStatus, _ ChatStatus, _ time.Time) { statuses <- st }
+	m := NewManager(discard(), hooks, lateModelAdapter{})
+	st, err := m.Send(TurnRequest{ChatID: "claude:new", Cwd: t.TempDir(), Agent: KindClaude, Prompt: "hi", Config: TurnConfig{Model: "opus"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop(st.TurnID)
+	if first := <-statuses; first.Model != "opus" {
+		t.Fatalf("first status model %q, want the alias asked for", first.Model)
+	}
+	if second := <-statuses; second.SessionID != "s1" || second.Model != "claude-opus-5-5" {
+		t.Fatalf("second status %q model %q, want s1 with claude-opus-5-5", second.SessionID, second.Model)
 	}
 }

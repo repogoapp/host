@@ -51,7 +51,7 @@ func (s *Sessions) List() ([]session.Meta, error) {
 		out = append(out, session.Meta{
 			ID: strings.TrimSuffix(filepath.Base(f.Path), ".jsonl"), Agent: agent.KindProject,
 			Cwd: infos[i].Cwd, Title: infos[i].Title, Path: f.Path, ProjectAgent: infos[i].Agent,
-			Model: infos[i].Model, ModelLabel: infos[i].ModelName,
+			Model: infos[i].Model, ModelLabel: infos[i].ModelName, ModelAt: infos[i].ModelAt,
 			UpdatedAt: f.Info.ModTime(), SizeBytes: f.Info.Size(),
 		})
 	}

@@ -104,12 +104,14 @@ func (c *Sessions) List() ([]session.Meta, error) {
 			}
 			if peeked.model != "" {
 				m.Model = peeked.model
+				m.ModelAt = peeked.modelAt
 			}
 			m.Settings = peeked.settings.Or(m.Settings)
 		}
 		// An older segment's model and settings stand in until a newer one names its own.
 		if m.Model == "" {
 			m.Model = peeked.model
+			m.ModelAt = peeked.modelAt
 		}
 		m.Settings = m.Settings.Or(peeked.settings)
 	}
@@ -253,7 +255,7 @@ func (c *Sessions) peek(path string, info os.FileInfo) peekResult {
 			// out of the tail window.
 			return out.subagent == nil
 		case "turn_context":
-			out.model = codexTurnModel(line)
+			out.model, out.modelAt = codexTurnModel(line)
 			return out.id == "" || out.model == ""
 		}
 		return true
@@ -261,8 +263,9 @@ func (c *Sessions) peek(path string, info os.FileInfo) peekResult {
 
 	session.ScanTail(path, info.Size(), func(line []byte) bool {
 		var l struct {
-			Type    string `json:"type"`
-			Payload struct {
+			Type      string `json:"type"`
+			Timestamp string `json:"timestamp"`
+			Payload   struct {
 				Type  string `json:"type"`
 				Model string `json:"model"`
 				codexTurnSettings
@@ -282,6 +285,7 @@ func (c *Sessions) peek(path string, info os.FileInfo) peekResult {
 		// Each turn restates its model, so the newest in the tail wins.
 		if l.Type == "turn_context" && l.Payload.Model != "" {
 			out.model = l.Payload.Model
+			out.modelAt, _ = time.Parse(time.RFC3339Nano, l.Timestamp)
 		}
 		if l.Type == "turn_context" || l.Type == "event_msg" && l.Payload.Type == "thread_settings_applied" {
 			l.Payload.codexTurnSettings.apply(&out.settings)
@@ -348,16 +352,18 @@ func (t codexTurnSettings) apply(s *session.Settings) {
 }
 
 // codexTurnModel is the model a turn_context line names.
-func codexTurnModel(line []byte) string {
+func codexTurnModel(line []byte) (string, time.Time) {
 	var l struct {
-		Payload struct {
+		Timestamp string `json:"timestamp"`
+		Payload   struct {
 			Model string `json:"model"`
 		} `json:"payload"`
 	}
 	if sonic.Unmarshal(line, &l) != nil {
-		return ""
+		return "", time.Time{}
 	}
-	return l.Payload.Model
+	at, _ := time.Parse(time.RFC3339Nano, l.Timestamp)
+	return l.Payload.Model, at
 }
 
 // ParseLine is one rollout line's events and the line's timestamp.
@@ -768,7 +774,8 @@ type peekResult struct {
 	contextSize int64
 
 	// The model of the newest request; see session.Meta.Model.
-	model string
+	model   string
+	modelAt time.Time
 
 	settings session.Settings
 

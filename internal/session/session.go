@@ -58,6 +58,9 @@ type Meta struct {
 	// Model is the provider's id for the model that served the newest request
 	// (`claude-opus-5-5`, `gpt-6-astra`); empty when the transcript names none.
 	Model string `json:"model,omitempty"`
+	// ModelAt dates the model-bearing row so a stale transcript cannot undo
+	// a live model switch. Zero means the row did not supply a valid timestamp.
+	ModelAt time.Time `json:"-"`
 	// ModelLabel is Model's display name when the agent names its models
 	// itself; empty leaves it to the agent's catalog.
 	ModelLabel string `json:"model_label,omitempty"`

@@ -92,6 +92,7 @@ type batch struct {
 	now int64
 
 	upsert, clear, prior, setTurn, setStatus, unresolve, dropEmptyMarks *sql.Stmt
+	releaseModel, resetModel                                            *sql.Stmt
 }
 
 func (s *Store) newBatch() (*batch, error) {
@@ -106,9 +107,11 @@ func (s *Store) newBatch() (*batch, error) {
 	}{
 		{&b.upsert, sessionUpsert},
 		{&b.clear, `DELETE FROM events WHERE sid = ?`},
-		{&b.prior, `SELECT event_count, content_hash, synced_at, updated_at, size_bytes, last_turn_key, last_turn_started_at, last_turn_finished_at
-			FROM sessions WHERE agent = ? AND session_id = ?`},
+		{&b.prior, `SELECT event_count, content_hash, synced_at, updated_at, size_bytes, last_turn_key, last_turn_started_at, last_turn_finished_at,
+			model_turn_key FROM sessions WHERE agent = ? AND session_id = ?`},
 		{&b.setTurn, `UPDATE sessions SET last_turn_key = ?, last_turn_started_at = ?, last_turn_finished_at = ? WHERE sid = ?`},
+		{&b.releaseModel, `UPDATE sessions SET model_turn_key = '' WHERE sid = ?`},
+		{&b.resetModel, `UPDATE sessions SET model_at = 0 WHERE agent = ? AND session_id = ?`},
 		// Same guard as SetStatus: a hook or the Manager may already have said
 		// something newer about this chat, and the file must not roll that back.
 		{&b.setStatus, `UPDATE sessions SET status = ?, status_at = ? WHERE sid = ? AND status_at < ?`},
@@ -127,7 +130,7 @@ func (s *Store) newBatch() (*batch, error) {
 
 // Close releases the statements and rolls back an uncommitted transaction.
 func (b *batch) Close() {
-	for _, st := range []*sql.Stmt{b.upsert, b.clear, b.prior, b.setTurn, b.setStatus, b.unresolve, b.dropEmptyMarks} {
+	for _, st := range []*sql.Stmt{b.upsert, b.clear, b.prior, b.setTurn, b.setStatus, b.unresolve, b.dropEmptyMarks, b.releaseModel, b.resetModel} {
 		if st != nil {
 			st.Close()
 		}
@@ -144,10 +147,10 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	var oldCount int
 	// SQLite integers are signed; a uint64 hash round-trips through int64.
 	var storedHash, syncedAt, storedUpdated, storedSize int64
-	var turnKey string
+	var turnKey, modelTurnKey string
 	var turnStarted, turnFinished sql.NullInt64
 	switch err := b.prior.QueryRow(kind, id).Scan(&oldCount, &storedHash, &syncedAt, &storedUpdated, &storedSize,
-		&turnKey, &turnStarted, &turnFinished); err {
+		&turnKey, &turnStarted, &turnFinished, &modelTurnKey); err {
 	case nil:
 		listed = true
 	case sql.ErrNoRows:
@@ -169,6 +172,26 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	bump := 0
 	if oldCount > len(e.Events) || (oldCount > 0 && prefix != uint64(storedHash)) {
 		bump = 1
+		// A rewind can legitimately restore a model from an older row.
+		if _, err := b.resetModel.Exec(kind, id); err != nil {
+			return false, false, err
+		}
+	}
+
+	// The same stamps a hook would have left, read off the file, so a chat
+	// indexed cold times its last turn like one the host watched live.
+	key, started, finished := mergeTurn(turnKey, turnStarted, turnFinished, transcriptTurn(e.Events))
+	// Only a model-bearing row from this turn can replace its live model:
+	// fresh output or a file timestamp may still accompany an older model.
+	model, modelLabel := e.Meta.Model, e.Meta.ModelLabel
+	var modelAt int64
+	if !e.Meta.ModelAt.IsZero() {
+		modelAt = e.Meta.ModelAt.UnixMilli()
+	}
+	held := modelTurnKey != "" && key == modelTurnKey &&
+		(model == "" || e.Meta.ModelAt.IsZero() || !started.Valid || e.Meta.ModelAt.UnixMilli() < started.Int64)
+	if held {
+		model, modelLabel = "", ""
 	}
 
 	// Writes 2 and 3 in queries.go: the prompt reaching the file, then the
@@ -178,10 +201,16 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	agentTitled := collapseSpace(e.Meta.Title) != ""
 	if err := b.upsert.QueryRow(kind, id, e.Meta.Cwd, titleFor(e.Meta, e.Events), summaryOf(e.Events), e.Meta.Path,
 		createdAt(e.Meta, e.Events), e.Meta.UpdatedAt.UnixMilli(), e.Meta.SizeBytes, len(e.Events), int64(full), b.now,
-		e.Meta.ContextUsed, e.Meta.ContextSize, e.Meta.Model, e.Meta.ModelLabel, e.Meta.ProjectAgent,
+		e.Meta.ContextUsed, e.Meta.ContextSize, model, modelLabel, modelAt, e.Meta.ProjectAgent,
 		string(e.Meta.Settings.PermissionMode), e.Meta.Settings.Mode, e.Meta.Settings.ReasoningLevel, e.Meta.Settings.FastMode,
 		lastMessageAt(e.Events), b.s.rev.Add(1), agentTitled, bump).Scan(&sid, &title, &searchHash); err != nil {
 		return false, false, err
+	}
+	if modelTurnKey != "" && !held {
+		if _, err := b.releaseModel.Exec(sid); err != nil {
+			return false, false, err
+		}
+		moved = true
 	}
 	if _, err := b.clear.Exec(sid); err != nil {
 		return false, false, err
@@ -192,9 +221,7 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	if err := indexChat(b.tx, sid, title, e.Events, searchHash); err != nil {
 		return false, false, err
 	}
-	// The same stamps a hook would have left, read off the file, so a chat
-	// indexed cold times its last turn like one the host watched live.
-	if key, started, finished := mergeTurn(turnKey, turnStarted, turnFinished, transcriptTurn(e.Events)); key != turnKey || started != turnStarted || finished != turnFinished {
+	if key != turnKey || started != turnStarted || finished != turnFinished {
 		if _, err := b.setTurn.Exec(key, started, finished, sid); err != nil {
 			return false, false, err
 		}

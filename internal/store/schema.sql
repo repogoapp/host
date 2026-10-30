@@ -40,6 +40,13 @@ CREATE TABLE sessions (
   -- model's display name when the agent names its models itself, '' to name it
   -- from the agent's catalog. Re-derived from the transcript like model.
   model_label TEXT    NOT NULL DEFAULT '',
+  -- The live turn reserving model until its model-bearing transcript row
+  -- arrives. An empty model can be learned later; '' releases the reservation
+  -- so the same turn's status reports cannot replace the transcript's model.
+  model_turn_key TEXT NOT NULL DEFAULT '',
+  -- Timestamp of the model-bearing row, so a bounded transcript read cannot
+  -- replace a newer model with an older fallback. Zero means unknown.
+  model_at INTEGER NOT NULL DEFAULT 0,
   -- Which of the project's own agents the chat runs, '' for every other agent.
   project_agent TEXT  NOT NULL DEFAULT '',
   -- What the newest turn ran with (session.Settings), '' or NULL unknown.

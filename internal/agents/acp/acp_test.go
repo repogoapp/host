@@ -236,7 +236,7 @@ func send(t *testing.T, p *Provider, req agent.TurnRequest, answer func(agent.Ap
 				}
 			}
 		},
-		Session: func(id string) { out.chat = id },
+		Session: func(id, _ string) { out.chat = id },
 		Ask: func(_ context.Context, a agent.Approval) (json.RawMessage, error) {
 			mu.Lock()
 			out.asked = append(out.asked, a)
@@ -266,7 +266,7 @@ func sendRaw(t *testing.T, p *Provider, req agent.TurnRequest, reply json.RawMes
 				text.WriteString(e.Text)
 			}
 		},
-		Session: func(id string) { out.chat = id },
+		Session: func(id, _ string) { out.chat = id },
 		Ask:     func(context.Context, agent.Approval) (json.RawMessage, error) { return reply, nil },
 	}
 	out.result, out.err = p.Send(ctx, req, stream)
@@ -479,7 +479,7 @@ func TestSessionsNameTheAgentAndModel(t *testing.T) {
 	if err != nil || len(metas) != 1 {
 		t.Fatalf("metas %+v %v", metas, err)
 	}
-	if m := metas[0]; m.ProjectAgent != "fake" || m.Model != "haiku" || m.ModelLabel != "Haiku" {
+	if m := metas[0]; m.ProjectAgent != "fake" || m.Model != "haiku" || m.ModelLabel != "Haiku" || m.ModelAt.IsZero() {
 		t.Fatalf("meta %+v", m)
 	}
 }

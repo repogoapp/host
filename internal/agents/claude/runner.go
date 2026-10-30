@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -204,20 +205,7 @@ func (s *liveSession) applyConfig(ctx context.Context, cfg agent.TurnConfig) err
 			s.mu.Unlock()
 		}
 	}
-	s.mu.Lock()
-	selected := s.lastModel
-	s.mu.Unlock()
-	if selected == "" {
-		selected = "default"
-	}
-	var model *claudecode.Model
-	for i := range s.catalog.Models {
-		m := &s.catalog.Models[i]
-		if m.Value == selected || m.ResolvedModel == selected {
-			model = m
-			break
-		}
-	}
+	model, _ := s.selectedModel()
 	settings := map[string]any{"fastMode": cfg.FastMode}
 	if cfg.ReasoningLevel != "" && (model == nil || model.SupportsEffort && slices.Contains(model.Efforts, cfg.ReasoningLevel)) {
 		settings["effortLevel"] = cfg.ReasoningLevel
@@ -246,6 +234,27 @@ func (s *liveSession) applyConfig(ctx context.Context, cfg agent.TurnConfig) err
 		s.mu.Unlock()
 	}
 	return nil
+}
+
+// selectedModel is the session's model as Claude's catalog lists it, and the
+// one it runs: the default resolved to its model, an alias to its id.
+func (s *liveSession) selectedModel() (*claudecode.Model, string) {
+	s.mu.Lock()
+	selected := s.lastModel
+	s.mu.Unlock()
+	if selected == "" {
+		selected = "default"
+	}
+	for i := range s.catalog.Models {
+		m := &s.catalog.Models[i]
+		if m.Value == selected || m.ResolvedModel == selected {
+			return m, cmp.Or(m.ResolvedModel, m.Value)
+		}
+	}
+	if selected == "default" {
+		return nil, ""
+	}
+	return nil, selected
 }
 
 func rejectedConfig(err error) bool {

@@ -284,10 +284,10 @@ type TurnIO struct {
 	// Activity keeps a turn alive while the provider owns background work.
 	Activity func(busy bool)
 
-	// Session reports the provider's conversation id as soon as the session opens,
-	// before the prompt runs: a chat's identity is `agent:<session id>` and a
-	// client has nothing to open until this fires. Optional, called at most once.
-	Session func(sessionID string)
+	// Session optionally reports the conversation id before the prompt runs so
+	// clients can open the chat. A model learned later is reported with the same
+	// id in another call.
+	Session func(sessionID, model string)
 
 	// Ask blocks until the user answers or ctx ends: a JSON string naming the
 	// option, or an object of answers for a form. Returning an error declines.

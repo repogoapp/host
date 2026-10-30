@@ -131,7 +131,7 @@ func TestDirectRunnerReuseAndResume(t *testing.T) {
 	defer cancel()
 	req := agent.TurnRequest{ChatID: "new", Cwd: t.TempDir(), Prompt: "hello", Config: agent.TurnConfig{Model: "sonnet", ReasoningLevel: "high", PermissionMode: agent.PermissionApprovalRequired}}
 	var text strings.Builder
-	turnIO := agent.TurnIO{TurnID: "turn-1", Emit: func(e agent.Event) { text.WriteString(e.Text) }, Session: func(id string) { req.SessionID = id }}
+	turnIO := agent.TurnIO{TurnID: "turn-1", Emit: func(e agent.Event) { text.WriteString(e.Text) }, Session: func(id, _ string) { req.SessionID = id }}
 	first, err := r.Send(ctx, req, turnIO)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestBusySessionKeepsItsSetupUntilIdle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	req := agent.TurnRequest{ChatID: "new", Cwd: t.TempDir(), Prompt: "hello"}
-	turnIO := agent.TurnIO{TurnID: "turn", Emit: func(agent.Event) {}, Session: func(id string) { req.SessionID = id }}
+	turnIO := agent.TurnIO{TurnID: "turn", Emit: func(agent.Event) {}, Session: func(id, _ string) { req.SessionID = id }}
 	first, err := r.Send(ctx, req, turnIO)
 	if err != nil {
 		t.Fatal(err)

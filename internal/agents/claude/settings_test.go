@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 )
@@ -44,5 +45,32 @@ func TestListReadsTurnSettings(t *testing.T) {
 	}
 	if got.FastMode == nil || *got.FastMode {
 		t.Fatalf("fast mode = %v, want false", got.FastMode)
+	}
+}
+
+// Only the row naming the model dates it; subagents and synthetic errors
+// must not make an older model look like the current turn's.
+func TestListDatesTheModelBearingRow(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "projects", "-w")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := []string{
+		`{"type":"user","cwd":"/w"}`,
+		`{"type":"assistant","timestamp":"2026-10-30T10:00:00Z","message":{"model":"actual"}}`,
+		`{"type":"assistant","timestamp":"2026-10-30T10:01:00Z","isSidechain":true,"message":{"model":"child"}}`,
+		`{"type":"assistant","timestamp":"2026-10-30T10:02:00Z","message":{"model":"<synthetic>"}}`,
+	}
+	if err := os.WriteFile(filepath.Join(dir, "s.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	metas, err := NewSessions(home).List()
+	if err != nil || len(metas) != 1 {
+		t.Fatalf("List = %v, %v", metas, err)
+	}
+	want := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+	if m := metas[0]; m.Model != "actual" || !m.ModelAt.Equal(want) {
+		t.Fatalf("model = %q at %v; want actual at %v", m.Model, m.ModelAt, want)
 	}
 }

@@ -141,6 +141,9 @@ func (p *Provider) turn(ctx context.Context, proc *agentProcess, c chat, req age
 	}
 	if id, name := proc.modelInUse(cs, c.manifest); id != "" {
 		_ = c.file.append(line{Type: lineModel, Model: id, ModelName: name})
+		if io.Session != nil {
+			io.Session(c.id, id)
+		}
 	}
 	return proc.prompt(ctx, cs, req, io)
 }
@@ -160,7 +163,7 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 		}
 		// Every turn names its chat: the phone's live view of a turn starts here.
 		if io.Session != nil {
-			io.Session(req.SessionID)
+			io.Session(req.SessionID, "")
 		}
 		return chat{id: req.SessionID, manifest: m, file: &transcript{path: path}, session: info.Session}, nil
 	}
@@ -177,7 +180,7 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 		return chat{}, err
 	}
 	if io.Session != nil {
-		io.Session(id)
+		io.Session(id, "")
 	}
 	return chat{id: id, manifest: m, file: file}, nil
 }

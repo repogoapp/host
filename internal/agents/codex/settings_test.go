@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 )
@@ -38,5 +39,39 @@ func TestListReadsTurnSettings(t *testing.T) {
 	}
 	if got.FastMode == nil || !*got.FastMode {
 		t.Fatalf("fast mode = %v, want true", got.FastMode)
+	}
+}
+
+// The head fallback must retain its own date when a long turn pushes the
+// newest turn_context outside the tail window.
+func TestListKeepsModelAndDateTogether(t *testing.T) {
+	for _, longTail := range []bool{false, true} {
+		home := t.TempDir()
+		dir := filepath.Join(home, "sessions")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		lines := []string{
+			`{"type":"session_meta","payload":{"session_id":"t1","cwd":"/w"}}`,
+			`{"type":"turn_context","timestamp":"2026-10-30T10:00:00Z","payload":{"model":"first"}}`,
+			`{"type":"turn_context","timestamp":"2026-10-30T11:00:00Z","payload":{"model":"latest"}}`,
+		}
+		wantModel, hour := "latest", 11
+		if longTail {
+			lines = append(lines, strings.Repeat("{}\n", 150_000))
+			wantModel, hour = "first", 10
+		}
+		path := filepath.Join(dir, "rollout-model.jsonl")
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		metas, err := NewSessions(home).List()
+		if err != nil || len(metas) != 1 {
+			t.Fatalf("List = %v, %v", metas, err)
+		}
+		want := time.Date(2026, 10, 30, hour, 0, 0, 0, time.UTC)
+		if m := metas[0]; m.Model != wantModel || !m.ModelAt.Equal(want) {
+			t.Fatalf("model = %q at %v; want %q at %v", m.Model, m.ModelAt, wantModel, want)
+		}
 	}
 }
