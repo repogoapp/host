@@ -179,15 +179,15 @@ func TestBrowseListsFilesAndHiddenUnderHome(t *testing.T) {
 	}
 }
 
-// drives returns a picker whose volumes folder holds a drive with a project, a
-// dot folder, a hidden folder on the drive, and the startup disk's link to /.
+// drives returns a picker with one drive mounted, holding a project and a dot
+// folder, beside a folder that is no mount and the startup disk's link to /.
 func drives(t *testing.T) (svc *files.Service, home, volumes string) {
 	t.Helper()
 	_, home, _ = picker(t)
 	volumes = filepath.Join(filepath.Dir(home), "Volumes")
 	for _, dir := range []string{
 		filepath.Join(volumes, "T7", "work", "app"), filepath.Join(volumes, "T7", ".Trashes"),
-		filepath.Join(volumes, ".timemachine"),
+		filepath.Join(volumes, "com.apple.TimeMachine.localsnapshots"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -196,7 +196,8 @@ func drives(t *testing.T) (svc *files.Service, home, volumes string) {
 	if err := os.Symlink("/", filepath.Join(volumes, "Macintosh HD")); err != nil {
 		t.Fatal(err)
 	}
-	return files.New(files.Config{Roots: files.StaticRoots{}, Home: home, Volumes: volumes}), home, volumes
+	mounted := func() []string { return []string{filepath.Join(volumes, "T7")} }
+	return files.New(files.Config{Roots: files.StaticRoots{}, Home: home, Drives: mounted}), home, volumes
 }
 
 func TestBrowseDirsOnlyStartsHomeWithTheDrives(t *testing.T) {
@@ -228,7 +229,7 @@ func TestBrowseDirsOnlyOpensADriveButNotItsHiddenFolders(t *testing.T) {
 		t.Fatalf("Pickable(drive app) = %q, %v", got, err)
 	}
 	for _, path := range []string{
-		volumes, filepath.Join(drive, ".Trashes"), filepath.Join(volumes, ".timemachine"),
+		volumes, filepath.Join(drive, ".Trashes"), filepath.Join(volumes, "com.apple.TimeMachine.localsnapshots"),
 		filepath.Join(volumes, "Macintosh HD"), filepath.Join(volumes, "Macintosh HD", "Users"),
 	} {
 		if _, _, err := svc.Browse(path, dirsOnly); !errors.Is(err, files.ErrNotBrowsable) {
@@ -238,5 +239,14 @@ func TestBrowseDirsOnlyOpensADriveButNotItsHiddenFolders(t *testing.T) {
 	// Hidden is the env source picker's, under home alone.
 	if _, _, err := svc.Browse(drive, files.BrowseOptions{Hidden: true}); !errors.Is(err, files.ErrNotBrowsable) {
 		t.Errorf("Hidden Browse(drive) = %v, want ErrNotBrowsable", err)
+	}
+}
+
+func TestBrowseDirsOnlyListsTheDrivesWhenHomeIsAProject(t *testing.T) {
+	_, home, volumes := drives(t)
+	mounted := func() []string { return []string{filepath.Join(volumes, "T7")} }
+	svc := files.New(files.Config{Roots: files.StaticRoots{home}, Home: home, Drives: mounted})
+	if _, entries, err := svc.Browse("", dirsOnly); err != nil || len(entries) == 0 || entries[0].Name != "T7" {
+		t.Fatalf("home as a project lists %v, %v; want T7 first", names(entries), err)
 	}
 }

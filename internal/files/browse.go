@@ -75,19 +75,11 @@ func (s *Service) Browse(path string, opts BrowseOptions) (string, []Entry, erro
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
-	if opts.DirsOnly && !contained && places.volumes != "" && dir == places.home {
-		out = append(places.drives(), out...)
+	// Home may be a project itself; its drives still lead the picker.
+	if opts.DirsOnly && dir == places.home {
+		out = append(places.entries(), out...)
 	}
 	return dir, out, nil
-}
-
-// VolumesDir is where macOS mounts drives; other systems mount them where
-// their owner chooses, so the picker shows none there.
-func VolumesDir(goos string) string {
-	if goos != "darwin" {
-		return ""
-	}
-	return "/Volumes"
 }
 
 // Pickable resolves a folder the picker may make a project: any one Browse can
@@ -177,9 +169,10 @@ func (s *Service) browsable(path string, withHidden bool) (string, error) {
 }
 
 // places is where a picker may look past the roots, each resolved: home, and
-// for the folder picker the folder drives mount in.
+// for the folder picker the drives plugged in.
 type places struct {
-	home, volumes string
+	home   string
+	drives []string
 	// hidden shows dot entries and ~/Library, for the env source picker,
 	// which looks only under home.
 	hidden bool
@@ -187,8 +180,8 @@ type places struct {
 
 func (s *Service) places(withHidden bool) places {
 	p := places{home: resolve(s.cfg.Home), hidden: withHidden}
-	if !withHidden {
-		p.volumes = resolve(s.cfg.Volumes)
+	if !withHidden && s.cfg.Drives != nil {
+		p.drives = s.cfg.Drives()
 	}
 	return p
 }
@@ -207,7 +200,6 @@ func resolve(path string) string {
 
 // shown is whether a picker may show a resolved path: under home or on a drive,
 // and unless hidden, through no dot folder or ~/Library, where credentials live.
-// The startup disk's link in /Volumes resolves to /, out of reach.
 func (p places) shown(path string) bool {
 	if p.home != "" && Within(p.home, path) {
 		if p.hidden {
@@ -215,8 +207,10 @@ func (p places) shown(path string) bool {
 		}
 		return visible(p.home, path, "Library")
 	}
-	if p.volumes != "" && path != p.volumes && Within(p.volumes, path) {
-		return visible(p.volumes, path, "")
+	for _, drive := range p.drives {
+		if Within(drive, path) {
+			return visible(drive, path, "")
+		}
 	}
 	return false
 }
@@ -243,20 +237,13 @@ func visible(place, path, off string) bool {
 	return true
 }
 
-// drives are the volumes folder's own folders, the startup disk's link left out.
-// No drive is read: a dropped share, or the prompt macOS shows before a program
-// reads a removable drive, would hold the listing.
-func (p places) drives() []Entry {
-	items, err := os.ReadDir(p.volumes)
-	if err != nil {
-		return nil
-	}
-	out := []Entry{}
-	for _, item := range items {
-		if !item.IsDir() || strings.HasPrefix(item.Name(), ".") {
-			continue
-		}
-		out = append(out, Entry{Name: item.Name(), Path: filepath.Join(p.volumes, item.Name()), Dir: true})
+// entries are the drives as home's first folders, by name. None is read: a
+// dropped share, or the prompt macOS shows before a program reads a removable
+// drive, would hold the listing.
+func (p places) entries() []Entry {
+	out := make([]Entry, 0, len(p.drives))
+	for _, drive := range p.drives {
+		out = append(out, Entry{Name: filepath.Base(drive), Path: drive, Dir: true})
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	return out

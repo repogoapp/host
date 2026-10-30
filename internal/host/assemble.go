@@ -303,7 +303,7 @@ func (h *Host) openProjects() error {
 	// folder picker browses home and the drives plugged in, and makes what it
 	// picks a root (h.db).
 	projectFiles := files.New(files.Config{
-		Roots: files.Union(h.db, layout), Home: h.cfg.Home, Volumes: files.VolumesDir(runtime.GOOS),
+		Roots: files.Union(h.db, layout), Home: h.cfg.Home, Drives: files.MountedDrives,
 		Picks: h.db, Folders: layout,
 		Projects: h.cfg.Projects, Trash: files.TrashDir(runtime.GOOS, h.cfg.Home),
 		// The environment's own plugins and pages are every project's to read and watch,
