@@ -186,11 +186,9 @@ type claudeUsage struct {
 	Speed string `json:"speed"`
 }
 
-// applyClaudeSettings folds one line's settings into s, newest winning: the
-// permission from user lines, effort and speed from replies. Plan sets the
-// mode and leaves the permission it replaced standing. permission-mode lines
-// are skipped: Claude keeps rewriting the mode the session started in there,
-// after every turn, even once a set_permission_mode has changed it.
+// applyClaudeSettings folds one line into s, newest winning: permission from
+// user lines (plan keeps the one it replaced), effort and speed from replies.
+// permission-mode lines are skipped: Claude rewrites the starting mode there.
 func applyClaudeSettings(s *session.Settings, lineType, permission, effort string, usage *claudeUsage) {
 	switch lineType {
 	case "user":
