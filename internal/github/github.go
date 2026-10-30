@@ -97,10 +97,9 @@ func New(layout Layout, g *git.Service, log *slog.Logger) *Service {
 // CloneFolder is where clones land.
 func (s *Service) CloneFolder() CloneFolder { return CloneFolder{Dir: filepath.Join(s.dir, reposDir)} }
 
-// Repos lists repositories, newest push first. `owner` defaults to the
-// signed-in account, counting repos it collaborates on and its organizations'
-// as well as its own; `query` filters the returned page rather than issuing a
-// search, which would need its own failure handling.
+// Repos lists repositories, newest push first. `owner` defaults to the account
+// signed in, with the repos it collaborates on and its organizations'; `query`
+// filters the page returned rather than searching, which would fail its own way.
 func (s *Service) Repos(ctx context.Context, owner, query string, limit int) ([]Repo, error) {
 	if limit <= 0 || limit > MaxRepos {
 		limit = MaxRepos
