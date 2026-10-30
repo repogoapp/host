@@ -2,9 +2,11 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 )
@@ -59,6 +61,35 @@ func TestPlanFromDisk(t *testing.T) {
 	}
 	if got := p.claudePlanFromDisk(); !got.Available || got.Plan != "Max" {
 		t.Fatalf("plan = %+v", got)
+	}
+}
+
+// Without a Keychain (Linux), the usage token comes from Claude Code's
+// credentials file, and an expired one is no token.
+func TestClaudeFileToken(t *testing.T) {
+	root := t.TempDir()
+	p := New(agent.Dependencies{Root: root})
+	if _, ok := p.claudeFileToken(); ok {
+		t.Fatal("no file gave a token")
+	}
+	home := filepath.Join(root, "claude")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(body string) {
+		if err := os.WriteFile(filepath.Join(home, ".credentials.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	future := time.Now().Add(time.Hour).UnixMilli()
+	write(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"tok","expiresAt":%d}}`, future))
+	if token, ok := p.claudeFileToken(); !ok || token != "tok" {
+		t.Fatalf("token = %q, %v", token, ok)
+	}
+	past := time.Now().Add(-time.Hour).UnixMilli()
+	write(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"tok","expiresAt":%d}}`, past))
+	if _, ok := p.claudeFileToken(); ok {
+		t.Fatal("expired token was used")
 	}
 }
 

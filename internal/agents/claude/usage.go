@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
@@ -65,9 +66,13 @@ func (p *Provider) claudePlanFromDisk() agentusage.Usage {
 	return agentusage.Usage{Available: true, Plan: claudePlanLabel(plan)}
 }
 
-// fetchClaudeUsage asks the usage endpoint with the Keychain's token.
+// fetchClaudeUsage asks the usage endpoint with Claude Code's own token: the
+// Keychain's on macOS, else the credentials file it keeps on Linux.
 func (p *Provider) fetchClaudeUsage(ctx context.Context) ([]agentusage.Window, bool) {
 	token, ok := claudeKeychainToken(ctx)
+	if !ok {
+		token, ok = p.claudeFileToken()
+	}
 	if !ok {
 		return nil, false
 	}
@@ -211,14 +216,30 @@ func claudeKeychainToken(ctx context.Context) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	return claudeOAuthToken([]byte(strings.TrimSpace(string(out))))
+}
 
+// claudeFileToken reads the token from the credentials file Claude Code keeps
+// where there is no Keychain (Linux). Like the Keychain's, it is never refreshed
+// here: Claude Code refreshes it when it runs.
+func (p *Provider) claudeFileToken() (string, bool) {
+	data, err := os.ReadFile(filepath.Join(p.home, ".credentials.json"))
+	if err != nil {
+		return "", false
+	}
+	return claudeOAuthToken(data)
+}
+
+// claudeOAuthToken takes the access token out of Claude Code's saved sign-in
+// (`claudeAiOauth`), or nothing when it's missing or expired.
+func claudeOAuthToken(data []byte) (string, bool) {
 	var body struct {
 		OAuth struct {
 			AccessToken string   `json:"accessToken"`
 			ExpiresAt   *float64 `json:"expiresAt"`
 		} `json:"claudeAiOauth"`
 	}
-	if json.Unmarshal([]byte(strings.TrimSpace(string(out))), &body) != nil {
+	if json.Unmarshal(data, &body) != nil {
 		return "", false
 	}
 	if body.OAuth.AccessToken == "" {
