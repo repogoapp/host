@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- sonic compiles its JSON codecs into anonymous memory on amd64. Without
+     this, the hardened runtime kills an Intel host the first time it runs one
+     (OS_REASON_CODESIGNING, "rejecting invalid page"). -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+</dict>
+</plist>
