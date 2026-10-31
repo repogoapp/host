@@ -36,6 +36,25 @@ func TestCatalogReportsDefaultEffort(t *testing.T) {
 	}
 }
 
+// A model set with a window the list does not carry still marks its entry,
+// so the phone names it rather than showing "Default".
+func TestCatalogMarksDefaultWithContext(t *testing.T) {
+	models := json.RawMessage(`{"models":[
+		{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)"},
+		{"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5"},
+		{"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet 5.5"}]}`)
+	got, err := catalogFrom(map[string]json.RawMessage{
+		"models": models, "settings": json.RawMessage(`{"effective":{"model":"opus[1m]"}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range got.Models {
+		if m.Default != (m.ID == "opus") {
+			t.Errorf("%s default = %v", m.ID, m.Default)
+		}
+	}
+}
+
 func TestWithoutContext(t *testing.T) {
 	for in, want := range map[string]string{
 		"Opus (1M context)": "Opus",

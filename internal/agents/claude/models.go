@@ -76,6 +76,23 @@ func catalogFrom(res map[string]json.RawMessage) (agentcatalog.Catalog, error) {
 			}
 		}
 	}
+	// A model set with a window the list does not carry (`opus[1m]` when only
+	// `opus` is listed) marks the entry it names, as a transcript's model does.
+	exact := false
+	for _, m := range models.Models {
+		exact = exact || m.Value == defaultModel || (m.Value != "default" && m.Resolved == defaultModel)
+	}
+	if !exact {
+		var listed []agentcatalog.Model
+		for _, m := range models.Models {
+			if m.Value != "default" {
+				listed = append(listed, agentcatalog.Model{ID: m.Value, Resolved: m.Resolved})
+			}
+		}
+		if id := agentcatalog.CatalogID(defaultModel, listed); id != "" {
+			defaultModel = id
+		}
+	}
 	for _, m := range models.Models {
 		isDefault := m.Value == defaultModel || (m.Value != "default" && m.Resolved == defaultModel)
 		model := agentcatalog.Model{
