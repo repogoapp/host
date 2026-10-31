@@ -60,6 +60,11 @@ type PinParams struct {
 	Pinned bool   `json:"pinned"`
 }
 
+type ReorderPinsParams struct {
+	// The pinned projects' folders in their new order, first on top.
+	Paths []string `json:"paths" wire:"array"`
+}
+
 // Remote-reachable: every project listed is a folder fs.* would already serve.
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "projects.list", d.list, rpc.Tool("The projects on this environment, with each one's folder "+
@@ -70,6 +75,8 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "projects.rename", d.rename, rpc.Tool("Rename a project, by its folder as projects.list gives it. "+
 		"A blank name clears the rename, back to the repository or folder name."), rpc.Write)
 	rpc.Add(r, "projects.pin", d.pin, rpc.Tool("Pin a project to the top of the project list, or unpin it."), rpc.Write)
+	// Each moved row goes out as projects.changed, as a pin does.
+	rpc.Add(r, "projects.reorder_pins", d.reorderPins)
 	// add is the folder picker's Select, making a folder it could only see a root.
 	// add and create answer the new project's row, listed at once.
 	rpc.Add(r, "projects.add", d.add)
@@ -95,6 +102,17 @@ func (d Deps) rename(_ context.Context, _ rpc.Caller, a RenameParams) (store.Pro
 func (d Deps) pin(_ context.Context, _ rpc.Caller, a PinParams) (store.Project, error) {
 	row, err := d.Store.SetPinned(a.Path, a.Pinned, time.Now())
 	return d.marked(row, err)
+}
+
+func (d Deps) reorderPins(_ context.Context, _ rpc.Caller, a ReorderPinsParams) (rpc.Ack, error) {
+	rows, err := d.Store.ReorderPins(a.Paths)
+	if err != nil {
+		return rpc.Ack{}, err
+	}
+	for _, row := range rows {
+		d.Sync.Announce(row)
+	}
+	return rpc.OK, nil
 }
 
 // marked announces a row the user changed and answers it, stamped as listed.

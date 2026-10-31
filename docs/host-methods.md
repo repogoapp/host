@@ -1463,6 +1463,16 @@ Result:
 - `pinned_at` int (omitted when empty) (nullable)
 - `host_id` string
 
+## `projects.reorder_pins`
+
+Params:
+
+- `paths` [string]
+
+Result:
+
+- `ok` bool
+
 ## `projects.add`
 
 Params:

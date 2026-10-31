@@ -106,6 +106,52 @@ func (s *Store) SetPinned(path string, pinned bool, at time.Time) (Project, erro
 	return s.Project(path)
 }
 
+// ReorderPins puts pinned projects in the order given, earliest first, by
+// spreading their pins a millisecond apart from the earliest of them: lists
+// order pins by pinned_at, so nothing else changes. A path not pinned is
+// skipped, since another device may have unpinned it. Returns the rows moved.
+func (s *Store) ReorderPins(paths []string) ([]Project, error) {
+	var pinned []Project
+	for _, path := range paths {
+		row, err := s.Project(path)
+		if err != nil {
+			return nil, err
+		}
+		if row.PinnedAt != nil {
+			pinned = append(pinned, row)
+		}
+	}
+	if len(pinned) == 0 {
+		return nil, nil
+	}
+	base := *pinned[0].PinnedAt
+	for _, row := range pinned {
+		base = min(base, *row.PinnedAt)
+	}
+	moved := make([]Project, 0, len(pinned))
+	for i, row := range pinned {
+		at := base + int64(i)
+		if *row.PinnedAt == at {
+			continue
+		}
+		if _, err := s.updateProjectMarks(row.Path, func(m *ProjectMarks) bool {
+			if m.PinnedAt == nil {
+				return false
+			}
+			m.PinnedAt = &at
+			return true
+		}); err != nil {
+			return nil, err
+		}
+		row, err := s.Project(row.Path)
+		if err != nil {
+			return nil, err
+		}
+		moved = append(moved, row)
+	}
+	return moved, nil
+}
+
 // ForgetMarks drops everything the user set on a project, for one deleted:
 // a pick would keep the gone folder a root.
 func (s *Store) ForgetMarks(path string) error {

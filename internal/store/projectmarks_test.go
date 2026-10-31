@@ -103,3 +103,39 @@ func TestForgetMarksDropsThePick(t *testing.T) {
 		t.Fatalf("roots after ForgetMarks = %v, want none", roots)
 	}
 }
+
+// Reordering pins changes only their order, leaving unpinned paths alone.
+func TestReorderPinsSetsTheOrder(t *testing.T) {
+	db := newStore(t)
+	if _, err := db.SyncProjects([]Project{
+		{Path: "/a", Kind: ProjectFolder, ActivityAt: 1},
+		{Path: "/b", Kind: ProjectFolder, ActivityAt: 2},
+		{Path: "/c", Kind: ProjectFolder, ActivityAt: 3},
+		{Path: "/d", Kind: ProjectFolder, ActivityAt: 4},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i, path := range []string{"/a", "/b", "/c"} {
+		if _, err := db.SetPinned(path, true, time.UnixMilli(int64(1000*(i+1)))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	moved, err := db.ReorderPins([]string{"/c", "/d", "/a", "/b"})
+	if err != nil || len(moved) != 3 {
+		t.Fatalf("moved %d, %v", len(moved), err)
+	}
+	pins := map[string]int64{}
+	for _, path := range []string{"/a", "/b", "/c"} {
+		row, _ := db.Project(path)
+		pins[path] = *row.PinnedAt
+	}
+	if !(pins["/c"] < pins["/a"] && pins["/a"] < pins["/b"]) {
+		t.Fatalf("pins = %v, want /c, /a, /b", pins)
+	}
+	if row, _ := db.Project("/d"); row.PinnedAt != nil {
+		t.Fatal("reordering pinned an unpinned project")
+	}
+	if _, err := db.ReorderPins([]string{"/missing"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unlisted path = %v, want ErrInvalid", err)
+	}
+}
