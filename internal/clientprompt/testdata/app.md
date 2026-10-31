@@ -223,6 +223,7 @@ append:<text> — add text to the user's prompt bar after what they typed,
   unsent, for them to finish or send.
 copy:<text> — copy text.
 share:<text> — the system share sheet; a web address is shared as a link.
+screenshot — save the whole page, top to bottom, to Photos; on a page only.
 open:<url> — open an absolute https or http link in a Safari sheet over
   the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
