@@ -142,7 +142,6 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relayURL, PushRelay: defaultRelay,
 		Label:   device.Label(),
 		Gateway: gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
-		Getenv: os.Getenv,
 		Update: hostupdate.Deps{
 			Version: release.Version, Root: self.root, Marker: self.marker,
 			Latest: release.Latest, Stage: release.Stage, Restart: self.restart,

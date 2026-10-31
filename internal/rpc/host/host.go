@@ -4,7 +4,6 @@ package host
 
 import (
 	"context"
-	"time"
 
 	"github.com/repogoapp/host/internal/hostinfo"
 	"github.com/repogoapp/host/internal/hostsetup"
@@ -26,10 +25,6 @@ type SetupParams struct {
 	Refresh bool `json:"refresh"`
 }
 
-type SetStopsAtParams struct {
-	StopsAt time.Time `json:"stops_at"`
-}
-
 type UpdateParams struct {
 	// Now stops running chats, terminals and actions rather than refusing.
 	Now bool `json:"now"`
@@ -42,8 +37,6 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "host.setup", d.setup)
 	// Detached: a binary swapped with no restart after it is worse than either.
 	rpc.Add(r, "host.update", d.update, rpc.Detached)
-	// A device extended this cloud host's session with its provider.
-	rpc.Add(r, "host.set_stops_at", d.setStopsAt)
 }
 
 func (d Deps) status(context.Context, rpc.Caller, rpc.None) (hostinfo.Status, error) {
@@ -52,10 +45,6 @@ func (d Deps) status(context.Context, rpc.Caller, rpc.None) (hostinfo.Status, er
 
 func (d Deps) setup(ctx context.Context, _ rpc.Caller, a SetupParams) (hostsetup.Setup, error) {
 	return hostsetup.Snapshot(ctx, d.Setup, a.Refresh), nil
-}
-
-func (d Deps) setStopsAt(_ context.Context, _ rpc.Caller, a SetStopsAtParams) (rpc.Ack, error) {
-	return rpc.OK, d.Service.SetStopsAt(a.StopsAt)
 }
 
 func (d Deps) update(ctx context.Context, _ rpc.Caller, a UpdateParams) (hostupdate.Result, error) {

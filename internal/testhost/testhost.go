@@ -77,7 +77,6 @@ func Config(t testing.TB) host.Config {
 		ProviderRoot: dir("providers"),
 		Token:        Token, ServerID: "testhost",
 		Label: "testhost", Gateway: "127.0.0.1:1", GatewayPlaintext: true,
-		Getenv: func(string) string { return "" },
 		Update: hostupdate.Deps{
 			Version: "dev", Root: filepath.Join(state, "repogo"), Marker: filepath.Join(state, "update.json"),
 			Latest: release.Latest, Stage: release.Stage, Restart: func() {},

@@ -57,9 +57,6 @@ import (
 	"github.com/repogoapp/host/internal/wsserver"
 )
 
-// stopWarning is how long before a cloud session ends its phones are woken.
-const stopWarning = 5 * time.Minute
-
 func (h *Host) state(name ...string) string {
 	return filepath.Join(append([]string{h.cfg.State}, name...)...)
 }
@@ -181,9 +178,6 @@ func (h *Host) openDevices() error {
 		Power: h.keeper, Relay: h.relayConnected, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
 		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "",
 	})
-	if err := h.info.LoadCloud(h.state("cloud.json"), h.cfg.Getenv); err != nil {
-		return fmt.Errorf("cloud session: %w", err)
-	}
 	h.pairer, err = device.OpenPairer(h.devices, h.state("pair-reusable.json"))
 	if err != nil {
 		return fmt.Errorf("reusable invite: %w", err)
@@ -488,12 +482,6 @@ func (h *Host) batteryChanged(b power.Battery) {
 	h.toEveryDevice(b)
 	if h.alerts != nil {
 		h.alerts.Battery(h.ctx, b)
-	}
-}
-
-func (h *Host) cloudStopping(hostinfo.Cloud) {
-	if h.alerts != nil {
-		h.alerts.CloudStopping(h.ctx, h.cfg.Label, stopWarning)
 	}
 }
 

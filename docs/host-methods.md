@@ -1078,16 +1078,6 @@ Result:
 - `to` string (omitted when empty)
 - `busy` object{Busy} (omitted when empty) (nullable)
 
-## `host.set_stops_at`
-
-Params:
-
-- `stops_at` json
-
-Result:
-
-- `ok` bool
-
 ## `limits.read`
 
 Tool (read): Each agent's plan and how much of each rate-limit window is used, with when it resets.

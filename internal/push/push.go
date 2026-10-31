@@ -136,21 +136,6 @@ func (n *Notifier) BrowserRequest(ctx context.Context, to device.ID, requestID s
 	}
 }
 
-// CloudStopping wakes the phones shortly before a cloud host's session ends,
-// so a running chat can be extended rather than cut off.
-func (n *Notifier) CloudStopping(ctx context.Context, hostLabel string, in time.Duration) {
-	payload, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert": map[string]string{"title": hostLabel + " stops soon",
-				"body": fmt.Sprintf("It stops in %d minutes. Extend it in RepoGo to keep working.", int(in.Round(time.Minute).Minutes()))},
-			"sound": "default",
-		},
-		"host_id": n.store.Identity().ID,
-		"kind":    "cloud_stopping",
-	})
-	n.push(ctx, "cloud-stopping", payload)
-}
-
 func (n *Notifier) deliver(ctx context.Context, notice notify.Notice, a alert) {
 	chatID := notice.ChatID()
 	payload, _ := json.Marshal(map[string]any{

@@ -109,7 +109,6 @@ var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reu
 var unchecked = map[string]string{
 	"host.setup":        "shells out to gh and every agent CLI and asks the npm registry for versions; composition covered in internal/hostsetup",
 	"host.update":       "downloads a release and restarts the host; covered in internal/hostupdate",
-	"host.set_stops_at": "needs a cloud session the test host does not have; covered in internal/hostinfo",
 	"catalog.read":      "probes every agent CLI as host.setup does; covered with fakes in the catalog family suite",
 
 	"devices.register_push": "paired-device token storage; loopback callers are denied",

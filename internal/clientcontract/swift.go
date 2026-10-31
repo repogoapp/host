@@ -54,7 +54,7 @@ var methodExports = map[string]bool{
 	"github.avatar": true, "github.repos": true, "github.clone": true, "github.pr_create": true,
 	"github.publish": true,
 
-	"host.status": true, "host.setup": true, "host.update": true, "host.set_stops_at": true,
+	"host.status": true, "host.setup": true, "host.update": true,
 
 	"limits.read": true, "limits.reset": true,
 

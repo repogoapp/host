@@ -6,7 +6,7 @@ import (
 )
 
 // LabelEnv names this machine where its hostname means nothing to the user,
-// such as a cloud sandbox, which its provisioner names after the environment.
+// such as a container, which its runner names after the environment.
 const LabelEnv = "REPOGO_HOST_LABEL"
 
 // Label is what a client calls this machine: the hostname, one syscall and

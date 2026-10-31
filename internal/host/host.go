@@ -74,8 +74,6 @@ type Config struct {
 	// Gateway is the tunnel gateway's host name, with an optional port; Plaintext skips TLS for a local one.
 	Gateway          string
 	GatewayPlaintext bool
-	// Getenv reads a cloud session's stop time.
-	Getenv func(string) string
 
 	// Update replaces and restarts the binary; New fills Turns, Terminals, Actions and Builds.
 	Update hostupdate.Deps
@@ -185,7 +183,7 @@ func (c Config) validate() error {
 	}{
 		{"State", c.State == ""}, {"Home", c.Home == ""}, {"Projects", c.Projects == ""},
 		{"Attachments", c.Attachments == ""}, {"Token", c.Token == ""}, {"ServerID", c.ServerID == ""},
-		{"Label", c.Label == ""}, {"Gateway", c.Gateway == ""}, {"Getenv", c.Getenv == nil},
+		{"Label", c.Label == ""}, {"Gateway", c.Gateway == ""},
 		{"Update.Version", c.Update.Version == ""}, {"Update.Root", c.Update.Root == ""},
 		{"Update.Marker", c.Update.Marker == ""}, {"Update.Latest", c.Update.Latest == nil},
 		{"Update.Stage", c.Update.Stage == nil}, {"Update.Restart", c.Update.Restart == nil},
@@ -227,8 +225,6 @@ func (h *Host) Listen() (*net.TCPAddr, error) {
 func (h *Host) Start() {
 	h.spawn(h.mgr.Watch)
 	h.spawn(h.keeper.Run)
-	// A cloud host's session ends on a clock; the phones hear it coming.
-	h.spawn(func(ctx context.Context) { h.info.WatchStop(ctx, stopWarning, h.cloudStopping) })
 	h.spawn(h.info.WatchPublicIP)
 	h.spawn(h.watch.Run)
 	h.spawn(func(ctx context.Context) { h.live.WatchNotices(ctx, h.bridge) })

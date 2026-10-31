@@ -71,10 +71,6 @@ type Service struct {
 	checked time.Time
 	failed  string
 
-	cloud        *Cloud
-	cloudPath    string
-	cloudChanged chan struct{}
-
 	port        int
 	publicIP    string
 	publicAt    time.Time
@@ -82,7 +78,7 @@ type Service struct {
 }
 
 func New(d Deps) *Service {
-	return &Service{d: d, started: time.Now(), cloudChanged: make(chan struct{}, 1), publicStale: make(chan struct{}, 1)}
+	return &Service{d: d, started: time.Now(), publicStale: make(chan struct{}, 1)}
 }
 
 // Release is this host's build and whether a newer one is out, in the fields
@@ -168,8 +164,6 @@ func (s *Service) Status() Status {
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}
-	if s.cloud == nil {
-		out.Capabilities = append(out.Capabilities, CapabilitySchedules)
-	}
+	out.Capabilities = append(out.Capabilities, CapabilitySchedules)
 	return out
 }
