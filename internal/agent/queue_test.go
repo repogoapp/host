@@ -129,9 +129,14 @@ func TestEveryQueueChangeIsSaved(t *testing.T) {
 		t.Fatalf("after dropping b = %v", got)
 	}
 
-	// Ending the running turn starts c and saves the empty queue.
-	before := saved.count()
+	// Stopping the running turn holds c; Send Now starts it and saves the
+	// empty queue.
 	if err := m.Stop(running.TurnID); err != nil {
+		t.Fatal(err)
+	}
+	testwait.For(t, "the chat to be idle", func() bool { return m.ActiveChats() == 0 })
+	before := saved.count()
+	if _, err := m.SendQueued(c.TurnID, "phone"); err != nil {
 		t.Fatal(err)
 	}
 	if ran := adapter.next(t); ran.Prompt != "c, revised" {
@@ -266,5 +271,46 @@ func TestStopAllHoldsQueuedTurns(t *testing.T) {
 	case req := <-adapter.ran:
 		t.Fatalf("a queued turn started during the update: %q", req.Prompt)
 	default:
+	}
+}
+
+// Stopping a chat's running turn holds what waits behind it: nothing starts on
+// its own, and Send Now runs the held turn.
+func TestStopHoldsTheChatsQueue(t *testing.T) {
+	saved := &savedQueues{}
+	adapter := recordingAdapter{ran: make(chan TurnRequest, 4)}
+	m := NewManager(discard(), saved.hooks(), adapter)
+	req := TurnRequest{ChatID: "claude:s1", Cwd: t.TempDir(), Agent: KindClaude, Prompt: "running", SessionID: "s1"}
+	running, err := m.Send(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.next(t)
+	req.Prompt = "waiting"
+	waiting, err := m.Send(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Stop(running.TurnID); err != nil {
+		t.Fatal(err)
+	}
+	testwait.For(t, "the chat to be idle", func() bool { return m.ActiveChats() == 0 })
+	select {
+	case req := <-adapter.ran:
+		t.Fatalf("a queued turn started after Stop: %q", req.Prompt)
+	default:
+	}
+	if got := saved.last(); len(got.queued) != 1 || !got.queued[0].Held {
+		t.Fatalf("queue after Stop = %+v, want the waiting turn held", got.queued)
+	}
+
+	sent, err := m.SendQueued(waiting.TurnID, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop(sent.TurnID)
+	if ran := adapter.next(t); ran.Prompt != "waiting" {
+		t.Fatalf("Send Now ran %q", ran.Prompt)
 	}
 }

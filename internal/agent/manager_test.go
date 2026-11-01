@@ -210,7 +210,7 @@ func (a joiningAdapter) Join(ctx context.Context, _ string, io TurnIO) (Result, 
 }
 
 // A turn the agent starts by itself runs as the Manager's: it has an id, holds
-// a send in the queue behind it, and Stop on the chat ends it.
+// a send in the queue behind it, and Stop on the chat ends it and holds the send.
 func TestAdoptedTurnQueuesSendsAndStops(t *testing.T) {
 	var adopt func(chatID, cwd string)
 	sessions := make(chan TurnStatus, 4)
@@ -236,13 +236,21 @@ func TestAdoptedTurnQueuesSendsAndStops(t *testing.T) {
 	if err := m.StopChat("claude:own"); err != nil {
 		t.Fatal(err)
 	}
+	testwait.For(t, "the adopted turn to stop", func() bool { return m.ActiveChats() == 0 })
+	if status, _ := m.Status(own.TurnID); status.State != StateStopped {
+		t.Fatalf("adopted turn %s, want stopped", status.State)
+	}
+	// The stop holds the send behind it until Send Now.
+	if status, _ := m.Status(next.TurnID); status.State != StateQueued {
+		t.Fatalf("queued turn %s after the stop, want queued", status.State)
+	}
+	if _, err := m.SendQueued(next.TurnID, "phone"); err != nil {
+		t.Fatal(err)
+	}
 	testwait.For(t, "the queued turn to start", func() bool {
 		status, _ := m.Status(next.TurnID)
 		return status.State == StateRunning
 	})
-	if status, _ := m.Status(own.TurnID); status.State != StateStopped {
-		t.Fatalf("adopted turn %s, want stopped", status.State)
-	}
 	m.Stop(next.TurnID)
 
 	if err := m.StopChat("claude:idle"); !errors.Is(err, ErrNotFound) {

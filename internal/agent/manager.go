@@ -169,6 +169,17 @@ func (m *Manager) queuedLocked(chatID string) []StoredTurn {
 	return out
 }
 
+// holdLocked holds every turn waiting in a chat's queue, so none starts until
+// Send Now; false when all already were. Called with m.mu held.
+func (m *Manager) holdLocked(chatID string) bool {
+	changed := false
+	for _, t := range m.pending[chatID] {
+		changed = changed || !t.held
+		t.held = true
+	}
+	return changed
+}
+
 // saveQueue keeps a chat's queue as captured. Called with m.queueMu held and
 // m.mu not. A failed save leaves the queue running from memory.
 func (m *Manager) saveQueue(chatID string, queued []StoredTurn) {
@@ -449,7 +460,7 @@ func (m *Manager) Steer(req TurnRequest) (status TurnStatus, steered bool, err e
 // (or ended): a queue row acted on late must not stop the turn it became.
 var ErrNotQueued = errkind.New(errkind.Invalid, "turn is no longer queued")
 
-// Stop cancels a running turn or drops a queued one.
+// Stop cancels a running turn, holding its chat's queue, or drops a queued one.
 func (m *Manager) Stop(turnID string) error { return m.stop(turnID, false) }
 
 // StopChat stops a chat's turn, adopted ones included, and every turn of the
@@ -566,12 +577,14 @@ func (m *Manager) stop(turnID string, queuedOnly bool) error {
 		m.mu.Unlock()
 		return ErrNotQueued
 	}
+	// Stopping the running turn holds the queue behind it.
+	changed := queued || (m.running[chatID] == t && m.holdLocked(chatID))
 	var queue []StoredTurn
-	if queued {
+	if changed {
 		queue = m.queuedLocked(chatID)
 	}
 	m.mu.Unlock()
-	if queued {
+	if changed {
 		m.saveQueue(chatID, queue)
 	}
 

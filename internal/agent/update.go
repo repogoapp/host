@@ -46,11 +46,10 @@ func (m *Manager) StopAll(ctx context.Context) error {
 	m.queueMu.Lock()
 	m.mu.Lock()
 	queues := map[string][]StoredTurn{}
-	for chatID, q := range m.pending {
-		for _, t := range q {
-			t.held = true
+	for chatID := range m.pending {
+		if m.holdLocked(chatID) {
+			queues[chatID] = m.queuedLocked(chatID)
 		}
-		queues[chatID] = m.queuedLocked(chatID)
 	}
 	var running []string
 	for _, t := range m.running {
