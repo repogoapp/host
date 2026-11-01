@@ -5,6 +5,7 @@
       "chat_count": 1,
       "repo_owner": "repo_owner",
       "repo_name": "repo_name",
+      "root_commit": "root_commit",
       "kind": "kind",
       "icon_hash": "icon_hash",
       "diff_available": true,
@@ -13,8 +14,9 @@
       "deletions": 1,
       "activity_at": 1,
       "last_message_at": 1,
+      "used_at": 1,
       "display_name": "display_name",
-      "pinned_at": 1,
+      "pin_order": 1.5,
       "host_id": "host_id"
     }
   ]

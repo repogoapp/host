@@ -18,7 +18,7 @@ var (
 		"git.reset_hard", "git.switch_branch", "git.create_branch", "git.commit_push",
 		"fs.list", "fs.read", "fs.write", "fs.replace", "fs.search", "fs.delete", "fs.rename",
 		"fs.mkdir", "fs.watch", "fs.unwatch",
-		"projects.list", "projects.detect_icon", "projects.rename", "projects.pin", "projects.reorder_pins", "projects.add", "projects.create",
+		"projects.list", "projects.detect_icon", "projects.rename", "projects.pin", "projects.add", "projects.create",
 		"projects.delete",
 		"host.status", "host.setup", "limits.read",
 		"github.repos", "github.clone", "github.publish", "github.pr_create", "github.avatar",

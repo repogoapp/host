@@ -29,6 +29,10 @@ type Project struct {
 	// `octocat/code` are one project.
 	RepoOwner string `json:"repo_owner"`
 	RepoName  string `json:"repo_name"`
+	// The checkout's first commit, which groups one repository across
+	// environments. Omitted when empty, so a phone reads an older host's rows
+	// as ungrouped (HOST-MIGRATIONS.md).
+	RootCommit string `json:"root_commit,omitempty"`
 
 	Kind ProjectKind `json:"kind"`
 	// The project icon's content hash, "" when it has none: a device fetches
@@ -44,15 +48,21 @@ type Project struct {
 	// bump every revision whenever one project moved.
 	ActivityAt int64 `json:"activity_at"`
 
-	// When the user last sent a prompt in any of its chats, 0 never. The
-	// other sort key, beside ChatCount.
+	// When the user last sent a prompt in any of its chats, 0 never.
 	LastMessageAt int64 `json:"last_message_at"`
+
+	// When the user last used it: the later of their last prompt and their
+	// last pick in the folder picker; 0 never. Unpinned projects list by it,
+	// newest first, then the never-used ones by ActivityAt.
+	UsedAt int64 `json:"used_at"`
 
 	// What every surface calls the project: the user's name, else the
 	// repository, else the folder (projectName).
 	DisplayName string `json:"display_name"`
-	// When the user pinned it to the top of the list; nil is not pinned.
-	PinnedAt *int64 `json:"pinned_at,omitempty"`
+	// Its place among the pinned projects, lowest on top; nil is not pinned.
+	// Only the order means anything: a move writes the midpoint of its new
+	// neighbours (Store.Pin). Stored in project_marks.pinned_at.
+	PinOrder *float64 `json:"pin_order,omitempty"`
 
 	// The host serving this row. Stamped on the way out, not stored: a device
 	// mirrors more than one host, and two of them can hold the same path.
@@ -141,9 +151,13 @@ func (s *Store) Activity() (map[string]Activity, error) {
 
 // projectSelect reads project rows with the user's marks on them; callers
 // append the WHERE and ORDER BY.
-const projectSelect = `SELECT p.path, p.chat_count, p.activity_at, p.last_message_at, p.repo_owner, p.repo_name, p.kind,
-	p.icon_hash, p.diff_available, p.files_changed, p.additions, p.deletions, m.name, m.pinned_at
+const projectSelect = `SELECT p.path, p.chat_count, p.activity_at, p.last_message_at, ` + projectUsedAt + ` AS used_at,
+	p.repo_owner, p.repo_name, p.root_commit, p.kind, p.icon_hash, p.diff_available, p.files_changed, p.additions, p.deletions,
+	m.name, m.pinned_at
 	FROM projects p LEFT JOIN state.project_marks m ON m.path = p.path `
+
+// projectUsedAt is Project.UsedAt over projects p and project_marks m.
+const projectUsedAt = `MAX(p.last_message_at, COALESCE(m.picked_at, 0))`
 
 func (s *Store) projects(clauses string, args ...any) ([]Project, error) {
 	rows, err := s.db.Query(projectSelect+clauses, args...)
@@ -156,9 +170,9 @@ func (s *Store) projects(clauses string, args ...any) ([]Project, error) {
 	for rows.Next() {
 		var p Project
 		var name *string
-		if err := rows.Scan(&p.Path, &p.ChatCount, &p.ActivityAt, &p.LastMessageAt,
-			&p.RepoOwner, &p.RepoName, &p.Kind, &p.IconHash, &p.DiffAvailable, &p.FilesChanged, &p.Additions, &p.Deletions,
-			&name, &p.PinnedAt); err != nil {
+		if err := rows.Scan(&p.Path, &p.ChatCount, &p.ActivityAt, &p.LastMessageAt, &p.UsedAt,
+			&p.RepoOwner, &p.RepoName, &p.RootCommit, &p.Kind, &p.IconHash, &p.DiffAvailable, &p.FilesChanged, &p.Additions, &p.Deletions,
+			&name, &p.PinOrder); err != nil {
 			return nil, err
 		}
 		p.DisplayName = projectName(p.Path, p.RepoName, name)
@@ -205,26 +219,30 @@ func (s *Store) SyncProjects(rows []Project) (ProjectChange, error) {
 			if row.RepoOwner == "" && was.RepoOwner != "" {
 				row.RepoOwner, row.RepoName = was.RepoOwner, was.RepoName
 			}
+			if row.RootCommit == "" {
+				row.RootCommit = was.RootCommit
+			}
 			if was.ChatCount == row.ChatCount && was.ActivityAt == row.ActivityAt && was.LastMessageAt == row.LastMessageAt &&
-				was.RepoOwner == row.RepoOwner && was.RepoName == row.RepoName &&
+				was.RepoOwner == row.RepoOwner && was.RepoName == row.RepoName && was.RootCommit == row.RootCommit &&
 				was.Kind == row.Kind && was.IconHash == row.IconHash {
 				continue
 			}
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO projects
-			   (path, chat_count, activity_at, last_message_at, repo_owner, repo_name, kind, icon_hash)
-			 VALUES (?,?,?,?,?,?,?,?)
+			   (path, chat_count, activity_at, last_message_at, repo_owner, repo_name, root_commit, kind, icon_hash)
+			 VALUES (?,?,?,?,?,?,?,?,?)
 			 ON CONFLICT(path) DO UPDATE SET
 			   chat_count = excluded.chat_count,
 			   activity_at = excluded.activity_at,
 			   last_message_at = excluded.last_message_at,
 			   repo_owner = excluded.repo_owner,
 			   repo_name  = excluded.repo_name,
+			   root_commit = excluded.root_commit,
 			   kind       = excluded.kind,
 			   icon_hash  = excluded.icon_hash`,
 			row.Path, row.ChatCount, row.ActivityAt, row.LastMessageAt,
-			row.RepoOwner, row.RepoName, row.Kind, row.IconHash); err != nil {
+			row.RepoOwner, row.RepoName, row.RootCommit, row.Kind, row.IconHash); err != nil {
 			return ProjectChange{}, err
 		}
 		changed = append(changed, row.Path)
@@ -262,10 +280,11 @@ func (s *Store) ProjectsAt(paths []string) ([]Project, error) {
 	return s.projects(`WHERE p.path IN (`+marks(len(paths))+`)`, anys(paths)...)
 }
 
-// KnownRepos is the set of project paths that already have a repository, so a
-// pass can skip reading their origin.
+// KnownRepos is the set of project paths whose repository and first commit
+// are both recorded, so a pass can skip the git calls that find them. A
+// checkout with no origin, or no root yet, is read again each pass.
 func (s *Store) KnownRepos() (map[string]bool, error) {
-	rows, err := s.db.Query(`SELECT path FROM projects WHERE repo_owner != ''`)
+	rows, err := s.db.Query(`SELECT path FROM projects WHERE repo_owner != '' AND root_commit != ''`)
 	if err != nil {
 		return nil, fmt.Errorf("store: known repos: %w", err)
 	}
@@ -280,6 +299,45 @@ func (s *Store) KnownRepos() (map[string]bool, error) {
 		out[path] = true
 	}
 	return out, rows.Err()
+}
+
+// SetRepo records a checkout's repository after its origin changed, and
+// reports the row read back when it differed, for the devices to hear.
+func (s *Store) SetRepo(path, owner, name string) (Project, bool, error) {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	res, err := s.db.Exec(`UPDATE projects SET repo_owner = ?, repo_name = ?
+		WHERE path = ? AND (repo_owner != ? OR repo_name != ?)`, owner, name, path, owner, name)
+	if err != nil {
+		return Project{}, false, fmt.Errorf("store: set repo: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Project{}, false, nil
+	}
+	rows, err := s.projects(`WHERE p.path = ?`, path)
+	if err != nil || len(rows) == 0 {
+		return Project{}, false, err
+	}
+	return rows[0], true, nil
+}
+
+// Checkouts is the project folders whose first commit is root: every checkout
+// of one repository on this machine.
+func (s *Store) Checkouts(root string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT path FROM projects WHERE root_commit = ? AND root_commit != ''`, root)
+	if err != nil {
+		return nil, fmt.Errorf("store: checkouts: %w", err)
+	}
+	defer rows.Close()
+	paths := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
 }
 
 // Repo is the repository projectsync stored for a project; empty for a folder
@@ -336,13 +394,14 @@ type SyncResult struct {
 	Delete   []string `json:"delete" wire:"array"`
 }
 
-// ListProjects is the newest maxProjects projects and every pinned one, each
-// stamped with host: last prompt first, else last activity, so a fresh folder
-// is not sunk below every chatted one. Path breaks ties, so reads agree.
+// ListProjects is every pinned project, in pin order, then the maxProjects
+// most recently used (UsedAt, then ActivityAt), each stamped with host. Path
+// breaks ties, so reads agree.
 func (s *Store) ListProjects(host string) ([]Project, error) {
-	projects, err := s.projects(`WHERE p.path IN (SELECT path FROM projects ORDER BY activity_at DESC LIMIT ?)
-		OR m.pinned_at IS NOT NULL
-		ORDER BY CASE WHEN p.last_message_at > 0 THEN p.last_message_at ELSE p.activity_at END DESC, p.path`, maxProjects)
+	projects, err := s.projects(`WHERE m.pinned_at IS NOT NULL OR p.path IN (
+		  SELECT p.path FROM projects p LEFT JOIN state.project_marks m ON m.path = p.path
+		  ORDER BY `+projectUsedAt+` DESC, p.activity_at DESC, p.path LIMIT ?)
+		ORDER BY m.pinned_at IS NULL, m.pinned_at, used_at DESC, p.activity_at DESC, p.path`, maxProjects)
 	if err != nil {
 		return nil, err
 	}

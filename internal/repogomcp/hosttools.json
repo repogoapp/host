@@ -626,10 +626,13 @@
   {
     "name": "projects_pin",
     "method": "projects.pin",
-    "description": "Pin a project to the top of the project list, or unpin it.",
+    "description": "Pin a project to the top of the project list, or unpin it. With after, the pinned project it goes just below, which moves a pinned one.",
     "read_only": false,
     "input_schema": {
       "properties": {
+        "after": {
+          "type": "string"
+        },
         "path": {
           "type": "string"
         },

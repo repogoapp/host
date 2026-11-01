@@ -25,9 +25,13 @@ type Cache interface {
 	Activity() (map[string]store.Activity, error)
 	SyncProjects([]store.Project) (store.ProjectChange, error)
 
-	// KnownRepos is which projects already have a repository recorded, so a
-	// pass only pays for the ones it does not know.
+	// KnownRepos is which projects already have a repository and first commit
+	// recorded, so a pass only pays for the ones it does not know.
 	KnownRepos() (map[string]bool, error)
+
+	// SetRepo records a checkout's repository after its origin moved, and
+	// returns the row when it differed.
+	SetRepo(path, owner, name string) (store.Project, bool, error)
 
 	// ProjectsAt is the stored rows for paths, which a pass carries forward
 	// for the folders it could not read.
@@ -168,6 +172,7 @@ func (s *Syncer) Once(ctx context.Context) store.ProjectChange {
 		// earlier one found. A plain folder has no origin of its own to read.
 		if !known[entry.Path] && row.Kind != store.ProjectFolder {
 			row.RepoOwner, row.RepoName = repoOf(ctx, entry.Path)
+			row.RootCommit = rootOf(ctx, entry.Path)
 		}
 		// A clone nobody has run a chat in yet still has to sort somewhere, and
 		// the folder's own mtime is the only evidence there is.
@@ -216,5 +221,27 @@ func (s *Syncer) carryForward(rows []store.Project, unread []int) {
 		}
 		rows[at].Kind, rows[at].IconHash = was.Kind, was.IconHash
 		rows[at].RepoOwner, rows[at].RepoName = was.RepoOwner, was.RepoName
+		rows[at].RootCommit = was.RootCommit
+	}
+}
+
+// RefreshOrigin re-reads a checkout's origin after its git config changed, and
+// tells devices when the repository moved (a `git remote set-url`). An origin
+// that reads as none, removed or mid-write, keeps the name already known.
+func (s *Syncer) RefreshOrigin(ctx context.Context, path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owner, name := repoOf(ctx, path)
+	if owner == "" {
+		return
+	}
+	row, moved, err := s.db.SetRepo(path, owner, name)
+	if err != nil {
+		s.log.Warn("projectsync: could not record a new origin", "path", path, "err", err)
+		return
+	}
+	if moved {
+		s.log.Info("projectsync: origin moved", "path", path, "repo", owner+"/"+name)
+		s.changed(store.ProjectChange{Changed: []store.Project{row}})
 	}
 }

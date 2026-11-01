@@ -4,7 +4,6 @@ package projects
 
 import (
 	"context"
-	"time"
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/files"
@@ -58,11 +57,9 @@ type RenameParams struct {
 type PinParams struct {
 	Path   string `json:"path"`
 	Pinned bool   `json:"pinned"`
-}
-
-type ReorderPinsParams struct {
-	// The pinned projects' folders in their new order, first on top.
-	Paths []string `json:"paths" wire:"array"`
+	// With pinned, the pinned project this one goes just below; empty (or one
+	// no longer pinned) is the top. Pinning a pinned project moves it.
+	After string `json:"after,omitempty"`
 }
 
 // Remote-reachable: every project listed is a folder fs.* would already serve.
@@ -74,9 +71,8 @@ func Register(r *rpc.Router, d Deps) {
 	// sends it to every other device as projects.changed.
 	rpc.Add(r, "projects.rename", d.rename, rpc.Tool("Rename a project, by its folder as projects.list gives it. "+
 		"A blank name clears the rename, back to the repository or folder name."), rpc.Write)
-	rpc.Add(r, "projects.pin", d.pin, rpc.Tool("Pin a project to the top of the project list, or unpin it."), rpc.Write)
-	// Each moved row goes out as projects.changed, as a pin does.
-	rpc.Add(r, "projects.reorder_pins", d.reorderPins)
+	rpc.Add(r, "projects.pin", d.pin, rpc.Tool("Pin a project to the top of the project list, or unpin it. "+
+		"With after, the pinned project it goes just below, which moves a pinned one."), rpc.Write)
 	// add is the folder picker's Select, making a folder it could only see a root.
 	// add and create answer the new project's row, listed at once.
 	rpc.Add(r, "projects.add", d.add)
@@ -99,20 +95,21 @@ func (d Deps) rename(_ context.Context, _ rpc.Caller, a RenameParams) (store.Pro
 	return d.marked(row, err)
 }
 
+// pin answers the pinned or unpinned row. A move that had to renumber the
+// pins sends every row it moved as projects.changed.
 func (d Deps) pin(_ context.Context, _ rpc.Caller, a PinParams) (store.Project, error) {
-	row, err := d.Store.SetPinned(a.Path, a.Pinned, time.Now())
-	return d.marked(row, err)
-}
-
-func (d Deps) reorderPins(_ context.Context, _ rpc.Caller, a ReorderPinsParams) (rpc.Ack, error) {
-	rows, err := d.Store.ReorderPins(a.Paths)
-	if err != nil {
-		return rpc.Ack{}, err
+	if !a.Pinned {
+		row, err := d.Store.Unpin(a.Path)
+		return d.marked(row, err)
 	}
-	for _, row := range rows {
+	rows, err := d.Store.Pin(a.Path, a.After)
+	if err != nil {
+		return store.Project{}, err
+	}
+	for _, row := range rows[1:] {
 		d.Sync.Announce(row)
 	}
-	return rpc.OK, nil
+	return d.marked(rows[0], nil)
 }
 
 // marked announces a row the user changed and answers it, stamped as listed.
@@ -140,13 +137,19 @@ func (d Deps) create(ctx context.Context, _ rpc.Caller, a CreateParams) (store.P
 }
 
 // listed makes a pass now rather than at the next nudge, so the new folder's
-// row exists to answer and every device hears it as projects.changed.
+// row exists to answer and every device hears it as projects.changed. A folder
+// already listed was picked again, which moves its used_at: that row goes out here.
 func (d Deps) listed(ctx context.Context, path string, err error) (store.Project, error) {
 	if err != nil {
 		return store.Project{}, err
 	}
+	_, lookup := d.Store.Project(path)
+	wasListed := lookup == nil
 	d.Sync.Once(ctx)
 	row, err := d.Store.Project(path)
+	if wasListed {
+		return d.marked(row, err)
+	}
 	if err != nil {
 		return store.Project{}, err
 	}

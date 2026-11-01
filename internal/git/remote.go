@@ -51,3 +51,18 @@ func ParseRemote(url string) string {
 	}
 	return owner + "/" + repo
 }
+
+// RootCommit is the first commit along first parents, which names one
+// repository across clones however it is renamed. Empty for a folder, a
+// repository with no commits, and a shallow clone (its oldest isn't the first).
+func RootCommit(ctx context.Context, dir string) string {
+	if shallow, err := run(ctx, dir, "rev-parse", "--is-shallow-repository"); err != nil || strings.TrimSpace(shallow) != "false" {
+		return ""
+	}
+	roots, err := run(ctx, dir, "rev-list", "--max-parents=0", "--first-parent", "HEAD")
+	if err != nil {
+		return ""
+	}
+	root, _, _ := strings.Cut(strings.TrimSpace(roots), "\n")
+	return root
+}

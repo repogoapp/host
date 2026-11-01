@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS chat_marks (
 CREATE TABLE IF NOT EXISTS project_marks (
   path      TEXT PRIMARY KEY,
   picked_at INTEGER,  -- picked or made in the folder picker
-  pinned_at INTEGER,  -- pinned to the top of the list
+  pinned_at INTEGER,  -- the pin's place, lowest on top (Project.PinOrder): an order, not a time; may hold a fraction
   name      TEXT      -- the user's name for it; never ''
 ) WITHOUT ROWID;
 

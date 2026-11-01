@@ -63,6 +63,7 @@ var gitFiles = []string{"HEAD", "index", "refs", "packed-refs", "MERGE_HEAD"}
 
 type Manager struct {
 	files   func(path string, files []string)
+	origin  func(ctx context.Context, path string)
 	contain func(path string) (string, error)
 	git     Git
 	log     *slog.Logger
@@ -106,7 +107,11 @@ type Deps struct {
 	// Files is also told each watched folder's changed files: the project's
 	// apps reload when their code moves.
 	Files func(path string, files []string)
-	Log   *slog.Logger
+	// Origin is told to read a checkout's origin again: once when its watch
+	// starts, and whenever its git config changes after that, so a remote
+	// moved by a rename or a transfer reaches the project list. Optional.
+	Origin func(ctx context.Context, path string)
+	Log    *slog.Logger
 }
 
 func New(d Deps) *Manager {
@@ -120,6 +125,7 @@ func New(d Deps) *Manager {
 		totals:  d.Totals,
 		pub:     d.Pushes,
 		files:   d.Files,
+		origin:  d.Origin,
 		workers: make(chan struct{}, 4),
 		linger:  linger,
 		log:     d.Log,
@@ -318,6 +324,8 @@ func (m *Manager) watch(ctx context.Context, path, real string, wake chan struct
 	defer t.Stop()
 
 	m.poll(ctx, path)
+	config := configStamp(real)
+	m.readOrigin(ctx, path)
 	var mark string
 	var lastFull time.Time
 	var settled <-chan time.Time
@@ -342,6 +350,10 @@ func (m *Manager) watch(ctx context.Context, path, real string, wake chan struct
 			changes, truncated := capped(classify(real, files), truncated)
 			m.sendChanges(path, real, changes, truncated)
 		case now := <-t.C:
+			if next := configStamp(real); next != config {
+				config = next
+				m.readOrigin(ctx, path)
+			}
 			next := fingerprint(real)
 			// Without a tree watcher, the fingerprint catches what git writes (a
 			// commit, a checkout, a stage) within one tick; the timer catches edits.
@@ -443,6 +455,24 @@ func (m *Manager) working(ctx context.Context, path string) *git.ChangeSet {
 		m.log.Debug("watch: saving diff totals failed", "path", path, "err", err)
 	}
 	return diff
+}
+
+// readOrigin asks for the checkout's origin to be read again, when there is
+// someone to ask.
+func (m *Manager) readOrigin(ctx context.Context, path string) {
+	if m.origin != nil {
+		m.origin(ctx, path)
+	}
+}
+
+// configStamp is the git config's size and time: where `origin` is written,
+// apart from fingerprint's files, so a moved remote does not push git.changed.
+func configStamp(path string) string {
+	info, err := os.Stat(filepath.Join(git.Dir(path), "config"))
+	if err != nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d:%d", info.ModTime().UnixNano(), info.Size())
 }
 
 // fingerprint is a cheap summary of what git writes when HEAD, refs, or the

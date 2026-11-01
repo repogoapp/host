@@ -237,6 +237,9 @@ func (h *Host) openChats() error {
 		return fmt.Errorf("open chat cache: %w", err)
 	}
 	h.onClose(func() { h.db.Close() })
+	for _, name := range h.db.Kept() {
+		h.log.Warn("store: keeping a state.db table or column state.sql doesn't name", "name", name)
+	}
 	if n, err := h.db.InterruptOrphans(time.Now()); err != nil {
 		h.log.Error("settling orphaned turns failed", "err", err)
 	} else if n > 0 {
@@ -325,7 +328,14 @@ func (h *Host) openProjects() error {
 	}
 	h.onClose(acts.Shutdown)
 	h.watch = projectwatch.New(projectwatch.Deps{Git: gitService, Contain: projectFiles.ContainRead, Totals: h.db, Pushes: h.Pushes,
-		Files: h.Services.Plugins.FilesChanged, Log: h.log})
+		Files: h.Services.Plugins.FilesChanged, Log: h.log,
+		// Project sync is assembled after the watcher; a watch starts only once a
+		// device asks, by which time it is.
+		Origin: func(ctx context.Context, path string) {
+			if sync := h.Services.ProjectSync; sync != nil {
+				sync.RefreshOrigin(ctx, path)
+			}
+		}})
 	gh := ghcore.New(layout, gitService, h.log)
 	h.Services.GitHub = gh
 

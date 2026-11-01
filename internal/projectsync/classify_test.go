@@ -66,11 +66,23 @@ func (l listed) Projects() ([]files.Entry, error) {
 	return out, nil
 }
 
-type recorded struct{ rows []store.Project }
+type recorded struct {
+	rows []store.Project
+	// repo is what SetRepo was last told, for the origin tests.
+	repo string
+}
 
 func (*recorded) Activity() (map[string]store.Activity, error) { return nil, nil }
 func (*recorded) KnownRepos() (map[string]bool, error)         { return nil, nil }
 func (*recorded) ProjectsAt([]string) ([]store.Project, error) { return nil, nil }
+func (r *recorded) SetRepo(path, owner, name string) (store.Project, bool, error) {
+	next := owner + "/" + name
+	if next == r.repo {
+		return store.Project{}, false, nil
+	}
+	r.repo = next
+	return store.Project{Path: path, RepoOwner: owner, RepoName: name}, true, nil
+}
 func (r *recorded) SyncProjects(rows []store.Project) (store.ProjectChange, error) {
 	r.rows = rows
 	return store.ProjectChange{Changed: rows}, nil

@@ -22,3 +22,8 @@ func kindOf(path string) store.ProjectKind {
 func repoOf(ctx context.Context, path string) (owner, name string) {
 	return gitcore.OwnerRepo(ctx, path)
 }
+
+// rootOf is the checkout's first commit, which names it across environments.
+func rootOf(ctx context.Context, path string) string {
+	return gitcore.RootCommit(ctx, path)
+}

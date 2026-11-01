@@ -63,8 +63,8 @@ func TestACacheRebuildChangesTheEpoch(t *testing.T) {
 	}
 }
 
-// The list is last prompt first, else last activity, with path breaking ties,
-// and every row names the host that served it.
+// The list is the prompted projects by last prompt, then the never-used ones by
+// activity, with path breaking ties; every row names the host that served it.
 func TestListProjectsOrdersByLastMessageThenActivity(t *testing.T) {
 	db := newStore(t)
 	if _, err := db.SyncProjects([]Project{
@@ -80,7 +80,7 @@ func TestListProjectsOrdersByLastMessageThenActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/recent-chat", "/fresh-folder", "/tie-a", "/tie-b", "/old-chat"}
+	want := []string{"/recent-chat", "/old-chat", "/fresh-folder", "/tie-a", "/tie-b"}
 	if len(projects) != len(want) {
 		t.Fatalf("listed %d projects, want %d", len(projects), len(want))
 	}

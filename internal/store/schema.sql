@@ -193,6 +193,10 @@ CREATE TABLE projects (
   -- list groups by it, and two clients deriving it could disagree.
   repo_owner TEXT NOT NULL DEFAULT '',
   repo_name  TEXT NOT NULL DEFAULT '',
+  -- The checkout's first commit (git.RootCommit): what groups one repository
+  -- across environments, since a rename or a transfer leaves it alone. ''
+  -- for a folder, a repository with no commits and a shallow clone.
+  root_commit TEXT NOT NULL DEFAULT '',
 
   -- clone | folder; see projectsync.kindOf.
   kind       TEXT NOT NULL DEFAULT 'folder',

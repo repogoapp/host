@@ -67,7 +67,6 @@ var methodExports = map[string]bool{
 	"ports.list": true, "ports.kill": true,
 
 	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
-	"projects.reorder_pins": true,
 	"projects.add":          true, "projects.create": true, "projects.delete": true,
 
 	"schedules.list": true, "schedules.save": true, "schedules.delete": true,
