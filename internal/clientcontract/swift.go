@@ -67,7 +67,7 @@ var methodExports = map[string]bool{
 	"ports.list": true, "ports.kill": true,
 
 	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
-	"projects.add":          true, "projects.create": true, "projects.delete": true,
+	"projects.add": true, "projects.create": true, "projects.delete": true,
 
 	"schedules.list": true, "schedules.save": true, "schedules.delete": true,
 
@@ -86,7 +86,7 @@ var methodExports = map[string]bool{
 
 	"uploads.write": true, "uploads.remove": true,
 
-	"usage.history": true,
+	"usage.history": true, "usage.time": true, "usage.record_time": true, "usage.clear_time": true,
 }
 
 // methodsGen generates the client's method types: the bodies of types the event

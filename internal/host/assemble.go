@@ -240,6 +240,7 @@ func (h *Host) openChats() error {
 	for _, name := range h.db.Kept() {
 		h.log.Warn("store: keeping a state.db table or column state.sql doesn't name", "name", name)
 	}
+	h.trackAgentTime()
 	if n, err := h.db.InterruptOrphans(time.Now()); err != nil {
 		h.log.Error("settling orphaned turns failed", "err", err)
 	} else if n > 0 {

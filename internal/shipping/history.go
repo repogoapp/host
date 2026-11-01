@@ -170,12 +170,18 @@ func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64, scope Scop
 	return out, nil
 }
 
-// inRange is the WHERE clause for a range within a scope. A folder and those
-// under it match as an equality plus the range "/a/" to "/a0" ('0' follows
-// '/'), which the (cwd, at) index serves without LIKE's escaping.
+// inRange is the WHERE clause for requests in a range within a scope.
 func inRange(sinceMs, untilMs int64, scope Scope) (string, []any) {
+	where, args := inFolders(scope)
+	return where + ` AND at >= ? AND at < ?`, append(args, sinceMs, untilMs)
+}
+
+// inFolders is the WHERE clause for a scope's folders. A folder and those under
+// it match as an equality plus the range "/a/" to "/a0" ('0' follows '/'),
+// which the (cwd, …) indexes serve without LIKE's escaping.
+func inFolders(scope Scope) (string, []any) {
 	if !scope.narrowed {
-		return `at >= ? AND at < ?`, []any{sinceMs, untilMs}
+		return `1`, nil
 	}
 	var folders []string
 	var args []any
@@ -190,7 +196,7 @@ func inRange(sinceMs, untilMs int64, scope Scope) (string, []any) {
 	if len(folders) == 0 {
 		return `0`, nil
 	}
-	return `(` + strings.Join(folders, ` OR `) + `) AND at >= ? AND at < ?`, append(args, sinceMs, untilMs)
+	return `(` + strings.Join(folders, ` OR `) + `)`, args
 }
 
 func (l *Ledger) sessions(ctx context.Context, where string, args []any) ([]AgentCount, error) {

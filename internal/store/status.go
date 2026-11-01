@@ -88,9 +88,9 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 	// A chat with no transcript yet is found by its title; the first sync
 	// replaces the row with the title and text the transcript holds.
 	var sid, syncedAt, searchHash int64
-	var title string
-	if err := tx.QueryRow(`SELECT sid, title, synced_at, search_hash FROM sessions WHERE agent = ? AND session_id = ?`,
-		provider, sessionID).Scan(&sid, &title, &syncedAt, &searchHash); err != nil {
+	var title, rowCwd string
+	if err := tx.QueryRow(`SELECT sid, title, synced_at, search_hash, cwd FROM sessions WHERE agent = ? AND session_id = ?`,
+		provider, sessionID).Scan(&sid, &title, &syncedAt, &searchHash, &rowCwd); err != nil {
 		return fmt.Errorf("store: update chat status: %w", err)
 	}
 	if syncedAt == 0 {
@@ -107,6 +107,7 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 		return err
 	}
 	s.notify(Change{Changed: []ChatID{id}})
+	s.reportStatus(StatusChange{Chat: id, Cwd: rowCwd, Status: status, At: at, TurnKey: key})
 	return nil
 }
 
@@ -152,8 +153,17 @@ func (s *Store) interrupt(at time.Time, query string, args ...any) (int, error) 
 	if len(orphans) == 0 {
 		return 0, nil
 	}
+	settled := make([]StatusChange, 0, len(orphans))
 	for _, id := range orphans {
 		kind, sessionID, _ := id.split()
+		change := StatusChange{Chat: id, Status: agent.ChatInterrupted}
+		var lastSeen int64
+		if err := tx.QueryRow(`SELECT cwd, MAX(status_at, updated_at) FROM sessions WHERE agent = ? AND session_id = ?`,
+			kind, sessionID).Scan(&change.Cwd, &lastSeen); err != nil {
+			return 0, err
+		}
+		change.At = time.UnixMilli(lastSeen)
+		settled = append(settled, change)
 		// The finish ends the turn's hold on the row, so a later turn from a
 		// terminal can take it. It is the turn's last sign of life, not now:
 		// "Recent activity" sorts on it, and settling is not activity.
@@ -168,6 +178,10 @@ func (s *Store) interrupt(at time.Time, query string, args ...any) (int, error) 
 		return 0, err
 	}
 	s.notify(Change{Changed: orphans})
+	// The agent clock stops at the turn's last sign of life, not at the settling.
+	for _, change := range settled {
+		s.reportStatus(change)
+	}
 	return len(orphans), nil
 }
 

@@ -1992,3 +1992,40 @@ Result:
 - `buckets` [object{HourBucket}]
 - `sessions` [object{AgentCount}]
 - `pricing_fetched` bool
+
+## `usage.time`
+
+Params:
+
+- `since_ms` int
+- `until_ms` int
+- `cwd` string (omitted when empty)
+- `root_commit` string (omitted when empty)
+
+Result:
+
+- `spans` [object{Span}]
+
+## `usage.record_time`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `spans` [object{UserSpan}]
+
+Result:
+
+- `skipped` int
+
+## `usage.clear_time`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `cwd` string (omitted when empty)
+
+Result:
+
+- `ok` bool

@@ -48,6 +48,11 @@ const (
 	// CapabilityUsageRepos is a host whose usage.history takes a root_commit
 	// and answers for every checkout of that repository it has.
 	CapabilityUsageRepos = "usage_repos"
+	// CapabilityUsageTime is a host that stores devices' screen time
+	// (usage.record_time) and answers usage.time.
+	CapabilityUsageTime = "usage_time"
+	// CapabilityAgentTime is a host whose usage.time includes agents' work.
+	CapabilityAgentTime = "agent_time"
 	// CapabilityTrash is a host that moves deleted files and projects to the
 	// Trash rather than deleting them for good.
 	CapabilityTrash = "trash"
@@ -167,7 +172,8 @@ func (s *Service) Status() Status {
 	if hasStorage {
 		out.Storage = &storage
 	}
-	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos}
+	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos,
+		CapabilityUsageTime, CapabilityAgentTime}
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}

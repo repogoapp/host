@@ -36,6 +36,9 @@ type Store struct {
 
 	// state.db's tables and columns state.sql doesn't name, kept rather than dropped.
 	kept []string
+
+	// Told each recorded status, for the agent clock; see notify.go.
+	onStatus func(StatusChange)
 }
 
 // Kept is state.db's tables and columns state.sql doesn't name: a newer host's,

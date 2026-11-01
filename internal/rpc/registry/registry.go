@@ -184,6 +184,10 @@ func New(cfg Config) (*rpc.Router, error) {
 	toolsrpc.Register(r, toolsrpc.Deps{Tools: cfg.Tools})
 	shippingrpc.Register(r, shippingrpc.Deps{
 		Usage: cfg.Usage, ModelLabel: cfg.AgentCatalog.ModelLabel, Checkouts: cfg.Store.Checkouts,
+		Device: func(id device.ID) shipping.Device {
+			peer, _ := cfg.Devices.Peer(id)
+			return shipping.Device{ID: string(id), Label: peer.Label, Platform: peer.Platform}
+		},
 	})
 	portsrpc.Register(r)
 	agentsrpc.Register(r, agentsrpc.Deps{

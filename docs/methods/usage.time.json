@@ -1,0 +1,16 @@
+{
+  "spans": [
+    {
+      "id": "id",
+      "kind": "kind",
+      "cwd": "cwd",
+      "actor": "actor",
+      "label": "label",
+      "platform": "platform",
+      "chat_id": "chat_id",
+      "turn_id": "turn_id",
+      "started_at_ms": 1,
+      "ended_at_ms": 1
+    }
+  ]
+}

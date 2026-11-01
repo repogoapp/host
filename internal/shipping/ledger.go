@@ -86,6 +86,10 @@ func create(db *sql.DB) error {
 		  path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL
 		) WITHOUT ROWID`,
 		`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID`,
+		activitySchema,
+		`CREATE INDEX IF NOT EXISTS activity_cwd_start ON activity (cwd, started_at)`,
+		`CREATE INDEX IF NOT EXISTS activity_start ON activity (started_at)`,
+		`CREATE INDEX IF NOT EXISTS activity_open_chat ON activity (chat_id) WHERE ended_at IS NULL`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			return err
