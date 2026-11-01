@@ -73,8 +73,20 @@ type AgentCount struct {
 	Count int64  `json:"count"`
 }
 
+// Scope is which requests History counts. The zero Scope is all of them.
+type Scope struct {
+	folders []string
+	// narrowed tells "these folders" from "everything", so a project with no
+	// checkout here counts nothing rather than the whole machine.
+	narrowed bool
+}
+
+// Folders narrows History to requests run in these folders or in one under
+// them: a project's checkouts. No folders is no requests.
+func Folders(paths ...string) Scope { return Scope{folders: paths, narrowed: true} }
+
 // History answers a range, sweeping first when the ledger is over a minute old.
-func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64) (History, error) {
+func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64, scope Scope) (History, error) {
 	if sinceMs >= untilMs || untilMs-sinceMs > maxRange.Milliseconds() {
 		return History{}, ErrRange
 	}
@@ -83,11 +95,12 @@ func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64) (History, 
 	cancel()
 	rates := l.pricing.table(ctx, time.Now())
 
+	where, args := inRange(sinceMs, untilMs, scope)
 	rows, err := l.db.QueryContext(ctx, `SELECT at / ? * ? AS hour, agent, model, reported_micros IS NOT NULL, fast,
 		  SUM(input), SUM(cache_read), SUM(cache_write_5m), SUM(cache_write_1h), SUM(output), SUM(reasoning),
 		  COUNT(*), SUM(COALESCE(reported_micros, 0))
-		FROM requests WHERE at >= ? AND at < ?
-		GROUP BY hour, agent, model, reported_micros IS NOT NULL, fast`, hourMs, hourMs, sinceMs, untilMs)
+		FROM requests WHERE `+where+`
+		GROUP BY hour, agent, model, reported_micros IS NOT NULL, fast`, append([]any{hourMs, hourMs}, args...)...)
 	if err != nil {
 		return History{}, err
 	}
@@ -136,7 +149,7 @@ func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64) (History, 
 		return History{}, err
 	}
 
-	sessions, err := l.sessions(ctx, sinceMs, untilMs)
+	sessions, err := l.sessions(ctx, where, args)
 	if err != nil {
 		return History{}, err
 	}
@@ -157,9 +170,32 @@ func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64) (History, 
 	return out, nil
 }
 
-func (l *Ledger) sessions(ctx context.Context, sinceMs, untilMs int64) ([]AgentCount, error) {
+// inRange is the WHERE clause for a range within a scope. A folder and those
+// under it match as an equality plus the range "/a/" to "/a0" ('0' follows
+// '/'), which the (cwd, at) index serves without LIKE's escaping.
+func inRange(sinceMs, untilMs int64, scope Scope) (string, []any) {
+	if !scope.narrowed {
+		return `at >= ? AND at < ?`, []any{sinceMs, untilMs}
+	}
+	var folders []string
+	var args []any
+	for _, path := range scope.folders {
+		path = strings.TrimRight(path, "/")
+		if path == "" {
+			continue
+		}
+		folders = append(folders, `cwd = ? OR (cwd >= ? AND cwd < ?)`)
+		args = append(args, path, path+"/", path+"0")
+	}
+	if len(folders) == 0 {
+		return `0`, nil
+	}
+	return `(` + strings.Join(folders, ` OR `) + `) AND at >= ? AND at < ?`, append(args, sinceMs, untilMs)
+}
+
+func (l *Ledger) sessions(ctx context.Context, where string, args []any) ([]AgentCount, error) {
 	rows, err := l.db.QueryContext(ctx, `SELECT agent, COUNT(DISTINCT session) FROM requests
-		WHERE at >= ? AND at < ? AND session != '' GROUP BY agent ORDER BY agent`, sinceMs, untilMs)
+		WHERE `+where+` AND session != '' GROUP BY agent ORDER BY agent`, args...)
 	if err != nil {
 		return nil, err
 	}

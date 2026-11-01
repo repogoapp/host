@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
 // fakeProvider bills one request per line, `key session output fast`.
@@ -99,7 +100,7 @@ func TestLedgerPricesFastMode(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "a.jsonl"), "k1 s 100 true\nk2 s 100 false\n")
 	l := openTestLedger(t, root, rates{"m": {input: 0.000001, output: 0.00001, fast: 2}})
-	h, err := l.History(t.Context(), 0, time.Hour.Milliseconds())
+	h, err := l.History(t.Context(), 0, time.Hour.Milliseconds(), Scope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,5 +127,47 @@ func TestMergeRatesKeepsLitellmFastTier(t *testing.T) {
 	}
 	if r := got["claude-plain"]; r.fast != 1 {
 		t.Fatalf("plain: %+v", r)
+	}
+}
+
+// A ledger from before cwd gains the column and its index, and forgets its
+// fingerprints so the next sweep reads every file again and fills cwd in.
+func TestLedgerUpgradeAddsCwdAndRereads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.db")
+	old := sqlitedb.Open(path)
+	for _, statement := range []string{
+		`CREATE TABLE requests (
+		  agent TEXT NOT NULL, key TEXT NOT NULL,
+		  session TEXT NOT NULL, at INTEGER NOT NULL, model TEXT NOT NULL,
+		  input INTEGER NOT NULL, cache_read INTEGER NOT NULL,
+		  cache_write_5m INTEGER NOT NULL, cache_write_1h INTEGER NOT NULL,
+		  output INTEGER NOT NULL, reasoning INTEGER NOT NULL,
+		  fast INTEGER NOT NULL DEFAULT 0, reported_micros INTEGER, path TEXT NOT NULL,
+		  PRIMARY KEY (agent, key)) WITHOUT ROWID`,
+		`CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL) WITHOUT ROWID`,
+		`INSERT INTO requests VALUES ('fake', 'k1', 's', 1000, 'm', 1, 0, 0, 0, 1, 0, 0, NULL, '/gone.jsonl')`,
+		`INSERT INTO files VALUES ('/a.jsonl', 1, 1)`,
+		`PRAGMA user_version = 1`,
+	} {
+		if _, err := old.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old.Close()
+
+	l, err := Open(t.Context(), path, filepath.Join(t.TempDir(), "rates.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	var cwd string
+	if err := l.db.QueryRow(`SELECT cwd FROM requests WHERE key = 'k1'`).Scan(&cwd); err != nil || cwd != "" {
+		t.Fatalf("cwd %q, %v", cwd, err)
+	}
+	var files, indexes int
+	l.db.QueryRow(`SELECT COUNT(*) FROM files`).Scan(&files)
+	l.db.QueryRow(`SELECT COUNT(*) FROM pragma_index_list('requests') WHERE name = 'requests_cwd_at'`).Scan(&indexes)
+	if files != 0 || indexes != 1 {
+		t.Fatalf("files %d, cwd index %d", files, indexes)
 	}
 }

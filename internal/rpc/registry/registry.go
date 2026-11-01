@@ -182,7 +182,9 @@ func New(cfg Config) (*rpc.Router, error) {
 	gitrpc.Register(r, gitrpc.Deps{Git: cfg.Git})
 	ghrpc.Register(r, ghrpc.Deps{GitHub: cfg.GitHub})
 	toolsrpc.Register(r, toolsrpc.Deps{Tools: cfg.Tools})
-	shippingrpc.Register(r, shippingrpc.Deps{Usage: cfg.Usage, ModelLabel: cfg.AgentCatalog.ModelLabel})
+	shippingrpc.Register(r, shippingrpc.Deps{
+		Usage: cfg.Usage, ModelLabel: cfg.AgentCatalog.ModelLabel, Checkouts: cfg.Store.Checkouts,
+	})
 	portsrpc.Register(r)
 	agentsrpc.Register(r, agentsrpc.Deps{
 		Files: cfg.Files, Environment: cfg.Agents, Project: cfg.ProjectAgents, Catalog: cfg.AgentCatalog,

@@ -16,7 +16,7 @@ func ParseNative(parser native.Parser, path string) ([]Record, bool) {
 	out := make([]Record, len(usage))
 	for i, u := range usage {
 		out[i] = Record{
-			Key: u.Key, Session: u.Session, TimestampMs: u.At, Model: u.Model,
+			Key: u.Key, Session: u.Session, Cwd: u.Cwd, TimestampMs: u.At, Model: u.Model,
 			Tokens: Tokens{
 				Uncached: u.Uncached, Cached: u.Cached,
 				Creation: u.Creation, Creation1h: u.Creation1h,

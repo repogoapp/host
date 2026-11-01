@@ -31,7 +31,10 @@ type Record struct {
 	// ledger then keys it by file and line.
 	Key string
 	// Session is the chat the request belongs to, as its provider names it.
-	Session     string
+	Session string
+	// Cwd is the folder the agent ran in, so usage can be asked per project.
+	// Empty when the transcript names none.
+	Cwd         string
 	TimestampMs int64
 	// Empty for a request its provider cannot price, such as an alias naming
 	// a family rather than a billable model.

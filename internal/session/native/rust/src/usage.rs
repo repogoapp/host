@@ -11,6 +11,8 @@ use crate::peek::LINE_LIMIT;
 pub struct Record {
     pub key: String,
     pub session: String,
+    // The folder the agent ran in; empty when the transcript names none.
+    pub cwd: String,
     pub at: i64,
     pub model: String,
     pub uncached: i64,
@@ -106,6 +108,8 @@ fn claude(line: &[u8]) -> Option<Record> {
         timestamp: String,
         #[serde(rename = "sessionId", deserialize_with = "event::s")]
         session_id: String,
+        #[serde(deserialize_with = "event::s")]
+        cwd: String,
         #[serde(rename = "requestId", deserialize_with = "event::s")]
         request_id: String,
         #[serde(rename = "costUSD", deserialize_with = "number")]
@@ -126,6 +130,7 @@ fn claude(line: &[u8]) -> Option<Record> {
     let model = if UNPRICED.contains(&msg.model.to_lowercase().as_str()) { String::new() } else { msg.model };
     let mut r = Record {
         session: l.session_id,
+        cwd: l.cwd,
         at,
         model,
         uncached: usage.input_tokens,
@@ -159,6 +164,8 @@ struct CodexState {
     id: String,
     session: String,
     saw_meta: bool,
+    // The folder the session runs in: its meta's, then each turn's.
+    cwd: String,
     model: String,
     copying: bool,
     copy_anchor: i64,
@@ -208,6 +215,8 @@ impl CodexState {
             forked_from_id: String,
             source: Option<serde_json::Value>,
             #[serde(deserialize_with = "event::s")]
+            cwd: String,
+            #[serde(deserialize_with = "event::s")]
             model: String,
             #[serde(rename = "type", deserialize_with = "event::s")]
             typ: String,
@@ -234,6 +243,7 @@ impl CodexState {
                     let parent = spawned(p.source.as_ref());
                     self.session = if parent.is_empty() { p.id.clone() } else { parent.clone() };
                     self.id = p.id;
+                    self.cwd = p.cwd;
                     if !p.forked_from_id.is_empty() || !parent.is_empty() {
                         self.copying = true;
                         self.copy_anchor = at;
@@ -244,6 +254,9 @@ impl CodexState {
             "turn_context" => {
                 if !p.model.is_empty() {
                     self.model = p.model;
+                }
+                if !p.cwd.is_empty() {
+                    self.cwd = p.cwd;
                 }
                 return None;
             }
@@ -281,6 +294,7 @@ impl CodexState {
         Some(Record {
             key,
             session: self.session.clone(),
+            cwd: self.cwd.clone(),
             at,
             model: self.model.clone(),
             uncached,

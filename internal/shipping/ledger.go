@@ -28,7 +28,8 @@ const (
 	lineLimit = 16 << 20
 	// ledgerVersion is bumped whenever a parser rule changes what a file
 	// yields; every file is then read again and its rows corrected in place.
-	ledgerVersion = 1
+	// 2: each request's cwd.
+	ledgerVersion = 2
 )
 
 // Ledger is the usage database: one row per request, kept after its
@@ -76,6 +77,7 @@ func create(db *sql.DB) error {
 		  fast INTEGER NOT NULL DEFAULT 0,
 		  reported_micros INTEGER,
 		  path TEXT NOT NULL,
+		  cwd TEXT NOT NULL DEFAULT '',
 		  PRIMARY KEY (agent, key)
 		) WITHOUT ROWID`,
 		`CREATE INDEX IF NOT EXISTS requests_at ON requests(at)`,
@@ -89,6 +91,15 @@ func create(db *sql.DB) error {
 			return err
 		}
 	}
+	// A ledger from before version 2 has no cwd; the version bump below reads
+	// every file again and fills it in. A gone file's rows keep it empty.
+	if err := addColumn(db, "requests", "cwd", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	// Per project: one folder's requests in a range.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS requests_cwd_at ON requests(cwd, at)`); err != nil {
+		return err
+	}
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return err
@@ -101,6 +112,30 @@ func create(db *sql.DB) error {
 		return err
 	}
 	_, err := db.Exec(`PRAGMA user_version = ` + strconv.Itoa(ledgerVersion))
+	return err
+}
+
+// addColumn adds a column a table created by an older ledger lacks.
+func addColumn(db *sql.DB, table, column, definition string) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
 	return err
 }
 
@@ -244,10 +279,11 @@ func (l *Ledger) write(ctx context.Context, files []transcript, result func(int)
 	// fix corrects rows in place. A copy in another file (a resume or fork)
 	// only replaces a shorter reading of the request, keeping the owner.
 	insert, err := tx.Prepare(`INSERT INTO requests
-		(agent, key, session, at, model, input, cache_read, cache_write_5m, cache_write_1h, output, reasoning, fast, reported_micros, path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(agent, key, session, at, model, input, cache_read, cache_write_5m, cache_write_1h, output, reasoning, fast, reported_micros, path, cwd)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(agent, key) DO UPDATE SET
 		  session = CASE WHEN requests.path = excluded.path THEN excluded.session ELSE requests.session END,
+		  cwd = CASE WHEN requests.path = excluded.path OR requests.cwd = '' THEN excluded.cwd ELSE requests.cwd END,
 		  at = CASE WHEN requests.path = excluded.path THEN excluded.at ELSE requests.at END,
 		  model = excluded.model, input = excluded.input, cache_read = excluded.cache_read,
 		  cache_write_5m = excluded.cache_write_5m, cache_write_1h = excluded.cache_write_1h,
@@ -278,7 +314,7 @@ func (l *Ledger) write(ctx context.Context, files []transcript, result func(int)
 			}
 			t := r.Tokens
 			if _, err := insert.Exec(kind, key, r.Session, r.TimestampMs, r.Model,
-				t.Uncached, t.Cached, t.Creation, t.Creation1h, t.Output, t.Reasoning, r.Fast, reported, f.path); err != nil {
+				t.Uncached, t.Cached, t.Creation, t.Creation1h, t.Output, t.Reasoning, r.Fast, reported, f.path, r.Cwd); err != nil {
 				return err
 			}
 		}

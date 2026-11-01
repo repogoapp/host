@@ -58,7 +58,6 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `error` string (omitted when empty)
 - `summary` string (omitted when empty)
 - `answerable` bool
-- `card` string (omitted when empty)
 
 ## `chats.changed`
 

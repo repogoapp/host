@@ -22,9 +22,11 @@ const forkCopyGap = 1000
 type codexState struct {
 	// id is this rollout's own thread, which keys its requests; session is the
 	// chat they count under, the parent's for a spawned subagent.
-	id         string
-	session    string
-	sawMeta    bool
+	id      string
+	session string
+	sawMeta bool
+	// cwd is the folder the session runs in: its meta's, then each turn's.
+	cwd        string
 	model      string
 	copying    bool
 	copyAnchor int64
@@ -43,6 +45,7 @@ func (c *codexState) parse(line []byte) *shipping.Record {
 			ID           string `json:"id"`
 			ForkedFromID string `json:"forked_from_id"`
 			Source       any    `json:"source"`
+			Cwd          string `json:"cwd"`
 			Model        string `json:"model"`
 			Type         string `json:"type"`
 			Info         *struct {
@@ -69,7 +72,7 @@ func (c *codexState) parse(line []byte) *shipping.Record {
 		if c.sawMeta {
 			return nil
 		}
-		c.sawMeta, c.id, c.session = true, root.Payload.ID, root.Payload.ID
+		c.sawMeta, c.id, c.session, c.cwd = true, root.Payload.ID, root.Payload.ID, root.Payload.Cwd
 		parent := spawnedBy(root.Payload.Source)
 		if parent != "" {
 			c.session = parent
@@ -81,6 +84,9 @@ func (c *codexState) parse(line []byte) *shipping.Record {
 	case "turn_context":
 		if root.Payload.Model != "" {
 			c.model = root.Payload.Model
+		}
+		if root.Payload.Cwd != "" {
+			c.cwd = root.Payload.Cwd
 		}
 		return nil
 	}
@@ -116,7 +122,7 @@ func (c *codexState) parse(line []byte) *shipping.Record {
 	if t.Uncached+t.Cached+t.Creation+t.Output == 0 {
 		return nil
 	}
-	rec := &shipping.Record{Session: c.session, TimestampMs: ts, Model: c.model, Tokens: t}
+	rec := &shipping.Record{Session: c.session, Cwd: c.cwd, TimestampMs: ts, Model: c.model, Tokens: t}
 	// The running total is unique within a thread, and a resumed segment that
 	// restates a request restates its total too. The thread's own id, since a
 	// subagent's total starts where its parent's stood and would collide.

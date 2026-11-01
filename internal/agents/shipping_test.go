@@ -45,7 +45,7 @@ func TestUsageSumsEachProviderAndPricesIt(t *testing.T) {
 
 	l := openLedger(t, filepath.Join(t.TempDir(), "usage.db"), cache, claudeprovider.New(agent.Dependencies{Root: base}), codexprovider.New(agent.Dependencies{Root: base}))
 	since := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
-	h, err := l.History(t.Context(), since.UnixMilli(), since.Add(48*time.Hour).UnixMilli())
+	h, err := l.History(t.Context(), since.UnixMilli(), since.Add(48*time.Hour).UnixMilli(), shipping.Scope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestUsageHistoryCountsCopiesOnceByModel(t *testing.T) {
 
 	l := openLedger(t, filepath.Join(t.TempDir(), "usage.db"), cache, claudeprovider.New(agent.Dependencies{Root: base}), codexprovider.New(agent.Dependencies{Root: base}))
 	since := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-	h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli())
+	h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli(), shipping.Scope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestUsageHistoryOutlivesTranscripts(t *testing.T) {
 		t.Helper()
 		l := openLedger(t, db, cache, claudeprovider.New(agent.Dependencies{Root: base}))
 		defer l.Close()
-		h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli())
+		h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli(), shipping.Scope{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,4 +254,74 @@ func usageFixtures(t *testing.T, base string) {
 		count("2026-09-01T11:10:06Z", 300, 50, 0, 10),
 	)
 
+}
+
+// A project's usage is the requests run in its folder or one under it, for
+// both agents; a sibling whose name starts the same is not under it. A Codex
+// session that changes folder bills its later turns to the new one.
+func TestUsageNarrowsToAProjectFolder(t *testing.T) {
+	base := t.TempDir()
+	claude, codex, cache := filepath.Join(base, "claude"), filepath.Join(base, "codex"), filepath.Join(t.TempDir(), "rates.json")
+	line := func(id, cwd string) string {
+		return `{"type":"assistant","timestamp":"2026-03-10T12:00:00Z","sessionId":"c","cwd":"` + cwd + `","requestId":"` + id +
+			`","message":{"id":"` + id + `","model":"claude-test","usage":{"input_tokens":10,"output_tokens":1}}}`
+	}
+	writeLines(t, filepath.Join(claude, "projects", "p", "s.jsonl"),
+		line("r1", "/w/app"), line("r2", "/w/app/sub"), line("r3", "/w/app2"), line("r4", "/w/other"))
+	writeLines(t, filepath.Join(codex, "sessions", "2026", "03", "10", "rollout.jsonl"),
+		`{"type":"session_meta","payload":{"id":"x","cwd":"/w/app"}}`,
+		`{"type":"turn_context","payload":{"model":"gpt-test"}}`,
+		`{"type":"event_msg","timestamp":"2026-03-10T15:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10}}}}`,
+		`{"type":"turn_context","payload":{"model":"gpt-test","cwd":"/w/other"}}`,
+		`{"type":"event_msg","timestamp":"2026-03-10T16:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"output_tokens":20}}}}`,
+	)
+	writeLines(t, cache, `{"version":2,"fetchedAtMs":`+jsonInt(time.Now().UnixMilli())+`,"rates":{}}`)
+
+	l := openLedger(t, filepath.Join(t.TempDir(), "usage.db"), cache, claudeprovider.New(agent.Dependencies{Root: base}), codexprovider.New(agent.Dependencies{Root: base}))
+	since := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	requests := func(cwd string) map[string]int64 {
+		scope := shipping.Scope{}
+		if cwd != "" {
+			scope = shipping.Folders(cwd)
+		}
+		h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli(), scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]int64{}
+		for _, b := range h.Buckets {
+			out[b.Agent] += b.Requests
+		}
+		return out
+	}
+	for _, cwd := range []string{"/w/app", "/w/app/"} {
+		if got := requests(cwd); !reflect.DeepEqual(got, map[string]int64{"claude": 2, "codex": 1}) {
+			t.Fatalf("%s: %v", cwd, got)
+		}
+	}
+	if got := requests("/w/other"); !reflect.DeepEqual(got, map[string]int64{"claude": 1, "codex": 1}) {
+		t.Fatalf("/w/other: %v", got)
+	}
+	if got := requests(""); !reflect.DeepEqual(got, map[string]int64{"claude": 4, "codex": 2}) {
+		t.Fatalf("everything: %v", got)
+	}
+
+	// A repository's checkouts count together; a repository with none here counts nothing.
+	scoped := func(scope shipping.Scope) map[string]int64 {
+		h, err := l.History(t.Context(), since.UnixMilli(), since.Add(24*time.Hour).UnixMilli(), scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]int64{}
+		for _, b := range h.Buckets {
+			out[b.Agent] += b.Requests
+		}
+		return out
+	}
+	if got := scoped(shipping.Folders("/w/app", "/w/app2")); !reflect.DeepEqual(got, map[string]int64{"claude": 3, "codex": 1}) {
+		t.Fatalf("two checkouts: %v", got)
+	}
+	if got := scoped(shipping.Folders()); len(got) != 0 {
+		t.Fatalf("no checkouts: %v, want nothing", got)
+	}
 }

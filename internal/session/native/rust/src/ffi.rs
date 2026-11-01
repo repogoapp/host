@@ -132,7 +132,7 @@ pub unsafe extern "C" fn repogo_free(ptr: *mut u8, len: usize) {
 // Usage records, flat and little-endian like the events:
 //
 //   u32 count
-//   per record: strings key, session, model; i64 at, uncached, cached,
+//   per record: strings key, session, cwd, model; i64 at, uncached, cached,
 //               creation, creation_1h, output, reasoning; u8 fast,
 //               u8 has_reported, f64 reported_usd
 fn encode_usage(records: &[crate::usage::Record]) -> Vec<u8> {
@@ -141,6 +141,7 @@ fn encode_usage(records: &[crate::usage::Record]) -> Vec<u8> {
     for r in records {
         put_str(&mut out, &r.key);
         put_str(&mut out, &r.session);
+        put_str(&mut out, &r.cwd);
         put_str(&mut out, &r.model);
         for n in [r.at, r.uncached, r.cached, r.creation, r.creation_1h, r.output, r.reasoning] {
             out.extend_from_slice(&n.to_le_bytes());

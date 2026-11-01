@@ -186,7 +186,7 @@ func ScanUsage(parser Parser, path string) ([]Usage, error) {
 	count := int(r.u32())
 	out := make([]Usage, 0, count)
 	for i := 0; i < count && r.ok(); i++ {
-		u := Usage{Key: r.str(), Session: r.str(), Model: r.str()}
+		u := Usage{Key: r.str(), Session: r.str(), Cwd: r.str(), Model: r.str()}
 		u.At, u.Uncached, u.Cached = r.i64(), r.i64(), r.i64()
 		u.Creation, u.Creation1h, u.Output, u.Reasoning = r.i64(), r.i64(), r.i64(), r.i64()
 		u.Fast = r.u8() != 0

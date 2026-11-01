@@ -1414,6 +1414,7 @@ Result:
 - `chat_count` int
 - `repo_owner` string
 - `repo_name` string
+- `root_commit` string (omitted when empty)
 - `kind` string
 - `icon_hash` string
 - `diff_available` bool
@@ -1422,18 +1423,20 @@ Result:
 - `deletions` int
 - `activity_at` int
 - `last_message_at` int
+- `used_at` int
 - `display_name` string
-- `pinned_at` int (omitted when empty) (nullable)
+- `pin_order` number (omitted when empty) (nullable)
 - `host_id` string
 
 ## `projects.pin`
 
-Tool (write): Pin a project to the top of the project list, or unpin it.
+Tool (write): Pin a project to the top of the project list, or unpin it. With after, the pinned project it goes just below, which moves a pinned one.
 
 Params:
 
 - `path` string
 - `pinned` bool
+- `after` string (omitted when empty)
 
 Result:
 
@@ -1441,6 +1444,7 @@ Result:
 - `chat_count` int
 - `repo_owner` string
 - `repo_name` string
+- `root_commit` string (omitted when empty)
 - `kind` string
 - `icon_hash` string
 - `diff_available` bool
@@ -1449,19 +1453,10 @@ Result:
 - `deletions` int
 - `activity_at` int
 - `last_message_at` int
+- `used_at` int
 - `display_name` string
-- `pinned_at` int (omitted when empty) (nullable)
+- `pin_order` number (omitted when empty) (nullable)
 - `host_id` string
-
-## `projects.reorder_pins`
-
-Params:
-
-- `paths` [string]
-
-Result:
-
-- `ok` bool
 
 ## `projects.add`
 
@@ -1475,6 +1470,7 @@ Result:
 - `chat_count` int
 - `repo_owner` string
 - `repo_name` string
+- `root_commit` string (omitted when empty)
 - `kind` string
 - `icon_hash` string
 - `diff_available` bool
@@ -1483,8 +1479,9 @@ Result:
 - `deletions` int
 - `activity_at` int
 - `last_message_at` int
+- `used_at` int
 - `display_name` string
-- `pinned_at` int (omitted when empty) (nullable)
+- `pin_order` number (omitted when empty) (nullable)
 - `host_id` string
 
 ## `projects.create`
@@ -1500,6 +1497,7 @@ Result:
 - `chat_count` int
 - `repo_owner` string
 - `repo_name` string
+- `root_commit` string (omitted when empty)
 - `kind` string
 - `icon_hash` string
 - `diff_available` bool
@@ -1508,8 +1506,9 @@ Result:
 - `deletions` int
 - `activity_at` int
 - `last_message_at` int
+- `used_at` int
 - `display_name` string
-- `pinned_at` int (omitted when empty) (nullable)
+- `pin_order` number (omitted when empty) (nullable)
 - `host_id` string
 
 ## `projects.delete`
@@ -1982,6 +1981,8 @@ Params:
 
 - `since_ms` int
 - `until_ms` int
+- `cwd` string (omitted when empty)
+- `root_commit` string (omitted when empty)
 
 Result:
 

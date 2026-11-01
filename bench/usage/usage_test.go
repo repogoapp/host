@@ -106,7 +106,7 @@ func BenchmarkColdHistoryYear(b *testing.B) {
 		b.StopTimer()
 		ledger := open(b, filepath.Join(dbRoot, fmt.Sprintf("usage-%d.db", i)), rates, providers)
 		b.StartTimer()
-		h, err := ledger.History(b.Context(), start.UnixMilli(), start.AddDate(1, 0, 0).UnixMilli())
+		h, err := ledger.History(b.Context(), start.UnixMilli(), start.AddDate(1, 0, 0).UnixMilli(), shipping.Scope{})
 		b.StopTimer()
 		if err != nil {
 			b.Fatal(err)
@@ -123,7 +123,7 @@ func BenchmarkWarmHistory(b *testing.B) {
 	ledger := open(b, filepath.Join(b.TempDir(), "usage.db"), rates, providers)
 	b.Cleanup(func() { ledger.Close() })
 	until := start.AddDate(1, 0, 0)
-	h, err := ledger.History(b.Context(), start.UnixMilli(), until.UnixMilli())
+	h, err := ledger.History(b.Context(), start.UnixMilli(), until.UnixMilli(), shipping.Scope{})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func BenchmarkWarmHistory(b *testing.B) {
 			since := until.AddDate(0, 0, -days)
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := ledger.History(b.Context(), since.UnixMilli(), until.UnixMilli()); err != nil {
+				if _, err := ledger.History(b.Context(), since.UnixMilli(), until.UnixMilli(), shipping.Scope{}); err != nil {
 					b.Fatal(err)
 				}
 			}

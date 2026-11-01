@@ -19,7 +19,7 @@ const (
 // Usage is one API request's token usage as the Rust parser read it; the
 // fields mirror shipping.Record, which the providers convert it to.
 type Usage struct {
-	Key, Session, Model                                           string
+	Key, Session, Cwd, Model                                      string
 	At, Uncached, Cached, Creation, Creation1h, Output, Reasoning int64
 	Fast, HasReported                                             bool
 	ReportedUSD                                                   float64

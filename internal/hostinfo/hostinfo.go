@@ -41,6 +41,13 @@ const (
 	CapabilityDevices   = "devices"
 	CapabilitySchedules = "schedules"
 	CapabilityUsage     = "usage"
+	// CapabilityUsageProjects is a host whose usage.history takes a cwd and
+	// answers for that project alone. An older one ignores the param and
+	// answers for everything, so the phone asks only a host reporting this.
+	CapabilityUsageProjects = "usage_projects"
+	// CapabilityUsageRepos is a host whose usage.history takes a root_commit
+	// and answers for every checkout of that repository it has.
+	CapabilityUsageRepos = "usage_repos"
 	// CapabilityTrash is a host that moves deleted files and projects to the
 	// Trash rather than deleting them for good.
 	CapabilityTrash = "trash"
@@ -160,7 +167,7 @@ func (s *Service) Status() Status {
 	if hasStorage {
 		out.Storage = &storage
 	}
-	out.Capabilities = []string{CapabilityDevices, CapabilityUsage}
+	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos}
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}

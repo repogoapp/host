@@ -25,6 +25,7 @@ func parseClaude(line []byte) *shipping.Record {
 		Type      string `json:"type"`
 		Timestamp string `json:"timestamp"`
 		SessionID string `json:"sessionId"`
+		Cwd       string `json:"cwd"`
 		RequestID string `json:"requestId"`
 		CostUSD   any    `json:"costUSD"`
 		Message   struct {
@@ -70,6 +71,7 @@ func parseClaude(line []byte) *shipping.Record {
 	}
 	rec := &shipping.Record{
 		Session:     root.SessionID,
+		Cwd:         root.Cwd,
 		TimestampMs: ts,
 		Model:       model,
 		Tokens:      tokens,
