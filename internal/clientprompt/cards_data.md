@@ -1,3 +1,5 @@
+# Live card data
+
 Cards read and write live data, from the sources below:
 
 Data: name, method="<source>:<name>" (a query or a stream). Children read
@@ -11,14 +13,14 @@ Data: name, method="<source>:<name>" (a query or a stream). Children read
   a Live badge: an Each over it scrolls like a terminal, stuck to the
   newest; keep="300" shows that many newest items (default 500).
 Param: name, value, optional type="string|number|boolean|json|null";
-  the first children of a Data, or of a Button or Item that calls a
-  source, one per input field. A value reads state and the rows and
+  children of Data, or of a Button, Item, Swipe, Upload or Toggle that
+  calls a source, one per input field. A value reads state and the rows and
   answers of the Data and Each around it, never its own Data's answer.
   Without type, a value that is exactly {{path}} into data sends that
   JSON as is (a number, an array); anything else is text. In a
   type="json" value, a {{name}} inside quotes is escaped, so typed text
   may hold quotes and line breaks: {"prompt": "{{message}}"}. A Param that
-  can't be read shows its error in Failed, or under the button.
+  can't be read shows its error in Failed, or beside the action control.
 Each: in="<binding path>", as="row", optional key (default id); repeats
   its children per element, reading {{row.field}}. No Tabs, Input,
   TextArea, Select, Radio, Toggle, Slider or Router inside Each.
@@ -33,7 +35,7 @@ Chart in="<binding path>" value="field" label="field": a bar or point
   when= or a show= to read.
 Empty, Loading, Failed as="problem": inside a Data, shown for an empty
   answer, before the first one, and on an error ({{problem.message}}).
-A Button or Item action calling a source runs it with its Params;
-  then="set:…" (or toggle:, push:, present:, back) runs after it
+A Button, Item, Swipe, Upload or Toggle source action runs with its Params;
+  then="set:…" (or toggle:, push:, present:, page:, back) runs after it
   succeeds. One that asks first asks before running; others run on
-  tap. A refusal shows under the button.
+  tap (a user flip for Toggle). A refusal shows beside the control.

@@ -16,21 +16,106 @@ var update = flag.Bool("update", false, "rewrite cards.md from the phone's CardI
 
 const cardInstructions = "../../../swift/Packages/RepoGoCards/Sources/RepoGoCards/CardInstructions.swift"
 
-func TestForPicksByMarkdownFeature(t *testing.T) {
-	prompt := func(features map[string]int) string {
-		return clientprompt.For(device.Client{Platform: "ios", Features: features}, clientprompt.NoPlugins, nil)
+func TestForPicksByRenderingFeature(t *testing.T) {
+	cases := []struct {
+		feature string
+		marker  string
+	}{
+		{"markdown", "- Files and folders:"},
+		{"mermaid", "```mermaid"},
+		{"math", "# Math"},
+		{"cards", "Use these tags:"},
 	}
-	full := prompt(map[string]int{"markdown": 1})
-	if !strings.Contains(full, "```mermaid") || !strings.Contains(full, "```ui") {
-		t.Fatalf("markdown 1 does not describe Mermaid and cards:\n%s", full)
+	for _, tc := range cases {
+		t.Run(tc.feature, func(t *testing.T) {
+			client := device.Client{Features: map[string]int{tc.feature: 1}}
+			prompt := clientprompt.For(client, clientprompt.NoPlugins, nil)
+			for _, other := range cases {
+				if got := strings.Contains(prompt, other.marker); got != (other.feature == tc.feature) {
+					t.Errorf("%s instructions present = %v", other.feature, got)
+				}
+			}
+			client.Features[tc.feature] = 9
+			if got := clientprompt.For(client, clientprompt.NoPlugins, nil); got != prompt {
+				t.Error("newer capability version does not get the newest prompt")
+			}
+			client.Features[tc.feature] = 0
+			if got := clientprompt.For(client, clientprompt.NoPlugins, nil); got != "" {
+				t.Errorf("disabled capability produced %q", got)
+			}
+		})
 	}
-	if got := prompt(map[string]int{"markdown": 9}); got != full {
-		t.Error("a newer markdown version does not get the newest prompt")
-	}
-	for _, features := range []map[string]int{nil, {"blocks": 3}, {"markdown": 0}} {
-		if got := prompt(features); got != "" {
-			t.Errorf("For(%v) = %q, want nothing", features, got)
+	for _, features := range []map[string]int{nil, {"blocks": 3}} {
+		if got := clientprompt.For(device.Client{Features: features}, clientprompt.NoPlugins, nil); got != "" {
+			t.Errorf("unknown capabilities produced %q", got)
 		}
+	}
+}
+
+func TestClipDoesNotReceiveUnsupportedInstructions(t *testing.T) {
+	clip := device.Client{Features: map[string]int{"markdown": 1}}
+	prompt := clientprompt.For(clip, clientprompt.HasPlugins, []string{"linear"})
+	for _, marker := range []string{"```mermaid", "# Math", "```ui", "Use these tags:", "MCP servers for cards:"} {
+		if strings.Contains(prompt, marker) {
+			t.Errorf("Clip receives unsupported instructions: %s", marker)
+		}
+	}
+	if !strings.Contains(prompt, "# Replying in RepoGo") || !strings.Contains(prompt, "short recap") {
+		t.Error("Clip lacks shared response rules")
+	}
+	if !strings.Contains(prompt, "- Files and folders:") {
+		t.Error("Clip lacks basic Markdown instructions")
+	}
+}
+
+func TestBasicCardsDoNotTeachUnavailableDataSources(t *testing.T) {
+	c := device.Client{Features: map[string]int{"markdown": 1, "cards": 1}}
+	prompt := clientprompt.For(c, clientprompt.NoPlugins, nil)
+	for _, marker := range []string{`method="mcp:`, `action="plugin:`} {
+		if strings.Contains(prompt, marker) {
+			t.Errorf("basic cards include an unavailable data source: %s", marker)
+		}
+	}
+}
+
+func TestCardSourcesRequireTheCardRenderer(t *testing.T) {
+	c := device.Client{Features: map[string]int{"plugins": 1, "mcp": 1, "repogo": 1}}
+	if got := clientprompt.For(c, clientprompt.HasPlugins, []string{"linear"}); got != "" {
+		t.Errorf("card sources without a renderer produced %q", got)
+	}
+}
+
+func TestSectionsDescribeTheAssembledPrompt(t *testing.T) {
+	c := device.Client{Features: map[string]int{"markdown": 1, "cards": 1, "mcp": 1}}
+	sections := clientprompt.Sections(c, clientprompt.NoPlugins, []string{"linear"})
+	var parts []string
+	seen := map[string]bool{}
+	for _, section := range sections {
+		if seen[section.ID] || section.ID == "" || section.Title == "" || section.Reason == "" || section.Text == "" {
+			t.Fatalf("incomplete or duplicate section: %+v", section)
+		}
+		seen[section.ID] = true
+		if _, err := os.Stat(strings.TrimPrefix(section.File, "internal/clientprompt/")); err != nil {
+			t.Fatal(err)
+		}
+		if section.Included {
+			parts = append(parts, section.Text)
+		}
+	}
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".md") && !seen[strings.TrimSuffix(entry.Name(), ".md")] {
+			t.Errorf("prompt file has no section: %s", entry.Name())
+		}
+	}
+	if got := strings.Join(parts, "\n"); got != clientprompt.For(c, clientprompt.NoPlugins, []string{"linear"}) {
+		t.Error("inspector sections differ from the agent prompt")
+	}
+	if !strings.Contains(sections[2].Reason, "Missing: mermaid capability") {
+		t.Errorf("missing renderer not explained: %s", sections[2].Reason)
 	}
 }
 
@@ -71,8 +156,8 @@ func TestCardsMatchThePhone(t *testing.T) {
 // Only the app opens a Connect's sheet, so only it is told to draw one,
 // ahead of the card elements.
 func TestConnectComesToTheAppFirst(t *testing.T) {
-	const rule = "Never ask\nfor one in chat"
-	app := clientprompt.For(device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "repogo": 1}}, clientprompt.NoPlugins, nil)
+	const rule = "Never ask for a key"
+	app := clientprompt.For(device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "repogo": 1}}, clientprompt.NoPlugins, nil)
 	if i := strings.Index(app, rule); i < 0 || i > strings.Index(app, "Use these tags:") {
 		t.Errorf("the app's prompt does not lead with the Connect rule:\n%s", app)
 	}
@@ -85,7 +170,7 @@ func TestConnectComesToTheAppFirst(t *testing.T) {
 // Building plugins comes to a client whose cards reach them, on an
 // environment that runs them; drawing them, only once the project has some.
 func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
-	both := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1}}
+	both := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "plugins": 1}}
 	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
 	const build, draw = ".repogo/plugins/<name>/app.ts", "plugin:<plugin>.<method>"
 	for _, c := range []struct {
@@ -112,8 +197,8 @@ func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
 // MCP cards come to a client that draws them, for a project with a server on,
 // with the data elements whether or not the project has plugins.
 func TestMCPPromptFollowsTheProjectAndTheClient(t *testing.T) {
-	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1, "mcp": 1}}
-	older := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1}}
+	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "plugins": 1, "mcp": 1}}
+	older := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "plugins": 1}}
 	const data, draw = "Data: name, method=", "mcp:<server>.<tool>"
 	for _, c := range []struct {
 		name       string
@@ -147,7 +232,7 @@ func TestMCPPromptFollowsTheProjectAndTheClient(t *testing.T) {
 // The chats come to a client whose cards reach the host's methods, with the
 // data elements, in any project; the MCP servers' line still ends the prompt.
 func TestRepoGoPromptFollowsTheClient(t *testing.T) {
-	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1, "mcp": 1, "repogo": 1}}
+	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "plugins": 1, "mcp": 1, "repogo": 1}}
 	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
 	const data, draw = "Data: name, method=", `method="repogo:<method>"`
 	prompt := clientprompt.For(app, clientprompt.NoPlugins, []string{"neon"})
@@ -166,7 +251,7 @@ func TestRepoGoPromptFollowsTheClient(t *testing.T) {
 // to its system prompt, joined as host.New's Instructions joins it, in a
 // project with plugins and MCP servers, so a change to it reads as a diff.
 func TestWritesTheAppsPrompt(t *testing.T) {
-	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "plugins": 1, "mcp": 1, "repogo": 1}}
+	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "mermaid": 1, "math": 1, "cards": 1, "plugins": 1, "mcp": 1, "repogo": 1}}
 	prompt := repogomcp.ChatsPrompt(false) + clientprompt.For(app, clientprompt.HasPlugins, []string{"linear", "vercel"})
 	testhost.Golden(t, "testdata/app.md", []byte(prompt), *update, "run: go test ./internal/clientprompt -update")
 }

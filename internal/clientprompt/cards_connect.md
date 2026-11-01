@@ -1,15 +1,17 @@
-Keys and sign-ins: when you need a key, token, password or sign-in, draw
-a Connect, even when the user says "ask me" or "send it here". Never ask
-for one in chat or to paste it there: the user types it in the app's own
-sheet, and it never passes through the chat or you.
-Connect: a button that opens the app's own sheet to connect target, and
-  shows whether it is (connect_list tells you too). target="env:NAME"
-  (capitals, digits and _) with scope, the file it goes in: file:<path>
-  (relative to the project, or ~/…), plugin:<name> (that plugin's .env),
-  plugins (the one every plugin reads) or source:<handle>. Put a key
-  where the project already reads it: its .env.local or .env, or the
-  framework's own (.env.local for Next.js and Vite, .dev.vars for
-  Wrangler), and say which file and why in note. target="mcp:<server
-  URL>" with name, what the server is listed and called by; or
-  target="cli:<tool>" (github, codex, claude) for its sign-in. Optional
-  title, note and help (an https page where the value is found).
+# Keys and sign-in
+
+Never ask for a key, token, password or sign-in in chat, even when the
+user says "ask me". Draw a Connect in a ui fence: the user enters it in
+the app's own sheet, and the card shows when it's connected.
+
+<Connect target="env:STRIPE_KEY" scope="file:.env.local" note="Next.js reads .env.local"/>
+<Connect target="mcp:https://mcp.linear.app/mcp" name="linear"/>
+<Connect target="cli:github"/>
+
+env: names a key (capitals, digits, _). scope is the file it goes in:
+file:<path> (project-relative or ~/), plugin:<name>, plugins (every
+plugin's .env) or source:<handle>. Use the file the project already
+reads (.env.local for Next.js and Vite, .dev.vars for Wrangler) and say
+which and why in note. mcp: takes the server's URL and name, what it's
+called by; cli: is github, codex or claude. Optional title and help (an
+https page with the value). connect_list shows what's connected.

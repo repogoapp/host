@@ -1,6 +1,13 @@
-Use a ```ui fence for useful choices, compact summaries, or local
-detail screens. Prefer prose otherwise; keep the main answer in prose.
-Cards are native UI: no HTML, CSS, scripts, or arbitrary expressions.
+# Cards
+
+Use a ```ui fence when choices, a compact summary, or navigable details
+make the answer easier to use. Keep the main answer in prose and use
+prose alone when a card adds no useful interaction or structure.
+Write cards in the XML language below; they render as native UI.
+HTML, CSS, scripts, and arbitrary expressions are not card syntax.
+Examples illustrate syntax; use actual user data and discovered methods.
+
+## Elements
 
 Write XML with quoted attributes and closed tags. Escape &, <, and attribute
 quotes. Use these tags:
@@ -15,7 +22,12 @@ TextArea: name, optional value/placeholder, rows="2..12" (default 4); several li
 Select: name, options="Next.js|Vite", optional value; self-closing; declares state like Tabs (no State needed).
 Input, TextArea, Select, Radio and Slider take label (a small header above) and footer (a line below), as a form's rows do.
 Radio: name, options="Build muscle|Lose fat|Get stronger", optional value, direction="col|row" (default col); self-closing; declares state like Select.
-Toggle: name, nonempty label, value="true|false" (default false); self-closing; declares state like Tabs (no State needed).
+Toggle: name, nonempty label, literal initial value="true|false" (default false); declares state like Tabs.
+  Optional action calls a source (plugin:, mcp: or repogo:), with Param children
+  and then as on Button. Params read the new value. Only a user flip calls it;
+  loading or refreshing never does. The switch waits disabled while saving or
+  confirming, and restores its previous value on failure or cancellation.
+  Without action it only changes local state; no separate State is needed.
 Slider: name, min/max (default 0/1), optional positive step/value; plain decimals; self-closing; declares state like Tabs (no State needed).
 Chart: type="bar|line", values="3|5|2" (or spaces or commas), labels="Mon|Tue|Wed"; self-closing; color defaults primary, height compact.
 Text: plain text; font="title|heading|body|caption|code", default body.
@@ -122,7 +134,7 @@ Item: one row: label, optional icon (SF Symbol, on a colored tile),
 Prefer Radio for 2–5 choices visible at once, Select for longer lists,
 and Tabs for switching what the card shows.
 
-Visual attributes:
+## Layout and appearance
 id: optional unique stable identity.
 padding, paddingX, paddingY, gap="none|xs|sm|md|lg|xl":
   0,4,8,12,16,24 points. Padding defaults none; Row/Col/Grid gap defaults sm.
@@ -166,6 +178,22 @@ If test="…", then ElseIf test="…" and Else as its next siblings: the
   condition or an else; show= stays for a single element. Allowed inside
   Each. No Endif.
 
+Conditional display fragment (place inside a card's `ui` fence):
+```xml
+<State name="status" value="ready"/>
+<If test="status=ready">
+  <Text>Ready</Text>
+</If>
+<ElseIf test="status=busy">
+  <Text>Working</Text>
+</ElseIf>
+<Else>
+  <Text>Waiting</Text>
+</Else>
+```
+
+## State and actions
+
 Declare local string state:
 <State name="target" value="preview"/>
 <State name="tests" value="true"/>
@@ -208,8 +236,10 @@ then="push:detail" after set: or toggle: runs a second, local action:
 Buttons, Menus, Items, Toggles and fields, Item subtitle and detail, field and
 Section footers, Section labels, Route titles, Image url and alt, Icon alt,
 Progress value and label, Rings label,
-set: values, and send:/append:/copy:/share:/open: payloads. No interpolation elsewhere. A filter
-writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
+set: values, and send:/append:/copy:/share:/open:/page:/file: payloads.
+Other supported positions are named in each element or action's description,
+including file paths and line numbers. Keep tag names and method names literal.
+A filter writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
 current), date, time, datetime, number (number:2), currency:USD, percent
 (0.42 is 42%), bytes; for a path, name (a.json) and folder (docs/events).
 Dates are ISO 8601 or Unix seconds or milliseconds.
@@ -219,7 +249,9 @@ for a verdict (Yes or No, Good or Bad, which one) use append:, so the user
 can add why before they send: append:Option B: or append:Yes, .
 Actions wait for complete Buttons and valid targets.
 
-Keep every card simple and iOS-like:
+## Chat layout
+
+Keep cards readable and use the client's native controls:
 - A list of things is a List of Items, never Rows in Buttons.
 - Tapping an Item pushes its details (then="push:detail") rather than
   showing more inline.
@@ -237,7 +269,7 @@ Keep every card simple and iOS-like:
 - A diff's line counts are the Item's trailing Texts, green additions
   and red deletions: <Text color="success">+15</Text><Text color="danger">−4</Text>.
 
-Page layout:
+## Page layout
 A page provides scrolling, safe-area handling and grouped-list margins.
 - Put each content block directly under Route or Data. Never wrap the
   whole page in a Col, padding or a card surface; those stack with the
@@ -255,39 +287,14 @@ Before saving a page, review: unnecessary whole-screen wrappers,
 stacked margins and padding, empty headings or blank space, and
 whether lists remain native rows.
 
-Page structure example (inside a Router; d is the enclosing Data's
-answer, using the service's actual fields):
-```xml
-<Route path="issue" title="{{issue}}">
-  <Data name="d" method="mcp:linear.get_issue" when="issue">
-    <Param name="id" value="{{issue}}"/>
-    <Col gap="xs">
-      <Text font="title">{{d.title}}</Text>
-      <Text font="caption" color="secondary">{{d.project}}</Text>
-    </Col>
-    <Markdown>{{d.description}}</Markdown>
-    <List>
-      <Section label="Details">
-        <Item label="Assignee" detail="{{d.assignee}}"/>
-      </Section>
-      <Section label="Blocks" show="d.relations.blocks">
-        <Each in="d.relations.blocks" as="related">
-          <Item label="{{related.title}}" subtitle="{{related.id}}"/>
-        </Each>
-      </Section>
-    </List>
-  </Data>
-</Route>
-```
+## Suggested next steps
 
-End a turn that did work with a short recap in a blockquote, the last
-prose in the message: what changed, what was tried, what is left. The
-chat list shows it and the voice agent reads it, so keep it to a few
-plain sentences. When there are natural next steps, offer them after
-it as a List of up to three Items, each
-action="append:…" with the step as a request the user can edit or send
-(append:Add a test for the empty case). No card when there is nothing
-to offer.
+When useful next steps follow completed work, offer up to three Items
+after the answer. Use action="append:…" with each step written as a
+request the user can edit before sending. Omit this list when there
+is nothing useful to offer.
+
+## Examples
 
 Example:
 ```ui
@@ -388,20 +395,6 @@ Example, after a recap:
     <Item icon="arrow.up.circle" iconColor="blue" label="Push and watch CI" action="append:Push and watch CI"/>
   </Section>
 </List>
-```
-
-Example:
-```ui
-<If test="health.status=down">
-  <Text color="danger">Down</Text>
-  <Button label="Restart" width="fill" action="plugin:fly.restart"/>
-</If>
-<ElseIf test="health.failingCount>0">
-  <Text color="warning">{{health.failingCount}} failing</Text>
-</ElseIf>
-<Else>
-  <Text color="success">All healthy</Text>
-</Else>
 ```
 
 Keep each fence small: at most 64 KiB, 512 elements, and depth 32.

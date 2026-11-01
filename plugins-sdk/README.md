@@ -69,6 +69,14 @@ Pages beside an environment plugin (`pages/*.ui`, or `pages/*.md`) open from
 any project as `~/.repogo/plugins/<name>/pages/<page>.ui`. A
 `.ui` page is card markup with no fence; a `.md` page is writing with cards.
 
+In the full iOS app, `~/.repogo/plugins/plugin.ui` supplies a shared Plugins
+tab. A project’s `.repogo/plugin.ui` overrides the entire page for that
+project; entries are not merged. If neither exists, the tab is absent.
+Both are plain card markup without a code fence. Read and preserve existing
+entries, and link to plugin pages with `page:` actions.
+
+A user-facing plugin needs both its saved page and a link from the applicable `plugin.ui`. Saving a file in `.repogo/tabs` or naming it `index.ui` does not register a project tab. Plugin discovery can list a page without a navigation entry; verify the effective `plugin.ui` links to the existing page.
+
 ## Methods
 
 ```ts
@@ -161,14 +169,14 @@ plugin, another plugin, or another project.
 
 `namespace` names where a plugin's data lives: the folder
 `~/.repogo/plugin-data/<namespace>/`, holding `data.db` and its streams' and
-buckets' files. A plugin that keeps data (any collection, kv, stream or bucket)
-must name one, or it fails to load. Plugins naming the same namespace share its
+buckets' files. A plugin with any collection, kv, stream, bucket, cached method
+or workflow must name one, or it fails to load. Plugins naming the same namespace share its
 data, in any project, so they must declare the same schemas.
 
 By convention a project's own data is `<project>.<name>` (`myproject.notes`),
 and data meant for every project a bare name (`todos`). That's only a
 convention: the same namespace is the same data. Data stays put when a project
-moves. A plugin with no data has no folder.
+moves. A plugin without storage, cached methods or workflows needs no data folder.
 
 ### Collections
 
@@ -664,22 +672,71 @@ in `?`), and every line of `~/.repogo/crons.json` with how it's going.
 `plugins` with `plugin` set answers that plugin in full: each method's input
 and output JSON Schema and confirm, its `storage` (each bucket's and stream's
 folder), the pages that show its methods, and the cron lines naming it.
-`plugin_call` runs one. Call a new method once before a card names it.
+`plugin_call` runs one. Inspect a method's schema before naming it in a card.
+Verify query fields with a read-only call. Do not execute mutations just to
+check a card; run them only when the user's task calls for that action.
 
 **Cards** name methods as `plugin:<plugin>.<method>`. A `Data` element runs a
-query, or follows a stream, and redraws when its data changes; a `Button` or
-`Item` action runs a mutation:
+query, or follows a stream, and redraws when its data changes. `Button`,
+`Item` and `Swipe` actions call methods; on iOS, `Toggle` can call one on a
+user flip. `Upload` calls a plugin method with staged files. Params must match
+the discovered input schema. These fragments assume `q` and `note` are supplied
+by the enclosing card:
 
 ```xml
 <Data name="photos" method="plugin:gallery.photos.search">
   <Param name="query" value="{{q}}"/>
-  <Each in="photos" as="p"><Item label="{{p.name}}" subtitle="{{p.meta.caption}}"/></Each>
+  <List>
+    <Section label="Photos">
+      <Each in="photos" as="p"><Item label="{{p.name}}" subtitle="{{p.meta.caption}}"/></Each>
+    </Section>
+  </List>
 </Data>
 <Button label="Mark done" action="plugin:notes.notes.update">
   <Param name="id" value="{{note.id}}"/>
   <Param name="done" value="true" type="boolean"/>
 </Button>
 ```
+
+### Saving from a switch
+
+Prefer SDK storage for plugin-owned data. A storage declaration generates
+methods; ordinary saves do not need a custom mutation. For example:
+
+```ts
+// .repogo/plugins/preferences/app.ts
+import { definePlugin, z } from "@repogo/plugins";
+
+export default definePlugin({
+  namespace: "myproject.preferences",
+  kv: { flags: z.boolean() },
+});
+```
+
+On iOS this card saves through the generated `preferences.flags.set` method:
+
+```xml
+<Toggle name="alerts" label="Notifications" value="false"
+        action="plugin:preferences.flags.set">
+  <Param name="key" value="alerts"/>
+  <Param name="value" value="{{alerts}}" type="boolean"/>
+</Toggle>
+```
+
+The example starts at a literal `false`; it does not load a saved value.
+`Toggle.value` is not a data binding. A page parameter with the declared state
+name can supply an initial value; read existing settings before opening the
+page with that parameter. User edits then take precedence.
+
+Only a user flip calls the method, with the new value. The switch is disabled
+while saving or awaiting confirmation. Failure or cancelled confirmation rolls
+back its own edit; a newer edit is preserved. Errors appear beside the control.
+An optional local `then` runs after success. Without `action`, a Toggle stays
+local. Toggle source actions are not yet implemented by the Android/web renderers.
+
+Inside plugin code, `ctx.kv.flags.set("alerts", true)` saves the same value.
+The generated `preferences.flags.get({ key: "alerts" })` returns an entry with
+`value` and timestamps, while `ctx.kv.flags.get("alerts")` returns the value alone.
 
 ## Errors and confirmations
 
@@ -690,8 +747,8 @@ schema answers `VALIDATION` with a message per field. Anything else thrown is
 
 A method's `confirm` is asked before a card's tap runs it. An agent's
 `plugin_call` gets it back as a `CONFIRM` error until it calls again with
-`confirmed: true`, once the user agrees. Only `ctx.call` from plugin code skips
-it. Give one to anything that can't be undone. `{{field}}` in the question is
+`confirmed: true`, once the user agrees. Ordinary `ctx.call` from plugin code skips
+it; an unattended workflow refuses confirmation-gated methods. Give one to anything that can't be undone. `{{field}}` in the question is
 filled from the call's input, so it can say what it acts on:
 `confirm: "Restart {{machine}}?"`.
 

@@ -1,3 +1,5 @@
+# RepoGo cards
+
 Cards also read and change what the app shows, on this environment,
 through the host's own methods: chats in every project, projects, git,
 actions, schedules, tunnels, reminders, agents and their limits. Your
@@ -11,7 +13,7 @@ Data method="repogo:<method>" runs a read: chats.list (filtered as the
   limits.read (each agent's plan and use of its limits).
   It reloads when what it reads changes. Its Params are the method's
   params.
-repogo:<method> — a Button, Item or Swipe action that runs one:
+repogo:<method> — a Button, Item, Swipe or Toggle action that runs one:
   chats.update (rename, title), chats.pin, chats.resolve, chats.send
   (turn={"prompt":…}), chats.start, chats.stop, actions.run,
   actions.start, actions.stop, reminders.create, reminders.delete.
