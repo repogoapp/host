@@ -9,34 +9,34 @@ import (
 	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
-// stateSchema is state.db's tables. Unlike the cache's schema, a change never
-// deletes the file: openState adds what is new and refuses what differs.
+// stateSchema is state.db's tables. Unlike the cache's, a change never deletes
+// the file: openState adds what's new, keeps what it doesn't know, refuses what differs.
 //
 //go:embed state.sql
 var stateSchema string
 
-// openState runs state.sql on the file at path, adds the columns it has gained,
-// and refuses a file whose columns differ from it: those rows are the user's,
-// so a mismatch stops the host rather than guessing.
-func openState(path string) error {
+// openState adds the columns state.sql gained and returns the tables and
+// columns it doesn't name, kept for a newer host an update rolled back from.
+// A column with another shape stops the host: see HOST-MIGRATIONS.md.
+func openState(path string) (kept []string, err error) {
 	db := sqlitedb.Open(path, "PRAGMA synchronous=FULL", "PRAGMA busy_timeout=5000")
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 
 	want, err := stateShape()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := db.Exec(stateSchema); err != nil {
-		return fmt.Errorf("run state.sql: %w", err)
+		return nil, fmt.Errorf("run state.sql: %w", err)
 	}
 	have, err := tableShapes(db)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for table := range have {
 		if _, ok := want[table]; !ok {
-			return fmt.Errorf("state.db has table %s, which state.sql does not", table)
+			kept = append(kept, table)
 		}
 	}
 	for table, columns := range want {
@@ -44,22 +44,22 @@ func openState(path string) error {
 			got, ok := have[table][column.Name]
 			switch {
 			case !ok && (column.NotNull || column.PrimaryKey):
-				return fmt.Errorf("state.sql adds %s.%s, which must be nullable", table, column.Name)
+				return nil, fmt.Errorf("state.sql adds %s.%s, which must be nullable", table, column.Name)
 			case !ok:
 				if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column.Name + ` ` + column.Type); err != nil {
-					return fmt.Errorf("add %s.%s: %w", table, column.Name, err)
+					return nil, fmt.Errorf("add %s.%s: %w", table, column.Name, err)
 				}
 			case got != column:
-				return fmt.Errorf("state.db's %s.%s is %+v; state.sql says %+v", table, column.Name, got, column)
+				return nil, fmt.Errorf("state.db's %s.%s is %+v; state.sql says %+v", table, column.Name, got, column)
 			}
 		}
 		for name := range have[table] {
 			if _, ok := columns[name]; !ok {
-				return fmt.Errorf("state.db has column %s.%s, which state.sql does not", table, name)
+				kept = append(kept, table+"."+name)
 			}
 		}
 	}
-	return nil
+	return kept, nil
 }
 
 // stateColumn is what openState compares: a column's declared shape.

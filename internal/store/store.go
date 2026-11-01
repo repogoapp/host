@@ -33,7 +33,14 @@ type Store struct {
 
 	// Told what each commit did to the chat list; see notify.go.
 	onChange func(Change)
+
+	// state.db's tables and columns state.sql doesn't name, kept rather than dropped.
+	kept []string
 }
+
+// Kept is state.db's tables and columns state.sql doesn't name: a newer host's,
+// kept after an update rolled back. The host logs them.
+func (s *Store) Kept() []string { return s.kept }
 
 // schemaVersion fingerprints schema in PRAGMA user_version, so a cache built by
 // any other schema is deleted and reparsed rather than migrated.
@@ -55,14 +62,15 @@ const (
 // initial sync dirty gigabytes and get the process killed on a disk-write limit.
 func Open(dir string) (*Store, error) {
 	statePath := filepath.Join(dir, StateFile)
-	if err := openState(statePath); err != nil {
+	kept, err := openState(statePath)
+	if err != nil {
 		return nil, fmt.Errorf("store: open state: %w", err)
 	}
 	db, err := openCurrent(filepath.Join(dir, CacheFile), statePath)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, kept: kept}
 	if err := s.openSync(); err != nil {
 		db.Close()
 		return nil, err

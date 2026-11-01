@@ -187,11 +187,9 @@ func inlineImage(data []byte, name string) string {
 func terminalQR(code *qrcode.QRCode) string {
 	const quiet = 2 // modules of white on every side; two rows is four modules tall
 	bits := code.Bitmap()
-	// Terminal.app takes block glyphs from the font, which stops short of the
-	// line height, so half blocks leave a white seam through every row and
-	// Camera loses the finder squares. Background colour fills the whole cell:
-	// one module per line, two spaces wide, twice as tall but seamless. Bitmap's
-	// own four-module border is quiet zone enough once it is painted.
+	// Terminal.app's block glyphs stop short of the line height and leave seams
+	// Camera can't read past, so paint background colour instead: one module per
+	// line, two spaces wide. Bitmap's own four-module border is the quiet zone.
 	if os.Getenv("TERM_PROGRAM") == "Apple_Terminal" {
 		const dark, light, off = "\x1b[40m", "\x1b[107m", "\x1b[0m"
 		var b strings.Builder

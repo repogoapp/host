@@ -271,15 +271,15 @@ func TestSaveQueueFeedsTheRowAndChatsQueue(t *testing.T) {
 }
 
 // state.sql runs on every open: twice changes nothing, a column it gained is
-// added to an older file with its rows kept, and a column that differs, or
-// one state.sql lacks, stops the open.
+// added to an older file with its rows kept, a column that differs stops the
+// open, and a table or column it lacks is kept as it is.
 func TestOpenStateAddsColumnsAndRefusesDifferences(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, StateFile)
-	if err := openState(path); err != nil {
+	if _, err := openState(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := openState(path); err != nil {
+	if _, err := openState(path); err != nil {
 		t.Fatalf("second open: %v", err)
 	}
 
@@ -290,7 +290,7 @@ func TestOpenStateAddsColumnsAndRefusesDifferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw.Close()
-	if err := openState(older); err != nil {
+	if _, err := openState(older); err != nil {
 		t.Fatalf("open an older file: %v", err)
 	}
 	db, err := Open(filepath.Dir(older))
@@ -305,20 +305,46 @@ func TestOpenStateAddsColumnsAndRefusesDifferences(t *testing.T) {
 	}
 	db.Close()
 
-	for name, table := range map[string]string{
-		"retyped":     `CREATE TABLE chat_queues (chat_id TEXT PRIMARY KEY, rev TEXT NOT NULL) WITHOUT ROWID`,
-		"extra":       `CREATE TABLE chat_queues (chat_id TEXT PRIMARY KEY, rev INTEGER NOT NULL, stale INTEGER) WITHOUT ROWID`,
-		"stray table": `CREATE TABLE dropped_feature (id INTEGER)`,
-	} {
-		path := filepath.Join(t.TempDir(), StateFile)
-		raw := sqlitedb.Open(path)
-		if _, err := raw.Exec(table); err != nil {
-			t.Fatal(err)
-		}
-		raw.Close()
-		if err := openState(path); err == nil {
-			t.Errorf("%s: open succeeded, want refused", name)
-		}
+	retyped := filepath.Join(t.TempDir(), StateFile)
+	raw = sqlitedb.Open(retyped)
+	if _, err := raw.Exec(`CREATE TABLE chat_queues (chat_id TEXT PRIMARY KEY, rev TEXT NOT NULL) WITHOUT ROWID`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+	if _, err := openState(retyped); err == nil {
+		t.Error("retyped column: open succeeded, want refused")
+	}
+}
+
+// What a newer host added before an update rolled back stays, rows and all:
+// a column or table state.sql doesn't name is kept, not dropped.
+func TestOpenStateKeepsWhatANewerHostAdded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), StateFile)
+	raw := sqlitedb.Open(path)
+	if _, err := raw.Exec(`CREATE TABLE project_marks (path TEXT PRIMARY KEY, picked_at INTEGER, color TEXT) WITHOUT ROWID;
+		INSERT INTO project_marks VALUES ('/tmp/p', 1000, 'blue');
+		CREATE TABLE newer_feature (id INTEGER);
+		INSERT INTO newer_feature VALUES (7)`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+	kept, err := openState(path)
+	if err != nil {
+		t.Fatalf("open after a newer host: %v", err)
+	}
+	if !slices.Contains(kept, "project_marks.color") || !slices.Contains(kept, "newer_feature") {
+		t.Fatalf("kept %v: want the newer column and table named", kept)
+	}
+
+	raw = sqlitedb.Open(path)
+	defer raw.Close()
+	var color string
+	var id int
+	if err := raw.QueryRow(`SELECT color FROM project_marks WHERE path = '/tmp/p'`).Scan(&color); err != nil || color != "blue" {
+		t.Fatalf("the newer column: %q, %v", color, err)
+	}
+	if err := raw.QueryRow(`SELECT id FROM newer_feature`).Scan(&id); err != nil || id != 7 {
+		t.Fatalf("the newer table: %d, %v", id, err)
 	}
 }
 
