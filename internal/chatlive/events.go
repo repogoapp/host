@@ -169,10 +169,8 @@ type Attention struct {
 	// The turn's summary: turnsummary.Text of its final message.
 	Summary string `json:"summary,omitempty"`
 	// False for a turn in the user's terminal: turns.respond cannot reach it.
+	// An ended turn that is answerable gets the chat's composer in the phone's alert.
 	Answerable bool `json:"answerable"`
-	// The card the phone's alert expands into for an ended turn it can answer:
-	// a reply box. Its state chat_id is set by the phone.
-	Card string `json:"card,omitempty"`
 }
 
 func (Attention) Method() string { return "chats.attention" }

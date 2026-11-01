@@ -76,9 +76,6 @@ func TestAttentionFollowsAnAppTurn(t *testing.T) {
 	if got[2].Kind != AttentionFinished || got[2].Summary != "Fixed the build." || !got[2].Answerable {
 		t.Errorf("finished = %+v", got[2])
 	}
-	if got[0].Card != "" || !strings.Contains(got[2].Card, "repogo:chats.send") {
-		t.Errorf("only the end carries the reply card: approval %q, end %q", got[0].Card, got[2].Card)
-	}
 }
 
 func TestAttentionNamesHowATurnEnded(t *testing.T) {
@@ -157,7 +154,7 @@ func TestAttentionFromTerminalHooks(t *testing.T) {
 		q.Questions[0].Text != "Which one?" || len(q.Questions[0].Options) != 2 {
 		t.Errorf("question = %+v", got[2])
 	}
-	if got[3].Kind != AttentionFinished || got[3].Summary != "Finished it." || got[3].Answerable || got[3].Card != "" {
+	if got[3].Kind != AttentionFinished || got[3].Summary != "Finished it." || got[3].Answerable {
 		t.Errorf("finished = %+v", got[3])
 	}
 
