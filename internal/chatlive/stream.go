@@ -7,6 +7,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/store"
+	"github.com/repogoapp/host/internal/turnsummary"
 )
 
 // Token-level streaming of a turn the host is running; the file tail only sees
@@ -200,6 +201,8 @@ type streamSent struct {
 // room's state. It only grows within a turn, so a push sends what it gained;
 // a turn's first and last push, and one every fullEvery, send all of it.
 func (m *Manager) pushStream(chatID store.ChatID, turnID, prompt, text string, done bool, timing streamTiming) {
+	// The recap is for the chat list and the voice agent; the chat never draws it.
+	text = turnsummary.Visible(text, done)
 	m.streamMu.Lock()
 	defer m.streamMu.Unlock()
 	now := m.now()

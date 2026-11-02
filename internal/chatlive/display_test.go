@@ -65,9 +65,9 @@ func TestDisplayFinishReturnsTheFinalMessage(t *testing.T) {
 	m, _, _, _ := streamHarness(t)
 	m.Display(frame("m1", 0, true, "Looking."))
 	m.Display(frame("m2", 0, false, strings.Repeat("a", maxStreamedChars)))
-	m.Display(frame("m2", 1, true, "\n\n> Recap."))
+	m.Display(frame("m2", 1, true, "\n\n<recap>Recap.</recap>"))
 	final := m.finishDisplay("claude:s1", time.Now(), "", true)
-	if !strings.HasPrefix(final, "aaa") || !strings.HasSuffix(final, "> Recap.") {
+	if !strings.HasPrefix(final, "aaa") || !strings.HasSuffix(final, "<recap>Recap.</recap>") {
 		t.Fatalf("final = %.20q…", final)
 	}
 }

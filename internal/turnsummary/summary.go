@@ -1,6 +1,6 @@
-// Package turnsummary writes the one summary of an agent's turn that the chat
-// list, the voice agent and the in-app alert show: the recap the agent ended
-// its last message with, else that message's opening.
+// Package turnsummary extracts the recap for chat lists, voice and alerts,
+// falling back to the final message's opening. Strip and Visible keep the
+// recap out of the text the chat draws.
 package turnsummary
 
 import (
@@ -12,23 +12,19 @@ import (
 // a list row clips it at its own width.
 const MaxChars = 600
 
-// Text is the summary of an agent's final message: its recap, the last
-// top-level blockquote when only whitespace or ui fences follow it, else its
-// opening prose. Plain text on one line; "" for a message with no prose.
+const (
+	openTag  = "<recap>"
+	closeTag = "</recap>"
+)
+
+// Text is the summary of an agent's final message: its recap when it has one,
+// else its opening prose. Plain text on one line; "" for a message with no prose.
 func Text(message string) string {
-	blocks := parse(message)
-	for i := len(blocks) - 1; i >= 0; i-- {
-		b := blocks[i]
-		if b.kind == fence && b.info == "ui" {
-			continue
-		}
-		if b.kind == quote {
-			return plain(b.lines)
-		}
-		break
+	if _, recap, ok := Split(message); ok {
+		return plain(strings.Split(recap, "\n"))
 	}
 	var prose []string
-	for _, b := range blocks {
+	for _, b := range parse(message) {
 		if b.kind != fence {
 			prose = append(prose, b.lines...)
 		}
@@ -36,15 +32,89 @@ func Text(message string) string {
 	return plain(prose)
 }
 
+// Split takes the recap off an agent's message: a <recap> line outside code,
+// through </recap> (or the next fence or the end, if left open), with only ui
+// fences after it. It returns the message without it, cards kept, and the recap.
+func Split(message string) (rest, recap string, ok bool) {
+	start := recapLine(message)
+	if start < 0 {
+		return message, "", false
+	}
+	body := message[start+strings.Index(message[start:], openTag)+len(openTag):]
+	after := ""
+	if end := strings.Index(body, closeTag); end >= 0 {
+		body, after = body[:end], body[end+len(closeTag):]
+	} else if loc := fenceLine.FindStringIndex(body); loc != nil {
+		body, after = body[:loc[0]], body[loc[0]:]
+	}
+	for _, b := range parse(after) {
+		if b.kind != fence || b.info != "ui" {
+			return message, "", false
+		}
+	}
+	rest = strings.TrimRight(message[:start], " \t\n")
+	if after = strings.TrimSpace(after); after != "" {
+		rest = strings.TrimLeft(rest+"\n\n"+after, "\n")
+	}
+	return rest, strings.TrimSpace(body), true
+}
+
+// Strip is message without its recap, for the chat to draw.
+func Strip(message string) string {
+	rest, _, _ := Split(message)
+	return rest
+}
+
+// Visible is a streaming turn's text as the chat draws it: mid-turn it stops
+// before a recap line, or a last line that may become one, until the turn ends
+// and Strip decides. It only grows within a turn, as deltas need.
+func Visible(text string, done bool) string {
+	if done {
+		return Strip(text)
+	}
+	if start := recapLine(text); start >= 0 {
+		return text[:start]
+	}
+	return text
+}
+
+// recapLine finds where the first <recap> line outside a code fence starts,
+// or the unfinished last line when it is still a prefix of one; -1 for none.
+func recapLine(text string) int {
+	closing := ""
+	for at := 0; at < len(text); {
+		line := text[at:]
+		next := len(text)
+		if i := strings.IndexByte(line, '\n'); i >= 0 {
+			line, next = line[:i], at+i+1
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		switch {
+		case closing != "":
+			if t := strings.TrimSpace(line); strings.HasPrefix(t, closing) && strings.Trim(t, closing[:1]) == "" {
+				closing = ""
+			}
+		case fenceOpen.MatchString(line):
+			closing = fenceOpen.FindStringSubmatch(line)[1]
+		case len(line)-len(trimmed) <= 3 && strings.HasPrefix(trimmed, openTag):
+			return at
+		case next == len(text) && !strings.HasSuffix(text, "\n") && trimmed != "" &&
+			len(line)-len(trimmed) <= 3 && strings.HasPrefix(openTag, trimmed):
+			return at
+		}
+		at = next
+	}
+	return -1
+}
+
 type blockKind int
 
 const (
 	paragraph blockKind = iota
-	quote
 	fence
 )
 
-// block is a run of lines of one kind: a quote's lines without their `>`.
+// block is a run of prose lines, or one code fence and its info string.
 type block struct {
 	kind  blockKind
 	info  string
@@ -53,11 +123,10 @@ type block struct {
 
 var (
 	fenceOpen = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})\\s*(\\S*)")
-	quoteLine = regexp.MustCompile(`^ {0,3}>\s?`)
+	fenceLine = regexp.MustCompile("(?m)^ {0,3}(`{3,}|~{3,})")
 )
 
-// parse splits markdown into top-level blocks. A `>` inside a list item or
-// a code block is that block's text, not a quote.
+// parse splits markdown into prose and code fences.
 func parse(text string) []block {
 	var blocks []block
 	var open *block
@@ -79,12 +148,8 @@ func parse(text string) []block {
 			open = nil
 			continue
 		}
-		kind := paragraph
-		if loc := quoteLine.FindStringIndex(line); loc != nil {
-			kind, line = quote, line[loc[1]:]
-		}
-		if open == nil || open.kind != kind {
-			blocks = append(blocks, block{kind: kind})
+		if open == nil {
+			blocks = append(blocks, block{kind: paragraph})
 			open = &blocks[len(blocks)-1]
 		}
 		open.lines = append(open.lines, line)

@@ -61,8 +61,8 @@ func TestAttentionFollowsAnAppTurn(t *testing.T) {
 	turns.ch <- agent.Event{Kind: agent.EventApprovalResolved, Approval: &agent.Approval{CallID: "c1", Title: `"allow"`}}
 	turns.ch <- agent.Event{Kind: agent.EventText, Text: "Looking."}
 	turns.ch <- agent.Event{Kind: agent.EventToolCall, Tool: &agent.ToolCall{}}
-	turns.ch <- agent.Event{Kind: agent.EventText, Text: "All done.\n\n> Fixed "}
-	turns.ch <- agent.Event{Kind: agent.EventText, Text: "the build."}
+	turns.ch <- agent.Event{Kind: agent.EventText, Text: "All done.\n\n<recap>Fixed "}
+	turns.ch <- agent.Event{Kind: agent.EventText, Text: "the build.</recap>"}
 	turns.ch <- agent.Event{Kind: agent.EventTurnFinished}
 
 	got := sink.wait(t, 3)
@@ -105,7 +105,7 @@ func TestAttentionNamesHowATurnEnded(t *testing.T) {
 func TestAttentionSummaryOutlivesTheDisplayCap(t *testing.T) {
 	m, turns, sink := attentionHarness(t)
 	m.StreamTurn("claude:s1", "turn-1", "")
-	turns.ch <- agent.Event{Kind: agent.EventText, Text: strings.Repeat("a", maxStreamedChars) + "\n\n> Recap at the end."}
+	turns.ch <- agent.Event{Kind: agent.EventText, Text: strings.Repeat("a", maxStreamedChars) + "\n\n<recap>Recap at the end.</recap>"}
 	turns.ch <- agent.Event{Kind: agent.EventTurnFinished}
 	if got := sink.wait(t, 1); got[0].Summary != "Recap at the end." {
 		t.Errorf("summary = %.40q", got[0].Summary)

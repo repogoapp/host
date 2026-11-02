@@ -14,6 +14,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/toollabel"
+	"github.com/repogoapp/host/internal/turnsummary"
 )
 
 // Page is store.Page with its rows built for the phone: the result of
@@ -167,6 +168,10 @@ func (b *Builder) Messages(kind agent.Kind, rows []store.Message) []Message {
 	out := make([]Message, len(rows))
 	for i, m := range rows {
 		out[i] = Message{Index: m.Index, Kind: m.Kind, Turn: m.Turn, Text: m.Text, At: m.At}
+		if m.Kind == string(agent.EventText) {
+			// The recap is for the chat list and the voice agent, not the chat.
+			out[i].Text = turnsummary.Strip(m.Text)
+		}
 		if m.Tool == "" {
 			continue
 		}
