@@ -29,7 +29,10 @@ func printPairingQR(ctx context.Context, payload, pairHost string, reusable bool
 	if err != nil {
 		return fmt.Errorf("register pairing code at %s: %w", pairHost, err)
 	}
-	link := strings.TrimRight(pairHost, "/") + "/" + pairingCode
+	// The code rides in the fragment, which a browser never sends: a link that
+	// opens on the web keeps it off the pair host and its logs. Apps older than
+	// PairLink's `/p#` support read only `/<code>`.
+	link := strings.TrimRight(pairHost, "/") + "/p#" + pairingCode
 
 	code, err := qrcode.New(link, qrcode.Medium)
 	if err != nil {

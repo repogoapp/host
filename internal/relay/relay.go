@@ -54,10 +54,9 @@ const (
 	outboxFrames   = 1024
 	outboxMessages = 4
 
-	// defaultBufferedBytes bounds the frames held across every socket, queued
-	// or still arriving, so sockets that stall together cannot run the relay
-	// out of memory. It grows to outboxMessages of the largest frame, so one
-	// largest frame always fits.
+	// defaultBufferedBytes bounds queued and arriving frames across all sockets
+	// so stalled sockets cannot exhaust relay memory. It grows to outboxMessages
+	// of the largest frame, so one largest frame always fits.
 	defaultBufferedBytes = 64 << 20
 
 	// frameWithin bounds how long one frame may take to arrive once started:
