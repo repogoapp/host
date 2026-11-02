@@ -5,12 +5,29 @@ package jsonrpc
 import (
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 )
 
 const Version = "2.0"
 
-// MaxMessageBytes bounds one message so a hostile peer cannot allocate without limit.
+// MaxMessageBytes bounds one message so a hostile peer cannot allocate without
+// limit. It is the cap on RepoGo's relay and on every local socket.
 const MaxMessageBytes = 8 << 20
+
+// CustomRelayMessageBytes is the cap on a relay the user runs: their relay,
+// their memory. The phone holds a message whole to open it, so in practice its
+// memory, not this, is what bounds one there.
+const CustomRelayMessageBytes = 256 << 20
+
+var limit atomic.Int64
+
+func init() { limit.Store(MaxMessageBytes) }
+
+// Limit is the largest message Encode and Decode accept in this process.
+func Limit() int { return int(limit.Load()) }
+
+// SetLimit changes it, once at startup: a host on its own relay raises it.
+func SetLimit(n int) { limit.Store(int64(n)) }
 
 // Message is every frame on the wire; the spec distinguishes kinds by which
 // fields are present.
@@ -98,15 +115,15 @@ func Encode(m *Message) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode message: %w", err)
 	}
-	if len(b) > MaxMessageBytes {
-		return nil, fmt.Errorf("encode message: %d bytes exceeds limit %d", len(b), MaxMessageBytes)
+	if max := Limit(); len(b) > max {
+		return nil, fmt.Errorf("encode message: %d bytes exceeds limit %d", len(b), max)
 	}
 	return b, nil
 }
 
 func Decode(b []byte) (*Message, error) {
-	if len(b) > MaxMessageBytes {
-		return nil, fmt.Errorf("decode message: %d bytes exceeds limit %d", len(b), MaxMessageBytes)
+	if max := Limit(); len(b) > max {
+		return nil, fmt.Errorf("decode message: %d bytes exceeds limit %d", len(b), max)
 	}
 	var m Message
 	if err := json.Unmarshal(b, &m); err != nil {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/appattest"
+	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/relay"
 )
 
@@ -36,6 +37,13 @@ func main() {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+	// A relay someone runs for themselves carries a host's larger messages;
+	// RepoGo's sets 8 in fly.toml, the size its hosts send.
+	messageMB, err := strconv.Atoi(env("RELAY_MAX_MESSAGE_MB", strconv.Itoa(jsonrpc.CustomRelayMessageBytes>>20)))
+	if err != nil {
+		log.Error("fatal", "err", err)
+		os.Exit(1)
+	}
 	srv, err := relay.New(relay.Config{
 		Addr: addr,
 		// Stable per deployment: a signature made for one relay must not be
@@ -46,6 +54,7 @@ func main() {
 		// Only a proxy that sets this header on every request may name it, or callers forge it.
 		ClientIPHeader:   os.Getenv("RELAY_CLIENT_IP_HEADER"),
 		MaxBufferedBytes: bufferedMB << 20,
+		MaxMessageBytes:  messageMB << 20,
 		Log:              log,
 	})
 	if err != nil {

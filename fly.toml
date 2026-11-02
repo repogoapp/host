@@ -10,6 +10,8 @@ primary_region = "ewr"
   # Frames held across every socket, queued or arriving. Keep it about a
   # quarter of [[vm]] memory and raise the two together.
   RELAY_MAX_BUFFERED_MB = "256"
+  # RepoGo's hosts send at most 8 MB; a relay of your own defaults to 256.
+  RELAY_MAX_MESSAGE_MB = "8"
 
 [deploy]
   # Start the new machine and pass its health check before stopping the old

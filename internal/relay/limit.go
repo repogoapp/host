@@ -14,8 +14,6 @@ const (
 	messageBurst      = 10000
 
 	bytesPerSecond = 8 << 20
-	// At least one maximum-size message, so the largest frame is never refused.
-	byteBurst = 4 * MaxFrameBytes
 
 	// defaultConnsPerIP bounds concurrent sockets from one address, handshakes
 	// included, so one machine cannot fill the relay. Room for an office or
@@ -38,7 +36,8 @@ type limits struct {
 
 var defaultLimits = limits{
 	messages: messagesPerSecond, messageBurst: messageBurst,
-	bytes: bytesPerSecond, byteBurst: byteBurst,
+	// Room for the outbox's worth of the largest frame, so it is never refused.
+	bytes: bytesPerSecond, byteBurst: outboxMessages * MaxFrameBytes,
 }
 
 // bucket is a token bucket that waits instead of refusing. It runs in one

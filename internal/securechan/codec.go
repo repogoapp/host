@@ -57,11 +57,12 @@ func decodeBody(body []byte) ([]byte, error) {
 	case codecDeflate:
 		r := flate.NewReader(bytes.NewReader(body[1:]))
 		defer r.Close()
-		plain, err := io.ReadAll(io.LimitReader(r, jsonrpc.MaxMessageBytes+1))
+		max := jsonrpc.Limit()
+		plain, err := io.ReadAll(io.LimitReader(r, int64(max)+1))
 		if err != nil {
 			return nil, errInflate
 		}
-		if len(plain) > jsonrpc.MaxMessageBytes {
+		if len(plain) > max {
 			return nil, errOversized
 		}
 		return plain, nil

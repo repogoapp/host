@@ -180,7 +180,7 @@ func (l *Link) session(ctx context.Context) error {
 		return fmt.Errorf("dial: %w", err)
 	}
 	defer ws.CloseNow()
-	ws.SetReadLimit(relay.MaxFrameBytes)
+	ws.SetReadLimit(int64(relay.FrameBytes(jsonrpc.Limit())))
 
 	identity := l.cfg.Devices.Identity()
 	c := &conn{ws: wsconn.Wrap(ws), identity: identity,

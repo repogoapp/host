@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -42,18 +43,21 @@ const (
 	// before its phones hear it has gone; an unresponsive one is announced at once.
 	hostGrace = 3 * time.Second
 
-	// MaxFrameBytes is the largest frame on a relay socket: the largest message,
-	// sealed, inside an envelope.
-	MaxFrameBytes = jsonrpc.MaxMessageBytes + securechan.RecordOverhead + headerLen
+	// MaxFrameBytes is the largest frame on RepoGo's relay: its largest
+	// message, sealed, inside an envelope.
+	MaxFrameBytes = jsonrpc.MaxMessageBytes + frameOverhead
+	frameOverhead = securechan.RecordOverhead + headerLen
 
-	// outboxBytes bounds the frames queued for one socket; a reader further
-	// behind than this is closed rather than let stall its senders.
-	outboxBytes  = 4 * MaxFrameBytes
-	outboxFrames = 1024
+	// outboxFrames bounds the frames queued for one socket. Their bytes are
+	// bounded at outboxMessages of the largest, and a reader further behind is
+	// closed rather than let stall its senders.
+	outboxFrames   = 1024
+	outboxMessages = 4
 
 	// defaultBufferedBytes bounds the frames held across every socket, queued
 	// or still arriving, so sockets that stall together cannot run the relay
-	// out of memory.
+	// out of memory. It grows to outboxMessages of the largest frame, so one
+	// largest frame always fits.
 	defaultBufferedBytes = 64 << 20
 
 	// frameWithin bounds how long one frame may take to arrive once started:
@@ -113,6 +117,11 @@ type Config struct {
 	// well under the machine's memory. Zero means defaultBufferedBytes.
 	MaxBufferedBytes int64
 
+	// MaxMessageBytes is the largest message a frame may carry. Zero means
+	// jsonrpc.MaxMessageBytes, RepoGo's; a host on another relay sends up to
+	// jsonrpc.CustomRelayMessageBytes.
+	MaxMessageBytes int
+
 	Log *slog.Logger
 }
 
@@ -141,6 +150,7 @@ type Server struct {
 	pendingGone map[device.ID]*time.Timer
 
 	limits        limits
+	frameBytes    int
 	outboxBytes   int64
 	maxBuffered   int64
 	buffered      atomic.Int64
@@ -156,6 +166,9 @@ type Server struct {
 	tokens  map[string]*tokenWindow
 }
 
+// FrameBytes is the largest frame that carries a message of up to message bytes.
+func FrameBytes(message int) int { return message + frameOverhead }
+
 func New(cfg Config) (*Server, error) {
 	if cfg.ServerID == "" {
 		return nil, errors.New("relay: server id is required")
@@ -167,17 +180,21 @@ func New(cfg Config) (*Server, error) {
 	if perIP <= 0 {
 		perIP = defaultConnsPerIP
 	}
+	frame := FrameBytes(cmp.Or(cfg.MaxMessageBytes, jsonrpc.MaxMessageBytes))
+	outbox := int64(outboxMessages * frame)
 	maxBuffered := cfg.MaxBufferedBytes
 	if maxBuffered <= 0 {
-		maxBuffered = defaultBufferedBytes
+		maxBuffered = max(defaultBufferedBytes, outbox)
 	}
+	lim := defaultLimits
+	lim.byteBurst = float64(outbox)
 	return &Server{
 		cfg: cfg, log: cfg.Log,
 		conns: map[device.ID][]*conn{}, routes: map[leg]*conn{}, away: map[device.ID]departure{},
 		toldUnreachable: map[leg]time.Time{},
 		pendingGone:     map[device.ID]*time.Timer{},
 		attempts:        map[string]int{},
-		limits:          defaultLimits, outboxBytes: outboxBytes, maxBuffered: maxBuffered, frameWithin: frameWithin, connsPerIP: perIP, ips: map[string]int{}, tokens: map[string]*tokenWindow{},
+		limits:          lim, frameBytes: frame, outboxBytes: outbox, maxBuffered: maxBuffered, frameWithin: frameWithin, connsPerIP: perIP, ips: map[string]int{}, tokens: map[string]*tokenWindow{},
 	}, nil
 }
 
@@ -294,7 +311,7 @@ func (c *conn) run(ctx context.Context) {
 		return
 	}
 	c.id = device.ID(h.DeviceID)
-	c.ws.SetReadLimit(MaxFrameBytes)
+	c.ws.SetReadLimit(int64(c.srv.frameBytes))
 	c.group = h.GroupID
 	c.role = h.Role
 

@@ -86,7 +86,7 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hostclient: dial: %w", err)
 	}
-	ws.SetReadLimit(relay.MaxFrameBytes)
+	ws.SetReadLimit(int64(relay.FrameBytes(jsonrpc.Limit())))
 
 	c := &Client{
 		cfg:           cfg,

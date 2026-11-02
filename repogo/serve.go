@@ -20,6 +20,7 @@ import (
 	"github.com/repogoapp/host/internal/host"
 	"github.com/repogoapp/host/internal/hostinfo"
 	"github.com/repogoapp/host/internal/hostupdate"
+	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/nodejs"
 	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/power"
@@ -47,7 +48,12 @@ func run(ctx context.Context, log *slog.Logger, port int, relayFlag *string, sel
 	if port != 0 {
 		conf.Port = port
 	}
-	cfg, err := hostConfig(log, conf, relayFor(relayFlag, conf.Relay), self)
+	relayURL := relayFor(relayFlag, conf.Relay)
+	// The phone makes the same call from the relay it paired over.
+	if relayURL != "" && relayURL != defaultRelay {
+		jsonrpc.SetLimit(jsonrpc.CustomRelayMessageBytes)
+	}
+	cfg, err := hostConfig(log, conf, relayURL, self)
 	if err != nil {
 		return err
 	}
