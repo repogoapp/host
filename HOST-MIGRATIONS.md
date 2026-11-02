@@ -13,7 +13,7 @@ rebuilt.
 | --- | --- | --- | --- |
 | `cache.db` | Chats, events, the project list: what `session` parsed from the agents' transcripts | Yes, from the transcripts | Deleted and rebuilt |
 | `state.db` | What the user made: pins, names, marks, queues, schedules, action runs | **No** | Columns added; nothing ever dropped |
-| `usage.db` | The token ledger (one row per model request) and `activity` (devices' screen time and agents' work, as spans) | **No**: rows outlive the transcripts, and screen time exists nowhere else | Columns added; a version bump re-reads the transcripts |
+| `usage.db` | The token ledger (one row per model request) and `activity` (devices' screen time and prompting, and agents' work, as spans) | **No**: rows outlive the transcripts, and screen time exists nowhere else | Columns added; a version bump re-reads the transcripts |
 
 ### `cache.db`: change the schema, the host rebuilds
 
@@ -73,9 +73,9 @@ deleted**. Never delete it to "migrate".
 
 ### `activity`: spans, never totals
 
-`internal/shipping/activity.go`. One table for both kinds (`user`: a device's screen time; `agent`: an agent working on a turn), since they are always read on one timeline. The per-kind columns are documented in the schema string.
+`internal/shipping/activity.go`. One table for every kind, since they are always read on one timeline: `user` (a device's screen time), `prompt` (the user typing, dictating or talking to the voice agent, with `input` naming which) and `agent` (an agent working on a turn). The per-kind columns are documented in the schema string, and CHECKs hold the rules between them.
 
-- **Who writes is fenced in code.** `user` rows only through `usage.record_time`, each device extending only its own (`kind = 'user' AND actor = caller`); `agent` rows only from the chat-status hook (`Store.OnStatus` → `Ledger.AgentStatus`). Clearing deletes `user` rows only.
+- **Who writes is fenced in code.** `user` and `prompt` rows only through `usage.record_time`, each device extending only its own rows of the same kind (`kind = excluded.kind AND actor = caller`); `agent` rows only from the chat-status hook (`Store.OnStatus` → `Ledger.AgentStatus`). Clearing deletes `user` and `prompt` rows.
 - **No stop has to arrive.** A device's span ends at its last checkpoint; an agent span left open by a stopped host is closed at start at its chat's last sign of life (`CloseOpenAgents`), and an interrupt closes one at the turn's last sign of life, never at the settling.
 - **Grouping is read-time.** No repository column: `root_commit` scoping goes through `Store.Checkouts`.
 

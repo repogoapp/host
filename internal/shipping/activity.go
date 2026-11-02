@@ -11,33 +11,42 @@ import (
 	"time"
 )
 
-// activitySchema is time spent on projects, one table for both kinds since
+// activitySchema is time spent on projects, one table for every kind since
 // they are always read on one timeline (HOST-MIGRATIONS.md).
 const activitySchema = `CREATE TABLE IF NOT EXISTS activity (
   -- user: a device's screen time, uploaded by it (usage.record_time).
+  -- prompt: the user typing, dictating or talking to the voice agent, uploaded
+  -- the same way; screen time less prompting is reviewing.
   -- agent: an agent working on a turn, recorded from the chat's status;
   -- gaps between one turn's spans are its waits on the user.
-  id         TEXT PRIMARY KEY,   -- user: the device's span ID; agent: the host's
-  kind       TEXT NOT NULL,      -- 'user' | 'agent'
+  id         TEXT PRIMARY KEY,   -- user, prompt: the device's span ID; agent: the host's
+  kind       TEXT NOT NULL,      -- 'user' | 'prompt' | 'agent'
+  input      TEXT,               -- prompt only: 'typing' | 'dictation' | 'voice'
   cwd        TEXT NOT NULL,      -- the project folder
-  actor      TEXT NOT NULL,      -- user: the device ID; agent: claude, codex…
-  label      TEXT NOT NULL,      -- user: the device's name at upload; agent: the agent
-  platform   TEXT,               -- user only
+  actor      TEXT NOT NULL,      -- user, prompt: the device ID; agent: claude, codex…
+  label      TEXT NOT NULL,      -- user, prompt: the device's name at upload; agent: the agent
+  platform   TEXT,               -- user, prompt
   chat_id    TEXT,               -- agent only
   turn_id    TEXT,               -- agent only
   started_at INTEGER NOT NULL,   -- Unix ms
-  ended_at   INTEGER,            -- user: the last checkpoint; agent: NULL while working
+  ended_at   INTEGER,            -- a device's: its last checkpoint; agent: NULL while working
   updated_at INTEGER NOT NULL,
-  CHECK (kind IN ('user', 'agent')),
+  CHECK (kind IN ('user', 'prompt', 'agent')),
+  CHECK ((kind = 'prompt') = (input IS NOT NULL)),
+  CHECK (input IS NULL OR input IN ('typing', 'dictation', 'voice')),
   CHECK (kind != 'agent' OR (chat_id IS NOT NULL AND turn_id IS NOT NULL)),
-  CHECK (kind != 'user' OR ended_at IS NOT NULL)
+  CHECK (kind = 'agent' OR ended_at IS NOT NULL)
 ) WITHOUT ROWID`
 
-// The two kinds of activity.
+// The kinds of activity.
 const (
-	ActivityUser  = "user"
-	ActivityAgent = "agent"
+	ActivityUser   = "user"
+	ActivityPrompt = "prompt"
+	ActivityAgent  = "agent"
 )
+
+// What a prompt span was: typing in the composer, dictating, or talking to the voice agent.
+var promptInputs = map[string]bool{"typing": true, "dictation": true, "voice": true}
 
 // Limits on what a device may record.
 const (
@@ -50,6 +59,7 @@ const (
 type Span struct {
 	ID       string `json:"id"`
 	Kind     string `json:"kind"`
+	Input    string `json:"input,omitempty"`
 	Cwd      string `json:"cwd"`
 	Actor    string `json:"actor"`
 	Label    string `json:"label"`
@@ -67,9 +77,12 @@ type Device struct {
 }
 
 // UserSpan is one stretch a device uploads: its own ID, so sending it again
-// changes nothing but the end.
+// changes nothing but the end. Kind is "user" (screen time) or "prompt",
+// which names its Input.
 type UserSpan struct {
 	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Input       string `json:"input,omitempty"`
 	Cwd         string `json:"cwd"`
 	StartedAtMs int64  `json:"started_at_ms"`
 	EndedAtMs   int64  `json:"ended_at_ms"`
@@ -88,12 +101,12 @@ func (l *Ledger) RecordUser(ctx context.Context, d Device, spans []UserSpan, now
 	}
 	defer tx.Rollback()
 	insert, err := tx.PrepareContext(ctx, `INSERT INTO activity
-		(id, kind, cwd, actor, label, platform, started_at, ended_at, updated_at)
-		VALUES (?, 'user', ?, ?, ?, ?, ?, ?, ?)
+		(id, kind, input, cwd, actor, label, platform, started_at, ended_at, updated_at)
+		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  ended_at = MAX(activity.ended_at, excluded.ended_at),
 		  label = excluded.label, updated_at = excluded.updated_at
-		WHERE activity.kind = 'user' AND activity.actor = excluded.actor`)
+		WHERE activity.kind = excluded.kind AND activity.actor = excluded.actor`)
 	if err != nil {
 		return 0, err
 	}
@@ -103,7 +116,7 @@ func (l *Ledger) RecordUser(ctx context.Context, d Device, spans []UserSpan, now
 			skipped++
 			continue
 		}
-		if _, err := insert.ExecContext(ctx, s.ID, filepath.Clean(s.Cwd), d.ID, d.Label, d.Platform,
+		if _, err := insert.ExecContext(ctx, s.ID, s.Kind, s.Input, filepath.Clean(s.Cwd), d.ID, d.Label, d.Platform,
 			s.StartedAtMs, s.EndedAtMs, now.UnixMilli()); err != nil {
 			return 0, err
 		}
@@ -111,31 +124,44 @@ func (l *Ledger) RecordUser(ctx context.Context, d Device, spans []UserSpan, now
 	return skipped, tx.Commit()
 }
 
-// validSpan has an ID, an absolute folder, an end at or after its start, a day
-// at most, and a start no further ahead than clock skew allows.
+// validSpan has an ID, a device's kind with the input it needs, an absolute
+// folder, an end at or after its start, a day at most, and a start no further
+// ahead than clock skew allows.
 func validSpan(s UserSpan, now time.Time) bool {
+	switch s.Kind {
+	case ActivityUser:
+		if s.Input != "" {
+			return false
+		}
+	case ActivityPrompt:
+		if !promptInputs[s.Input] {
+			return false
+		}
+	default:
+		return false
+	}
 	return s.ID != "" && len(s.ID) <= 64 && filepath.IsAbs(s.Cwd) &&
 		s.EndedAtMs >= s.StartedAtMs && s.EndedAtMs-s.StartedAtMs <= maxSpan.Milliseconds() &&
 		s.StartedAtMs <= now.Add(maxClockSkew).UnixMilli()
 }
 
-// ClearUser deletes the user spans in scope, every device's. Agent spans are
-// the host's record and stay.
+// ClearUser deletes the devices' spans in scope, screen time and prompting,
+// every device's. Agent spans are the host's record and stay.
 func (l *Ledger) ClearUser(ctx context.Context, scope Scope) error {
 	where, args := inFolders(scope)
-	_, err := l.db.ExecContext(ctx, `DELETE FROM activity WHERE kind = 'user' AND `+where, args...)
+	_, err := l.db.ExecContext(ctx, `DELETE FROM activity WHERE kind IN ('user', 'prompt') AND `+where, args...)
 	return err
 }
 
-// Activity is every span in scope that overlaps [sinceMs, untilMs), both
-// kinds, oldest first. A span still open ends at now.
+// Activity is every span in scope that overlaps [sinceMs, untilMs), every
+// kind, oldest first. A span still open ends at now.
 func (l *Ledger) Activity(ctx context.Context, sinceMs, untilMs int64, scope Scope, now time.Time) ([]Span, error) {
 	if sinceMs >= untilMs {
 		return nil, ErrRange
 	}
 	where, args := inFolders(scope)
 	at := now.UnixMilli()
-	rows, err := l.db.QueryContext(ctx, `SELECT id, kind, cwd, actor, label, COALESCE(platform, ''),
+	rows, err := l.db.QueryContext(ctx, `SELECT id, kind, COALESCE(input, ''), cwd, actor, label, COALESCE(platform, ''),
 		  COALESCE(chat_id, ''), COALESCE(turn_id, ''), started_at, COALESCE(ended_at, ?)
 		FROM activity
 		WHERE started_at < ? AND COALESCE(ended_at, ?) > ? AND `+where+`
@@ -147,7 +173,7 @@ func (l *Ledger) Activity(ctx context.Context, sinceMs, untilMs int64, scope Sco
 	out := []Span{}
 	for rows.Next() {
 		var s Span
-		if err := rows.Scan(&s.ID, &s.Kind, &s.Cwd, &s.Actor, &s.Label, &s.Platform,
+		if err := rows.Scan(&s.ID, &s.Kind, &s.Input, &s.Cwd, &s.Actor, &s.Label, &s.Platform,
 			&s.ChatID, &s.TurnID, &s.StartedAtMs, &s.EndedAtMs); err != nil {
 			return nil, err
 		}

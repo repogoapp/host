@@ -81,7 +81,7 @@ func (d Deps) time(ctx context.Context, _ rpc.Caller, p TimeParams) (Time, error
 	return Time{Spans: spans}, err
 }
 
-// RecordTimeParams is a device's screen time, each span under its own ID.
+// RecordTimeParams is a device's screen time and prompting, each span under its own ID.
 type RecordTimeParams struct {
 	Spans []shippingcore.UserSpan `json:"spans" wire:"array"`
 }

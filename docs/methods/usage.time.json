@@ -3,6 +3,7 @@
     {
       "id": "id",
       "kind": "kind",
+      "input": "input",
       "cwd": "cwd",
       "actor": "actor",
       "label": "label",

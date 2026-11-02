@@ -28,7 +28,7 @@ func spansOf(t *testing.T, l *Ledger, scope Scope, now time.Time) []Span {
 func TestRecordUserMovesOnlyItsOwnEndForward(t *testing.T) {
 	l := openTestLedger(t, t.TempDir(), rates{})
 	ctx := context.Background()
-	span := UserSpan{ID: "s1", Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(10)}
+	span := UserSpan{ID: "s1", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(10)}
 	for _, step := range []struct {
 		device Device
 		end    int
@@ -50,12 +50,12 @@ func TestRecordUserSkipsImpossibleSpans(t *testing.T) {
 	l := openTestLedger(t, t.TempDir(), rates{})
 	now := t0
 	spans := []UserSpan{
-		{ID: "ok", Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
-		{ID: "", Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
-		{ID: "relative", Cwd: "w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
-		{ID: "backwards", Cwd: "/w/app", StartedAtMs: ms(5), EndedAtMs: ms(0)},
-		{ID: "too-long", Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(25 * 60)},
-		{ID: "future", Cwd: "/w/app", StartedAtMs: ms(10), EndedAtMs: ms(20)},
+		{ID: "ok", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
+		{ID: "", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
+		{ID: "relative", Kind: ActivityUser, Cwd: "w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
+		{ID: "backwards", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(5), EndedAtMs: ms(0)},
+		{ID: "too-long", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(25 * 60)},
+		{ID: "future", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(10), EndedAtMs: ms(20)},
 	}
 	skipped, err := l.RecordUser(context.Background(), phone, spans, now)
 	if err != nil || skipped != 5 {
@@ -66,6 +66,47 @@ func TestRecordUserSkipsImpossibleSpans(t *testing.T) {
 	}
 	if _, err := l.RecordUser(context.Background(), phone, make([]UserSpan, maxSpanBatch+1), now); err == nil {
 		t.Fatal("an oversized batch was accepted")
+	}
+}
+
+// Prompt spans carry what they were; one without a known input, a screen-time
+// span with one, or a kind a device can't send (or none) is skipped. Clearing removes
+// prompting with screen time.
+func TestPromptSpansKeepTheirInput(t *testing.T) {
+	l := openTestLedger(t, t.TempDir(), rates{})
+	ctx := context.Background()
+	now := t0.Add(time.Hour)
+	spans := []UserSpan{
+		{ID: "screen", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(30)},
+		{ID: "typed", Kind: ActivityPrompt, Input: "typing", Cwd: "/w/app", StartedAtMs: ms(2), EndedAtMs: ms(3)},
+		{ID: "spoke", Kind: ActivityPrompt, Input: "voice", Cwd: "/w/app", StartedAtMs: ms(5), EndedAtMs: ms(6)},
+		{ID: "no-input", Kind: ActivityPrompt, Cwd: "/w/app", StartedAtMs: ms(7), EndedAtMs: ms(8)},
+		{ID: "odd-input", Kind: ActivityPrompt, Input: "humming", Cwd: "/w/app", StartedAtMs: ms(7), EndedAtMs: ms(8)},
+		{ID: "screen-input", Kind: ActivityUser, Input: "typing", Cwd: "/w/app", StartedAtMs: ms(7), EndedAtMs: ms(8)},
+		{ID: "agent", Kind: ActivityAgent, Cwd: "/w/app", StartedAtMs: ms(7), EndedAtMs: ms(8)},
+		{ID: "no-kind", Cwd: "/w/app", StartedAtMs: ms(7), EndedAtMs: ms(8)},
+	}
+	if skipped, err := l.RecordUser(ctx, phone, spans, now); err != nil || skipped != 5 {
+		t.Fatalf("skipped %d, %v; want 5", skipped, err)
+	}
+	got := spansOf(t, l, Scope{}, now)
+	if len(got) != 3 || got[0].Kind != ActivityUser || got[0].Input != "" ||
+		got[1].Kind != ActivityPrompt || got[1].Input != "typing" || got[2].Input != "voice" {
+		t.Fatalf("spans = %+v, want screen, typed, spoke", got)
+	}
+	// The same ID can't change kind on a later upload.
+	if _, err := l.RecordUser(ctx, phone, []UserSpan{{ID: "screen", Kind: ActivityPrompt, Input: "typing",
+		Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(40)}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := spansOf(t, l, Scope{}, now); got[0].Kind != ActivityUser || got[0].EndedAtMs != ms(30) {
+		t.Fatalf("screen span became %+v", got[0])
+	}
+	if err := l.ClearUser(ctx, Scope{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := spansOf(t, l, Scope{}, now); len(got) != 0 {
+		t.Fatalf("after clearing: %+v, want none", got)
 	}
 }
 
@@ -145,9 +186,9 @@ func TestActivityScopesAndClearKeepsAgentWork(t *testing.T) {
 	l := openTestLedger(t, t.TempDir(), rates{})
 	ctx := context.Background()
 	if _, err := l.RecordUser(ctx, phone, []UserSpan{
-		{ID: "app", Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
-		{ID: "sub", Cwd: "/w/app/sub", StartedAtMs: ms(10), EndedAtMs: ms(15)},
-		{ID: "sibling", Cwd: "/w/app2", StartedAtMs: ms(0), EndedAtMs: ms(5)},
+		{ID: "app", Kind: ActivityUser, Cwd: "/w/app", StartedAtMs: ms(0), EndedAtMs: ms(5)},
+		{ID: "sub", Kind: ActivityUser, Cwd: "/w/app/sub", StartedAtMs: ms(10), EndedAtMs: ms(15)},
+		{ID: "sibling", Kind: ActivityUser, Cwd: "/w/app2", StartedAtMs: ms(0), EndedAtMs: ms(5)},
 	}, t0.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
