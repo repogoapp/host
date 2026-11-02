@@ -97,6 +97,7 @@ func (p *Provider) Definition() agent.Provider {
 	d := definition()
 	d.Tool.Home = p.home
 	d.Tool.AccountPath = p.accountPath
+	d.Tool.Spec.AuthProbe = p.authStatus
 	return d
 }
 

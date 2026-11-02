@@ -238,7 +238,7 @@ func (in *Inventory) probe(ctx context.Context, t Tool) found {
 	if s.AuthProbe != nil {
 		i.Authed, f.authSource, i.Account = s.AuthProbe(ctx, path)
 	} else {
-		i.Authed, f.authSource = probeAuth(ctx, s, t.Home)
+		i.Authed, f.authSource = ProbeAuth(ctx, s, t.Home)
 	}
 	wg.Wait()
 	if i.Authed && s.Account != nil && t.AccountPath != "" {
@@ -279,7 +279,10 @@ func FindBinary(s Spec, home string) string {
 	return nativeBinary(home, s.NativePaths)
 }
 
-func probeAuth(ctx context.Context, s Spec, cfg string) (bool, string) {
+// ProbeAuth is the sign-in as the CLI leaves it on disk: an API key in the
+// environment, a credentials file, or a Keychain item. It sees that a login
+// exists, not that it still works.
+func ProbeAuth(ctx context.Context, s Spec, cfg string) (bool, string) {
 	for _, name := range s.AuthEnv {
 		if os.Getenv(name) != "" {
 			return true, "env:" + name
