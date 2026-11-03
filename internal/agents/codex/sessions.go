@@ -192,12 +192,27 @@ var codexSyntheticUserPrefixes = []string{
 
 // isSyntheticCodexPrompt reports a user-role message that Codex wrote.
 func isSyntheticCodexPrompt(text string) bool {
+	if isCodexExternalTag(text) {
+		return true
+	}
 	for _, prefix := range codexSyntheticUserPrefixes {
 		if strings.HasPrefix(text, prefix) {
 			return true
 		}
 	}
 	return false
+}
+
+// isCodexExternalTag reports a message that is one whole
+// `<external_…>…</external_…>` element, such as the
+// `<external_codex_apps_open_page>` context the Codex Apps feature adds.
+func isCodexExternalTag(text string) bool {
+	text = strings.TrimSpace(text)
+	name, _, ok := strings.Cut(strings.TrimPrefix(text, "<"), ">")
+	if !ok || !strings.HasPrefix(text, "<external_") || strings.ContainsAny(name, " \n") {
+		return false
+	}
+	return strings.HasSuffix(text, "</"+name+">")
 }
 
 // stripCodexDirectives drops remark leaf directives such as
