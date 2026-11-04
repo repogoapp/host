@@ -193,7 +193,7 @@ await ctx.collections.tasks.delete(task.id);
 await ctx.collections.tasks.deleteMany({ where: { status: "done" }, offset: 100, limit: 500 }); // done ones past the newest 100, 500 at a time
 ```
 
-`list` is newest first by default, at most 100 unless `limit` says (up to 500).
+`list` is newest first by default, at most 100 unless `limit` says (the generated `list` takes up to 500).
 `where` matches top-level fields exactly; `null` matches a missing one.
 `orderBy` is `id`, `createdAt`, `updatedAt` or one of the record's own fields, and
 `offset` passes over that many first. `deleteMany` takes the same options and
@@ -480,7 +480,7 @@ For integration tests, import `testWorkflowRuntime` from
 `@repogo/plugins/testing` and pass the fixture's plugins directory. It uses real
 temporary storage and a subprocess per run, as the host does. Call the same lifecycle methods,
 use `await app.wait("reports.report", id)` to await a terminal/blocked run, and
-`await app.close()` afterward. The in-memory `testRuntime({ plugin })` helper
+`await app.close()` afterward. The plain `testRuntime({ plugin })` helper
 does not execute durable workflows.
 
 
@@ -530,7 +530,7 @@ Write `console.log` (or `warn`, `error`, `debug`); nothing else is needed. The
 host keeps every line with the plugin, the method and the call that wrote it,
 who called (`card`, `agent`, `cron`), and the chat for an agent's call, plus
 the arguments as JSON. An error a method throws, or one nothing caught, is
-kept too, with its stack. Read them with the agent's `plugin_logs` tool, or on
+kept too, with its stack. Read them with the agent's `plugins_logs` tool, or on
 a card with `<Data method="repogo:plugins.logs">`, which reloads as lines land:
 `plugin`, `level` (that level and worse), `method`, `since`, `until`, `query`
 (a substring) and `limit` narrow it. The `plugins` tool shows each plugin's

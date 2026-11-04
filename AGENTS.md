@@ -36,7 +36,7 @@ same holds for methods: `go test ./internal/rpc/conformance -update` rewrites
 `Generated/HostAPI.swift`: params and result as Swift types for only the methods
 the Swift code names as `HostAPI.<method>` (all of them cost the App Clip about
 0.75 MB). Name a new one, then rerun `-update`. The same run writes the Android
-client's `HostAPI.kt` from the same types and names, events included.
+client's `HostAPI.kt` (events included) and the desktop client's `HostAPI.ts` from the same types and names.
 
 ## Code standards
 
@@ -69,17 +69,17 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `stdiorpc` | Own a child process and newline-delimited JSON-RPC framing | provider methods or chat semantics |
 | `agents`, `agents/<provider>` | Construct fresh providers; own each provider's protocol/configuration and home resolution | a shared service importing a provider |
 | `clitool`, `clilogin`, `binfetch`, `nodejs`, `agentcatalog`, `agentusage` | The CLIs on this machine: find, install, update and sign in; what each offers (models, modes) and how much of its limits is spent | running a turn |
-| `clientprompt`, `catalog`, `toollabel`, `ai` | What a chat shows: the system prompt for the client's renderer, what an environment or project offers to call as text, tool-call labels, titles and summaries from the local model | a transport type |
+| `clientprompt`, `catalog`, `toollabel`, `turnsummary` | What a chat shows: the system prompt for the client's renderer, what an environment or project offers to call as text, tool-call labels, the turn recap for chat lists, voice and alerts | a transport type |
 | `session` | Shared transcript reading, tailing, and caching; provider interfaces | provider-specific parsing or kind dispatch |
 | `store` | `cache.db`, the disposable SQLite cache of what `session` parsed (drop and reparse, never migrate), and `state.db`, what the user made (added to, never wiped; one writer per table) | a version ledger; state in the cache |
 | `store` (projects) | The project list's order: pins first by `pin_order` (a move writes its neighbours' midpoint, one row; no room renumbers in one transaction), then by `used_at` (last prompt or pick), then never-used by `activity_at`. Clients sort on those fields only | ordering from device-local times |
 | `schedule` | The user's schedules: validates them, computes each next run, and on a minute ticker starts every due one as a new chat; rows in `state.db` through `store` | writing SQL itself |
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
 | `git`, `github` | Git reporting and shipping, `gh` wrapper and PRs. One git runner in `git` | a second `exec.Command("git"` |
-| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`) | One resource each | |
+| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`, `projectagent`, `reminder`, `stepactivity`, `uploads`) | One resource each | |
 | `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing | resolving provider homes itself |
 | `emit`, `errkind`, `outcome`, `par`, `sqlitedb`, `syscmd`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, what a plugin method or MCP tool answers, fan-out, SQLite pragmas, short system tools, `~/.repogo`, dev log copies | a second way to do the same |
-| `wiredoc`, `clientcontract`, `lint`, `testwait` | Development only: the generated wire docs and the clients' contracts (Swift and Kotlin), the code standards as tests, polling in tests | imported by production code |
+| `wiredoc`, `clientcontract`, `lint`, `testwait` | Development only: the generated wire docs and the clients' contracts (Swift, Kotlin and TypeScript), the code standards as tests, polling in tests | imported by production code |
 
 Errors: a core sentinel says its kind with `errkind.New` (invalid, not found,
 denied, unavailable); `rpc.Code` maps the four kinds onto the wire, so the router

@@ -41,7 +41,7 @@ func command(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair [--reusable 14d|off]|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo relay [set <wss-url>|reset]\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
+		fmt.Println("repogo [install|pair|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo relay [set <wss-url>|reset]\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
 		return nil
 	}
 	if verb == "keep-awake" {
@@ -101,6 +101,15 @@ func command(ctx context.Context, args []string) error {
 	now := flags.Bool("now", false, "stop running chats, terminals and actions before updating")
 	pairHost := flags.String("pair-host", defaultPairHost, "pairing link origin")
 	reusable := flags.String("reusable", "", "pair: an invite many devices may join with, for days or hours (14d, 36h), or off")
+	// --reusable is for App Review's pairing only, so -h leaves it out.
+	flags.Usage = func() {
+		fmt.Fprintf(flags.Output(), "Usage of %s:\n", flags.Name())
+		flags.VisitAll(func(f *flag.Flag) {
+			if f.Name != "reusable" {
+				fmt.Fprintf(flags.Output(), "  -%s\n    \t%s\n", f.Name, f.Usage)
+			}
+		})
+	}
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

@@ -26,7 +26,7 @@ npx @repogo/host pair
 
 - macOS or Linux, on Apple silicon/arm64 or x64
 - Node.js 22 or later (only to install and run the `npx` command)
-- Claude Code or Codex installed and signed in on the same computer
+- Claude Code or Codex on the same computer; RepoGo can install either and sign you in from your phone
 
 ## Privacy
 
@@ -39,14 +39,16 @@ npx @repogo/host pair
 
 | Command | What it does |
 | --- | --- |
-| `npx @repogo/host` | Install and start the host, then show a pairing code |
+| `npx @repogo/host` | Install and start the host, then show a pairing code (or, once a device is paired, the status) |
 | `npx @repogo/host pair` | Show a pairing code for another device |
 | `npx @repogo/host status` | Show whether the host is running |
 | `npx @repogo/host devices` / `devices revoke <id>` | List the paired devices, or remove one: its connections close and it can no longer reach the host |
-| `npx @repogo/host start` / `stop` | Start or stop the background host |
+| `npx @repogo/host start` / `stop` / `restart` | Start, stop or restart the background host |
 | `npx @repogo/host logs` | Show the host's logs |
-| `npx @repogo/host update` | Update to the latest version; refuses while agents, terminals or builds are running (`--now` stops them) |
+| `npx @repogo/host update` | Update to the latest version; refuses while chats, terminals or actions are running (`--now` stops them) |
 | `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
+| `npx @repogo/host relay` / `relay set <wss-url>` / `relay reset` | Show the relay, switch to your own, or go back to RepoGo's; switching unpairs your devices, so pair them again |
+| `npx @repogo/host tunnels` / `tunnels close <slug>` | List the public URLs open to your local servers, or close one |
 | `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
 
 ## Uninstall

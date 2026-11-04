@@ -112,7 +112,7 @@ before asking, because an older host would silently answer differently.
 After changing a method's params or result, or an event's payload:
 
 ```sh
-go test ./internal/rpc/conformance -update   # methods: docs/methods, host-methods.md, HostAPI.swift, HostAPI.kt
+go test ./internal/rpc/conformance -update   # methods: docs/methods, host-methods.md, HostAPI.swift, HostAPI.kt, HostAPI.ts
 go test ./internal/emit -update              # events: docs/events, host-events.md, HostEvents.swift
 ```
 
