@@ -60,7 +60,7 @@ export default definePlugin({
 func TestListAnswersSmallAndInFull(t *testing.T) {
 	dir := sdk(t)
 	s, _ := newService(t, dir)
-	root := project(t, dir, map[string]string{"shelf": shelfPlugin})
+	root := environment(t, s, dir, map[string]string{"shelf": shelfPlugin})
 	pages := filepath.Join(root, ".repogo", "plugins", "shelf", "pages")
 	if err := os.MkdirAll(pages, 0o755); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestListAnswersSmallAndInFull(t *testing.T) {
 	if err != nil || list.Error != nil {
 		t.Fatalf("list: %+v %v", list.Error, err)
 	}
-	want := `{"plugins":[{"name":"shelf","dir":"project","page":".repogo/plugins/shelf/pages/index.ui","description":"Books on a shelf","methods":[` +
+	want := `{"plugins":[{"name":"shelf","page":"~/.repogo/plugins/shelf/pages/index.ui","description":"Books on a shelf","methods":[` +
 		`{"name":"shelf.books","kind":"query","description":"Every book"},` +
 		`{"name":"shelf.shelve","kind":"mutation","asks":true,"input":"id, title?, read?","description":"Put a book <back>"}]}]}`
 	if string(list.Result) != want {

@@ -31,13 +31,19 @@ func pluginsProject(t *testing.T) string {
 // pluginsService runs plugins from sdk's source; "" is a host without a runtime.
 func pluginsService(t *testing.T, sdk string) *plugins.Service {
 	t.Helper()
+	return pluginsServiceIn(t, sdk, "")
+}
+
+// pluginsServiceIn runs the plugins in global, the environment's folder.
+func pluginsServiceIn(t *testing.T, sdk, global string) *plugins.Service {
+	t.Helper()
 	home, err := os.MkdirTemp("", "rgm")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	return plugins.New(t.Context(), plugins.Config{
-		Runtime: runtimeOf(sdk), Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
+		Runtime: runtimeOf(sdk), Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"), Global: global,
 		Emit: func(device.ID, emit.Event) error { return nil }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 }
@@ -101,7 +107,7 @@ func TestPluginsToolsNeedTheSDK(t *testing.T) {
 }
 
 // With the runtime, every project gets them, so an agent can build the first
-// plugin; a project without the folder says so.
+// plugin; an environment without plugins says so.
 func TestPluginsToolsComeWithTheRuntime(t *testing.T) {
 	s := pluginsServer(t, pluginsService(t, "/sdk"))
 	if got := toolNames(t, s, attachIn(t, s, pluginsProject(t))); got != "browser,plugins,plugin_call" {
@@ -111,7 +117,7 @@ func TestPluginsToolsComeWithTheRuntime(t *testing.T) {
 	if got := toolNames(t, s, token); got != "browser,plugins,plugin_call" {
 		t.Fatalf("project without plugins: %q", got)
 	}
-	if got := callTool(t, s, token, "plugins", map[string]any{}); !got.IsError || !strings.Contains(got.Content[0].Text, "no .repogo/plugins folder") {
+	if got := callTool(t, s, token, "plugins", map[string]any{}); !got.IsError || !strings.Contains(got.Content[0].Text, "this environment has no plugins") {
 		t.Fatalf("plugins in a project without them: %+v", got)
 	}
 }
@@ -128,8 +134,9 @@ func TestPluginResultKeepsThePluginsErrorShape(t *testing.T) {
 	}
 }
 
-// End to end through the plugins server and this repo's SDK.
-func TestPluginCallRunsTheProjectsPlugin(t *testing.T) {
+// End to end through the plugins server and this repo's SDK: an environment
+// plugin, called from a project.
+func TestPluginCallRunsAnEnvironmentPlugin(t *testing.T) {
 	if _, err := exec.LookPath("bun"); err != nil {
 		t.Skip("bun is not installed")
 	}
@@ -140,8 +147,8 @@ func TestPluginCallRunsTheProjectsPlugin(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(sdk, "node_modules", "zod")); err != nil {
 		t.Skip("plugins-sdk has no node_modules; run bun install there")
 	}
-	root := pluginsProject(t)
-	dir := filepath.Join(root, plugins.Folder)
+	root := t.TempDir()
+	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "@repogo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +164,7 @@ export default definePlugin({ namespace: "notes", collections: { notes: z.object
 	if err := os.WriteFile(filepath.Join(dir, "notes", "app.ts"), []byte(plugin), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s := pluginsServer(t, pluginsService(t, sdk))
+	s := pluginsServer(t, pluginsServiceIn(t, sdk, dir))
 	token := attachIn(t, s, root)
 
 	if got := callTool(t, s, token, "plugins", map[string]any{}); got.IsError || !strings.Contains(got.Content[0].Text, "notes.notes.create") {

@@ -119,9 +119,10 @@ export type ManifestStorage = {
 
 /**
  * One schedule the host gives a Worker, from a line of `~/.repogo/crons.json`: call
- * `<plugin>.<method>` with `{}` when `schedule` comes due in `timezone` (the environment's).
+ * `<plugin>.<method>` with `{}` when `schedule` comes due in `timezone` (the environment's),
+ * with `root` (the line's project) as `ctx.root`, else the Worker's own.
  */
-export type CronEntry = { plugin: string; method: string; schedule: string; timezone?: string };
+export type CronEntry = { plugin: string; method: string; schedule: string; timezone?: string; root?: string };
 
 /** A schedule and how it's going; `error` says why it couldn't be set, and then nothing runs. */
 export type CronStatus = ManifestCron & { plugin: string; error: string | null };

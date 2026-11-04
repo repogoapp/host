@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -17,17 +18,18 @@ import (
 // turns touching a plugin call it; naming a plugin answers it in full.
 
 // Listing is the default answer: each plugin with a line per method, and the
-// lines of crons.json with how each is going.
+// lines of crons.json with how each is going. Moved says the project still
+// holds plugin code the host no longer runs.
 type Listing struct {
 	Plugins []Listed `json:"plugins"`
 	Crons   []Cron   `json:"crons,omitempty"`
+	Moved   string   `json:"moved,omitempty"`
 }
 
-// Listed is one plugin in the default answer. Dir is `project` or `env`, and
-// Page is the page to open it by, when one shows a method of it.
+// Listed is one plugin in the default answer. Page is the page to open it by,
+// when one shows a method of it.
 type Listed struct {
 	Name        string         `json:"name"`
-	Dir         string         `json:"dir"`
 	Errors      int            `json:"errors,omitempty"`
 	Page        string         `json:"page,omitempty"`
 	Description string         `json:"description,omitempty"`
@@ -48,7 +50,6 @@ type ListedMethod struct {
 // its storage, the pages that show its methods and the cron lines naming it.
 type Detail struct {
 	Name        string          `json:"name"`
-	Dir         string          `json:"dir"`
 	Path        string          `json:"path"`
 	Errors      int             `json:"errors,omitempty"`
 	Description string          `json:"description,omitempty"`
@@ -91,14 +92,6 @@ type listedPlugin struct {
 	target Target
 }
 
-// dir is `env` for the environment's folder, `project` for the project's.
-func (p listedPlugin) dir() string {
-	if p.target.Root != "" {
-		return "env"
-	}
-	return "project"
-}
-
 // List answers the `plugins` tool for a folder: every plugin in a line per
 // method, or with plugin set, that one in full. crons.json is read again
 // first, so an edit shows.
@@ -106,14 +99,21 @@ func (s *Service) List(ctx context.Context, path, plugin string) (outcome.Answer
 	if s.cfg.Crons != "" {
 		s.reconcile(ctx)
 	}
+	var moved string
+	if s.LeftInProject(path) {
+		moved = Moved
+	}
 	found, failure, err := s.manifests(ctx, path)
+	if errors.Is(err, ErrNoPlugins) && moved != "" {
+		return outcome.Answer{}, errkind.ErrNotFound.Errorf("plugins: %s", moved)
+	}
 	if err != nil || failure != nil {
 		return outcome.Answer{Error: failure}, err
 	}
-	errors := s.recentErrors(ctx)
+	errs := s.recentErrors(ctx)
 	all := pages(checkout(path), s.cfg.Global)
 	if plugin == "" {
-		return encode(Listing{Plugins: listedAll(found, errors, all), Crons: s.Crons()})
+		return encode(Listing{Plugins: listedAll(found, errs, all), Crons: s.Crons(), Moved: moved})
 	}
 	i := slices.IndexFunc(found, func(p listedPlugin) bool { return p.Name == plugin })
 	if i < 0 {
@@ -124,7 +124,7 @@ func (s *Service) List(ctx context.Context, path, plugin string) (outcome.Answer
 		return outcome.Answer{}, errkind.ErrNotFound.Errorf("plugins: there's no plugin %q here; there are %s", plugin, strings.Join(names, ", "))
 	}
 	p := found[i]
-	return encode(detail(p, errors[errorsKey(p.target.Dir, p.Name)], all, s.cronsOf(p)))
+	return encode(detail(p, errs[errorsKey(p.target.Dir, p.Name)], all, s.cronsOf(p)))
 }
 
 // Plugins is every plugin a folder can use with a line per method, as the
@@ -148,39 +148,32 @@ func listedAll(found []listedPlugin, errors map[string]int, all []Page) []Listed
 	return out
 }
 
-// manifests is every plugin a folder can use; a project plugin hides an
-// environment one of its name. A Worker's own failure comes back as it said it.
+// manifests is every plugin a folder can use: the environment's. A Worker's
+// own failure comes back as it said it.
 func (s *Service) manifests(ctx context.Context, path string) ([]listedPlugin, *outcome.Failure, error) {
-	targets, err := s.targets(path)
+	t, err := s.target(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	var out []listedPlugin
-	seen := map[string]bool{}
-	for _, t := range targets {
-		answer, err := s.ask(ctx, t, "list", t)
-		if err != nil || answer.Error != nil {
-			return nil, answer.Error, err
-		}
-		var manifest struct {
-			Plugins []manifestPlugin `json:"plugins"`
-		}
-		if err := json.Unmarshal(answer.Result, &manifest); err != nil {
-			return nil, nil, fmt.Errorf("plugins: manifest of %s: %w", t.Dir, err)
-		}
-		for _, p := range manifest.Plugins {
-			if seen[p.Name] {
-				continue
-			}
-			seen[p.Name] = true
-			out = append(out, listedPlugin{manifestPlugin: p, target: t})
-		}
+	answer, err := s.ask(ctx, t, "list", t)
+	if err != nil || answer.Error != nil {
+		return nil, answer.Error, err
+	}
+	var manifest struct {
+		Plugins []manifestPlugin `json:"plugins"`
+	}
+	if err := json.Unmarshal(answer.Result, &manifest); err != nil {
+		return nil, nil, fmt.Errorf("plugins: manifest of %s: %w", t.Dir, err)
+	}
+	out := make([]listedPlugin, 0, len(manifest.Plugins))
+	for _, p := range manifest.Plugins {
+		out = append(out, listedPlugin{manifestPlugin: p, target: t})
 	}
 	return out, nil, nil
 }
 
 func listed(p listedPlugin, errors int, all []Page) Listed {
-	out := Listed{Name: p.Name, Dir: p.dir(), Errors: errors, Page: indexPage(p.Name, all), Description: p.Description, Methods: []ListedMethod{}}
+	out := Listed{Name: p.Name, Errors: errors, Page: indexPage(p.Name, all), Description: p.Description, Methods: []ListedMethod{}}
 	for _, m := range p.Methods {
 		out.Methods = append(out.Methods, ListedMethod{Name: m.Name, Kind: m.Kind, Asks: m.Confirm != "", Input: Signature(m.Input), Description: m.Description})
 	}
@@ -188,7 +181,7 @@ func listed(p listedPlugin, errors int, all []Page) Listed {
 }
 
 func detail(p listedPlugin, errors int, all []Page, crons []Cron) Detail {
-	out := Detail{Name: p.Name, Dir: p.dir(), Path: filepath.Join(p.target.Dir, p.Name), Errors: errors, Description: p.Description, Methods: []DetailMethod{}, Storage: present(p.Storage), Crons: crons}
+	out := Detail{Name: p.Name, Path: filepath.Join(p.target.Dir, p.Name), Errors: errors, Description: p.Description, Methods: []DetailMethod{}, Storage: present(p.Storage), Crons: crons}
 	for _, m := range p.Methods {
 		out.Methods = append(out.Methods, DetailMethod{Name: m.Name, Kind: m.Kind, Description: m.Description, Confirm: m.Confirm, Input: schema(m.Input), Output: schema(m.Output)})
 	}

@@ -23,8 +23,9 @@ import (
 // reconcileEvery is how soon an edit to the file, or a restarted plugins server, takes effect.
 const reconcileEvery = time.Minute
 
-// CronEntry is one line of crons.json. No project means the environment's own
-// plugins; a project is an absolute path or one starting ~/.
+// CronEntry is one line of crons.json, naming an environment plugin. A project,
+// an absolute path or one starting ~/, is the run's ctx.root; none runs it at
+// the home folder.
 type CronEntry struct {
 	Project  string `json:"project,omitempty"`
 	Plugin   string `json:"plugin"`
@@ -45,6 +46,8 @@ type Cron struct {
 	Timezone       string `json:"timezone,omitempty"`
 	Enabled        bool   `json:"enabled"`
 	Dir            string `json:"dir,omitempty"`
+	// Root is the project's checkout the run gets as ctx.root; empty for none.
+	Root           string `json:"root,omitempty"`
 	Error          string `json:"error,omitempty"`
 	NextRunAt      *int64 `json:"nextRunAt,omitempty"`
 	LastRunAt      *int64 `json:"lastRunAt,omitempty"`
@@ -67,6 +70,7 @@ type cronStatus struct {
 }
 
 type cronWire struct {
+	Root     string `json:"root,omitempty"`
 	Plugin   string `json:"plugin"`
 	Method   string `json:"method"`
 	Schedule string `json:"schedule"`
@@ -168,9 +172,9 @@ func (s *Service) planCrons() ([]Cron, map[string]*cronsParams, map[string][]int
 	for i, e := range entries {
 		c := s.resolveCron(i, e)
 		// Two lines for one method would let its runs overlap; a disabled one runs nothing.
-		key := c.Dir + "|" + e.Plugin + "|" + e.Method
+		key := c.Dir + "|" + c.Root + "|" + e.Plugin + "|" + e.Method
 		if c.Error == "" && c.Enabled && seen[key] {
-			c.Error = "the same plugin method is scheduled twice; keep one entry"
+			c.Error = "the same plugin method is scheduled twice for one project; keep one entry"
 		}
 		crons[i] = c
 		if c.Error != "" || !c.Enabled {
@@ -185,7 +189,7 @@ func (s *Service) planCrons() ([]Cron, map[string]*cronsParams, map[string][]int
 		if !slices.Contains(group.Plugins, e.Plugin) {
 			group.Plugins = append(group.Plugins, e.Plugin)
 		}
-		group.Crons = append(group.Crons, cronWire{Plugin: e.Plugin, Method: e.Method, Schedule: e.Schedule, Timezone: e.Timezone})
+		group.Crons = append(group.Crons, cronWire{Root: c.Root, Plugin: e.Plugin, Method: e.Method, Schedule: e.Schedule, Timezone: e.Timezone})
 		at[c.Dir] = append(at[c.Dir], i)
 	}
 	return crons, groups, at
@@ -234,26 +238,30 @@ func (s *Service) resolveCron(i int, e CronEntry) Cron {
 		c.Error = "schedule is a cron, such as */5 * * * *"
 		return c
 	}
-	dir, err := s.cronDir(e.Project)
+	if s.cfg.Global == "" {
+		c.Error = "this host has no environment plugins folder"
+		return c
+	}
+	root, err := cronRoot(e.Project)
 	if err != nil {
 		c.Error = err.Error()
 		return c
 	}
-	c.Dir = dir
-	if _, err := os.Stat(filepath.Join(dir, e.Plugin, "app.ts")); err != nil {
-		c.Error = fmt.Sprintf("there's no plugin %s in %s", e.Plugin, dir)
+	c.Dir, c.Root = realOrSame(s.cfg.Global), root
+	if _, err := os.Stat(filepath.Join(c.Dir, e.Plugin, "app.ts")); err != nil {
+		c.Error = fmt.Sprintf("there's no plugin %s in %s", e.Plugin, c.Dir)
+		if root != "" && isFile(filepath.Join(root, filepath.FromSlash(Folder), e.Plugin, "app.ts")) {
+			c.Error = fmt.Sprintf("%s is in the project's %s, which RepoGo no longer runs; move it to %s", e.Plugin, Folder, c.Dir)
+		}
 	}
 	return c
 }
 
-// cronDir is the plugins folder an entry runs in: the environment's own, or a
-// project's, by its real path so two spellings of one folder are one.
-func (s *Service) cronDir(project string) (string, error) {
+// cronRoot is the checkout a line's project names, by its real path so two
+// spellings of one folder are one; "" for a line without one.
+func cronRoot(project string) (string, error) {
 	if project == "" {
-		if s.cfg.Global == "" {
-			return "", errors.New("this host has no environment plugins folder; name a project")
-		}
-		return realOrSame(s.cfg.Global), nil
+		return "", nil
 	}
 	path := project
 	if rest, ok := strings.CutPrefix(project, "~/"); ok {
@@ -270,7 +278,12 @@ func (s *Service) cronDir(project string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("project %s doesn't exist", project)
 	}
-	return realOrSame(filepath.Join(real, filepath.FromSlash(Folder))), nil
+	return checkout(real), nil
+}
+
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // realOrSame is a path with its symlinks resolved, or as it is when it doesn't exist yet.

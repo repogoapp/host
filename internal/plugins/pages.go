@@ -24,8 +24,8 @@ type Page struct {
 }
 
 // pages is every plugin Data a link can reach in a project's pages (.repogo,
-// .repogo/tabs, each plugin's pages folder), then in the environment plugins'
-// pages, except a plugin the project shadows. A page is a .ui or .md file.
+// .repogo/tabs, old plugin pages folders: markup, so they still open), then in
+// the environment plugins' pages. A page is a .ui or .md file.
 func pages(root, global string) []Page {
 	var out []Page
 	_ = filepath.WalkDir(filepath.Join(root, ".repogo"), func(path string, d fs.DirEntry, err error) error {
@@ -33,7 +33,12 @@ func pages(root, global string) []Page {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
-		if dir := filepath.ToSlash(filepath.Dir(rel)); isPagesDir(dir) {
+		dir := filepath.ToSlash(filepath.Dir(rel))
+		// At the home folder these are the environment's, listed below by their ~ path.
+		if pluginPages.MatchString(dir) && filepath.Join(root, filepath.FromSlash(Folder)) == global {
+			return nil
+		}
+		if isPagesDir(dir) {
 			out = append(out, pageData(path, filepath.ToSlash(rel))...)
 		}
 		return nil
@@ -43,7 +48,7 @@ func pages(root, global string) []Page {
 	}
 	entries, _ := os.ReadDir(global)
 	for _, e := range entries {
-		if !e.IsDir() || isFile(filepath.Join(root, filepath.FromSlash(Folder), e.Name(), "app.ts")) {
+		if !e.IsDir() {
 			continue
 		}
 		files, _ := filepath.Glob(filepath.Join(global, e.Name(), "pages", "*"))
@@ -68,11 +73,6 @@ func isPagesDir(dir string) bool {
 func isPageFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".ui" || ext == ".md"
-}
-
-func isFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }
 
 // pageData reads one page file's cards: all of a .ui file, or each ui fence

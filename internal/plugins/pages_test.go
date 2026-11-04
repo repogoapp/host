@@ -87,9 +87,10 @@ func TestPagesLiteralRouterAndNoRouter(t *testing.T) {
 	}
 }
 
-// An environment plugin's pages are listed by their ~ path, unless the project
-// has a plugin of that name; markdown outside a pages folder isn't a page.
-func TestPagesEnvironmentAndShadowing(t *testing.T) {
+// An environment plugin's pages are listed by their ~ path, even beside a
+// project's plugin folder of its name; that folder's pages still list (markup);
+// markdown outside a pages folder isn't a page.
+func TestPagesEnvironmentAndLeftovers(t *testing.T) {
 	root, global := t.TempDir(), t.TempDir()
 	page := "```ui\n<Data name=\"n\" method=\"plugin:notes.open\"/>\n```\n"
 	writePage(t, filepath.Join(global, "notes", "pages", "index.md"), page)
@@ -103,6 +104,7 @@ func TestPagesEnvironmentAndShadowing(t *testing.T) {
 	want := []Page{
 		{Method: "notes.open", Target: ".repogo/plugins/vercel/pages/index.md"},
 		{Method: "notes.open", Target: "~/.repogo/plugins/notes/pages/index.md"},
+		{Method: "notes.open", Target: "~/.repogo/plugins/vercel/pages/index.md"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("pages:\n got %+v\nwant %+v", got, want)

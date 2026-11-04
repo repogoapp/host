@@ -21,12 +21,12 @@ phone draw its data live and run its methods when you tap.
 ## Quick start
 
 ```ts
-// .repogo/plugins/notes/app.ts
+// ~/.repogo/plugins/notes/app.ts
 import { definePlugin, method, z } from "@repogo/plugins";
 
 export default definePlugin({
-  description: "Notes for this project",
-  namespace: "myproject.notes",
+  description: "Notes for any project",
+  namespace: "notes",
   collections: { notes: z.object({ text: z.string(), done: z.boolean().default(false) }) },
   methods: {
     open: method(z.object({}), async (_, ctx) => ctx.collections.notes.list({ where: { done: false } }), {
@@ -46,9 +46,9 @@ a minute; at once when something calls it), and it gets:
 
 - `notes.open` and `notes.clear`, the methods it wrote;
 - `notes.notes.list`, `.get`, `.create`, `.update` and `.delete`, generated for its collection;
-- a `data.db` in `~/.repogo/plugin-data/myproject.notes/`.
+- a `data.db` in `~/.repogo/plugin-data/notes/`.
 
-Add the package to `.repogo/plugins/package.json` (`bun add @repogo/plugins`) for
+Add the package to `~/.repogo/plugins/package.json` (`bun add @repogo/plugins`) for
 types and editor help. The host runs plugins with its own copy of this package,
 the version it shipped with, so a plugin always matches its host. Plugins run on
 [Bun](https://bun.sh); install it on the environment.
@@ -57,13 +57,21 @@ the version it shipped with, so a plugin always matches its host. Plugins run on
 
 | Folder | For | `ctx.root` |
 | --- | --- | --- |
-| `<project>/.repogo/plugins/<name>/app.ts` | One project | The project's checkout |
-| `~/.repogo/plugins/<name>/app.ts` | Every project (Vercel, Gmail, builds) | The project that called it |
+| `~/.repogo/plugins/<name>/app.ts` | Every project | The project that called it |
 
-A plugin's name is its folder's: lowercase letters, digits and hyphens. A
-project plugin hides an environment one of the same name. Each folder's plugins
-run together in one Worker, so a plugin's blocking code stalls the others in its
-folder: use async APIs.
+Plugins live only on the environment, in folders the user put there. A project
+can't ship plugin code: the host never imports a repo's `.repogo/plugins`, so
+cloning or opening a project never runs anything in it. A plugin about one
+project (its keys, its database, its plans) is still an environment plugin: it
+reads that project from `ctx.root`, and says so instead of acting when it's
+called from a project it doesn't fit.
+
+A project ships pages instead: `.repogo/plugin.ui` and `.repogo/tabs/*.ui` (or
+`.md`), card markup that calls the environment's plugins by name.
+
+A plugin's name is its folder's: lowercase letters, digits and hyphens. The
+environment's plugins run together in one Worker, so a plugin's blocking code
+stalls the others: use async APIs.
 
 Pages beside an environment plugin (`pages/*.ui`, or `pages/*.md`) open from
 any project as `~/.repogo/plugins/<name>/pages/<page>.ui`. A
@@ -501,7 +509,7 @@ itself. Each line names a plugin, one of its methods and a schedule:
 | Field | What |
 | --- | --- |
 | `plugin`, `method` | The plugin's folder name and one of its methods, called with `{}` as a tap would |
-| `project` | The project whose `.repogo/plugins` holds it, an absolute path or one starting `~/`; left out, `~/.repogo/plugins` |
+| `project` | The project the run gets as `ctx.root`, an absolute path or one starting `~/`; left out, the home folder. The plugin is always the environment's |
 | `schedule` | A cron: five fields (minute hour day-of-month month day-of-week), or six with seconds first (`*/5 * * * * *`); each `*`, a number, a range, a list or a step |
 | `timezone` | Defaults to the environment's |
 | `enabled` | `false` keeps the line without running it |
@@ -520,9 +528,9 @@ isn't valid JSON pauses every line until it's fixed. Each line also shows
 has the same for a plugin's own, and a query reading them re-runs around each run.
 
 Schedule something only when the user asks for it. A cron's `ctx.root` is its
-project, or the home folder for a plugin in `~/.repogo/plugins`. Plugins in one
-folder share a thread: code that blocks it holds up every other cron there, and
-the host's log names the crons that were running when it happened.
+line's project, or the home folder without one. Plugins share a thread: code
+that blocks it holds up every other cron, and the host's log names the crons
+that were running when it happened.
 
 ## Logging
 
@@ -704,7 +712,7 @@ Prefer SDK storage for plugin-owned data. A storage declaration generates
 methods; ordinary saves do not need a custom mutation. For example:
 
 ```ts
-// .repogo/plugins/preferences/app.ts
+// ~/.repogo/plugins/preferences/app.ts
 import { definePlugin, z } from "@repogo/plugins";
 
 export default definePlugin({

@@ -7,10 +7,10 @@ Project agents:
 - Helper (helper): ready. Models: Sonnet (claude-sonnet-5-5). Default: claude-sonnet-5-5.
 - Grok (grok): broken: agent.json: no command
 Plugins:
-- plans, this project's: Plans for this project.
+- plans: Plans for this project.
   - plugin:plans.list(): Every plan.
   - plugin:plans.move(id, status?): Move a plan to another column, keeping its place in the column it lands in, and tell every card showing plans so they redraw without a… Asks first.
-- vercel, the environment's
+- vercel
   - plugin:vercel.deploys(project?)
 MCP servers:
 - Linear (mcp:linear):

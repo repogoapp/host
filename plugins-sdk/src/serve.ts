@@ -37,7 +37,7 @@ const requestSchema = z.discriminatedUnion("method", [
     params: z.object({
       dir: pluginsDir,
       plugins: z.array(z.string().min(1)),
-      crons: z.array(z.object({ plugin: z.string().min(1), method: z.string().min(1), schedule: z.string().min(1), timezone: z.string().optional() })),
+      crons: z.array(z.object({ plugin: z.string().min(1), method: z.string().min(1), schedule: z.string().min(1), timezone: z.string().optional(), root: z.string().min(1).optional() })),
     }),
   }),
 ]);

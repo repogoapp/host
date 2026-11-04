@@ -7,15 +7,16 @@ import (
 	"github.com/repogoapp/host/internal/device"
 )
 
-// Plugins is what a session's project can do with plugins.
+// Plugins is what a session can do with the environment's plugins.
 type Plugins int
 
 const (
 	// NoPlugins: the environment can't run plugins.
 	NoPlugins Plugins = iota
-	// CanAddPlugins: the environment runs plugins; the project has none yet.
+	// CanAddPlugins: the environment runs plugins and has none yet.
 	CanAddPlugins
-	// HasPlugins: the project has a .repogo/plugins folder.
+	// HasPlugins: the environment has plugins (~/.repogo/plugins), which
+	// every project calls.
 	HasPlugins
 )
 

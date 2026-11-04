@@ -25,9 +25,10 @@ content; use the environment file for a shared page across projects.
 
 When creating a user-facing plugin, create or reuse its .ui page and add
 an Item linking to it in the applicable plugin.ui; skip the interface only
-when the user requests a backend-only plugin. For a project-local plugin,
-use .repogo/plugin.ui. For example, inside its List and Section, add
-<Item label="Vercel" action="page:.repogo/plugins/vercel/pages/index.ui"/>.
+when the user requests a backend-only plugin. For a plugin about one
+project, use that project's .repogo/plugin.ui. For example, inside its
+List and Section, add
+<Item label="Vercel" action="page:~/.repogo/plugins/vercel/pages/index.ui"/>.
 Use the actual page path, including an existing .repogo/tabs/vercel.ui.
 Saving a page under .repogo/tabs or naming it index.ui does not add it to
 project tabs. The plugins tool discovering a page is not proof of a tab
@@ -38,23 +39,22 @@ separately from visual verification on the phone.
 Follow the Page layout rules above: the screen owns margins and scrolling;
 keep content blocks directly under Route or Data and hide empty sections.
 
-Plugins: .repogo/plugins/<name>/app.ts, run on the environment with Bun,
-each with its own data. One for every project goes in ~/.repogo/plugins
-instead (Vercel, git history: anything not about one project), with its
-pages beside it in pages/, linked as
-page:~/.repogo/plugins/<name>/pages/<page>.ui. A project plugin of the
-same name wins.
+Plugins: ~/.repogo/plugins/<name>/app.ts, run on the environment with
+Bun, each with its own data, with its pages beside it in pages/, linked as
+page:~/.repogo/plugins/<name>/pages/<page>.ui. Plugins live only there:
+RepoGo never runs a project's .repogo/plugins, so opening or cloning a
+repo runs no code. Never write a plugin into a project. A project ships
+pages instead: .repogo/tabs/*.ui and its .repogo/plugin.ui, which call
+the environment's plugins by name.
 
-Project or environment: put a plugin where its sign-in and data live.
-A service the user signs in to once for many projects (Vercel, GitHub,
-Fly, Gmail) is an environment plugin in ~/.repogo/plugins: its methods
-take the project as an input, defaulting to ctx.root's (such as
-.vercel/project.json), its pages take it as state (?project=…), and its
-namespace is a bare name, so one plugin and one page serve every
-project. What reads this project's own keys, code or database (its
-Stripe events, its support tickets, its tables) is a project plugin in
-.repogo/plugins, with the namespace <project>.<name>. When it could be
-either, ask.
+Every plugin serves every project, with ctx.root the calling project. A
+service the user signs in to once (Vercel, GitHub, Fly, Gmail) takes the
+project as an input, defaulting to ctx.root's (such as
+.vercel/project.json); its pages take it as state (?project=…), and its
+namespace is a bare name. What reads one project's own keys, code or
+database (its Stripe events, its support tickets, its tables) reads them
+from ctx.root, names its data <project>.<name>, and says so instead of
+acting when called from a project it doesn't fit.
 
 Write one with definePlugin from "@repogo/plugins" (collections as zod
 objects, methods via
@@ -78,12 +78,12 @@ For what should happen with no one looking (a check every 5 minutes, a
 morning summary), and only when the user asks for it, add a line to
 ~/.repogo/crons.json, a JSON array the user owns: { "plugin": "watch",
 "method": "check", "schedule": "*/5 * * * *" }, with "project": "<path>"
-for a project's plugin. The host calls the method with {} on time; it
+to run it with that project as ctx.root. The host calls the method with {} on time; it
 may write and ctx.notify the phones. A schedule is a cron, five fields or
 six with seconds first; "timezone" defaults to the environment's. Then
-call `plugins`: each line shows its error or its next run. A cron of a
-plugin in ~/.repogo/plugins runs with ctx.root at the home folder, and
-plugins in a folder share one thread, so never block it.
+call `plugins`: each line shows its error or its next run. A cron without
+a project runs with ctx.root at the home folder, and plugins share one
+thread, so never block it.
 A plugin with collections, kv, streams, buckets, cached methods or
 workflows requires a namespace. Other plugins may omit it. Data lives in ~/.repogo/plugin-data/<namespace>/, shared by plugins
 naming that namespace, in four kinds:
@@ -103,7 +103,7 @@ only the stored value. Discover the generated schema before calling it.
 The SDK's README is the full reference, every option, ctx field, event and
 generated method: read it before writing or changing a plugin, from
 https://raw.githubusercontent.com/repogoapp/host/main/plugins-sdk/README.md
-or .repogo/plugins/node_modules/@repogo/plugins/README.md when installed.
+or ~/.repogo/plugins/node_modules/@repogo/plugins/README.md when installed.
 The `plugins` tool lists them, a line per method, with each cron's next
 and last run and its last error; call it, and with the plugin's name for
 its schemas, before `plugin_call` runs one. Verify a query's result shape

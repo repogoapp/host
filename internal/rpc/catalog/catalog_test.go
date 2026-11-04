@@ -167,7 +167,7 @@ func (p *fakePlugins) Plugins(_ context.Context, path string) ([]pluginscore.Lis
 	p.mu.Lock()
 	p.listed = path
 	p.mu.Unlock()
-	return []pluginscore.Listed{{Name: "plans", Dir: "project", Methods: []pluginscore.ListedMethod{{Name: "plans.list", Kind: "query"}}}}, nil
+	return []pluginscore.Listed{{Name: "plans", Methods: []pluginscore.ListedMethod{{Name: "plans.list", Kind: "query"}}}}, nil
 }
 
 func (p *fakePlugins) path() string {

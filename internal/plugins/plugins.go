@@ -1,7 +1,11 @@
-// Package plugins runs the plugins an agent writes, for a project
-// (`<project>/.repogo/plugins/<name>/app.ts`) or for every project (the
-// environment's own folder), through one plugins server, and keeps the devices'
-// subscriptions to their queries.
+// Package plugins runs the plugins in the environment's own folder
+// (`~/.repogo/plugins/<name>/app.ts`) for every project, through one plugins
+// server, and keeps the devices' subscriptions to their queries.
+//
+// A project never ships plugin code: opening or cloning a repo must not make
+// the host run anything. A project ships pages (`.repogo/plugin.ui`,
+// `.repogo/tabs`), which call the environment's plugins with `ctx.root` set to
+// the project.
 package plugins
 
 import (
@@ -29,16 +33,20 @@ import (
 	"github.com/repogoapp/host/internal/uploads"
 )
 
-// Folder is where a project keeps its plugins, from its checkout's top.
+// Folder is where a project kept its plugins before they moved to the
+// environment, from its checkout's top. It is never run; the `plugins` tool
+// names it so an agent can say why a page's calls fail.
 const Folder = ".repogo/plugins"
+
+// Moved is what the `plugins` tool says of a project still holding plugin code.
+const Moved = "RepoGo no longer runs a project's plugins (" + Folder + "); move them to ~/.repogo/plugins, where every project can call them"
 
 var (
 	// ErrOff is a host without a plugins runtime: a dev build started without
 	// REPOGO_PLUGINS_SDK.
 	ErrOff = errkind.New(errkind.Unavailable, "plugins: this host was built without the plugins runtime")
-	// ErrNoPlugins is a project without a .repogo/plugins folder, on an
-	// environment without its own.
-	ErrNoPlugins = errkind.New(errkind.NotFound, "plugins: this project has no "+Folder+" folder, and the environment has none")
+	// ErrNoPlugins is an environment without a plugins folder.
+	ErrNoPlugins = errkind.New(errkind.NotFound, "plugins: this environment has no plugins (~/.repogo/plugins)")
 	// ErrNotYours is a subscription another device made, or one that ended.
 	ErrNotYours = errkind.New(errkind.NotFound, "plugins: no such subscription")
 )
@@ -54,8 +62,8 @@ type Config struct {
 	// data, one folder per namespace a plugin names.
 	Socket  string
 	DataDir string
-	// Global is the environment's own plugins folder, served to every project
-	// under the project's own; empty leaves it off.
+	// Global is the environment's plugins folder, the only one run, for every
+	// project; empty leaves plugins off.
 	Global string
 	// Crons is the user's file of schedules, ~/.repogo/crons.json: what runs
 	// with no one calling. Empty runs nothing on a schedule.
@@ -153,66 +161,54 @@ func (s *Service) logged(plugins []string) {
 	}
 }
 
-// On reports whether this host runs project plugins.
+// On reports whether this host runs plugins.
 func (s *Service) On() bool { return s.cfg.Runtime != "" }
 
-// Has reports whether a folder's project has plugins this host would run.
+// Has reports whether the environment has plugins this host would run, for
+// any project.
 func (s *Service) Has(path string) bool {
-	_, err := s.targets(path)
+	_, err := s.target(path)
 	return err == nil
 }
 
-// Target is what the plugins server needs: the plugins folder to run, and for
-// the environment's own folder the caller's project, which is otherwise the
-// folder's checkout.
+// Target is what the plugins server needs: the plugins folder to run, and the
+// caller's project, the plugins' ctx.root.
 type Target struct {
 	Dir  string `json:"dir"`
 	Root string `json:"root,omitempty"`
 }
 
-// targets is where a folder's plugins come from, the project's own first,
-// then the environment's; each only when its folder exists.
-func (s *Service) targets(path string) ([]Target, error) {
+// target is the environment's folder, run for path's project. A project's own
+// .repogo/plugins is never a target, so nothing in a repo runs.
+func (s *Service) target(path string) (Target, error) {
 	if !s.On() {
-		return nil, ErrOff
+		return Target{}, ErrOff
 	}
 	if !filepath.IsAbs(path) {
-		return nil, errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
+		return Target{}, errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
 	}
-	root := checkout(path)
-	var out []Target
-	// At the home folder, .repogo/plugins is the environment's own folder.
-	if dir := filepath.Join(root, filepath.FromSlash(Folder)); isDir(dir) && dir != s.cfg.Global {
-		out = append(out, Target{Dir: dir})
+	if !isDir(s.cfg.Global) {
+		return Target{}, ErrNoPlugins
 	}
-	if isDir(s.cfg.Global) {
-		out = append(out, Target{Dir: s.cfg.Global, Root: root})
-	}
-	if len(out) == 0 {
-		return nil, ErrNoPlugins
-	}
-	return out, nil
+	return Target{Dir: s.cfg.Global, Root: checkout(path)}, nil
 }
 
-// targetOf is the folder holding a method's plugin: the project's shadows the
-// environment's. Neither having it goes to the first, whose answer is NOT_FOUND.
-func (s *Service) targetOf(path, method string) (Target, error) {
-	targets, err := s.targets(path)
-	if err != nil {
-		return Target{}, err
+// LeftInProject reports whether path's project still holds plugin code
+// (`.repogo/plugins/<name>/app.ts`), which the host no longer runs.
+func (s *Service) LeftInProject(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
 	}
-	plugin, _, _ := strings.Cut(method, ".")
-	for _, t := range targets {
-		if _, err := os.Stat(filepath.Join(t.Dir, plugin, "app.ts")); err == nil {
-			return t, nil
-		}
+	dir := filepath.Join(checkout(path), filepath.FromSlash(Folder))
+	if dir == s.cfg.Global {
+		return false
 	}
-	return targets[0], nil
+	found, _ := filepath.Glob(filepath.Join(dir, "*", "app.ts"))
+	return len(found) > 0
 }
 
-// Dir is the folder of a plugin path's project can use, the project's own
-// shadowing the environment's. It needs no runtime: it is for writing the
-// plugin's files, not calling it.
+// Dir is the folder of an environment plugin. It needs no runtime: it is for
+// writing the plugin's files, not calling it.
 func (s *Service) Dir(path, plugin string) (string, error) {
 	if !filepath.IsAbs(path) {
 		return "", errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
@@ -220,9 +216,9 @@ func (s *Service) Dir(path, plugin string) (string, error) {
 	if plugin == "" || plugin != filepath.Base(plugin) || strings.HasPrefix(plugin, ".") {
 		return "", errkind.ErrInvalid.Errorf("plugins: %q is not a plugin name", plugin)
 	}
-	for _, dir := range []string{filepath.Join(checkout(path), filepath.FromSlash(Folder)), s.cfg.Global} {
-		if _, err := os.Stat(filepath.Join(dir, plugin, "app.ts")); err == nil {
-			return filepath.Join(dir, plugin), nil
+	if s.cfg.Global != "" {
+		if _, err := os.Stat(filepath.Join(s.cfg.Global, plugin, "app.ts")); err == nil {
+			return filepath.Join(s.cfg.Global, plugin), nil
 		}
 	}
 	return "", errkind.ErrNotFound.Errorf("no plugin %q here", plugin)
@@ -264,7 +260,7 @@ func (s *Service) recentErrors(ctx context.Context) map[string]int {
 // as its input's files. A method with a confirm answers CONFIRM instead of
 // running until confirmed says the user agreed.
 func (s *Service) Call(ctx context.Context, path, name string, input json.RawMessage, files []uploads.File, confirmed bool, by Origin) (outcome.Answer, error) {
-	t, err := s.targetOf(path, name)
+	t, err := s.target(path)
 	if err != nil {
 		return outcome.Answer{}, err
 	}
@@ -280,7 +276,7 @@ func (s *Service) Subscribe(ctx context.Context, d device.ID, path, name, id str
 	if !subscriptionID.MatchString(id) {
 		return Subscribed{}, errkind.ErrInvalid.Errorf("plugins: a subscription id is 1 to 64 letters, digits, - or _")
 	}
-	t, err := s.targetOf(path, name)
+	t, err := s.target(path)
 	if err != nil {
 		return Subscribed{}, err
 	}
@@ -359,22 +355,16 @@ func (s *Service) Leave(d device.ID) {
 	}
 }
 
-// FilesChanged reloads plugins whose code moved under a watched folder, a
-// project's or the environment's own, so subscriptions show what the edited
-// code answers.
+// FilesChanged reloads the environment's plugins when their code moved, so
+// subscriptions show what the edited code answers. A project's folders are
+// never loaded, so their changes reload nothing.
 func (s *Service) FilesChanged(path string, files []string) {
+	if path != s.cfg.Global || !isDir(path) {
+		return
+	}
 	for _, f := range files {
-		if strings.Contains("/"+f, "/node_modules/") {
-			continue
-		}
-		if path == s.cfg.Global && isDir(path) {
+		if !strings.Contains("/"+f, "/node_modules/") {
 			s.reload(s.ctx, Target{Dir: s.cfg.Global})
-			return
-		}
-		if strings.HasPrefix(f, Folder+"/") {
-			if dir := filepath.Join(checkout(path), filepath.FromSlash(Folder)); isDir(dir) {
-				s.reload(s.ctx, Target{Dir: dir})
-			}
 			return
 		}
 	}
@@ -460,7 +450,7 @@ func (s *Service) running(ctx context.Context) (*server, error) {
 	}
 	bun, err := bunPath()
 	if err != nil {
-		return nil, errkind.ErrUnavailable.Errorf("plugins: install Bun (bun.sh) on this environment to run its project plugins")
+		return nil, errkind.ErrUnavailable.Errorf("plugins: install Bun (bun.sh) on this environment to run its plugins")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

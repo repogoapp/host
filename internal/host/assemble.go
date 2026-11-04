@@ -526,7 +526,7 @@ func (h *Host) recordHook(n notify.Notice) error {
 	return err
 }
 
-// projectPlugins is what cwd's project can do with plugins, for its prompt.
+// projectPlugins is what a session in cwd can do with the environment's plugins, for its prompt.
 func (h *Host) projectPlugins(cwd string) clientprompt.Plugins {
 	switch {
 	case h.Services.Plugins.Has(cwd):

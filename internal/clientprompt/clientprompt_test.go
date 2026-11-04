@@ -168,23 +168,27 @@ func TestConnectComesToTheAppFirst(t *testing.T) {
 }
 
 // Building plugins comes to a client whose cards reach them, on an
-// environment that runs them; drawing them, only once the project has some.
+// environment that runs them; drawing them, only once the environment has some.
 func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
 	both := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "plugins": 1}}
 	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
-	const build, draw = ".repogo/plugins/<name>/app.ts", "plugin:<plugin>.<method>"
+	const build, draw = "~/.repogo/plugins/<name>/app.ts", "plugin:<plugin>.<method>"
 	for _, c := range []struct {
 		name        string
 		client      device.Client
 		plugins     clientprompt.Plugins
 		build, draw bool
 	}{
-		{"a project with plugins", both, clientprompt.HasPlugins, true, true},
-		{"a project without plugins", both, clientprompt.CanAddPlugins, true, false},
+		{"an environment with plugins", both, clientprompt.HasPlugins, true, true},
+		{"an environment without plugins", both, clientprompt.CanAddPlugins, true, false},
 		{"an environment without the runtime", both, clientprompt.NoPlugins, false, false},
 		{"a client without plugin cards", clip, clientprompt.HasPlugins, false, false},
 	} {
 		prompt := clientprompt.For(c.client, c.plugins, nil)
+		// Plugins live only on the environment: no prompt teaches writing one into a project.
+		if strings.Contains(strings.ReplaceAll(prompt, "~/.repogo/plugins/<name>/app.ts", ""), ".repogo/plugins/<name>/app.ts") {
+			t.Errorf("%s: the prompt teaches a project plugin", c.name)
+		}
 		if got := strings.Contains(prompt, build); got != c.build {
 			t.Errorf("%s: building prompt = %v, want %v", c.name, got, c.build)
 		}

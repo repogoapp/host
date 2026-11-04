@@ -58,7 +58,7 @@ type CLIs interface {
 type Deps struct {
 	// Sources is the env sources a `source:` scope names.
 	Sources *envsource.Sources
-	// PluginDir is the folder of a plugin a project can use, the project's own first.
+	// PluginDir is the folder of an environment plugin a project can use.
 	PluginDir func(project, plugin string) (string, error)
 	// SharedEnv is the `.env` every plugin on this environment reads.
 	SharedEnv string

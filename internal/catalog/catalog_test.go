@@ -89,12 +89,12 @@ func fixture() catalog.Parts {
 			{ID: "grok", Name: "Grok", Error: "agent.json: no command"},
 		},
 		Plugins: []plugins.Listed{
-			{Name: "plans", Dir: "project", Description: "Plans for this project. Kept in its data folder.", Methods: []plugins.ListedMethod{
+			{Name: "plans", Description: "Plans for this project. Kept in its data folder.", Methods: []plugins.ListedMethod{
 				{Name: "plans.list", Kind: "query", Description: "Every plan."},
 				{Name: "plans.move", Kind: "mutation", Asks: true, Input: "id, status?", Description: "Move a plan to another column, " +
 					"keeping its place in the column it lands in, and tell every card showing plans so they redraw without a refresh"},
 			}},
-			{Name: "vercel", Dir: "env", Methods: []plugins.ListedMethod{{Name: "vercel.deploys", Kind: "query", Input: "project?"}}},
+			{Name: "vercel", Methods: []plugins.ListedMethod{{Name: "vercel.deploys", Kind: "query", Input: "project?"}}},
 		},
 		Servers: []mcp.ServerTools{
 			{Server: "linear", Label: "Linear", Tools: []mcp.ToolInfo{

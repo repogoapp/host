@@ -142,7 +142,7 @@ func pluginsSection(b *strings.Builder, listed []plugins.Listed, err error) {
 		return
 	}
 	for _, l := range listed {
-		fmt.Fprintf(b, "- %s, %s%s\n", l.Name, pluginDir(l.Dir), describedAs(l.Description, true))
+		fmt.Fprintf(b, "- %s%s\n", l.Name, describedAs(l.Description, true))
 		for _, m := range l.Methods {
 			b.WriteString(methodLine("  ", m, true))
 		}
@@ -212,13 +212,6 @@ func agentState(install clitool.Install) string {
 	default:
 		return "ready"
 	}
-}
-
-func pluginDir(dir string) string {
-	if dir == "env" {
-		return "the environment's"
-	}
-	return "this project's"
 }
 
 // describedAs is ": " and a description, or nothing; brief keeps its first

@@ -9,17 +9,17 @@ import (
 	"github.com/repogoapp/host/internal/plugins"
 )
 
-// Plugins are TypeScript in `<project>/.repogo/plugins/<name>/app.ts`, or in
-// `~/.repogo/plugins` for every project, run by the plugins server
-// (internal/plugins). These tools reach them from a turn.
+// Plugins are TypeScript in the environment's `~/.repogo/plugins/<name>/app.ts`,
+// for every project, run by the plugins server (internal/plugins). These tools
+// reach them from a turn.
 
-const pluginsInstructions = " `plugins` lists this project's plugins (`.repogo/plugins`, and the environment's own " +
-	"in `~/.repogo/plugins`) and their methods; `plugin_call` runs one."
+const pluginsInstructions = " `plugins` lists the environment's plugins (`~/.repogo/plugins`), which every project " +
+	"can call, and their methods; `plugin_call` runs one."
 
 var pluginsTool = tool{
 	Name: "plugins",
-	Description: "List the plugins this project can use: its own in .repogo/plugins and the environment's in " +
-		"~/.repogo/plugins (`dir` is `project` or `env`), each with its `errors` in the last hour, the `page` that shows it, " +
+	Description: "List the plugins this project can use, the environment's in ~/.repogo/plugins (a project's own " +
+		".repogo/plugins never runs; `moved` says when it has one), each with its `errors` in the last hour, the `page` that shows it, " +
 		"and a line per method: `kind` (query, mutation or stream), `asks` when it has a confirm, and `input`, its fields " +
 		"with optional ones ending in `?`; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
 		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema and confirm, its storage, " +

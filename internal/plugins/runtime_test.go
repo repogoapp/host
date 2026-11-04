@@ -60,7 +60,7 @@ func TestTheBundledRuntimeRunsAProjectsPlugins(t *testing.T) {
 		Runtime: runtime, Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
 		Emit: func(device.ID, emit.Event) error { return nil }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	root := project(t, "", map[string]string{"notes": notesPlugin})
+	root := environment(t, s, "", map[string]string{"notes": notesPlugin})
 	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), nil, true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestBundledRuntimeExecutesADurableWorkflow(t *testing.T) {
 		Runtime: entry, Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
 		Emit: func(device.ID, emit.Event) error { return nil }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	root := project(t, "", map[string]string{"reports": `import { definePlugin, workflow, z } from "@repogo/plugins";
+	root := environment(t, s, "", map[string]string{"reports": `import { definePlugin, workflow, z } from "@repogo/plugins";
 export default definePlugin({ namespace: "test.reports", workflows: {
  report: workflow(z.object({name:z.string()}), async ({name}, ctx) => {
   const greeting = await ctx.step.run("greet", () => "hello " + name);

@@ -62,12 +62,13 @@ func ticks(t *testing.T, s *Service, root string) int {
 	return n
 }
 
-// A line in the user's file is all a project plugin needs to run on a
+// A line in the user's file is all an environment plugin needs to run on a
 // schedule, and only it loads: the plugin beside it never runs.
-func TestACronLineRunsAProjectPluginAndNothingBesideIt(t *testing.T) {
+func TestACronLineRunsAPluginAndNothingBesideIt(t *testing.T) {
 	dir := sdk(t)
 	root := project(t, dir, map[string]string{"ticker": tickerPlugin, "neighbour": neighbourPlugin})
 	s := cronService(t, dir, []CronEntry{{Project: root, Plugin: "ticker", Method: "tick", Schedule: "* * * * * *"}})
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
 
 	s.reconcile(t.Context())
 	crons := s.Crons()
@@ -75,7 +76,7 @@ func TestACronLineRunsAProjectPluginAndNothingBesideIt(t *testing.T) {
 		t.Fatalf("crons = %+v", crons)
 	}
 	if !s.cronDirs[filepath.Join(realPath(t, root), ".repogo", "plugins")] {
-		t.Fatalf("the project's folder got no schedules: %v", s.cronDirs)
+		t.Fatalf("the environment's folder got no schedules: %v", s.cronDirs)
 	}
 	// ticks() calls the folder, which opens it in full: so check the neighbour first.
 	if _, err := os.Stat(filepath.Join(root, "neighbour-ran")); err == nil {
@@ -89,6 +90,7 @@ func TestAProjectTheFileDoesntNameRunsNothing(t *testing.T) {
 	dir := sdk(t)
 	root := project(t, dir, map[string]string{"neighbour": neighbourPlugin})
 	s := cronService(t, dir, []CronEntry{})
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
 	s.reconcile(t.Context())
 	s.reconcile(t.Context())
 	if _, err := os.Stat(filepath.Join(root, "neighbour-ran")); err == nil {
@@ -114,6 +116,7 @@ func TestBadLinesSayWhyAndTheRestRun(t *testing.T) {
 		{Project: root, Plugin: "ticker", Method: "tick", Schedule: "*/2 * * * * *"},
 		{Project: root, Plugin: "ticker", Method: "count", Schedule: "* * * * *", Enabled: &off},
 	})
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
 	s.reconcile(t.Context())
 	crons := s.Crons()
 	want := []string{"plugin is a plugin's folder name", "project is an absolute path", "there's no plugin missing",
@@ -135,6 +138,7 @@ func TestAnUnreadableFilePausesEverySchedule(t *testing.T) {
 	dir := sdk(t)
 	root := project(t, dir, map[string]string{"ticker": tickerPlugin})
 	s := cronService(t, dir, []CronEntry{{Project: root, Plugin: "ticker", Method: "tick", Schedule: "* * * * *"}})
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
 	s.reconcile(t.Context())
 	if len(s.cronDirs) != 1 {
 		t.Fatalf("cronDirs = %v", s.cronDirs)
@@ -169,6 +173,7 @@ func TestOverlappingReconcilesEndWhereTheFileSays(t *testing.T) {
 	dir := sdk(t)
 	root := project(t, dir, map[string]string{"ticker": tickerPlugin})
 	s := cronService(t, dir, []CronEntry{{Project: root, Plugin: "ticker", Method: "tick", Schedule: "* * * * *"}})
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
 	done := make(chan struct{})
 	for range 4 {
 		go func() {
@@ -220,6 +225,7 @@ func TestListShowsTheCrons(t *testing.T) {
 	dir := sdk(t)
 	root := project(t, dir, map[string]string{"ticker": tickerPlugin})
 	s := cronService(t, dir, []CronEntry{{Project: root, Plugin: "ticker", Method: "tick", Schedule: "*/5 * * * *"}})
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
 	for _, plugin := range []string{"", "ticker"} {
 		list, err := s.List(t.Context(), root, plugin)
 		if err != nil || list.Error != nil {
@@ -244,7 +250,7 @@ func TestListShowsTheCrons(t *testing.T) {
 func TestCallsCarryTheirCaller(t *testing.T) {
 	dir := sdk(t)
 	s, _ := newService(t, dir)
-	root := project(t, dir, map[string]string{"who": `import { definePlugin, method, z } from "@repogo/plugins";
+	root := environment(t, s, dir, map[string]string{"who": `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({ methods: { caller: method(z.object({}), (_, ctx) => ctx.caller) } });
 `})
 	for _, caller := range []Caller{CallerCard, CallerAgent} {
@@ -262,4 +268,19 @@ func realPath(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return real
+}
+
+// A line naming a plugin only a project has says it moved, and runs nothing.
+func TestACronOnAProjectsOwnPluginSaysItMoved(t *testing.T) {
+	dir := sdk(t)
+	root := project(t, dir, map[string]string{"neighbour": neighbourPlugin})
+	s := cronService(t, dir, []CronEntry{{Project: root, Plugin: "neighbour", Method: "x", Schedule: "* * * * *"}})
+	s.cfg.Global = t.TempDir()
+	s.reconcile(t.Context())
+	if crons := s.Crons(); len(crons) != 1 || !strings.Contains(crons[0].Error, "no longer runs") {
+		t.Fatalf("crons = %+v", crons)
+	}
+	if _, err := os.Stat(filepath.Join(root, "neighbour-ran")); err == nil {
+		t.Fatal("a project's plugin ran on a schedule")
+	}
 }

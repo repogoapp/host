@@ -41,7 +41,7 @@ func Sections(c device.Client, plugins Plugins, servers []string) []Section {
 	mcpCards := cards.met && c.Features["mcp"] >= 1 && len(servers) > 0
 	hostCards := cards.met && c.Features["repogo"] >= 1
 	runtime := requirement{plugins != NoPlugins, "plugin runtime available"}
-	installed := requirement{plugins == HasPlugins, "project has plugins"}
+	installed := requirement{plugins == HasPlugins, "environment has plugins"}
 	connected := requirement{len(servers) > 0, "project has enabled MCP servers"}
 	data := requirement{(pluginCards && installed.met) || mcpCards || hostCards, "at least one available card data source"}
 	specs := []sectionSpec{

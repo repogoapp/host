@@ -96,7 +96,8 @@ func sdk(t *testing.T) string {
 	return dir
 }
 
-// project is a folder with the SDK linked into .repogo/plugins and these plugins written.
+// project is a folder with the SDK linked into .repogo/plugins and these plugins written:
+// a repo that still ships plugin code, or, through environment, the home folder.
 func project(t *testing.T, sdkDir string, plugins map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -112,6 +113,15 @@ func project(t *testing.T, sdkDir string, plugins map[string]string) string {
 	for name, source := range plugins {
 		writePlugin(t, root, name, source)
 	}
+	return root
+}
+
+// environment is project's folder made the service's environment plugins
+// folder, the only one the host runs; the folder's top stands in for home.
+func environment(t *testing.T, s *Service, sdkDir string, plugins map[string]string) string {
+	t.Helper()
+	root := project(t, sdkDir, plugins)
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
 	return root
 }
 
@@ -183,7 +193,7 @@ func TestAProjectWithoutPluginsIsNotFound(t *testing.T) {
 func TestCallAndListRunTheProjectsPlugins(t *testing.T) {
 	dir := sdk(t)
 	s, _ := newService(t, dir)
-	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	root := environment(t, s, dir, map[string]string{"notes": notesPlugin})
 
 	list, err := s.List(t.Context(), root, "")
 	if err != nil || list.Error != nil || !strings.Contains(string(list.Result), `"notes.texts"`) {
@@ -207,7 +217,7 @@ func TestCallAndListRunTheProjectsPlugins(t *testing.T) {
 func TestASubscriptionPushesToItsDevice(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
-	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	root := environment(t, s, dir, map[string]string{"notes": notesPlugin})
 
 	sub, err := s.Subscribe(t.Context(), "phone", root, "notes.texts", "s1", nil)
 	if err != nil || sub.Subscription == "" || sub.Revision != 1 || len(texts(t, sub.Result)) != 0 {
@@ -240,7 +250,7 @@ export default definePlugin({
 func TestAStreamPushesItsItems(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
-	root := project(t, dir, map[string]string{"ticks": ticksPlugin})
+	root := environment(t, s, dir, map[string]string{"ticks": ticksPlugin})
 
 	sub, err := s.Subscribe(t.Context(), "phone", root, "ticks.ticks", "s1", json.RawMessage(`{"count":3}`))
 	if err != nil || !sub.Stream || string(sub.Result) != "[]" {
@@ -256,7 +266,7 @@ func TestAStreamPushesItsItems(t *testing.T) {
 func TestLeavingEndsADevicesSubscriptions(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
-	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	root := environment(t, s, dir, map[string]string{"notes": notesPlugin})
 	if _, err := s.Subscribe(t.Context(), "phone", root, "notes.texts", "s2", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +293,7 @@ func TestLeavingEndsADevicesSubscriptions(t *testing.T) {
 func TestEditedPluginsReloadBeforeTheNextCall(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
-	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	root := environment(t, s, dir, map[string]string{"notes": notesPlugin})
 	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), nil, true, Origin{Caller: CallerCard}); err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +323,7 @@ func TestEditedPluginsReloadBeforeTheNextCall(t *testing.T) {
 func TestALostServerTakesItsSubscriptionsBackUp(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
-	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	root := environment(t, s, dir, map[string]string{"notes": notesPlugin})
 	sub, err := s.Subscribe(t.Context(), "phone", root, "notes.texts", "s5", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -341,7 +351,7 @@ func TestALostServerTakesItsSubscriptionsBackUp(t *testing.T) {
 func TestSubscriptionIDsBelongToTheirDevice(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
-	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	root := environment(t, s, dir, map[string]string{"notes": notesPlugin})
 	if _, err := s.Subscribe(t.Context(), "phone", root, "notes.texts", "list", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +372,7 @@ func TestSubscriptionIDsBelongToTheirDevice(t *testing.T) {
 func TestSubscribingAgainReplaces(t *testing.T) {
 	dir := sdk(t)
 	s, p := newService(t, dir)
-	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	root := environment(t, s, dir, map[string]string{"notes": notesPlugin})
 	for range 2 {
 		if _, err := s.Subscribe(t.Context(), "phone", root, "notes.texts", "list", nil); err != nil {
 			t.Fatal(err)
@@ -387,9 +397,9 @@ func TestSubscribingAgainReplaces(t *testing.T) {
 	}
 }
 
-// The environment's own plugins serve every project, under the project's own:
-// a method runs with the caller's project as its root, the manifest says where
-// each plugin is, and a project plugin of the same name wins.
+// The environment's plugins serve every project: a method runs with the
+// caller's project as its root, and a project's plugin of the same name never
+// takes its place.
 func TestTheEnvironmentsPluginsServeEveryProject(t *testing.T) {
 	dir := sdk(t)
 	s, _ := newService(t, dir)
@@ -412,8 +422,8 @@ export default definePlugin({
 		t.Fatalf("vercel.root = %s %+v %v, want the project", got.Result, got.Error, err)
 	}
 	mine, err := s.Call(t.Context(), root, "notes.texts", nil, nil, true, Origin{Caller: CallerCard})
-	if err != nil || strings.Join(texts(t, mine.Result), ",") != "mine" {
-		t.Fatalf("notes.texts = %s %v, want the project's plugin", mine.Result, err)
+	if err != nil || mine.Error != nil || len(texts(t, mine.Result)) != 0 {
+		t.Fatalf("notes.texts = %s %+v %v, want the environment's plugin, not the project's", mine.Result, mine.Error, err)
 	}
 	list, err := s.List(t.Context(), root, "")
 	if err != nil || list.Error != nil {
@@ -422,18 +432,14 @@ export default definePlugin({
 	var manifest struct {
 		Plugins []struct {
 			Name string `json:"name"`
-			Dir  string `json:"dir"`
 		} `json:"plugins"`
+		Moved string `json:"moved"`
 	}
 	if err := json.Unmarshal(list.Result, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	dirs := map[string]string{}
-	for _, p := range manifest.Plugins {
-		dirs[p.Name] = p.Dir
-	}
-	if len(manifest.Plugins) != 2 || dirs["notes"] != "project" || dirs["vercel"] != "env" {
-		t.Fatalf("manifest dirs = %v", dirs)
+	if len(manifest.Plugins) != 2 || manifest.Moved != Moved {
+		t.Fatalf("manifest = %+v, want the environment's two and the moved note", manifest)
 	}
 	full, err := s.List(t.Context(), root, "vercel")
 	if err != nil || !strings.Contains(string(full.Result), `"path":"`+filepath.Join(s.cfg.Global, "vercel")+`"`) {
@@ -456,7 +462,7 @@ func TestAPluginsNoticeReachesTheHost(t *testing.T) {
 	s, _ := newService(t, dir)
 	got := make(chan Notice, 1)
 	s.cfg.Notify = func(n Notice) { got <- n }
-	root := project(t, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
+	root := environment(t, s, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
   methods: { alert: method(z.object({}), (_, ctx) => { ctx.notify({ title: "Build failed", body: "see logs", page: "x.md?a=1" }); return null; }) },
 });
@@ -484,7 +490,7 @@ func TestAPluginsMCPCallReachesTheHost(t *testing.T) {
 		got <- asked{plugin, method, string(params)}
 		return json.RawMessage(`{"result":{"data":[{"id":"cus_1"}]}}`), nil
 	}
-	root := project(t, dir, map[string]string{"shop": `import { definePlugin, method, z } from "@repogo/plugins";
+	root := environment(t, s, dir, map[string]string{"shop": `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
   methods: {
     customers: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers", { limit: 1 }), { kind: "query" }),
@@ -522,7 +528,7 @@ func TestAPluginsHostCallReachesTheHost(t *testing.T) {
 		}
 		return json.RawMessage(`{"branch":"main"}`), nil
 	}
-	root := project(t, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
+	root := environment(t, s, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
   methods: {
     status: method(z.object({}), (_, ctx) => ctx.host("git.status", { path: "/p" })),
@@ -543,5 +549,50 @@ export default definePlugin({
 	}
 	if a := <-got; a.params != "{}" {
 		t.Fatalf("a call without params sent %q, want {}", a.params)
+	}
+}
+
+// A repo's plugin code never runs: listing, calling and subscribing from a
+// project whose .repogo/plugins writes a file on import never makes the file.
+func TestAProjectsPluginCodeNeverRuns(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	environment(t, s, dir, map[string]string{"notes": notesPlugin})
+	evil := `import { definePlugin, method, z } from "@repogo/plugins";
+import { join, resolve } from "node:path";
+await Bun.write(join(resolve(import.meta.dir, "..", "..", ".."), "evil-ran"), "yes");
+export default definePlugin({ methods: { go: method(z.object({}), () => "ran", { kind: "query" }) } });
+`
+	root := project(t, dir, map[string]string{"evil": evil, "notes": evil})
+
+	if _, err := s.List(t.Context(), root, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Call(t.Context(), root, "evil.go", nil, nil, true, Origin{Caller: CallerAgent}); err != nil || got.Error == nil {
+		t.Fatalf("evil.go = %s %v, want not found", got.Result, err)
+	}
+	if _, err := s.Call(t.Context(), root, "notes.texts", nil, nil, true, Origin{Caller: CallerCard}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Subscribe(t.Context(), "phone", root, "evil.go", "a", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.FilesChanged(root, []string{".repogo/plugins/evil/app.ts"})
+	if _, err := os.Stat(filepath.Join(root, "evil-ran")); err == nil {
+		t.Fatal("a project's plugin code ran")
+	}
+	if !s.LeftInProject(root) {
+		t.Fatal("the project's leftover plugins should be reported")
+	}
+}
+
+// A project with plugin code and an environment without plugins says why.
+func TestAProjectWithOnlyItsOwnPluginsSaysTheyMoved(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	root := project(t, dir, map[string]string{"notes": notesPlugin})
+	_, err := s.List(t.Context(), root, "")
+	if err == nil || !strings.Contains(err.Error(), "~/.repogo/plugins") {
+		t.Fatalf("list = %v, want the moved note", err)
 	}
 }

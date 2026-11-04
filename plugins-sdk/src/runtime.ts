@@ -60,9 +60,11 @@ const sampleLimit = 200;
 
 /** A schedule as the runtime keeps it: read once, with its last run. */
 type CronJob = {
-  /** The plugin, method, schedule and zone: an entry the host sends again keeps its job, and its state. */
+  /** The plugin, method, schedule, zone and root: an entry the host sends again keeps its job, and its state. */
   signature: string;
   plugin: string;
+  /** The project the run gets as `ctx.root`; none keeps the Worker's own. */
+  root?: string;
   /** `<plugin>.<method>`. */
   method: string;
   schedule: string;
@@ -426,7 +428,7 @@ export class Runtime {
     const statuses: CronStatus[] = [];
     for (const entry of entries) {
       const timezone = entry.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const signature = `${entry.plugin}.${entry.method} ${entry.schedule} ${timezone}`;
+      const signature = `${entry.plugin}.${entry.method} ${entry.schedule} ${timezone} ${entry.root ?? ""}`;
       try {
         const job = kept.get(signature) ?? this.cronJob(entry, timezone, signature);
         jobs.push(job);
@@ -457,7 +459,7 @@ export class Runtime {
     const nextRunAt = nextDue(parsed, Date.now(), timezone);
     if (nextRunAt === null) throw new Error(`"${entry.schedule}" is never due`);
     return {
-      signature, plugin: entry.plugin, method: name, schedule: entry.schedule, timezone, parsed,
+      signature, plugin: entry.plugin, root: entry.root, method: name, schedule: entry.schedule, timezone, parsed,
       nextRunAt, lastRunAt: null, lastDurationMs: null, lastError: null, running: false, runs: 0,
     };
   }
@@ -478,7 +480,7 @@ export class Runtime {
       job.running = true;
       job.lastRunAt = now;
       const startedAt = Date.now();
-      started.push(this.call(job.method, {}, { caller: "cron" }).then(
+      started.push(this.call(job.method, {}, { caller: "cron", root: job.root }).then(
         () => { job.lastError = null; },
         // The call recorded the error under the cron's run; the job keeps its message for `plugins`.
         (error) => { job.lastError = toCallError(error).message; },
