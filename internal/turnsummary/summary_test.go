@@ -12,7 +12,8 @@ func TestTextTakesTheRecapElseTheOpening(t *testing.T) {
 		{"recap on one line", "Built it.\n<recap>Renamed the column.</recap>\n", "Renamed the column."},
 		{"recap then ui fence", "Done.\n\n<recap>Renamed the column.</recap>\n\n```ui\n<List>\n  <Item label=\"<recap>\"/>\n</List>\n```\n", "Renamed the column."},
 		{"recap left open", "Done.\n\n<recap>Renamed it.\n\n```ui\n<Text>hi</Text>\n```", "Renamed it."},
-		{"recap then prose", "<recap>Early.</recap>\n\nThen the answer.", "<recap>Early.</recap> Then the answer."},
+		{"recap then prose", "Answer.\n\n<recap>Early.</recap>\n\nSources:\n- [a](https://a.b)", "Early."},
+		{"open recap then prose", "<recap>Early.\n\n```go\nx\n```\n\nMore.", "<recap>Early. More."},
 		{"recap in code", "Look:\n\n```\n<recap>in code</recap>\n```", "Look:"},
 		{"blockquote is prose", "Hi.\n\n> outer\n> > inner", "Hi. outer inner"},
 		{"links and images", "See [the plan](https://x.y/p) and ![shot](a.png).", "See the plan and shot."},
@@ -33,7 +34,9 @@ func TestStripKeepsCardsAndUnrecappedText(t *testing.T) {
 		{"recap last", "Built it.\n\n<recap>\nDone.\n</recap>\n", "Built it."},
 		{"cards kept", "Built it.\n\n<recap>Done.</recap>\n\n```ui\n<Text>hi</Text>\n```\n", "Built it.\n\n```ui\n<Text>hi</Text>\n```"},
 		{"only a recap", "<recap>Done.</recap>", ""},
-		{"prose after", "<recap>Early.</recap>\n\nMore.", "<recap>Early.</recap>\n\nMore."},
+		{"prose after", "Answer.\n\n<recap>Early.</recap>\n\nSources:\n- [a](https://a.b)", "Answer.\n\nSources:\n- [a](https://a.b)"},
+		{"tag quoted inside", "Answer.\n\n<recap>\nNow a closed `</recap>` is stripped.\n</recap>\n\n```ui\n<Text>hi</Text>\n```", "Answer.\n\n```ui\n<Text>hi</Text>\n```"},
+		{"open, prose after", "<recap>Early.\n\n```go\nx\n```", "<recap>Early.\n\n```go\nx\n```"},
 		{"in code", "```md\n<recap>x</recap>\n```", "```md\n<recap>x</recap>\n```"},
 		{"none", "Plain.", "Plain."},
 	}
@@ -70,8 +73,8 @@ func TestVisibleHoldsTheRecapBackAndOnlyGrows(t *testing.T) {
 	if got := Visible("A\n<rest", false); got != "A\n<rest" {
 		t.Fatalf("not a tag = %q", got)
 	}
-	// A recap followed by prose was not the recap: shown when the turn ends.
-	if got := Visible("<recap>x</recap>\n\nMore.", true); got != "<recap>x</recap>\n\nMore." {
+	// Text after a closed recap is shown when the turn ends, the recap still not.
+	if got := Visible("A.\n\n<recap>x</recap>\n\nSources.", true); got != "A.\n\nSources." {
 		t.Fatalf("not last = %q", got)
 	}
 }

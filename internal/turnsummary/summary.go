@@ -33,8 +33,9 @@ func Text(message string) string {
 }
 
 // Split takes the recap off an agent's message: a <recap> line outside code,
-// through </recap> (or the next fence or the end, if left open), with only ui
-// fences after it. It returns the message without it, cards kept, and the recap.
+// through </recap>, keeping whatever follows (a tool's Sources list, cards).
+// One left open runs to the next fence or the end, and counts only with ui
+// fences after it. It returns the message without it and the recap.
 func Split(message string) (rest, recap string, ok bool) {
 	start := recapLine(message)
 	if start < 0 {
@@ -42,14 +43,16 @@ func Split(message string) (rest, recap string, ok bool) {
 	}
 	body := message[start+strings.Index(message[start:], openTag)+len(openTag):]
 	after := ""
-	if end := strings.Index(body, closeTag); end >= 0 {
-		body, after = body[:end], body[end+len(closeTag):]
-	} else if loc := fenceLine.FindStringIndex(body); loc != nil {
-		body, after = body[:loc[0]], body[loc[0]:]
-	}
-	for _, b := range parse(after) {
-		if b.kind != fence || b.info != "ui" {
-			return message, "", false
+	if loc := closeLine.FindStringIndex(body); loc != nil {
+		body, after = body[:loc[1]-len(closeTag)], body[loc[1]:]
+	} else {
+		if loc := fenceLine.FindStringIndex(body); loc != nil {
+			body, after = body[:loc[0]], body[loc[0]:]
+		}
+		for _, b := range parse(after) {
+			if b.kind != fence || b.info != "ui" {
+				return message, "", false
+			}
 		}
 	}
 	rest = strings.TrimRight(message[:start], " \t\n")
@@ -124,6 +127,9 @@ type block struct {
 var (
 	fenceOpen = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})\\s*(\\S*)")
 	fenceLine = regexp.MustCompile("(?m)^ {0,3}(`{3,}|~{3,})")
+	// closeLine is a </recap> that ends its line, so one quoted in inline
+	// code (`</recap>`) mid-recap doesn't close it.
+	closeLine = regexp.MustCompile(`(?m)</recap>[ \t]*$`)
 )
 
 // parse splits markdown into prose and code fences.
