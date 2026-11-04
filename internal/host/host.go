@@ -293,6 +293,20 @@ const shutdownGrace = 5 * time.Second
 // restarting the host.
 const stopGrace = 20 * time.Second
 
+// turnStopGrace bounds how long Close waits for running turns to settle.
+const turnStopGrace = 10 * time.Second
+
+// stopTurns ends every running turn before what they write to closes. The
+// host's context is already cancelled when closers run, so it waits on a copy
+// that is not.
+func (h *Host) stopTurns() {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(h.ctx), turnStopGrace)
+	defer cancel()
+	if err := h.mgr.StopAll(ctx); err != nil {
+		h.log.Warn("stopping turns at shutdown", "err", err)
+	}
+}
+
 // Close stops admitting devices, cancels the host's context, waits for every
 // owned worker, and only then releases what they use, newest first. Safe to
 // call more than once and after a failed New.

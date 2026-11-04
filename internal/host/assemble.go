@@ -264,6 +264,10 @@ func (h *Host) openChats() error {
 		return fmt.Errorf("load queued turns: %w", err)
 	}
 	h.mgr.Restore(queues)
+	// Closers run newest first, so this one runs before the database's: running
+	// turns stop and settle into an open store, and queued ones are held in
+	// state.db for the next start, as an update leaves them.
+	h.onClose(h.stopTurns)
 	wire := chatwire.New(h.agents.Labelers)
 	h.live = chatlive.New(h.ctx, chatlive.Deps{
 		Sessions: h.sessions, Store: h.db, Emit: h.emitter, Turns: h.mgr, Log: h.log,
