@@ -29,9 +29,6 @@ unset REPOGO_RESTART_DETACHED
 
 cd "$(dirname "$0")/.."
 
-GO_TAGS=""
-[ -f internal/session/native/lib/librepogo_import.a ] && GO_TAGS="-tags native"
-
 PORT="${REPOGO_PORT:-51999}"
 LOG="${TMPDIR:-/tmp}/repogo-host.log"
 BIN="${TMPDIR:-/tmp}/repogo-host"
@@ -40,7 +37,7 @@ say() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 
 # Compile before touching the running host, so a broken build leaves it up.
 say "Building host"
-go build $GO_TAGS -o "$BIN" ./repogo
+go build -o "$BIN" ./repogo
 
 # Dev only: Go profiles on loopback, for bench/monitor and `go tool pprof`.
 export REPOGO_PPROF="${REPOGO_PPROF:-127.0.0.1:6061}"

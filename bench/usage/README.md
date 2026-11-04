@@ -26,7 +26,7 @@ outside the timer. Warm timing measures the public History call after the
 index is populated, including grouping, pricing, session counts and sorting.
 
 These are synthetic Go-path measurements, not a production-history replay.
-They exclude native Rust parsing, network/phone latency, UI rendering,
+They exclude network/phone latency, UI rendering,
 large tool-result payloads, forks and duplicate transcript copies. Prompt-word
 and task attribution are not implemented or measured by this benchmark.
 

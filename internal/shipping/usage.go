@@ -57,12 +57,6 @@ type Provider interface {
 	NewUsageParser() func([]byte) *Record
 }
 
-// FileParser is a Provider that can read a whole file's usage at once, the
-// Rust parser when the host links it. ok false means use NewUsageParser.
-type FileParser interface {
-	ParseUsageFile(path string) (records []Record, ok bool)
-}
-
 // Positive is a JSON token count as an integer; anything else counts as zero.
 func Positive(v any) int64 {
 	n, ok := v.(float64)

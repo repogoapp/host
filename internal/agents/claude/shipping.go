@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/repogoapp/host/internal/agent"
-	"github.com/repogoapp/host/internal/session/native"
 	"github.com/repogoapp/host/internal/shipping"
 )
 
@@ -104,10 +103,4 @@ func (p *Provider) NewUsageParser() func([]byte) *shipping.Record {
 		}
 		return parseClaude(line)
 	}
-}
-
-// ParseUsageFile reads a whole file's usage with the Rust parser when the
-// host links it; the ledger falls back to NewUsageParser otherwise.
-func (p *Provider) ParseUsageFile(path string) ([]shipping.Record, bool) {
-	return shipping.ParseNative(native.ParserClaude, path)
 }

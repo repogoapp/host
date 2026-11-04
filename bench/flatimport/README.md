@@ -37,7 +37,7 @@ or host-to-phone initial sync. Files are warm in the OS cache. Cache writes use
 `os.WriteFile` without fsync. SQLite uses production settings. The fixture does
 not reproduce large histories, resumed sessions, subagents, attachments, or the
 full distribution of real tool output sizes. No real history or credentials are
-read. The benchmark uses the Go parser, not the optional native Rust parser.
+read. The benchmark uses the Go parser.
 
 FlatBuffers uses generated object APIs plus explicit conversion to the host's
 existing event structs; conversions, allocations, and buffer construction are

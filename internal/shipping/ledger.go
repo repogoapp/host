@@ -346,15 +346,10 @@ func longest(path string, records []Record) map[string]Record {
 	return out
 }
 
-// parseFile reads one transcript's requests: the Rust parser when linked,
-// else the provider's line parser. Only complete lines count; a trailing
-// fragment is a write in progress, read whole by a later sweep.
+// parseFile reads one transcript's requests with the provider's line
+// parser. Only complete lines count; a trailing fragment is a write in
+// progress, read whole by a later sweep.
 func parseFile(f transcript) ([]Record, error) {
-	if native, ok := f.source.(FileParser); ok {
-		if records, ok := native.ParseUsageFile(f.path); ok {
-			return records, nil
-		}
-	}
 	handle, err := os.Open(f.path)
 	if err != nil {
 		return nil, err

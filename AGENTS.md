@@ -77,7 +77,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
 | `git`, `github` | Git reporting and shipping, `gh` wrapper and PRs. One git runner in `git` | a second `exec.Command("git"` |
 | leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`) | One resource each | |
-| `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing, Rust mirrors it in `session/native` | resolving provider homes itself |
+| `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing | resolving provider homes itself |
 | `emit`, `errkind`, `outcome`, `par`, `sqlitedb`, `syscmd`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, what a plugin method or MCP tool answers, fan-out, SQLite pragmas, short system tools, `~/.repogo`, dev log copies | a second way to do the same |
 | `wiredoc`, `clientcontract`, `lint`, `testwait` | Development only: the generated wire docs and the clients' contracts (Swift and Kotlin), the code standards as tests, polling in tests | imported by production code |
 
@@ -108,10 +108,3 @@ decoders) follow the same order, families A–Z with a blank line between.
 Code that runs steps in sequence (a test that must create a branch before
 switching to it, a store) keeps its own order.
 
-## Native transcript parser
-
-The Go parsers in `internal/agents/{claude,codex}` are canonical; `internal/session/native/rust`
-is a Rust port linked with `-tags native` (`make native`). Both must agree on
-every event field because store content hashes depend on it: run
-`make native-check` after touching either parser. `make native-check-local`
-is opt-in: it compares them on the user's own local history, so never in CI.

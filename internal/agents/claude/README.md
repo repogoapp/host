@@ -29,7 +29,6 @@ names there.
 | --- | --- |
 | `sessions.go` | Reads `~/.claude/projects/<encoded-cwd>/<session>.jsonl`: lists chats and parses transcripts into events, so terminal sessions show up in RepoGo. |
 | `claudeblock.go` | Decodes the content blocks in a transcript line. |
-| `native.go` | Parses a whole transcript with the Rust parser, falling back to the Go one. |
 | `turns.go` | Works out which turn each transcript row belongs to. |
 | `subagent.go` | Finds a subagent's transcript from the tool call that started it. |
 

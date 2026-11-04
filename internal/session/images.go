@@ -45,8 +45,7 @@ func splitDataURL(url string) (mediaType, data string) {
 }
 
 // inlineImagePath writes base64 image data once to attachments/transcripts,
-// named by FNV-1a over the text as native/rust also names it; empty when it
-// cannot be stored.
+// named by FNV-1a over the text; empty when it cannot be stored.
 func inlineImagePath(mediaType, data string) string {
 	dir, err := agent.AttachmentsDir()
 	if err != nil || data == "" {

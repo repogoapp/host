@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
-	"github.com/repogoapp/host/internal/session/native"
 )
 
 const (
@@ -75,22 +74,8 @@ func ReadFile(path string, byteOffset int64, p Provider, sessionID string, start
 	return events, consumed, nil
 }
 
-// readSegment is ReadFile from the start of a file, which a sync does
-// thousands of times: the native parser when built in, else (or when it
-// declines) ReadFile, so a sync never fails on the library's account.
+// readSegment is ReadFile from the start of a file.
 func readSegment(path string, p Provider, sessionID string, startSeq uint64) ([]agent.Event, error) {
-	if reader, ok := p.(FileParser); ok && native.Available {
-		events, err := reader.ParseFile(path, sessionID)
-		if err == nil {
-			seq := startSeq
-			for i := range events {
-				seq++
-				events[i].Seq = seq
-				events[i].SessionID = sessionID
-			}
-			return events, nil
-		}
-	}
 	events, _, err := ReadFile(path, 0, p, sessionID, startSeq)
 	return events, err
 }

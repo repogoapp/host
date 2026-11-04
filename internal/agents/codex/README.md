@@ -25,7 +25,6 @@ same names there.
 | File | What it does |
 | --- | --- |
 | `sessions.go` | Reads `~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<uuid>.jsonl`: lists chats and parses rollouts into events, so terminal sessions show up in RepoGo. |
-| `native.go` | Parses a whole rollout with the Rust parser, falling back to the Go one. |
 | `turns.go` | Works out which turn each rollout row belongs to, including where turns overlap. |
 | `subagent.go` | Finds the rollout a `spawn_agent` call started. |
 

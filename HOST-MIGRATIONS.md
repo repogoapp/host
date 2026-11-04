@@ -66,10 +66,6 @@ deleted**. Never delete it to "migrate".
 - **A parser rule changed** (a new field read from transcripts, a fix): bump `ledgerVersion`. The
   host forgets its file fingerprints and re-reads every transcript, correcting rows in place. Rows
   whose transcript is gone keep their old values (for `cwd`, empty: they count in totals, in no project).
-- **The Go and Rust parsers must agree.** A field read from transcripts goes into both
-  (`internal/agents/{claude,codex}/shipping.go` and `internal/session/native/rust/src/usage.rs`,
-  plus the FFI layout in `ffi.rs` and `native.go`). `make native-check` must pass;
-  `make native-check-local` compares them on the transcripts on this Mac.
 
 ### `activity`: spans, never totals
 
@@ -144,7 +140,7 @@ changes into one release when you can, so the resync and the re-read happen once
 - [ ] **`schema.sql` changed?** Fine; expect a resync, and say so in the release notes.
 - [ ] **`state.sql` changed?** Only nullable columns added; nothing renamed or retyped.
 - [ ] **Ledger changed?** Column added with a default. If the parsers changed, `ledgerVersion`
-      bumped, Go and Rust both updated, `make native-check` passes.
+      bumped.
 - [ ] **New result or event field?** Tagged `omitempty`.
 - [ ] **New param?** Optional. If an older host would answer *wrongly* without it, a capability gates it.
 - [ ] **Contract regenerated?** `conformance -update`, plus `emit -update` for event types.

@@ -293,12 +293,6 @@ type Normalizer interface {
 	Normalize([]agent.Event) []agent.Event
 }
 
-// FileParser is a Provider with a native parser for whole files. It is only
-// tried in a build that carries one, and an error falls back to ParseLine.
-type FileParser interface {
-	ParseFile(path, sessionID string) ([]agent.Event, error)
-}
-
 // SnapshotReader exports non-JSONL native stores through their owning CLI.
 type SnapshotReader interface {
 	Snapshot(Meta) ([]agent.Event, error)

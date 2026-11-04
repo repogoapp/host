@@ -9,11 +9,6 @@
 #   scripts/dev.sh --pair    also print a fresh pairing QR
 set -euo pipefail
 
-# Link the Rust transcript parser when it has been built (`make native`);
-# otherwise the pure-Go parser is used and nothing here changes.
-GO_TAGS=""
-[ -f "$(dirname "$0")/../internal/session/native/lib/librepogo_import.a" ] && GO_TAGS="-tags native"
-
 cd "$(dirname "$0")/.."
 
 PORT="${REPOGO_PORT:-51999}"
@@ -100,7 +95,7 @@ export REPOGO_PLUGINS_SDK="${REPOGO_PLUGINS_SDK:-$PWD/plugins-sdk}"
 # Compile BEFORE touching anything running. A broken build should cost three
 # seconds, not a killed host and a half-finished deploy.
 say "Building host"
-go build $GO_TAGS -o "$BIN" ./repogo
+go build -o "$BIN" ./repogo
 
 if [ "$pairing" = true ] && [ "$host_only" = false ]; then
   # Pairing codes live two minutes and the iOS build takes about one, so the
