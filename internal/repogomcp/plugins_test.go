@@ -18,16 +18,6 @@ import (
 	"github.com/repogoapp/host/internal/plugins"
 )
 
-// pluginsProject is a project folder with a .repogo/plugins folder in it.
-func pluginsProject(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, plugins.Folder), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 // pluginsService runs plugins from sdk's source; "" is a host without a runtime.
 func pluginsService(t *testing.T, sdk string) *plugins.Service {
 	t.Helper()
@@ -93,11 +83,10 @@ func toolNames(t *testing.T, s *Server, token string) string {
 }
 
 // A host without a runtime (a dev build without the SDK) offers neither tool,
-// even in a project with plugins, and refuses a call by name.
+// and refuses a call by name.
 func TestPluginsToolsNeedTheSDK(t *testing.T) {
-	root := pluginsProject(t)
 	s := pluginsServer(t, pluginsService(t, ""))
-	token := attachIn(t, s, root)
+	token := attachIn(t, s, t.TempDir())
 	if got := toolNames(t, s, token); got != "browser" {
 		t.Fatalf("tools without the SDK: %q", got)
 	}
@@ -110,12 +99,9 @@ func TestPluginsToolsNeedTheSDK(t *testing.T) {
 // plugin; an environment without plugins says so.
 func TestPluginsToolsComeWithTheRuntime(t *testing.T) {
 	s := pluginsServer(t, pluginsService(t, "/sdk"))
-	if got := toolNames(t, s, attachIn(t, s, pluginsProject(t))); got != "browser,plugins,plugin_call" {
-		t.Fatalf("project with plugins: %q", got)
-	}
 	token := attachIn(t, s, t.TempDir())
 	if got := toolNames(t, s, token); got != "browser,plugins,plugin_call" {
-		t.Fatalf("project without plugins: %q", got)
+		t.Fatalf("tools with the runtime: %q", got)
 	}
 	if got := callTool(t, s, token, "plugins", map[string]any{}); !got.IsError || !strings.Contains(got.Content[0].Text, "this environment has no plugins") {
 		t.Fatalf("plugins in a project without them: %+v", got)

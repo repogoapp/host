@@ -24,22 +24,26 @@ type Page struct {
 }
 
 // pages is every plugin Data a link can reach in a project's pages (.repogo,
-// .repogo/tabs, old plugin pages folders: markup, so they still open), then in
-// the environment plugins' pages. A page is a .ui or .md file.
+// .repogo/tabs), then in the environment plugins' pages. A page is a .ui or
+// .md file.
 func pages(root, global string) []Page {
 	var out []Page
 	_ = filepath.WalkDir(filepath.Join(root, ".repogo"), func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !isPageFile(path) {
+		if err != nil {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		// At the home folder these are the environment's, listed below by their ~ path.
-		if pluginPages.MatchString(dir) && filepath.Join(root, filepath.FromSlash(Folder)) == global {
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			// Only .repogo itself and .repogo/tabs hold pages; at home, .repogo
+			// also holds the plugins and their data, listed below or not at all.
+			if !isPagesDir(rel) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		if isPagesDir(dir) {
-			out = append(out, pageData(path, filepath.ToSlash(rel))...)
+		if isPageFile(path) {
+			out = append(out, pageData(path, rel)...)
 		}
 		return nil
 	})
@@ -62,10 +66,8 @@ func pages(root, global string) []Page {
 	return dedupe(out)
 }
 
-var pluginPages = regexp.MustCompile(`^\.repogo/plugins/[^/]+/pages$`)
-
 func isPagesDir(dir string) bool {
-	return dir == ".repogo" || dir == ".repogo/tabs" || strings.HasPrefix(dir, ".repogo/tabs/") || pluginPages.MatchString(dir)
+	return dir == ".repogo" || dir == ".repogo/tabs" || strings.HasPrefix(dir, ".repogo/tabs/")
 }
 
 // isPageFile is a page whose cards can show a plugin's Data: card markup

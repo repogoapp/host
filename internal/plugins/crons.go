@@ -18,7 +18,7 @@ import (
 
 // What runs unattended is what the user lists in one file of their own,
 // ~/.repogo/crons.json: a repo can't schedule itself. Each minute the host
-// gives every plugins folder the file names its whole set of schedules.
+// gives the plugins folder the file's whole set of schedules.
 
 // reconcileEvery is how soon an edit to the file, or a restarted plugins server, takes effect.
 const reconcileEvery = time.Minute
@@ -38,14 +38,13 @@ type CronEntry struct {
 // Cron is one entry and how it's going, as the plugins tool shows it. Index is
 // its place in the file, -1 for the file itself.
 type Cron struct {
-	Index          int    `json:"index"`
-	Project        string `json:"project,omitempty"`
-	Plugin         string `json:"plugin"`
-	Method         string `json:"method"`
-	Schedule       string `json:"schedule"`
-	Timezone       string `json:"timezone,omitempty"`
-	Enabled        bool   `json:"enabled"`
-	Dir            string `json:"dir,omitempty"`
+	Index    int    `json:"index"`
+	Project  string `json:"project,omitempty"`
+	Plugin   string `json:"plugin"`
+	Method   string `json:"method"`
+	Schedule string `json:"schedule"`
+	Timezone string `json:"timezone,omitempty"`
+	Enabled  bool   `json:"enabled"`
 	// Root is the project's checkout the run gets as ctx.root; empty for none.
 	Root           string `json:"root,omitempty"`
 	Error          string `json:"error,omitempty"`
@@ -112,37 +111,30 @@ func (s *Service) Crons() []Cron {
 	return append(make([]Cron, 0, len(s.crons)), s.crons...)
 }
 
-// folderWait bounds one folder's reply, so a Worker that never answers can't
-// hold up the others' schedules, a removal above all.
-const folderWait = 30 * time.Second
+// setWait bounds the Worker's reply, so one that never answers can't hold up
+// the next pass, a removal above all.
+const setWait = 30 * time.Second
 
-// reconcile reads the file and gives each folder it names its schedules, and
-// every folder it named before and doesn't now an empty set, first. A file that
-// can't be read pauses them all, so a broken edit can't keep a removed job running.
+// reconcile gives the plugins folder the file's schedules, an empty set once
+// it names none. A file that can't be read pauses them all, so a broken edit
+// can't keep a removed job running.
 func (s *Service) reconcile(ctx context.Context) {
 	s.cronMu.Lock()
 	defer s.cronMu.Unlock()
-	crons, groups, at := s.planCrons()
+	crons, params, at := s.planCrons()
 
-	// A folder keeps its place in cronDirs until its empty set is acknowledged,
-	// so a clear that fails is tried again on the next pass.
 	s.mu.Lock()
-	previous := s.cronDirs
+	held := s.cronsHeld
 	s.mu.Unlock()
-	held := map[string]bool{}
-	for dir := range previous {
-		if groups[dir] != nil {
-			continue
+	// With nothing to set or clear, the plugins server needn't start.
+	if len(params.Crons) > 0 || held {
+		statuses, failure := s.setCrons(ctx, params)
+		// An empty set the Worker never acknowledged is sent again next pass.
+		held = len(params.Crons) > 0 || failure != ""
+		if failure != "" && len(params.Crons) == 0 {
+			crons = append(crons, Cron{Index: -1, Error: "schedules removed from crons.json may still run: " + failure})
 		}
-		if _, failure := s.setCrons(ctx, cronsParams{Dir: dir, Plugins: []string{}, Crons: []cronWire{}}); failure != "" {
-			held[dir] = true
-			crons = append(crons, Cron{Index: -1, Dir: dir, Error: "schedules removed from crons.json may still run here: " + failure})
-		}
-	}
-	for dir, group := range groups {
-		held[dir] = true
-		statuses, failure := s.setCrons(ctx, *group)
-		for n, i := range at[dir] {
+		for n, i := range at {
 			switch {
 			case failure != "":
 				crons[i].Error = failure
@@ -153,26 +145,26 @@ func (s *Service) reconcile(ctx context.Context) {
 	}
 
 	s.mu.Lock()
-	s.cronDirs = held
+	s.cronsHeld = held
 	s.crons = crons
 	s.mu.Unlock()
 }
 
-// planCrons reads the file into its lines, and the folders and schedules the
-// valid enabled ones make, with where each folder's lines sit in the file.
-func (s *Service) planCrons() ([]Cron, map[string]*cronsParams, map[string][]int) {
-	groups := map[string]*cronsParams{}
-	at := map[string][]int{}
+// planCrons reads the file into its lines, and the schedules its valid enabled
+// ones make, with where each schedule's line sits in the file.
+func (s *Service) planCrons() ([]Cron, cronsParams, []int) {
+	params := cronsParams{Dir: realOrSame(s.cfg.Global), Plugins: []string{}, Crons: []cronWire{}}
 	entries, err := readCronFile(s.cfg.Crons)
 	if err != nil {
-		return []Cron{{Index: -1, Error: fmt.Sprintf("crons.json can't be read, so every schedule is paused: %v", err)}}, groups, at
+		return []Cron{{Index: -1, Error: fmt.Sprintf("crons.json can't be read, so every schedule is paused: %v", err)}}, params, nil
 	}
 	crons := make([]Cron, len(entries))
+	var at []int
 	seen := map[string]bool{}
 	for i, e := range entries {
 		c := s.resolveCron(i, e)
 		// Two lines for one method would let its runs overlap; a disabled one runs nothing.
-		key := c.Dir + "|" + c.Root + "|" + e.Plugin + "|" + e.Method
+		key := c.Root + "|" + e.Plugin + "|" + e.Method
 		if c.Error == "" && c.Enabled && seen[key] {
 			c.Error = "the same plugin method is scheduled twice for one project; keep one entry"
 		}
@@ -181,24 +173,19 @@ func (s *Service) planCrons() ([]Cron, map[string]*cronsParams, map[string][]int
 			continue
 		}
 		seen[key] = true
-		group := groups[c.Dir]
-		if group == nil {
-			group = &cronsParams{Dir: c.Dir}
-			groups[c.Dir] = group
+		if !slices.Contains(params.Plugins, e.Plugin) {
+			params.Plugins = append(params.Plugins, e.Plugin)
 		}
-		if !slices.Contains(group.Plugins, e.Plugin) {
-			group.Plugins = append(group.Plugins, e.Plugin)
-		}
-		group.Crons = append(group.Crons, cronWire{Root: c.Root, Plugin: e.Plugin, Method: e.Method, Schedule: e.Schedule, Timezone: e.Timezone})
-		at[c.Dir] = append(at[c.Dir], i)
+		params.Crons = append(params.Crons, cronWire{Root: c.Root, Plugin: e.Plugin, Method: e.Method, Schedule: e.Schedule, Timezone: e.Timezone})
+		at = append(at, i)
 	}
-	return crons, groups, at
+	return crons, params, at
 }
 
-// setCrons sends one folder its schedules, then reloads it if its code changed:
+// setCrons sends the folder its schedules, then reloads it if its code changed:
 // in that order, so a restart imports the plugins just named, not the old set.
 func (s *Service) setCrons(ctx context.Context, params cronsParams) ([]cronStatus, string) {
-	ctx, cancel := context.WithTimeout(ctx, folderWait)
+	ctx, cancel := context.WithTimeout(ctx, setWait)
 	defer cancel()
 	srv, err := s.running(ctx)
 	if err != nil {
@@ -223,7 +210,7 @@ func (s *Service) setCrons(ctx context.Context, params cronsParams) ([]cronStatu
 	return statuses, ""
 }
 
-// resolveCron checks an entry's names and finds the folder it runs in, before
+// resolveCron checks an entry's names, its project and its plugin, before
 // any of its code loads; the Worker checks the method and the schedule.
 func (s *Service) resolveCron(i int, e CronEntry) Cron {
 	c := Cron{Index: i, Project: e.Project, Plugin: e.Plugin, Method: e.Method, Schedule: e.Schedule, Timezone: e.Timezone, Enabled: e.Enabled == nil || *e.Enabled}
@@ -247,12 +234,9 @@ func (s *Service) resolveCron(i int, e CronEntry) Cron {
 		c.Error = err.Error()
 		return c
 	}
-	c.Dir, c.Root = realOrSame(s.cfg.Global), root
-	if _, err := os.Stat(filepath.Join(c.Dir, e.Plugin, "app.ts")); err != nil {
-		c.Error = fmt.Sprintf("there's no plugin %s in %s", e.Plugin, c.Dir)
-		if root != "" && isFile(filepath.Join(root, filepath.FromSlash(Folder), e.Plugin, "app.ts")) {
-			c.Error = fmt.Sprintf("%s is in the project's %s, which RepoGo no longer runs; move it to %s", e.Plugin, Folder, c.Dir)
-		}
+	c.Root = root
+	if _, err := os.Stat(filepath.Join(s.cfg.Global, e.Plugin, "app.ts")); err != nil {
+		c.Error = fmt.Sprintf("there's no plugin %s in %s", e.Plugin, s.cfg.Global)
 	}
 	return c
 }
@@ -279,11 +263,6 @@ func cronRoot(project string) (string, error) {
 		return "", fmt.Errorf("project %s doesn't exist", project)
 	}
 	return checkout(real), nil
-}
-
-func isFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }
 
 // realOrSame is a path with its symlinks resolved, or as it is when it doesn't exist yet.

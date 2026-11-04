@@ -34,7 +34,7 @@ const routesWait = 10 * time.Second
 func (s *Service) HasRoutes() bool {
 	ctx, cancel := context.WithTimeout(s.ctx, routesWait)
 	defer cancel()
-	found, err := s.globalPlugins(ctx)
+	_, found, err := s.served(ctx)
 	if err != nil {
 		return false
 	}
@@ -51,7 +51,7 @@ func (s *Service) HasRoutes() bool {
 // ServeHTTP runs the method route names with the request's JSON body, or its
 // query for a GET, as input, and answers its result as JSON.
 func (s *Service) ServeHTTP(ctx context.Context, route tunnelwire.PluginRoute, req *http.Request) (*http.Response, error) {
-	found, err := s.globalPlugins(ctx)
+	t, found, err := s.served(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,6 @@ func (s *Service) ServeHTTP(ctx context.Context, route tunnelwire.PluginRoute, r
 	if err != nil {
 		return jsonResponse(http.StatusBadRequest, map[string]string{"error": err.Error()}), nil
 	}
-	t := Target{Dir: s.cfg.Global}
 	answer, err := s.ask(ctx, t, "call", callParams{Target: t, Name: name, Input: input, Caller: CallerHTTP})
 	if err != nil {
 		return nil, err
@@ -86,26 +85,17 @@ func (s *Service) ServeHTTP(ctx context.Context, route tunnelwire.PluginRoute, r
 	return jsonResponse(http.StatusOK, answer.Result), nil
 }
 
-// globalPlugins is the environment's plugins as their Worker lists them.
-func (s *Service) globalPlugins(ctx context.Context) ([]manifestPlugin, error) {
-	if !s.On() || !isDir(s.cfg.Global) {
-		return nil, ErrNoPlugins
-	}
-	t := Target{Dir: s.cfg.Global}
-	answer, err := s.ask(ctx, t, "list", t)
+// served is the environment's plugins, whose methods may serve HTTP.
+func (s *Service) served(ctx context.Context) (Target, []listedPlugin, error) {
+	t, err := s.folder()
 	if err != nil {
-		return nil, err
+		return Target{}, nil, err
 	}
-	if answer.Error != nil {
-		return nil, errors.New(answer.Error.Message)
+	found, failure, err := s.manifest(ctx, t)
+	if err == nil && failure != nil {
+		err = errors.New(failure.Message)
 	}
-	var manifest struct {
-		Plugins []manifestPlugin `json:"plugins"`
-	}
-	if err := json.Unmarshal(answer.Result, &manifest); err != nil {
-		return nil, err
-	}
-	return manifest.Plugins, nil
+	return t, found, err
 }
 
 func open(access, kind, confirm string) bool {

@@ -172,7 +172,7 @@ func sdkRuntime(sdkDir string) string {
 func TestWithoutARuntimePluginsAreOff(t *testing.T) {
 	s, _ := newService(t, "")
 	root := project(t, "", map[string]string{"notes": notesPlugin})
-	if s.On() || s.Has(root) {
+	if s.On() || s.Has() {
 		t.Fatal("a host without a runtime offers plugins")
 	}
 	if _, err := s.Call(t.Context(), root, "notes.texts", nil, nil, true, Origin{Caller: CallerCard}); !errors.Is(err, ErrOff) {
@@ -433,13 +433,12 @@ export default definePlugin({
 		Plugins []struct {
 			Name string `json:"name"`
 		} `json:"plugins"`
-		Moved string `json:"moved"`
 	}
 	if err := json.Unmarshal(list.Result, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Plugins) != 2 || manifest.Moved != Moved {
-		t.Fatalf("manifest = %+v, want the environment's two and the moved note", manifest)
+	if len(manifest.Plugins) != 2 {
+		t.Fatalf("manifest = %+v, want the environment's two", manifest)
 	}
 	full, err := s.List(t.Context(), root, "vercel")
 	if err != nil || !strings.Contains(string(full.Result), `"path":"`+filepath.Join(s.cfg.Global, "vercel")+`"`) {
@@ -448,7 +447,7 @@ export default definePlugin({
 
 	// A project without its own folder still has the environment's.
 	bare := t.TempDir()
-	if !s.Has(bare) {
+	if !s.Has() {
 		t.Fatal("a project without plugins should have the environment's")
 	}
 	if got, err := s.Call(t.Context(), bare, "vercel.root", nil, nil, true, Origin{Caller: CallerCard}); err != nil || string(got.Result) != fmt.Sprintf("%q", bare) {
@@ -581,18 +580,17 @@ export default definePlugin({ methods: { go: method(z.object({}), () => "ran", {
 	if _, err := os.Stat(filepath.Join(root, "evil-ran")); err == nil {
 		t.Fatal("a project's plugin code ran")
 	}
-	if !s.LeftInProject(root) {
-		t.Fatal("the project's leftover plugins should be reported")
-	}
 }
 
-// A project with plugin code and an environment without plugins says why.
-func TestAProjectWithOnlyItsOwnPluginsSaysTheyMoved(t *testing.T) {
+// A project's own plugins don't count: with none in the environment, there are none.
+func TestAProjectsOwnPluginsDontCount(t *testing.T) {
 	dir := sdk(t)
 	s, _ := newService(t, dir)
 	root := project(t, dir, map[string]string{"notes": notesPlugin})
-	_, err := s.List(t.Context(), root, "")
-	if err == nil || !strings.Contains(err.Error(), "~/.repogo/plugins") {
-		t.Fatalf("list = %v, want the moved note", err)
+	if _, err := s.List(t.Context(), root, ""); !errors.Is(err, ErrNoPlugins) {
+		t.Fatalf("list = %v, want ErrNoPlugins", err)
+	}
+	if s.Has() {
+		t.Fatal("a project's own plugins made the environment have some")
 	}
 }

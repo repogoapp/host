@@ -87,7 +87,7 @@ func (h *Host) openAgents() error {
 			if err != nil {
 				return prompt
 			}
-			return prompt + clientprompt.For(peer.Client, h.projectPlugins(req.Cwd), h.mcps.Keys(req.Cwd))
+			return prompt + clientprompt.For(peer.Client, h.plugins(), h.mcps.Keys(req.Cwd))
 		},
 		Log: h.log,
 	})
@@ -526,10 +526,10 @@ func (h *Host) recordHook(n notify.Notice) error {
 	return err
 }
 
-// projectPlugins is what a session in cwd can do with the environment's plugins, for its prompt.
-func (h *Host) projectPlugins(cwd string) clientprompt.Plugins {
+// plugins is what a session can do with the environment's plugins, for its prompt.
+func (h *Host) plugins() clientprompt.Plugins {
 	switch {
-	case h.Services.Plugins.Has(cwd):
+	case h.Services.Plugins.Has():
 		return clientprompt.HasPlugins
 	case h.Services.Plugins.On():
 		return clientprompt.CanAddPlugins

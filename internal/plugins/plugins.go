@@ -33,14 +33,6 @@ import (
 	"github.com/repogoapp/host/internal/uploads"
 )
 
-// Folder is where a project kept its plugins before they moved to the
-// environment, from its checkout's top. It is never run; the `plugins` tool
-// names it so an agent can say why a page's calls fail.
-const Folder = ".repogo/plugins"
-
-// Moved is what the `plugins` tool says of a project still holding plugin code.
-const Moved = "RepoGo no longer runs a project's plugins (" + Folder + "); move them to ~/.repogo/plugins, where every project can call them"
-
 var (
 	// ErrOff is a host without a plugins runtime: a dev build started without
 	// REPOGO_PLUGINS_SDK.
@@ -98,10 +90,10 @@ type Service struct {
 	subs     map[string]*subscription
 	// prints is each checkout's plugins as last loaded, to reload on a change.
 	prints map[string]string
-	// crons is crons.json's entries as of the last reconcile, and cronDirs the
-	// folders that got schedules then, to clear when the file stops naming them.
-	crons    []Cron
-	cronDirs map[string]bool
+	// crons is crons.json's entries as of the last reconcile, and cronsHeld
+	// whether the folder may still run schedules, to clear when the file names none.
+	crons     []Cron
+	cronsHeld bool
 	// logs is the plugins' console lines; nil when the host keeps none.
 	logs *Logs
 }
@@ -164,10 +156,9 @@ func (s *Service) logged(plugins []string) {
 // On reports whether this host runs plugins.
 func (s *Service) On() bool { return s.cfg.Runtime != "" }
 
-// Has reports whether the environment has plugins this host would run, for
-// any project.
-func (s *Service) Has(path string) bool {
-	_, err := s.target(path)
+// Has reports whether the environment has plugins this host would run.
+func (s *Service) Has() bool {
+	_, err := s.folder()
 	return err == nil
 }
 
@@ -178,41 +169,35 @@ type Target struct {
 	Root string `json:"root,omitempty"`
 }
 
-// target is the environment's folder, run for path's project. A project's own
-// .repogo/plugins is never a target, so nothing in a repo runs.
-func (s *Service) target(path string) (Target, error) {
+// folder is the environment's plugins folder, when this host runs plugins and
+// the folder exists.
+func (s *Service) folder() (Target, error) {
 	if !s.On() {
 		return Target{}, ErrOff
-	}
-	if !filepath.IsAbs(path) {
-		return Target{}, errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
 	}
 	if !isDir(s.cfg.Global) {
 		return Target{}, ErrNoPlugins
 	}
-	return Target{Dir: s.cfg.Global, Root: checkout(path)}, nil
+	return Target{Dir: s.cfg.Global}, nil
 }
 
-// LeftInProject reports whether path's project still holds plugin code
-// (`.repogo/plugins/<name>/app.ts`), which the host no longer runs.
-func (s *Service) LeftInProject(path string) bool {
+// target is the environment's folder run for path's project. A project's own
+// .repogo/plugins is never loaded, so nothing in a repo runs.
+func (s *Service) target(path string) (Target, error) {
 	if !filepath.IsAbs(path) {
-		return false
+		return Target{}, errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
 	}
-	dir := filepath.Join(checkout(path), filepath.FromSlash(Folder))
-	if dir == s.cfg.Global {
-		return false
+	t, err := s.folder()
+	if err != nil {
+		return Target{}, err
 	}
-	found, _ := filepath.Glob(filepath.Join(dir, "*", "app.ts"))
-	return len(found) > 0
+	t.Root = checkout(path)
+	return t, nil
 }
 
 // Dir is the folder of an environment plugin. It needs no runtime: it is for
 // writing the plugin's files, not calling it.
-func (s *Service) Dir(path, plugin string) (string, error) {
-	if !filepath.IsAbs(path) {
-		return "", errkind.ErrInvalid.Errorf("plugins: project must be an absolute path")
-	}
+func (s *Service) Dir(plugin string) (string, error) {
 	if plugin == "" || plugin != filepath.Base(plugin) || strings.HasPrefix(plugin, ".") {
 		return "", errkind.ErrInvalid.Errorf("plugins: %q is not a plugin name", plugin)
 	}

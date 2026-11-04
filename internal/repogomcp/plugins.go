@@ -18,8 +18,8 @@ const pluginsInstructions = " `plugins` lists the environment's plugins (`~/.rep
 
 var pluginsTool = tool{
 	Name: "plugins",
-	Description: "List the plugins this project can use, the environment's in ~/.repogo/plugins (a project's own " +
-		".repogo/plugins never runs; `moved` says when it has one), each with its `errors` in the last hour, the `page` that shows it, " +
+	Description: "List the environment's plugins (~/.repogo/plugins), which every project can use, " +
+		"each with its `errors` in the last hour, the `page` that shows it, " +
 		"and a line per method: `kind` (query, mutation or stream), `asks` when it has a confirm, and `input`, its fields " +
 		"with optional ones ending in `?`; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
 		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema and confirm, its storage, " +

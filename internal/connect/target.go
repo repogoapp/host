@@ -113,7 +113,7 @@ func (s *Service) resolve(project string, sc scope) (envFile, error) {
 		}
 		return envFile{Path: path, Destination: s.tilde(path)}, nil
 	case "plugin":
-		dir, err := s.d.PluginDir(project, sc.Name)
+		dir, err := s.d.PluginDir(sc.Name)
 		if err != nil {
 			return envFile{}, err
 		}

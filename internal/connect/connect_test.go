@@ -57,7 +57,7 @@ func newFixture(t *testing.T) *fixture {
 		Sources: sources,
 		MCP:     f.mcp,
 		CLIs:    f.clis,
-		PluginDir: func(project, plugin string) (string, error) {
+		PluginDir: func(plugin string) (string, error) {
 			if plugin != "stripe" {
 				return "", errkind.ErrNotFound.Errorf("no plugin %q here", plugin)
 			}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -18,12 +17,10 @@ import (
 // turns touching a plugin call it; naming a plugin answers it in full.
 
 // Listing is the default answer: each plugin with a line per method, and the
-// lines of crons.json with how each is going. Moved says the project still
-// holds plugin code the host no longer runs.
+// lines of crons.json with how each is going.
 type Listing struct {
 	Plugins []Listed `json:"plugins"`
 	Crons   []Cron   `json:"crons,omitempty"`
-	Moved   string   `json:"moved,omitempty"`
 }
 
 // Listed is one plugin in the default answer. Page is the page to open it by,
@@ -99,21 +96,14 @@ func (s *Service) List(ctx context.Context, path, plugin string) (outcome.Answer
 	if s.cfg.Crons != "" {
 		s.reconcile(ctx)
 	}
-	var moved string
-	if s.LeftInProject(path) {
-		moved = Moved
-	}
 	found, failure, err := s.manifests(ctx, path)
-	if errors.Is(err, ErrNoPlugins) && moved != "" {
-		return outcome.Answer{}, errkind.ErrNotFound.Errorf("plugins: %s", moved)
-	}
 	if err != nil || failure != nil {
 		return outcome.Answer{Error: failure}, err
 	}
 	errs := s.recentErrors(ctx)
 	all := pages(checkout(path), s.cfg.Global)
 	if plugin == "" {
-		return encode(Listing{Plugins: listedAll(found, errs, all), Crons: s.Crons(), Moved: moved})
+		return encode(Listing{Plugins: listedAll(found, errs, all), Crons: s.Crons()})
 	}
 	i := slices.IndexFunc(found, func(p listedPlugin) bool { return p.Name == plugin })
 	if i < 0 {
@@ -148,13 +138,19 @@ func listedAll(found []listedPlugin, errors map[string]int, all []Page) []Listed
 	return out
 }
 
-// manifests is every plugin a folder can use: the environment's. A Worker's
-// own failure comes back as it said it.
+// manifests is every plugin a folder's project can use: the environment's,
+// run for that project.
 func (s *Service) manifests(ctx context.Context, path string) ([]listedPlugin, *outcome.Failure, error) {
 	t, err := s.target(path)
 	if err != nil {
 		return nil, nil, err
 	}
+	return s.manifest(ctx, t)
+}
+
+// manifest is the plugins as their Worker lists them; a Worker's own failure
+// comes back as it said it.
+func (s *Service) manifest(ctx context.Context, t Target) ([]listedPlugin, *outcome.Failure, error) {
 	answer, err := s.ask(ctx, t, "list", t)
 	if err != nil || answer.Error != nil {
 		return nil, answer.Error, err
@@ -193,13 +189,11 @@ func detail(p listedPlugin, errors int, all []Page, crons []Cron) Detail {
 	return out
 }
 
-// cronsOf is the lines of crons.json naming a plugin in its folder, and those
-// naming it whose folder couldn't be found.
+// cronsOf is the lines of crons.json naming a plugin.
 func (s *Service) cronsOf(p listedPlugin) []Cron {
-	dir := realOrSame(p.target.Dir)
 	var out []Cron
 	for _, c := range s.Crons() {
-		if c.Plugin == p.Name && (c.Dir == "" || c.Dir == dir) {
+		if c.Plugin == p.Name {
 			out = append(out, c)
 		}
 	}
