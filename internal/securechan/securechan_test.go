@@ -77,7 +77,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ps.Peer.Equal(host.Public) || !hs.Peer.Equal(phone.Public) {
+	if !bytes.Equal(ps.Peer, host.Public) || !bytes.Equal(hs.Peer, phone.Public) {
 		t.Fatal("sessions did not learn the right peer identities")
 	}
 	for i, msg := range [][]byte{[]byte(`{"a":1}`), nil, bytes.Repeat([]byte("x"), 1<<20)} {

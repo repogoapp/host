@@ -69,7 +69,9 @@ type assertion struct {
 // The attested key is bound to the identity; its assertion binds the exact grant.
 // Certificates are checked at signedAt, the grant's own signed time.
 func (v *Verifier) Verify(identity, message, object, signed []byte, environment string, signedAt time.Time) error {
-	if len(identity) != 32 || len(object) > 16<<10 || len(signed) > 4<<10 {
+	// The identity is a phone key of either kind: Ed25519 (32 bytes) or a
+	// Secure Enclave P-256 point (65 bytes); it is only hashed here.
+	if (len(identity) != 32 && len(identity) != 65) || len(object) > 16<<10 || len(signed) > 4<<10 {
 		return ErrProof
 	}
 	key, err := v.key(identity, object, environment, signedAt)

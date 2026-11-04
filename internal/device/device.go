@@ -153,14 +153,13 @@ var (
 // the key's fingerprint first, or a caller could pair someone else's id with
 // their own key.
 func (p Peer) Verify(claimed ID, msg, sig []byte) error {
-	pub := ed25519.PublicKey(p.Public)
-	if len(pub) != ed25519.PublicKeySize {
+	if !ValidPhoneKey(p.Public) {
 		return ErrUnknownDevice
 	}
-	if IDFor(pub) != claimed {
+	if IDFor(p.Public) != claimed {
 		return fmt.Errorf("device: id %s does not match its public key", claimed)
 	}
-	if !ed25519.Verify(pub, msg, sig) {
+	if !VerifyPhone(p.Public, msg, sig) {
 		return ErrBadSignature
 	}
 	return nil

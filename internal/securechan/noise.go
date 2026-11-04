@@ -16,6 +16,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
+
+	"github.com/repogoapp/host/internal/device"
 )
 
 const (
@@ -33,12 +35,16 @@ const (
 	kemKeyLen = mlkem.EncapsulationKeySize1024
 	kemCTLen  = mlkem.CiphertextSize1024
 	proofLen  = ed25519.PublicKeySize + ed25519.SignatureSize
+	// A phone with a Secure Enclave key proves with P-256 (plan 520): a
+	// 65-byte point and a 64-byte signature. The host always proves with Ed25519.
+	p256ProofLen = device.P256PublicKeySize + device.P256SignatureSize
 
 	// Every handshake message has one exact length: the payloads are empty
 	// (message 1) or a proof, so anything else is malformed.
-	msg1Len = dhLen + kemKeyLen
-	msg2Len = dhLen + (kemCTLen + tagLen) + (dhLen + tagLen) + (proofLen + tagLen)
-	msg3Len = (dhLen + tagLen) + (proofLen + tagLen)
+	msg1Len     = dhLen + kemKeyLen
+	msg2Len     = dhLen + (kemCTLen + tagLen) + (dhLen + tagLen) + (proofLen + tagLen)
+	msg3Len     = (dhLen + tagLen) + (proofLen + tagLen)
+	msg3P256Len = (dhLen + tagLen) + (p256ProofLen + tagLen)
 
 	// maxKeyBytes caps what one key opens. GCM's bound tightens with the data
 	// under a key; past this the session drops and the phone handshakes again.
@@ -412,7 +418,8 @@ func (h *handshakeState) writeMessage3(prove func(transcript []byte) []byte) ([]
 }
 
 func (h *handshakeState) readMessage3(msg []byte) (payload, transcript []byte, err error) {
-	if len(msg) != msg3Len {
+	// One exact length per key kind; anything else is malformed.
+	if len(msg) != msg3Len && len(msg) != msg3P256Len {
 		return nil, nil, errLength
 	}
 	sBytes, err := h.ss.decryptAndHash(msg[:dhLen+tagLen])
@@ -442,7 +449,7 @@ func (h *handshakeState) split() (send, recv cipherState, err error) {
 // proof binds an identity to this handshake: the transcript hash already
 // holds both ephemerals, the KEM ciphertext and the signer's static key, so
 // the signature cannot serve another session, or the other role in this one.
-func proof(sign func([]byte) []byte, identityPub ed25519.PublicKey, role byte, transcript []byte) []byte {
+func proof(sign func([]byte) []byte, identityPub []byte, role byte, transcript []byte) []byte {
 	return append(append([]byte(nil), identityPub...), sign(proofMessage(role, transcript))...)
 }
 
@@ -453,13 +460,13 @@ func proofMessage(role byte, transcript []byte) []byte {
 
 // verifyProof checks the payload against the transcript readMessage2/3
 // returned; the peer then checks the identity is the one it pinned or routed to.
-func verifyProof(payload []byte, role byte, transcript []byte) (ed25519.PublicKey, error) {
-	if len(payload) != proofLen {
+// The key is either kind (device.VerifyPhone); both signatures are 64 bytes.
+func verifyProof(payload []byte, role byte, transcript []byte) ([]byte, error) {
+	if len(payload) != proofLen && len(payload) != p256ProofLen {
 		return nil, errProof
 	}
-	pub := ed25519.PublicKey(payload[:ed25519.PublicKeySize])
-	msg := proofMessage(role, transcript)
-	if !ed25519.Verify(pub, msg, payload[ed25519.PublicKeySize:]) {
+	pub := payload[:len(payload)-ed25519.SignatureSize]
+	if !device.VerifyPhone(pub, proofMessage(role, transcript), payload[len(pub):]) {
 		return nil, errProof
 	}
 	return pub, nil

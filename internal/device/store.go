@@ -125,7 +125,7 @@ func (s *Store) Peers() []Peer {
 
 // Add records a paired device.
 func (s *Store) Add(p Peer) error {
-	if pub := ed25519.PublicKey(p.Public); len(pub) != ed25519.PublicKeySize || IDFor(pub) != p.ID {
+	if !ValidPhoneKey(p.Public) || IDFor(p.Public) != p.ID {
 		return ErrBadKey.Errorf("%s", p.ID)
 	}
 

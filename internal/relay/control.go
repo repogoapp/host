@@ -2,7 +2,6 @@ package relay
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"time"
@@ -96,8 +95,8 @@ var errGrant = errors.New("push grant does not verify for this host and token")
 // that restricts signing to tokens obtained from its notification APIs.
 func (s *Server) verifyGrant(host device.ID, req PushRequest, now time.Time) error {
 	g := req.Grant
-	pub := ed25519.PublicKey(g.PublicKey)
-	if len(pub) != ed25519.PublicKeySize || device.IDFor(pub) != g.Device {
+	pub := g.PublicKey
+	if !device.ValidPhoneKey(pub) || device.IDFor(pub) != g.Device {
 		return errGrant
 	}
 	granted := time.UnixMilli(g.GrantedAt)

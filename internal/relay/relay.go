@@ -3,7 +3,6 @@ package relay
 import (
 	"cmp"
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -492,8 +491,9 @@ func check(h handshake.Hello, signed []byte) error {
 	if h.Role != handshake.RoleRuntime && h.Role != handshake.RoleClient {
 		return errors.New("invalid role")
 	}
-	pub := ed25519.PublicKey(h.PublicKey)
-	if len(pub) != ed25519.PublicKeySize {
+	// A phone's key may be Ed25519 or a Secure Enclave P-256 key (plan 520).
+	pub := h.PublicKey
+	if !device.ValidPhoneKey(pub) {
 		return errors.New("bad public key")
 	}
 	// Self-certifying ids are only self-certifying if something checks: without
@@ -501,7 +501,7 @@ func check(h handshake.Hello, signed []byte) error {
 	if device.IDFor(pub) != device.ID(h.DeviceID) {
 		return fmt.Errorf("device id %s does not match its public key", h.DeviceID)
 	}
-	if !ed25519.Verify(pub, signed, h.ChallengeSig) {
+	if !device.VerifyPhone(pub, signed, h.ChallengeSig) {
 		return errors.New("signature does not verify")
 	}
 	return nil

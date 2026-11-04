@@ -1,6 +1,7 @@
 package securechan
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -36,7 +37,8 @@ var (
 // Session is one established channel. Seal and Open each run under their own
 // direction's lock: the counter is the nonce, so order is everything.
 type Session struct {
-	Peer ed25519.PublicKey
+	// Peer is the identity key the other side proved, of either kind.
+	Peer []byte
 
 	sendMu sync.Mutex
 	send   cipherState
@@ -89,7 +91,15 @@ func prologueFor(initiator, responder device.ID) ([]byte, error) {
 // recv, then a session whose peer is the pinned host key or nothing.
 func Initiate(ctx context.Context, identity *device.Identity, host device.ID, hostPublic ed25519.PublicKey,
 	send func(context.Context, []byte) error, recv func(context.Context) ([]byte, error)) (*Session, error) {
-	pro, err := prologueFor(identity.ID, host)
+	return initiate(ctx, identity.ID, identity.Public, identity.Sign, host, hostPublic, send, recv)
+}
+
+// initiate is Initiate for a phone key of either kind: the Go host only ever
+// initiates with Ed25519, and tests use it to play a Secure Enclave phone.
+func initiate(ctx context.Context, id device.ID, public []byte, sign func([]byte) []byte,
+	host device.ID, hostPublic ed25519.PublicKey,
+	send func(context.Context, []byte) error, recv func(context.Context) ([]byte, error)) (*Session, error) {
+	pro, err := prologueFor(id, host)
 	if err != nil {
 		return nil, err
 	}
@@ -113,11 +123,11 @@ func Initiate(ctx context.Context, identity *device.Identity, host device.ID, ho
 	if err != nil {
 		return nil, err
 	}
-	if !peer.Equal(hostPublic) {
+	if !bytes.Equal(peer, hostPublic) {
 		return nil, fmt.Errorf("securechan: host identity does not match the paired key")
 	}
 	msg3, err := h.writeMessage3(func(transcript []byte) []byte {
-		return proof(identity.Sign, identity.Public, roleInitiator, transcript)
+		return proof(sign, public, roleInitiator, transcript)
 	})
 	if err != nil {
 		return nil, err

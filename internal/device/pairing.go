@@ -60,6 +60,10 @@ type Invite struct {
 
 	Code      string `json:"code"`
 	ExpiresAt int64  `json:"expires_at"`
+
+	// TLSPin, when the host serves passthrough TLS, is its pinned TLS key,
+	// signed by InviterPublic. Older apps ignore it and use the relay channel.
+	TLSPin *SignedPin `json:"tls_pin,omitempty"`
 }
 
 func (i Invite) Encode() (string, error) {
@@ -105,11 +109,23 @@ type Pairer struct {
 	code     string
 	expires  time.Time
 	reusable reusableCode
+	tlsPin   *SignedPin
+}
+
+// SetTLSPin puts the host's signed TLS pin in every invite from now on.
+func (p *Pairer) SetTLSPin(pin SignedPin) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tlsPin = &pin
 }
 
 type reusableCode struct {
 	Code      string `json:"code"`
 	ExpiresAt int64  `json:"expires_at"`
+
+	// TLSPin, when the host serves passthrough TLS, is its pinned TLS key,
+	// signed by InviterPublic. Older apps ignore it and use the relay channel.
+	TLSPin *SignedPin `json:"tls_pin,omitempty"`
 }
 
 // OpenPairer loads the reusable invite saved at reusablePath, if any, so a
@@ -128,8 +144,9 @@ func (p *Pairer) Begin(address string) (Invite, error) {
 	expires := time.Now().Add(codeTTL)
 	p.mu.Lock()
 	p.code, p.expires = code, expires
+	pin := p.tlsPin
 	p.mu.Unlock()
-	return p.invite(address, code, expires), nil
+	return p.invite(address, code, expires, pin), nil
 }
 
 // BeginReusable issues an invite any number of devices may join with until
@@ -146,7 +163,7 @@ func (p *Pairer) BeginReusable(address string, ttl time.Duration) (Invite, error
 		return Invite{}, err
 	}
 	p.reusable = reusable
-	return p.invite(address, reusable.Code, time.UnixMilli(reusable.ExpiresAt)), nil
+	return p.invite(address, reusable.Code, time.UnixMilli(reusable.ExpiresAt), p.tlsPin), nil
 }
 
 // RevokeReusable ends the reusable invite. Devices that joined with it stay
@@ -187,7 +204,7 @@ func (p *Pairer) ReusableExpires() time.Time {
 	return time.UnixMilli(p.reusable.ExpiresAt)
 }
 
-func (p *Pairer) invite(address, code string, expires time.Time) Invite {
+func (p *Pairer) invite(address, code string, expires time.Time, pin *SignedPin) Invite {
 	id := p.store.Identity()
 	return Invite{
 		Address:       address,
@@ -197,6 +214,7 @@ func (p *Pairer) invite(address, code string, expires time.Time) Invite {
 		Label:         Label(),
 		Code:          code,
 		ExpiresAt:     expires.UnixMilli(),
+		TLSPin:        pin,
 	}
 }
 
