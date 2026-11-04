@@ -1,0 +1,461 @@
+// Package passthrough is plan 520's relay: phones open TLS to a host through
+// it, and it only pipes bytes. It reads the ClientHello's server name to pick
+// the host and never holds a key for that TLS.
+package passthrough
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/repogoapp/host/internal/device"
+)
+
+// Relay routes a phone's TLS stream to the host its server name names:
+// "<host id><Suffix>". The relay's own name, LinkName, ends TLS here instead,
+// for hosts holding their link and answering dial notices.
+type Relay struct {
+	Suffix   string
+	LinkName string
+	LinkTLS  *tls.Config
+
+	// ProxyProtocol reads a PROXY v1 line first, for the caller's address
+	// behind Fly's proxy; per-address limits need it.
+	ProxyProtocol bool
+	// MaxPerIP caps one address's open connections; zero means no cap.
+	MaxPerIP int
+	// MaxWaitingPerHost caps the phone streams waiting on one host's dial-back,
+	// since each costs that host a dial and a TLS handshake; zero means no cap.
+	MaxWaitingPerHost int
+	// DialTimeout bounds how long a phone waits for its host to dial back.
+	DialTimeout time.Duration
+	// PingInterval spaces the pings on a host's link: they keep idle paths
+	// open and let the host notice a dead relay. Zero sends none.
+	PingInterval time.Duration
+
+	Log *slog.Logger
+
+	mu      sync.Mutex
+	links   map[device.ID]*link
+	pending map[string]chan *replayConn
+	perIP   map[string]int
+	waiting map[device.ID]int
+}
+
+type link struct {
+	mu    sync.Mutex
+	enc   *json.Encoder
+	pings int
+}
+
+// Control lines are newline-delimited JSON inside the link TLS.
+type hostLine struct {
+	Op        string `json:"op"`
+	Token     string `json:"token,omitempty"`
+	DeviceID  string `json:"device_id,omitempty"`
+	PublicKey []byte `json:"public_key,omitempty"`
+	Signature []byte `json:"signature,omitempty"`
+}
+
+type relayLine struct {
+	Nonce    []byte `json:"nonce,omitempty"`
+	ServerID string `json:"server_id,omitempty"`
+	WallMS   uint64 `json:"wall_ms,omitempty"`
+	Dial     string `json:"dial,omitempty"`
+	OK       bool   `json:"ok,omitempty"`
+	Ping     bool   `json:"ping,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+var errPeeked = errors.New("passthrough: client hello read")
+
+// Serve accepts connections until ctx ends or lis fails.
+func (r *Relay) Serve(ctx context.Context, lis net.Listener) error {
+	go func() { <-ctx.Done(); lis.Close() }()
+	for {
+		c, err := lis.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		go r.handle(ctx, c)
+	}
+}
+
+// Linked reports whether a host holds a link here.
+func (r *Relay) Linked(id device.ID) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.links[id] != nil
+}
+
+func (r *Relay) handle(ctx context.Context, c net.Conn) {
+	defer c.Close()
+	c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	reader := bufio.NewReader(c)
+	addr := c.RemoteAddr().String()
+	if r.ProxyProtocol {
+		var err error
+		if addr, err = readProxyLine(reader); err != nil {
+			r.Log.Debug("passthrough: no PROXY line", "err", err)
+			return
+		}
+	}
+	ip := hostOnly(addr)
+	if !r.admit(ip) {
+		r.Log.Debug("passthrough: address over its cap", "ip", ip)
+		return
+	}
+	defer r.release(ip)
+
+	name, hello, err := peekServerName(reader)
+	if err != nil {
+		r.Log.Debug("passthrough: no client hello", "ip", ip, "err", err)
+		return
+	}
+	stream := &replayConn{Conn: c, r: io.MultiReader(bytes.NewReader(hello), reader)}
+	switch {
+	case strings.EqualFold(name, r.LinkName):
+		r.serveLink(ctx, stream)
+	case strings.HasSuffix(strings.ToLower(name), strings.ToLower(r.Suffix)):
+		label := name[:len(name)-len(r.Suffix)]
+		r.servePhone(ctx, stream, device.ID(strings.ToLower(label)))
+	default:
+		r.Log.Debug("passthrough: unknown server name", "name", name)
+	}
+}
+
+// servePhone asks the named host to dial back and splices the two streams.
+func (r *Relay) servePhone(ctx context.Context, phone *replayConn, id device.ID) {
+	r.mu.Lock()
+	l := r.links[id]
+	r.mu.Unlock()
+	if l == nil {
+		// Closing is all the relay can do: it can't speak inside the phone's TLS.
+		return
+	}
+	token := newToken()
+	ready := make(chan *replayConn, 1)
+	r.mu.Lock()
+	if r.MaxWaitingPerHost > 0 && r.waiting[id] >= r.MaxWaitingPerHost {
+		r.mu.Unlock()
+		r.Log.Debug("passthrough: host has too many streams waiting", "host", id)
+		return
+	}
+	r.waiting[id]++
+	r.pending[token] = ready
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		delete(r.pending, token)
+		if r.waiting[id]--; r.waiting[id] <= 0 {
+			delete(r.waiting, id)
+		}
+		r.mu.Unlock()
+	}()
+	l.mu.Lock()
+	err := l.enc.Encode(relayLine{Dial: token})
+	l.mu.Unlock()
+	if err != nil {
+		return
+	}
+	select {
+	case host := <-ready:
+		defer host.Close()
+		phone.SetReadDeadline(time.Time{})
+		splice(phone, host)
+	case <-time.After(r.DialTimeout):
+		r.Log.Debug("passthrough: host did not dial back", "host", id)
+	case <-ctx.Done():
+	}
+}
+
+// serveLink ends the relay's own TLS and reads one control line: a host
+// opening its link, or answering a dial notice.
+func (r *Relay) serveLink(ctx context.Context, raw net.Conn) {
+	conn := tls.Server(raw, r.LinkTLS)
+	if err := conn.HandshakeContext(ctx); err != nil {
+		return
+	}
+	reader := bufio.NewReader(conn)
+	enc := json.NewEncoder(conn)
+	var first hostLine
+	if err := readLine(reader, &first); err != nil {
+		return
+	}
+	switch first.Op {
+	case "link":
+		r.holdLink(ctx, conn, reader, enc)
+	case "accept":
+		r.mu.Lock()
+		ready := r.pending[first.Token]
+		delete(r.pending, first.Token)
+		r.mu.Unlock()
+		if ready == nil {
+			enc.Encode(relayLine{Error: "no such stream"})
+			return
+		}
+		if err := enc.Encode(relayLine{OK: true}); err != nil {
+			return
+		}
+		conn.SetReadDeadline(time.Time{})
+		done := make(chan struct{})
+		ready <- &replayConn{Conn: conn, r: reader, closed: done}
+		<-done
+	}
+}
+
+// holdLink proves the host holds its identity key, then keeps the link for
+// dial notices until it drops.
+func (r *Relay) holdLink(ctx context.Context, conn *tls.Conn, reader *bufio.Reader, enc *json.Encoder) {
+	nonce := make([]byte, device.NonceLen)
+	rand.Read(nonce)
+	wall := uint64(time.Now().UnixMilli())
+	if err := enc.Encode(relayLine{Nonce: nonce, ServerID: r.LinkName, WallMS: wall}); err != nil {
+		return
+	}
+	var hello hostLine
+	if err := readLine(reader, &hello); err != nil {
+		return
+	}
+	id, err := verifyHost(hello, nonce, r.LinkName, wall)
+	if err != nil {
+		enc.Encode(relayLine{Error: err.Error()})
+		return
+	}
+	l := &link{enc: enc}
+	r.mu.Lock()
+	r.links[id] = l
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		if r.links[id] == l {
+			delete(r.links, id)
+		}
+		r.mu.Unlock()
+	}()
+	l.mu.Lock()
+	err = enc.Encode(relayLine{OK: true})
+	l.mu.Unlock()
+	if err != nil {
+		return
+	}
+	conn.SetReadDeadline(time.Time{})
+	defer context.AfterFunc(ctx, func() { conn.Close() })()
+	if r.PingInterval > 0 {
+		stop := make(chan struct{})
+		defer close(stop)
+		go r.ping(conn, l, stop)
+	}
+	// The host sends nothing more; a read returns when the link drops.
+	io.Copy(io.Discard, conn)
+}
+
+// ping writes on the link until it stops or a write fails; a failed write
+// closes the link, so the read in holdLink returns and the link is dropped.
+func (r *Relay) ping(conn net.Conn, l *link, stop <-chan struct{}) {
+	t := time.NewTicker(r.PingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			l.mu.Lock()
+			conn.SetWriteDeadline(time.Now().Add(r.PingInterval))
+			err := l.enc.Encode(relayLine{Ping: true})
+			conn.SetWriteDeadline(time.Time{})
+			l.pings++
+			l.mu.Unlock()
+			if err != nil {
+				conn.Close()
+				return
+			}
+		}
+	}
+}
+
+func verifyHost(h hostLine, nonce []byte, serverID string, wall uint64) (device.ID, error) {
+	pub := ed25519.PublicKey(h.PublicKey)
+	if len(pub) != ed25519.PublicKeySize || device.IDFor(pub) != device.ID(h.DeviceID) {
+		return "", errors.New("device id does not match its public key")
+	}
+	msg, err := device.ChallengeMessage(nonce, serverID, wall)
+	if err != nil {
+		return "", err
+	}
+	if !ed25519.Verify(pub, msg, h.Signature) {
+		return "", errors.New("signature does not verify")
+	}
+	return device.ID(h.DeviceID), nil
+}
+
+func (r *Relay) admit(ip string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.links == nil {
+		r.links = map[device.ID]*link{}
+		r.pending = map[string]chan *replayConn{}
+		r.perIP = map[string]int{}
+		r.waiting = map[device.ID]int{}
+	}
+	if r.MaxPerIP > 0 && r.perIP[ip] >= r.MaxPerIP {
+		return false
+	}
+	r.perIP[ip]++
+	return true
+}
+
+func (r *Relay) release(ip string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.perIP[ip]--; r.perIP[ip] <= 0 {
+		delete(r.perIP, ip)
+	}
+}
+
+// peekServerName reads the ClientHello and returns its server name with every
+// byte read, so the stream can be replayed untouched to whoever ends the TLS.
+func peekServerName(r io.Reader) (string, []byte, error) {
+	var seen bytes.Buffer
+	var name string
+	called := false
+	err := tls.Server(readOnly{io.TeeReader(r, &seen)}, &tls.Config{
+		GetConfigForClient: func(h *tls.ClientHelloInfo) (*tls.Config, error) {
+			name, called = h.ServerName, true
+			return nil, errPeeked
+		},
+	}).Handshake()
+	if !called {
+		return "", nil, fmt.Errorf("passthrough: not a TLS client hello: %w", err)
+	}
+	if name == "" {
+		return "", nil, errors.New("passthrough: client hello has no server name")
+	}
+	return name, seen.Bytes(), nil
+}
+
+// readLine reads one control line whole, so nothing after it is buffered away
+// from the stream that follows.
+func readLine(r *bufio.Reader, v any) error {
+	var line []byte
+	for {
+		chunk, err := r.ReadSlice('\n')
+		line = append(line, chunk...)
+		// Capped: the relay reads a link's first line before anyone has signed in.
+		if len(line) > maxLine {
+			return errLineTooLong
+		}
+		if err == nil {
+			return json.Unmarshal(line, v)
+		}
+		if err != bufio.ErrBufferFull {
+			return err
+		}
+	}
+}
+
+// maxLine bounds one control line; the largest real one, a signed hello, is
+// well under 1 KB.
+const maxLine = 64 << 10
+
+var errLineTooLong = errors.New("passthrough: control line too long")
+
+func readProxyLine(r *bufio.Reader) (string, error) {
+	// Checked first, so a caller that skipped the line fails now, not at a newline.
+	if head, err := r.Peek(6); err != nil || string(head) != "PROXY " {
+		return "", errors.New("passthrough: no PROXY line")
+	}
+	// A PROXY v1 line is at most 107 bytes, well inside one buffer.
+	raw, err := r.ReadSlice('\n')
+	if err != nil {
+		return "", err
+	}
+	line := string(raw)
+	f := strings.Fields(line)
+	if len(f) < 6 || f[0] != "PROXY" {
+		return "", fmt.Errorf("passthrough: bad PROXY line %q", line)
+	}
+	return net.JoinHostPort(f[2], f[4]), nil
+}
+
+func splice(a, b *replayConn) {
+	done := make(chan struct{}, 2)
+	pipe := func(dst, src *replayConn) {
+		io.Copy(dst, src)
+		dst.CloseWrite()
+		done <- struct{}{}
+	}
+	go pipe(a, b)
+	go pipe(b, a)
+	<-done
+	<-done
+}
+
+func newToken() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func hostOnly(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
+}
+
+// replayConn reads from r, which starts with bytes already taken off the
+// socket, and signals closed once, when its user closes it.
+type replayConn struct {
+	net.Conn
+	r      io.Reader
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (c *replayConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+// CloseWrite ends one direction of a splice and leaves the other running.
+func (c *replayConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return c.Close()
+}
+
+func (c *replayConn) Close() error {
+	c.once.Do(func() {
+		if c.closed != nil {
+			close(c.closed)
+		}
+	})
+	return c.Conn.Close()
+}
+
+// readOnly lets tls.Server parse a ClientHello it must never answer.
+type readOnly struct{ r io.Reader }
+
+func (c readOnly) Read(p []byte) (int, error)     { return c.r.Read(p) }
+func (readOnly) Write(p []byte) (int, error)      { return 0, errPeeked }
+func (readOnly) Close() error                     { return nil }
+func (readOnly) LocalAddr() net.Addr              { return nil }
+func (readOnly) RemoteAddr() net.Addr             { return nil }
+func (readOnly) SetDeadline(time.Time) error      { return nil }
+func (readOnly) SetReadDeadline(time.Time) error  { return nil }
+func (readOnly) SetWriteDeadline(time.Time) error { return nil }
