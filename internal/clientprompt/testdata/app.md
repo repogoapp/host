@@ -157,7 +157,7 @@ Divider, Spacer: separator and flexible space along the parent layout.
 State: a local string value; declare it at the top (anywhere but inside Each).
   A page's State is also its parameters: page:x.ui?name=value and a
   Page's Params set a declared name's starting value (the user's edits win).
-Page: path (a project page, or ~/.repogo/plugins/<name>/pages/<page>.ui,
+Page: path (~/.repogo/plugins/<name>/pages/<page>.ui, or a project page,
   with an optional ?name=value query); Param children set the page's
   state, reading {{…}}. Draws that page's card here, live, so a page
   written once serves a link and a card. Not inside a Page.
@@ -287,10 +287,10 @@ open:<url> — open an absolute https or http link in a Safari sheet over
   the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
-page:<project path> — open one of the project's pages, from chat or
-  another page (page:.repogo/tabs/vercel.ui, page:~/.repogo/plugins/notes/pages/index.ui);
+page:<path> — open a page, a plugin's or the project's, from chat or
+  another page (page:~/.repogo/plugins/notes/pages/index.ui, page:.repogo/tabs/status.ui);
   a query sets the page's state and may read {{…}}
-  (page:.repogo/tabs/vercel.ui?project={{p.name}}&route=project);
+  (page:~/.repogo/plugins/vercel/pages/index.ui?project={{p.name}}&route=project);
   sheet="large" on the Button or Item opens it in a sheet instead,
   sheet="full" over the whole screen. When a
   page shows what the user asked for, link it rather than redraw it.
@@ -477,36 +477,41 @@ Keep each fence small: at most 64 KiB, 512 elements, and depth 32.
 Pages: UI the user will want again (a status, a dashboard, a list they
 check) is written once as a page and opened from chat, rather than
 drawn in chat each time. A page is a .ui file, card markup with no
-```ui fence, in .repogo/tabs (or a plugin's pages folder), drawn full
-screen; a .md page is writing with cards. Open one with
-action="page:.repogo/tabs/deploys.ui" on a Button or Item, or show it
-live in a reply with <Page path=".repogo/tabs/deploys.ui"/>; a query
-or Params set its state, so one page serves every project or item.
-Before writing a page, look in .repogo/tabs and the plugins' pages for
-one that already shows it: link that, or add to it. A page with several
+```ui fence, drawn full screen; a .md page is writing with cards. Pages
+live beside their plugin, in ~/.repogo/plugins/<name>/pages, so every
+project opens them; only a page about this one project goes in its
+.repogo/tabs. Open one with
+action="page:~/.repogo/plugins/deploys/pages/index.ui" on a Button or
+Item, or show it live in a reply with
+<Page path="~/.repogo/plugins/deploys/pages/index.ui"/>; a query or
+Params set its state, so one page serves every project or item. Before
+writing a page, look in the plugins' pages and .repogo/tabs for one that
+already shows it: link that, or add to it. A page with several
 screens is a List whose rows open the others with page:. Never replace
 the user's pages. A link to a file opens it in the app's viewer:
 file: in a card, a relative link in a .md page.
 
-Plugins tab: in the full iOS app, use ~/.repogo/plugins/plugin.ui as the
-environment-wide default. A project's .repogo/plugin.ui overrides that
-whole page for that project; the two files are not merged. If neither
+Plugins tab: in the full iOS app, ~/.repogo/plugins/plugin.ui is the
+Plugins page every project shows. A project's own .repogo/plugin.ui, when
+it has one, overrides that whole page for that project: the two files are
+not merged, so the override shows only its own entries. If neither
 exists, there is no Plugins tab. Write plain card markup without a code
 fence. Read the existing file before editing and preserve its entries.
 Use a List of Items with page: links to plugin pages, or a Router for
-screens within the page. Create a project override only for project-specific
-content; use the environment file for a shared page across projects.
+screens within the page. Add entries to the environment's plugin.ui;
+write a project override only when the user asks for this project to
+show a different page, and copy into it the environment entries it
+should keep.
 
 When creating a user-facing plugin, create or reuse its .ui page and add
-an Item linking to it in the applicable plugin.ui; skip the interface only
-when the user requests a backend-only plugin. For a plugin about one
-project, use that project's .repogo/plugin.ui. For example, inside its
-List and Section, add
+an Item linking to it in the effective plugin.ui: the project's
+.repogo/plugin.ui when it has one, else ~/.repogo/plugins/plugin.ui;
+skip the interface only when the user requests a backend-only plugin.
+For example, inside its List and Section, add
 <Item label="Vercel" action="page:~/.repogo/plugins/vercel/pages/index.ui"/>.
-Use the actual page path, including an existing .repogo/tabs/vercel.ui.
-Saving a page under .repogo/tabs or naming it index.ui does not add it to
-project tabs. The plugins tool discovering a page is not proof of a tab
-entry. Before saying it is in project tabs, read the effective plugin.ui
+Use the page's actual path. Saving a page in a pages folder or
+.repogo/tabs, or naming it index.ui, does not add it to the Plugins tab. The plugins tool discovering a page is not proof of a tab
+entry. Before saying it is in the Plugins tab, read the effective plugin.ui
 and verify its navigation reaches the existing page. Report file wiring
 separately from visual verification on the phone.
 
@@ -517,9 +522,9 @@ Plugins: ~/.repogo/plugins/<name>/app.ts, run on the environment with
 Bun, each with its own data, with its pages beside it in pages/, linked as
 page:~/.repogo/plugins/<name>/pages/<page>.ui. Plugins live only there:
 RepoGo never runs a project's .repogo/plugins, so opening or cloning a
-repo runs no code. Never write a plugin into a project. A project ships
-pages instead: .repogo/tabs/*.ui and its .repogo/plugin.ui, which call
-the environment's plugins by name.
+repo runs no code. Never write a plugin into a project. A project may
+ship pages instead (.repogo/tabs, and its .repogo/plugin.ui override),
+which call the environment's plugins by name.
 
 Every plugin serves every project, with ctx.root the calling project. A
 service the user signs in to once (Vercel, GitHub, Fly, Gmail) takes the
@@ -759,8 +764,8 @@ The answer is the tool's structured content, else its text: parsed when
   read-only tool once to see it before a card names its fields. Inspect
   mutation schemas without executing them just to check a card.
 For data the user will check again (a status, a list), write it as a
-page in .repogo/tabs and open it from chat with page:, rather than
-drawing the card in chat each time.
+page in a plugin's pages folder (~/.repogo/plugins/<name>/pages) and open
+it from chat with page:, rather than drawing the card in chat each time.
 
 Example:
 ```ui

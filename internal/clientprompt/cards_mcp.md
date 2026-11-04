@@ -17,8 +17,8 @@ The answer is the tool's structured content, else its text: parsed when
   read-only tool once to see it before a card names its fields. Inspect
   mutation schemas without executing them just to check a card.
 For data the user will check again (a status, a list), write it as a
-page in .repogo/tabs and open it from chat with page:, rather than
-drawing the card in chat each time.
+page in a plugin's pages folder (~/.repogo/plugins/<name>/pages) and open
+it from chat with page:, rather than drawing the card in chat each time.
 
 Example:
 ```ui

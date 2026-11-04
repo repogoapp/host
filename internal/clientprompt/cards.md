@@ -84,7 +84,7 @@ Divider, Spacer: separator and flexible space along the parent layout.
 State: a local string value; declare it at the top (anywhere but inside Each).
   A page's State is also its parameters: page:x.ui?name=value and a
   Page's Params set a declared name's starting value (the user's edits win).
-Page: path (a project page, or ~/.repogo/plugins/<name>/pages/<page>.ui,
+Page: path (~/.repogo/plugins/<name>/pages/<page>.ui, or a project page,
   with an optional ?name=value query); Param children set the page's
   state, reading {{…}}. Draws that page's card here, live, so a page
   written once serves a link and a card. Not inside a Page.
@@ -214,10 +214,10 @@ open:<url> — open an absolute https or http link in a Safari sheet over
   the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
-page:<project path> — open one of the project's pages, from chat or
-  another page (page:.repogo/tabs/vercel.ui, page:~/.repogo/plugins/notes/pages/index.ui);
+page:<path> — open a page, a plugin's or the project's, from chat or
+  another page (page:~/.repogo/plugins/notes/pages/index.ui, page:.repogo/tabs/status.ui);
   a query sets the page's state and may read {{…}}
-  (page:.repogo/tabs/vercel.ui?project={{p.name}}&route=project);
+  (page:~/.repogo/plugins/vercel/pages/index.ui?project={{p.name}}&route=project);
   sheet="large" on the Button or Item opens it in a sheet instead,
   sheet="full" over the whole screen. When a
   page shows what the user asked for, link it rather than redraw it.
