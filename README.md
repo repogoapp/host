@@ -36,6 +36,7 @@ can pair and start chatting right away.
 | `npx @repogo/host update` | Update to the latest version; refuses while chats, terminals or actions are running (`--now` stops them) |
 | `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
 | `npx @repogo/host relay` / `relay set <wss-url>` / `relay reset` | Show the relay, switch to your own, or go back to RepoGo's; switching unpairs your devices, so pair them again |
+| `npx @repogo/host tls rotate` | Replace the host's TLS key, for one that may have leaked; phones learn the new one on their next connection |
 | `npx @repogo/host tunnels` / `tunnels close <slug>` | List the public URLs open to your local servers, or close one |
 | `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
 
@@ -43,14 +44,63 @@ can pair and start chatting right away.
 
 The host has three parts.
 
-### Relay connection
+### Connections
 
-The host dials out to RepoGo's relay over a WebSocket; it listens only on
-`127.0.0.1`, never on your network. Your phone connects to the same relay,
-which routes each message by a small header and never holds a key.
+The host dials out and listens only on `127.0.0.1`, never on your network.
+Phones reach it one of two ways, both end-to-end encrypted:
 
-Pairing exchanges Ed25519 identities when you scan the code. Each connection
-then runs a Noise XX handshake with an ML-KEM-1024 step
+- **Direct** (TLS passthrough), the default with RepoGo's relay. Phones run
+  TLS 1.3 straight to the host, and the relay only pipes the bytes.
+- **Relay** (Noise), RepoGo's earlier channel. Hosts before 0.1.42, phones
+  that haven't learned the host's TLS pin yet, and custom relays use it.
+
+Pairing gives the phone the host's identity (an Ed25519 key) and, on 0.1.42
+and later, its signed TLS pin. A phone's own key is Ed25519, or P-256 when it
+lives in the iPhone's Secure Enclave.
+
+#### Direct
+
+```
+phone ──TLS 1.3──▶ relay ──same bytes──▶ host
+        <host-id>.h.repogo.app      dialed back over the host's link
+        reads the name, holds no key
+```
+
+1. The host holds a link to `h.repogo.app:443`, the passthrough relay in
+   [`hrelay/`](hrelay/). That TLS ends at the relay with a Let's Encrypt
+   certificate, and the host proves its identity by signing a challenge.
+2. A phone opens TLS to `<host-id>.h.repogo.app`. The relay reads the server
+   name from the ClientHello, sends the host a dial notice with a one-time
+   token, and the host dials back with it. The relay then copies bytes both
+   ways; it never holds a key for the phone's TLS.
+3. The host serves its own certificate. Its P-256 key is made on first run in
+   `~/.repogo/tls-key.json` (0600) and a fresh self-signed certificate wraps it
+   at each start. The phone pins the key's SPKI SHA-256, signed by the host's
+   identity over `repogo-tls-pin-v1`, the host ID, the SPKI and a counter, and
+   ignores CAs. `repogo tls rotate` makes a new key under the next counter;
+   phones refuse the new certificate once, fetch its signed pin over the relay
+   channel, and come back direct.
+4. TLS is 1.3 only on both ends, so the key exchange is X25519MLKEM768.
+5. The phone's hello signs the host's challenge plus 32 bytes exported from
+   this TLS session (`EXPORTER-repogo-hello`), so a signature can't be replayed
+   on another connection. The host checks it against its paired devices.
+
+A phone that isn't paired is let in only while a pairing code is live, and only
+for one `pair.complete` of its own key. `devices.rotate` moves a paired phone to
+a new key, such as one in the Secure Enclave: both keys sign
+`repogo-rotate-v1`, the host ID, the old device ID and the new key, so it needs
+no pairing again.
+
+The relay caps each address at 32 connections and each host at 16 phones
+waiting to be dialed back, pings links every 25 s, and drops a control line
+over 64 KB. `REPOGO_HRELAY` sets the passthrough relay's address (`host:port`)
+or turns it `off`; a host on a custom relay leaves it off unless set.
+
+#### Relay channel
+
+Each phone connects to RepoGo's relay (or yours) over a WebSocket, and the
+relay routes each message by a small header and never holds a key. Each
+connection runs a Noise XX handshake with an ML-KEM-1024 step
 (`Noise_XXhfs_25519+MLKEM1024_AESGCM_SHA256`), so messages are sealed with
 AES-GCM and the key exchange is post-quantum. The phone and the host each check
 the other's paired identity before anything is sent.
@@ -94,7 +144,7 @@ register fresh grants. Push registration fails closed when App Attest is unavail
 
 ### RPC calls
 
-The phone talks to the host in JSON-RPC 2.0 over that encrypted channel: list
+The phone talks to the host in JSON-RPC 2.0 over either connection: list
 chats, send a prompt, read a file, check git status, open a terminal. The host
 pushes live updates (a reply streaming in, a file changing) the same way. Every
 method's params and result are listed in [`docs/host-methods.md`](docs/host-methods.md),
@@ -102,7 +152,7 @@ and every event in [`docs/host-events.md`](docs/host-events.md).
 
 A few methods, such as starting a pairing, only answer on this computer: they
 need the token in `~/.repogo/runtime.json` (readable only by you) and are
-refused over the relay.
+refused from a phone.
 
 ### Agent runs
 
@@ -116,8 +166,8 @@ in a terminal or your editor, so their history shows up on your phone.
 
 ## What it changes on your computer
 
-- `~/.repogo/` holds the binary, your pairings, a cache of your chat list, and
-  logs. Delete it to remove everything.
+- `~/.repogo/` holds the binary, your pairings, the host's identity and TLS
+  keys, a cache of your chat list, and logs. Delete it to remove everything.
 - A launchd agent (macOS) or a systemd user service (Linux) starts the host.
   On Linux, `install` also turns on lingering (`loginctl enable-linger`) so the
   host starts at boot, not at your first login; where that needs root it
@@ -159,7 +209,8 @@ local WebSocket, and a real relay, on temporary data.
 
 ```
 repogo/      the host binary: commands, config, start, update
-relay/       the hosted relay that routes encrypted bytes
+relay/       the relay channel's relay, which routes encrypted bytes
+hrelay/      the passthrough relay behind h.repogo.app, which pipes TLS
 npm/         the `npx @repogo/host` installer
 plugins-sdk/ `@repogo/plugins`, the package plugins are written with
 tunnelwire/  wire types shared with the tunnel gateway
