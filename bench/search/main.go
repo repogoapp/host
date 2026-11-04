@@ -60,7 +60,7 @@ func main() {
 		"voice agent restructuring tool calls",
 		"find the chat about the app clip size",
 		"live activity", "App Clip size", "push notifications", "sparkle release",
-		"vercel sandbox", "relay encryption", "pairing code", "git store",
+		"relay encryption", "pairing code", "git store",
 		"markdown table", "terminal", "browser tab", "queue", "the",
 		"WorkspaceChangesStore", "fts5", "stripe", "zzzz nothing matches",
 	}

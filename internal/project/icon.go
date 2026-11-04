@@ -340,4 +340,3 @@ func fileFits(path string, limit int) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular() && info.Size() <= int64(limit)
 }
-

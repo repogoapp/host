@@ -137,7 +137,7 @@ type tail struct {
 func New(ctx context.Context, d Deps) *Manager {
 	return &Manager{
 		ctx: ctx, sessions: d.Sessions, db: d.Store, emit: d.Emit, turns: d.Turns, log: d.Log, wire: d.Wire,
-		children: d.Children,
+		children:    d.Children,
 		onAttention: d.Attention,
 
 		tails:       map[device.ID]*tail{},

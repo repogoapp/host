@@ -80,26 +80,6 @@ func (c *Client) ApplyFlagSettings(ctx context.Context, settings map[string]any)
 	return c.requestControl(ctx, map[string]any{"subtype": "apply_flag_settings", "settings": settings}, nil)
 }
 
-func (c *Client) SetMaxThinkingTokens(ctx context.Context, tokens *int) error {
-	return c.requestControl(ctx, map[string]any{"subtype": "set_max_thinking_tokens", "max_thinking_tokens": tokens}, nil)
-}
-
-func (c *Client) StopTask(ctx context.Context, id string) error {
-	return c.requestControl(ctx, map[string]any{"subtype": "stop_task", "task_id": id}, nil)
-}
-
-type MCPResult struct {
-	Added   []string          `json:"added"`
-	Removed []string          `json:"removed"`
-	Errors  map[string]string `json:"errors"`
-}
-
-func (c *Client) SetMCPServers(ctx context.Context, servers map[string]MCPServer) (MCPResult, error) {
-	var result MCPResult
-	err := c.requestControl(ctx, map[string]any{"subtype": "mcp_set_servers", "servers": servers}, &result)
-	return result, err
-}
-
 func (c *Client) handleControlRequest(id string, raw json.RawMessage) {
 	if id == "" {
 		c.fail(errors.New("claudecode: inbound request has no id"))
