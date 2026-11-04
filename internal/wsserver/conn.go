@@ -2,6 +2,7 @@ package wsserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -26,6 +27,11 @@ type conn struct {
 	ws  *wsconn.Conn
 
 	caller rpc.Caller
+	// bind is the TLS exporter of a passthrough connection; nil on loopback.
+	bind []byte
+	// stranger is an unpaired device admitted over passthrough while a code is
+	// live: it may make one Unpaired call (pair.complete), then the socket closes.
+	stranger bool
 }
 
 func newConn(srv *Server, ws *websocket.Conn) *conn {
@@ -38,12 +44,27 @@ func (c *conn) run(ctx context.Context) {
 	// Both auth paths share one challenge: a same-machine client answers with
 	// the loopback token, a paired device signs the nonce.
 	h, err := c.ws.Accept(ctx, c.srv.cfg.ServerID, release.Version, func(h handshake.Hello, signed []byte) error {
+		if c.bind != nil {
+			if len(h.ChallengeSig) == 0 || h.LocalToken != "" {
+				return errors.New("a remote connection authenticates by a bound signature only")
+			}
+			signed = device.BindTLS(signed, c.bind)
+			if c.srv.admitsStranger(h, signed) {
+				c.stranger = true
+				c.caller = rpc.Caller{Device: device.ID(h.DeviceID), Scope: rpc.ScopeRemote}
+				return nil
+			}
+		}
 		scope, err := c.srv.authenticate(&h, signed)
 		c.caller = rpc.Caller{Device: device.ID(h.DeviceID), Scope: scope}
 		return err
 	})
 	if err != nil {
 		c.srv.log.Warn("wsserver: handshake failed", "err", err)
+		return
+	}
+	if c.stranger {
+		c.pairOnce(ctx)
 		return
 	}
 	c.srv.log.Info("wsserver: connected", "device", c.caller.Device, "label", h.Label)
@@ -80,6 +101,31 @@ func (c *conn) run(ctx context.Context) {
 			c.reply(ctx, rpc.Busy(msg))
 		}
 	}
+}
+
+// pairOnce serves an unpaired device's one call, which must be an Unpaired
+// method; the pairing code inside it is the real guard. The device then
+// reconnects as paired, so a stranger never holds a live socket here.
+func (c *conn) pairOnce(ctx context.Context) {
+	c.srv.log.Info("wsserver: pairing over passthrough", "device", c.caller.Device)
+	msg, err := c.ws.ReadJSON(ctx)
+	if err != nil {
+		return
+	}
+	if !c.srv.cfg.Router.Unpaired(msg.Method) {
+		c.reply(ctx, jsonrpc.Fail(msg.ID, jsonrpc.CodeDenied, "this device is not paired with the host"))
+		return
+	}
+	// Only the key that signed this hello may be paired on it.
+	var joiner struct {
+		DeviceID device.ID `json:"device_id"`
+	}
+	if json.Unmarshal(msg.Params, &joiner) != nil || joiner.DeviceID != c.caller.Device {
+		c.reply(ctx, jsonrpc.Fail(msg.ID, jsonrpc.CodeDenied, "a device may only pair its own key"))
+		return
+	}
+	c.reply(ctx, c.srv.cfg.Router.Dispatch(ctx, c.caller, msg))
+	c.ws.Close()
 }
 
 func (c *conn) reply(ctx context.Context, reply *jsonrpc.Message) {

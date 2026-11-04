@@ -7,6 +7,7 @@ package host
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,12 +26,15 @@ import (
 	"github.com/repogoapp/host/internal/chatsync"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/hostinfo"
 	"github.com/repogoapp/host/internal/hostlink"
+	"github.com/repogoapp/host/internal/hosttls"
 	"github.com/repogoapp/host/internal/hostupdate"
 	"github.com/repogoapp/host/internal/liveactivity"
 	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/passthrough"
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/projectwatch"
@@ -68,6 +72,9 @@ type Config struct {
 	// PushRelay holds the APNs key. When it differs from Relay, a second link
 	// to it carries push.send alone.
 	PushRelay string
+	// PassthroughRelay, when set (host:port, as h.repogo.app:443), is the
+	// relay phones reach this host through over pinned TLS (plan 520).
+	PassthroughRelay string
 
 	// Label names this host to its phones.
 	Label string
@@ -142,6 +149,8 @@ type Host struct {
 	watch     *projectwatch.Manager
 
 	srv *wsserver.Server
+	// hostTLS is the passthrough TLS key; nil when PassthroughRelay is unset.
+	hostTLS *hosttls.Keys
 	// Set in New only when there is a relay; APNs goes through pushLink,
 	// which is link itself unless the relay is the user's own.
 	link       *hostlink.Link
@@ -253,6 +262,49 @@ func (h *Host) Start() {
 	}
 	if h.pushLink != nil {
 		h.spawn(func(ctx context.Context) { h.Services.Activities.Run(ctx, h.pushLink) })
+	}
+	if h.hostTLS != nil {
+		h.spawn(h.servePassthrough)
+	}
+}
+
+// rotateTLS replaces the passthrough TLS key, for one that may have leaked:
+// new invites carry the new pin, and phones on passthrough are dropped so they
+// learn it over the relay channel on reconnect, never trusting the old key again.
+func (h *Host) rotateTLS() (device.SignedPin, error) {
+	if h.hostTLS == nil {
+		return device.SignedPin{}, errkind.New(errkind.NotFound, "this host does not serve passthrough TLS")
+	}
+	next, err := h.hostTLS.Rotate()
+	if err != nil {
+		return device.SignedPin{}, err
+	}
+	h.pairer.SetTLSPin(next.Pin)
+	h.srv.CloseRemote()
+	h.log.Info("passthrough: TLS key rotated", "counter", next.Pin.Counter)
+	return next.Pin, nil
+}
+
+// servePassthrough holds the link to the passthrough relay and serves the
+// phones it routes here, over this host's pinned TLS, until ctx ends.
+func (h *Host) servePassthrough(ctx context.Context) {
+	name, _, err := net.SplitHostPort(h.cfg.PassthroughRelay)
+	if err != nil {
+		h.log.Warn("passthrough: bad relay address", "relay", h.cfg.PassthroughRelay, "err", err)
+		return
+	}
+	l := passthrough.Listen(ctx, &passthrough.Listener{
+		RelayAddr: h.cfg.PassthroughRelay,
+		LinkTLS:   &tls.Config{ServerName: name, MinVersion: tls.VersionTLS13},
+		Identity:  h.devices.Identity(),
+		// The relay pings every 25 s; three missed is a dead link.
+		IdleTimeout: 75 * time.Second,
+		Log:         h.log,
+	})
+	defer l.Close()
+	h.log.Info("passthrough: serving", "relay", h.cfg.PassthroughRelay, "host", string(h.devices.Identity().ID)+"."+name)
+	if err := h.srv.ServeRemote(tls.NewListener(l, h.hostTLS.Config())); err != nil && ctx.Err() == nil {
+		h.log.Warn("passthrough: stopped", "err", err)
 	}
 }
 

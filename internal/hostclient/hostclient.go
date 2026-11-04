@@ -5,8 +5,11 @@ package hostclient
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -52,6 +55,15 @@ type Config struct {
 	// SignAs signs with a key other than the one the hello claims, for the
 	// negative case.
 	SignAs *device.Identity
+
+	// TLS dials a passthrough host (wss://) with this config, usually a pin
+	// check in VerifyConnection, and binds the hello to the session's TLS
+	// exporter. Unbound signs without it, for the negative case.
+	TLS     *tls.Config
+	Unbound bool
+	// Dial replaces the TCP dial, as to reach a host by name through a relay
+	// address the name does not resolve to.
+	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 type Client struct {
@@ -59,6 +71,7 @@ type Client struct {
 	ws   *wsconn.Conn
 	peer string
 	sess *securechan.Session
+	bind []byte
 
 	mu      sync.Mutex
 	nextID  int
@@ -81,16 +94,32 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	ws, _, err := websocket.Dial(dialCtx, cfg.URL, nil)
+	var opts *websocket.DialOptions
+	if cfg.TLS != nil {
+		opts = &websocket.DialOptions{HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: cfg.TLS, DialContext: cfg.Dial}}}
+	}
+	ws, resp, err := websocket.Dial(dialCtx, cfg.URL, opts)
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("hostclient: dial: %w", err)
+	}
+	var bind []byte
+	if cfg.TLS != nil {
+		if resp == nil || resp.TLS == nil {
+			ws.CloseNow()
+			return nil, errors.New("hostclient: a TLS dial returned no TLS state")
+		}
+		if bind, err = resp.TLS.ExportKeyingMaterial(device.TLSExporterLabel, nil, device.TLSExporterLen); err != nil {
+			ws.CloseNow()
+			return nil, fmt.Errorf("hostclient: TLS exporter: %w", err)
+		}
 	}
 	ws.SetReadLimit(int64(relay.FrameBytes(jsonrpc.Limit())))
 
 	c := &Client{
 		cfg:           cfg,
 		ws:            wsconn.Wrap(ws),
+		bind:          bind,
 		pending:       map[string]chan *jsonrpc.Message{},
 		Notifications: make(chan *jsonrpc.Message, 64),
 	}
@@ -126,6 +155,10 @@ func (c *Client) shake(ctx context.Context) error {
 		sign = c.cfg.SignAs.Sign
 	} else if c.cfg.Unsigned {
 		sign = nil
+	}
+	if sign != nil && c.bind != nil && !c.cfg.Unbound {
+		key := sign
+		sign = func(msg []byte) []byte { return key(device.BindTLS(msg, c.bind)) }
 	}
 	version, err := c.ws.Hello(ctx, handshake.Hello{
 		DeviceID:   string(c.cfg.Identity.ID),

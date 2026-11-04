@@ -107,9 +107,12 @@ var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reu
 // a reason. Anything else new fails TestEveryMethodIsAccountedFor, which is the
 // point: a family added without a case here does not go unnoticed.
 var unchecked = map[string]string{
-	"host.setup":   "shells out to gh and every agent CLI and asks the npm registry for versions; composition covered in internal/hostsetup",
-	"host.update":  "downloads a release and restarts the host; covered in internal/hostupdate",
-	"catalog.read": "probes every agent CLI as host.setup does; covered with fakes in the catalog family suite",
+	"host.setup":      "shells out to gh and every agent CLI and asks the npm registry for versions; composition covered in internal/hostsetup",
+	"host.update":     "downloads a release and restarts the host; covered in internal/hostupdate",
+	"host.tls_pin":    "answers only when the host serves passthrough TLS; covered in internal/wsserver remote_test",
+	"host.tls_rotate": "replaces the host's TLS key and drops passthrough sockets; covered in internal/hosttls and internal/wsserver remote_test",
+	"devices.rotate":  "replaces the caller's own key and closes its sockets; covered in internal/device rotate_test and internal/wsserver remote_test",
+	"catalog.read":    "probes every agent CLI as host.setup does; covered with fakes in the catalog family suite",
 
 	"devices.register_push": "paired-device token storage; loopback callers are denied",
 	"activities.set":        "plugins only, keyed by the calling plugin; covered in internal/stepactivity and its rpc family",

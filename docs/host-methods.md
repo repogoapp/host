@@ -613,6 +613,20 @@ Result:
 
 - `ok` bool
 
+## `devices.rotate`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `public_key` base64 (nullable)
+- `signature_old` base64 (nullable)
+- `signature_new` base64 (nullable)
+
+Result:
+
+- `device_id` string
+
 ## `env.read`
 
 Params:
@@ -1077,6 +1091,32 @@ Result:
 - `from` string
 - `to` string (omitted when empty)
 - `busy` object{Busy} (omitted when empty) (nullable)
+
+## `host.tls_pin`
+
+Params:
+
+- none
+
+Result:
+
+- `spki_sha256` base64 (nullable)
+- `counter` int
+- `signature` base64 (nullable)
+
+## `host.tls_rotate`
+
+Local only: refused to a paired device.
+
+Params:
+
+- none
+
+Result:
+
+- `spki_sha256` base64 (nullable)
+- `counter` int
+- `signature` base64 (nullable)
 
 ## `limits.read`
 

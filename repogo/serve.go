@@ -146,8 +146,9 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 		// Visible in the user's home rather than under a dotfile: it holds their source.
 		Projects: projectsDir(home),
 		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relayURL, PushRelay: defaultRelay,
-		Label:   device.Label(),
-		Gateway: gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
+		PassthroughRelay: passthroughFor(relayURL, os.Getenv("REPOGO_HRELAY")),
+		Label:            device.Label(),
+		Gateway:          gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
 		Update: hostupdate.Deps{
 			Version: release.Version, Root: self.root, Marker: self.marker,
 			Latest: release.Latest, Stage: release.Stage, Restart: self.restart,
@@ -191,4 +192,23 @@ func pluginsSDK() string {
 		return ""
 	}
 	return os.Getenv("REPOGO_PLUGINS_SDK")
+}
+
+// defaultPassthrough is where phones reach a host on RepoGo's relay over
+// pinned TLS (plan 520); the relay only pipes bytes to it.
+const defaultPassthrough = "h.repogo.app:443"
+
+// passthroughFor is the passthrough relay a host links to: RepoGo's for a
+// host on RepoGo's relay, none for a custom relay (whose phones only know that
+// relay), and REPOGO_HRELAY over either, with "off" for none.
+func passthroughFor(relayURL, override string) string {
+	switch {
+	case override == "off":
+		return ""
+	case override != "":
+		return override
+	case relayURL == defaultRelay:
+		return defaultPassthrough
+	}
+	return ""
 }

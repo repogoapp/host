@@ -32,6 +32,7 @@ import (
 	"github.com/repogoapp/host/internal/hostinfo"
 	"github.com/repogoapp/host/internal/hostlink"
 	"github.com/repogoapp/host/internal/hostsetup"
+	"github.com/repogoapp/host/internal/hosttls"
 	"github.com/repogoapp/host/internal/hostupdate"
 	"github.com/repogoapp/host/internal/liveactivity"
 	"github.com/repogoapp/host/internal/mcp"
@@ -184,6 +185,13 @@ func (h *Host) openDevices() error {
 	}
 	h.log.Info("device identity", "id", h.devices.Identity().ID, "group", h.devices.GroupID(),
 		"peers", len(h.devices.Peers()))
+	if h.cfg.PassthroughRelay != "" {
+		h.hostTLS, err = hosttls.Open(h.state("tls-key.json"), h.devices.Identity())
+		if err != nil {
+			return fmt.Errorf("passthrough TLS key: %w", err)
+		}
+		h.pairer.SetTLSPin(h.hostTLS.Current().Pin)
+	}
 
 	// Producers hold the emitter; the mux sends on the device's own loopback
 	// socket if it has one, else the relay, the fallback when there is one.
@@ -206,6 +214,13 @@ func (h *Host) openDevices() error {
 	s.Host = h.info
 	s.Devices = h.devices
 	s.Pairer = h.pairer
+	s.TLSPin = func() (device.SignedPin, bool) {
+		if h.hostTLS == nil {
+			return device.SignedPin{}, false
+		}
+		return h.hostTLS.Current().Pin, true
+	}
+	s.TLSRotate = h.rotateTLS
 	s.Online = h.online
 	s.PushChanged = h.pushChanged
 	s.Activities = stepactivity.New(h.devices, h.log)
@@ -429,6 +444,7 @@ func (h *Host) openTransports() error {
 	h.srv, err = wsserver.New(wsserver.Config{
 		Port: h.cfg.Port, Token: h.cfg.Token, ServerID: h.cfg.ServerID, Mux: mux,
 		Devices: h.devices, Router: h.Router, Pushes: h.Pushes, OnDisconnect: h.disconnected, Log: h.log,
+		Pairing:    h.pairer.Accepting,
 		SelfAuthed: map[string]http.Handler{repogomcp.Path: h.tools},
 	})
 	if err != nil || h.cfg.Relay == "" {

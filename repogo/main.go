@@ -41,7 +41,7 @@ func command(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo relay [set <wss-url>|reset]\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
+		fmt.Println("repogo [install|pair|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo relay [set <wss-url>|reset]\nrepogo tls rotate\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
 		return nil
 	}
 	if verb == "keep-awake" {
@@ -52,6 +52,9 @@ func command(ctx context.Context, args []string) error {
 	}
 	if verb == "relay" {
 		return relayCommand(ctx, args)
+	}
+	if verb == "tls" {
+		return tlsCommand(ctx, args)
 	}
 	if verb == "tunnels" {
 		return tunnelsCommand(ctx, args)

@@ -89,6 +89,10 @@ type Config struct {
 
 	// Updates replaces and restarts this host.
 	Updates *hostupdate.Updater
+	// TLSPin is the host's signed TLS pin, when it serves passthrough TLS.
+	TLSPin func() (device.SignedPin, bool)
+	// TLSRotate replaces that key and returns the new pin.
+	TLSRotate func() (device.SignedPin, error)
 
 	// Tools is every CLI the host installs, updates and signs in: gh and the agents.
 	Tools *clitool.Inventory
@@ -169,7 +173,7 @@ func New(cfg Config) (*rpc.Router, error) {
 
 	r := rpc.New(cfg.Log)
 	setup := hostsetup.Sources{Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Catalog: cfg.AgentCatalog}
-	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates, Setup: setup})
+	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates, Setup: setup, TLSPin: cfg.TLSPin, TLSRotate: cfg.TLSRotate})
 	turns.Register(r, turns.Deps{
 		Runner: cfg.Runner, Usage: cfg.AgentUsage,
 	})

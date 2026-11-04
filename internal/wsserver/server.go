@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -54,13 +55,18 @@ type Config struct {
 	// OnDisconnect runs when a device's last socket here closes.
 	OnDisconnect func(device.ID)
 
+	// Pairing reports whether a pairing code is live. Only then may a device
+	// this host doesn't know say hello over passthrough, to call pair.complete.
+	Pairing func() bool
+
 	Log *slog.Logger
 }
 
 type Server struct {
-	cfg  Config
-	log  *slog.Logger
-	http *http.Server
+	cfg    Config
+	log    *slog.Logger
+	http   *http.Server
+	remote *http.Server
 
 	mu    sync.Mutex
 	conns map[device.ID]*conn
@@ -124,11 +130,74 @@ func (s *Server) Listen() (net.Addr, error) {
 	return addr, nil
 }
 
+// CloseRemote drops every passthrough socket, as after a TLS key rotation:
+// each phone reconnects and meets the new key.
+func (s *Server) CloseRemote() {
+	s.mu.Lock()
+	var remote []*conn
+	for c := range s.open {
+		if c.bind != nil {
+			remote = append(remote, c)
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range remote {
+		c.ws.CloseNow()
+	}
+}
+
+// ServeRemote serves phones that reach this host over pinned TLS through the
+// passthrough relay. lis yields TLS connections. Only /ws is served there, and
+// only to paired devices whose hello is bound to that TLS session.
+func (s *Server) ServeRemote(lis net.Listener) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", s.handleRemoteWS)
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelDebug)}
+	s.mu.Lock()
+	s.remote = srv
+	s.mu.Unlock()
+	err := srv.Serve(lis)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.mu.Lock()
+	remote := s.remote
+	s.mu.Unlock()
+	if remote != nil {
+		remote.Shutdown(ctx)
+	}
 	if s.http == nil {
 		return nil
 	}
 	return s.http.Shutdown(ctx)
+}
+
+// handleRemoteWS is /ws over passthrough TLS. Its Host is the relay name, not
+// loopback, so the loopback check is replaced by the TLS binding: the hello
+// must sign this session's exporter, and the local token is never accepted.
+func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request) {
+	if r.TLS == nil {
+		http.Error(w, "TLS required", http.StatusForbidden)
+		return
+	}
+	exporter, err := r.TLS.ExportKeyingMaterial(device.TLSExporterLabel, nil, device.TLSExporterLen)
+	if err != nil {
+		http.Error(w, "no TLS exporter", http.StatusForbidden)
+		return
+	}
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
+	if err != nil {
+		s.log.Warn("wsserver: remote accept failed", "err", err)
+		return
+	}
+	c.SetReadLimit(jsonrpc.MaxMessageBytes)
+	conn := newConn(s, c)
+	conn.bind = exporter
+	conn.run(r.Context())
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +264,20 @@ func isLoopbackHost(host string) bool {
 		return true
 	}
 	return false
+}
+
+// admitsStranger lets a device this host doesn't know through a passthrough
+// hello while a pairing code is live: its key must sign the bound challenge
+// and hash to its id, as a paired device's must.
+func (s *Server) admitsStranger(h handshake.Hello, signed []byte) bool {
+	if s.cfg.Pairing == nil || !s.cfg.Pairing() {
+		return false
+	}
+	if _, err := s.cfg.Devices.Peer(device.ID(h.DeviceID)); err == nil {
+		return false
+	}
+	return device.ValidPhoneKey(h.PublicKey) && device.IDFor(h.PublicKey) == device.ID(h.DeviceID) &&
+		device.VerifyPhone(h.PublicKey, signed, h.ChallengeSig)
 }
 
 func (s *Server) tokenValid(got string) bool {
