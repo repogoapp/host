@@ -3,13 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -39,11 +37,6 @@ func printPairingQR(ctx context.Context, payload, pairHost string, reusable bool
 		return err
 	}
 	fmt.Print("\n" + terminalQR(code))
-	if inlineImages() {
-		if svg := appClipCode(ctx, link); svg != nil {
-			fmt.Print("\n" + inlineImage(svg, "clip.svg") + "\n")
-		}
-	}
 	expires := time.UnixMilli(invite.ExpiresAt)
 	if reusable {
 		fmt.Printf("  Scan with Camera    any number of devices until %s\n", expires.Format("Jan 2 15:04 MST"))
@@ -149,39 +142,6 @@ func reusableHours(arg string) (int, error) {
 		return 0, fmt.Errorf("--reusable takes days or hours, such as 14d or 36h, or off")
 	}
 	return n * unit, nil
-}
-
-// appClipCode renders the link as an App Clip Code SVG with the same encoder
-// the site uses, run locally because no server may see the link. Empty when
-// npx is unavailable or slow; the QR above stands alone.
-func appClipCode(ctx context.Context, link string) []byte {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	svg, err := exec.CommandContext(ctx, "npx", "-y", "appclipcode@1.0.1", link).Output()
-	if err != nil {
-		return nil
-	}
-	return svg
-}
-
-// inlineImages reports whether the terminal speaks the iTerm2 inline image
-// protocol (iTerm2, WezTerm, Ghostty ...). Elsewhere the QR above stands
-// alone — Camera reads either.
-func inlineImages() bool {
-	switch {
-	case os.Getenv("TERM_PROGRAM") == "iTerm.app",
-		os.Getenv("TERM_PROGRAM") == "WezTerm",
-		os.Getenv("TERM_PROGRAM") == "ghostty",
-		os.Getenv("LC_TERMINAL") == "iTerm2":
-		return true
-	}
-	return false
-}
-
-func inlineImage(data []byte, name string) string {
-	return fmt.Sprintf("\x1b]1337;File=name=%s;size=%d;inline=1;width=24;preserveAspectRatio=1:%s\a",
-		base64.StdEncoding.EncodeToString([]byte(name)), len(data),
-		base64.StdEncoding.EncodeToString(data))
 }
 
 // terminalQR draws dark modules on a white field with an explicit quiet zone,
