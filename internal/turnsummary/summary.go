@@ -32,10 +32,9 @@ func Text(message string) string {
 	return plain(prose)
 }
 
-// Split takes the recap off an agent's message: a <recap> line outside code,
-// through </recap>, keeping whatever follows (a tool's Sources list, cards).
-// One left open runs to the next fence or the end, and counts only with ui
-// fences after it. It returns the message without it and the recap.
+// Split takes the recap off an agent's message: a <recap> line outside code
+// through </recap>, keeping what follows. One left open runs to the next fence
+// or the end and counts only with ui fences after it. Returns rest and recap.
 func Split(message string) (rest, recap string, ok bool) {
 	start := recapLine(message)
 	if start < 0 {
