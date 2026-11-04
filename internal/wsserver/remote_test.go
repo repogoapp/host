@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/hostclient"
 	"github.com/repogoapp/host/internal/hosttls"
+	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/passthrough"
 	"github.com/repogoapp/host/internal/rpc/pairing"
 	"github.com/repogoapp/host/internal/rpc/registry"
@@ -317,5 +319,23 @@ func TestRotatingTheTLSKey(t *testing.T) {
 	var pin device.SignedPin
 	if err := call(t, after, "host.tls_pin", nil, &pin); err != nil || pin.Counter != 2 || [32]byte(pin.SPKI) != next.SPKI {
 		t.Fatalf("host.tls_pin after rotation = %+v, %v", pin, err)
+	}
+}
+
+func TestRemoteReadsUpToTheHostsLimit(t *testing.T) {
+	// A host on a custom relay raises its limit; the direct route must too.
+	jsonrpc.SetLimit(jsonrpc.CustomRelayMessageBytes)
+	t.Cleanup(func() { jsonrpc.SetLimit(jsonrpc.MaxMessageBytes) })
+	r := newRemote(t)
+	c, err := r.dial(t, r.pair(t), r.pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Past the RepoGo relay's 8 MiB: the method may refuse it, the socket may not.
+	big := strings.Repeat("x", jsonrpc.MaxMessageBytes+1<<20)
+	_ = call(t, c, "host.tls_pin", map[string]string{"pad": big}, nil)
+	var pin device.SignedPin
+	if err := call(t, c, "host.tls_pin", nil, &pin); err != nil {
+		t.Fatalf("the connection did not survive a message over 8 MiB: %v", err)
 	}
 }

@@ -194,7 +194,8 @@ func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("wsserver: remote accept failed", "err", err)
 		return
 	}
-	c.SetReadLimit(jsonrpc.MaxMessageBytes)
+	// The host's own limit, as the relay route has: higher on a custom relay.
+	c.SetReadLimit(int64(jsonrpc.Limit()))
 	conn := newConn(s, c)
 	conn.bind = exporter
 	conn.run(r.Context())
