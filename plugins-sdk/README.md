@@ -7,7 +7,7 @@ phone draw its data live and run its methods when you tap.
 
 - [Quick start](#quick-start)
 - [Where plugins live](#where-plugins-live)
-- [Methods](#methods): queries, mutations, streams, cached queries
+- [Methods](#methods): reads, writes, destructive methods, streams, cached reads
 - [Data](#data): namespaces, collections, kv, streams, buckets, uploads
 - [Workflows](#workflows)
 - [Crons](#crons)
@@ -30,13 +30,13 @@ export default definePlugin({
   collections: { notes: z.object({ text: z.string(), done: z.boolean().default(false) }) },
   methods: {
     open: method(z.object({}), async (_, ctx) => ctx.collections.notes.list({ where: { done: false } }), {
-      kind: "query",
+      effect: "read",
       description: "Notes not done yet, newest first",
     }),
     clear: method(z.object({}), async (_, ctx) => {
       for (const note of await ctx.collections.notes.list({ limit: 500 })) await ctx.collections.notes.delete(note.id);
       return null;
-    }, { confirm: "Delete every note?" }),
+    }, { effect: "destructive", confirm: "Delete every note?" }),
   },
 });
 ```
@@ -66,8 +66,10 @@ project (its keys, its database, its plans) is still an environment plugin: it
 reads that project from `ctx.root`, and says so instead of acting when it's
 called from a project it doesn't fit.
 
-A project ships pages instead: `.repogo/plugin.ui` and `.repogo/tabs/*.ui` (or
-`.md`), card markup that calls the environment's plugins by name.
+A project ships no pages either: the app loads `.ui` and `.html` pages only
+from `~/.repogo/plugins`, so a cloned repo can't put its own page, and the
+script an `.html` page runs, in front of the user. A page about one project
+lives beside its plugin and takes the project as state (`?project=…`).
 
 A plugin's name is its folder's: lowercase letters, digits and hyphens. The
 environment's plugins run together in one Worker, so a plugin's blocking code
@@ -77,18 +79,17 @@ Pages beside an environment plugin (`pages/*.ui`, or `pages/*.md`) open from
 any project as `~/.repogo/plugins/<name>/pages/<page>.ui`. A
 `.ui` page is card markup with no fence; a `.md` page is writing with cards.
 
-In the full iOS app, `~/.repogo/plugins/plugin.ui` supplies a shared Plugins
-tab. A project’s `.repogo/plugin.ui` overrides the entire page for that
-project; entries are not merged. If neither exists, the tab is absent.
-Both are plain card markup without a code fence. Read and preserve existing
+In the full iOS app, `~/.repogo/plugins/plugin.ui` is the Plugins tab in
+every project; a project's `.repogo/plugin.ui` is never read. If it doesn't
+exist, the tab is absent. It is plain card markup without a code fence. Read and preserve existing
 entries, and link to plugin pages with `page:` actions.
 
-A user-facing plugin needs both its saved page and a link from the applicable `plugin.ui`. Saving a file in `.repogo/tabs` or naming it `index.ui` does not register a project tab. Plugin discovery can list a page without a navigation entry; verify the effective `plugin.ui` links to the existing page.
+A user-facing plugin needs both its saved page and a link from `~/.repogo/plugins/plugin.ui`. Saving a file in a pages folder or naming it `index.ui` does not add it to the tab. Plugin discovery can list a page without a navigation entry; verify `plugin.ui` links to the existing page.
 
 ## Methods
 
 ```ts
-method(input, run, { kind?, description?, output?, confirm? })
+method(input, run, { effect?, description?, output?, confirm? })
 stream(input, async function* run, { description? })
 ```
 
@@ -96,14 +97,18 @@ stream(input, async function* run, { description? })
 filled in before `run` sees it. `run(input, ctx)` returns the result: anything
 JSON can carry.
 
-| Kind | Does | Who runs it |
+| Effect | Does | Who runs it |
 | --- | --- | --- |
-| `query` | Only reads; writing throws | Cards on their own, and again whenever data it read changes |
-| `mutation` (the default) | Reads and writes | Only when someone acts: a tap, an agent, a cron, other code |
-| `stream` | Only reads; yields items as they happen | A card while it shows it |
+| `read` | Only reads; writing throws | Cards on their own, and again whenever data it read changes |
+| `write` (the default) | Reads and writes | Only when someone acts: a tap, an agent, a cron, other code |
+| `destructive` | Writes what can't be undone; needs a `confirm` | Only after the user answers its question, on a tap |
+| `stream()` | A read that yields items as they happen | A card while it shows it |
 
-Mark every method that only reads as `kind: "query"`: that's what lets a card
-show it and keep it current. Give each a `description`; agents read it to choose
+Mark every method that only reads `effect: "read"`: that's what lets a card
+show it and keep it current. Mark what can't be undone (a delete, a send, a
+deploy) `effect: "destructive"` with a `confirm` question; a destructive method
+without one doesn't load. A method with a `confirm` never runs from an agent's
+`plugin_call` or a cron: the agent draws a button, and the user's tap asks. Give each a `description`; agents read it to choose
 a method. `output`, a zod schema of the result, tells agents and cards its
 field names.
 
@@ -116,7 +121,7 @@ or the voice agent reads the whole of one.
 ```ts
 open: method(z.object({ limit: z.number().int().min(1).max(100).default(20) }), async ({ limit }, ctx) =>
   (await ctx.collections.notes.list({ where: { done: false }, limit })).map(({ id, text }) => ({ id, text: text.slice(0, 200) })),
-  { kind: "query", description: "Notes not done yet, newest first" }),
+  { effect: "read", description: "Notes not done yet, newest first" }),
 ```
 
 A **stream** sends each `yield` to the card as it happens, for as long as the
@@ -150,7 +155,7 @@ projects: cached(z.object({ limit: z.number().int().min(1).max(200).default(100)
 
 - Answers are kept per method, input and project (`ctx.root`). `shared: true`
   keeps one for every project, for answers that don't depend on it.
-- `run` is read-only, like a query's, and has `timeout` (a minute unless it says).
+- `run` is read-only, like any read's, and has `timeout` (a minute unless it says).
 - A background check that fails keeps the saved answer, goes to the plugin's
   logs, and is tried again after another `fresh`.
 - Answers live in the namespace's `data.db`, so a plugin with a cached method
@@ -601,7 +606,7 @@ ends it with that state, left up for 15 minutes:
 ```ts
 deploy: method(z.object({ project: z.string() }), async ({ project }, ctx) => {
   const steps = ["Build", "Test", "Deploy", "Verify"];
-  const page = `.repogo/tabs/deploys.ui?project=${project}`;
+  const page = `~/.repogo/plugins/deploys/pages/index.ui?project=${project}`;
   const show = (current: number, body: string) =>
     ctx.activity({ id: `deploy:${project}`, title: `Deploying ${project}`, body, page,
       symbol: "shippingbox", progress: { kind: "steps", steps, current } });
@@ -641,10 +646,10 @@ or CLI of its own. It answers the tool's structured content, else its text
 customers: method(z.object({}), async (_, ctx) => {
   const list = await ctx.mcp("stripe", "stripe_api_read", { stripe_api_operation_id: "GetCustomers", /* … */ });
   return list.data.map((c) => ({ id: c.id, email: c.email }));
-}, { kind: "query" }),
+}, { effect: "read" }),
 ```
 
-A query may run only the server's read-only tools, as a card's `Data` may. A
+A read may run only the server's read-only tools, as a card's `Data` may. A
 tool marked destructive runs only from a method with a `confirm`, or one
 called from it with `ctx.call`: the user's answer to that question is its
 yes. A refusal throws `FORBIDDEN`; a tool's own error throws `INTERNAL` with
@@ -675,17 +680,17 @@ Events run in memory: none is retried, and a handler that throws is logged.
 ## How cards and agents reach a plugin
 
 **Agents** use two tools. `plugins` lists every plugin with a line per method
-(its kind, whether it asks first, and its input's fields, optional ones ending
+(its effect, whether it asks first, and its input's fields, optional ones ending
 in `?`), and every line of `~/.repogo/crons.json` with how it's going.
 `plugins` with `plugin` set answers that plugin in full: each method's input
 and output JSON Schema and confirm, its `storage` (each bucket's and stream's
 folder), the pages that show its methods, and the cron lines naming it.
 `plugin_call` runs one. Inspect a method's schema before naming it in a card.
-Verify query fields with a read-only call. Do not execute mutations just to
+Verify a read's fields with a read-only call. Do not execute writes just to
 check a card; run them only when the user's task calls for that action.
 
 **Cards** name methods as `plugin:<plugin>.<method>`. A `Data` element runs a
-query, or follows a stream, and redraws when its data changes. `Button`,
+read, or follows a stream, and redraws when its data changes. `Button`,
 `Item` and `Swipe` actions call methods; on iOS, `Toggle` can call one on a
 user flip. `Upload` calls a plugin method with staged files. Params must match
 the discovered input schema. These fragments assume `q` and `note` are supplied
@@ -709,7 +714,7 @@ by the enclosing card:
 ### Saving from a switch
 
 Prefer SDK storage for plugin-owned data. A storage declaration generates
-methods; ordinary saves do not need a custom mutation. For example:
+methods; ordinary saves do not need a custom write method. For example:
 
 ```ts
 // ~/.repogo/plugins/preferences/app.ts
@@ -754,9 +759,10 @@ schema answers `VALIDATION` with a message per field. Anything else thrown is
 `INTERNAL` with its message.
 
 A method's `confirm` is asked before a card's tap runs it. An agent's
-`plugin_call` gets it back as a `CONFIRM` error until it calls again with
-`confirmed: true`, once the user agrees. Ordinary `ctx.call` from plugin code skips
-it; an unattended workflow refuses confirmation-gated methods. Give one to anything that can't be undone. `{{field}}` in the question is
+`plugin_call` never runs it: it gets the question back as a `CONFIRM` error and
+draws a button, and the user's tap asks. Ordinary `ctx.call` from plugin code skips
+it; an unattended workflow refuses confirmation-gated methods. A `destructive`
+method must have one. `{{field}}` in the question is
 filled from the call's input, so it can say what it acts on:
 `confirm: "Restart {{machine}}?"`.
 

@@ -18,7 +18,7 @@ export default definePlugin({
   namespace: "notes",
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
-    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { kind: "query", output: z.number() }),
+    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { effect: "read", output: z.number() }),
   },
 });`,
   );
@@ -42,8 +42,8 @@ test("a call reports its result and what it wrote, and the data outlives the pro
   expect((counted.output as any).result).toBe(1);
 });
 
-test("--query refuses a mutation", async () => {
-  const { output, ok } = await run(["call", "notes.notes.create", JSON.stringify({ text: "hi" }), "--query"], await dirs());
+test("--read refuses a write", async () => {
+  const { output, ok } = await run(["call", "notes.notes.create", JSON.stringify({ text: "hi" }), "--read"], await dirs());
   expect(ok).toBe(false);
   expect((output as any).error.code).toBe("FORBIDDEN");
 });

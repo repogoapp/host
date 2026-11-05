@@ -214,8 +214,9 @@ open:<url> — open an absolute https or http link in a Safari sheet over
   the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
-page:<path> — open a page, a plugin's or the project's, from chat or
-  another page (page:~/.repogo/plugins/notes/pages/index.ui, page:.repogo/tabs/status.ui);
+page:<path> — open a plugin's page, from chat or another page
+  (page:~/.repogo/plugins/notes/pages/index.ui); .ui and .html pages
+  load only from ~/.repogo/plugins;
   a query sets the page's state and may read {{…}}
   (page:~/.repogo/plugins/vercel/pages/index.ui?project={{p.name}}&route=project);
   sheet="large" on the Button or Item opens it in a sheet instead,

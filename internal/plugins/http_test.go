@@ -16,7 +16,7 @@ import (
 const httpPlugin = `import { definePlugin, method, stream, z } from "@repogo/plugins";
 export default definePlugin({
   methods: {
-    ping: method(z.object({ name: z.string().optional() }), (input, ctx) => ({ ok: true, name: input.name ?? null, caller: ctx.caller }), { kind: "query", http: { auth: "none" } }),
+    ping: method(z.object({ name: z.string().optional() }), (input, ctx) => ({ ok: true, name: input.name ?? null, caller: ctx.caller }), { effect: "read", http: { auth: "none" } }),
     echo: method(z.object({ message: z.string() }), (input) => ({ echo: input.message }), { http: { auth: "none" } }),
     keyed: method(z.object({}), () => "secret", { http: true }),
     closed: method(z.object({}), () => "closed"),

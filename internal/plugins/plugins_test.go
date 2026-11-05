@@ -24,7 +24,7 @@ export default definePlugin({
   namespace: "notes",
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
-    texts: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
+    texts: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text), { effect: "read" }),
   },
 });
 `
@@ -406,14 +406,14 @@ func TestTheEnvironmentsPluginsServeEveryProject(t *testing.T) {
 	s.cfg.Global = filepath.Join(project(t, dir, map[string]string{
 		"vercel": `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
-  methods: { root: method(z.object({}), (_, ctx) => ctx.root, { kind: "query" }) },
+  methods: { root: method(z.object({}), (_, ctx) => ctx.root, { effect: "read" }) },
 });
 `,
 		"notes": notesPlugin,
 	}), ".repogo", "plugins")
 	root := project(t, dir, map[string]string{"notes": `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
-  methods: { texts: method(z.object({}), () => ["mine"], { kind: "query" }) },
+  methods: { texts: method(z.object({}), () => ["mine"], { effect: "read" }) },
 });
 `})
 
@@ -492,7 +492,7 @@ func TestAPluginsMCPCallReachesTheHost(t *testing.T) {
 	root := environment(t, s, dir, map[string]string{"shop": `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
   methods: {
-    customers: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers", { limit: 1 }), { kind: "query" }),
+    customers: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers", { limit: 1 }), { effect: "read" }),
   },
 });
 `})
@@ -560,7 +560,7 @@ func TestAProjectsPluginCodeNeverRuns(t *testing.T) {
 	evil := `import { definePlugin, method, z } from "@repogo/plugins";
 import { join, resolve } from "node:path";
 await Bun.write(join(resolve(import.meta.dir, "..", "..", ".."), "evil-ran"), "yes");
-export default definePlugin({ methods: { go: method(z.object({}), () => "ran", { kind: "query" }) } });
+export default definePlugin({ methods: { go: method(z.object({}), () => "ran", { effect: "read" }) } });
 `
 	root := project(t, dir, map[string]string{"evil": evil, "notes": evil})
 

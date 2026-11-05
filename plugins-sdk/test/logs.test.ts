@@ -22,8 +22,8 @@ const notes = definePlugin({
     count: method(z.object({}), async (_, ctx) => {
       console.debug("counting");
       return (await ctx.collections.notes.list()).length;
-    }, { kind: "query" }),
-    viaDigest: method(z.object({}), (_, ctx) => ctx.call("digest.summary"), { kind: "query" }),
+    }, { effect: "read" }),
+    viaDigest: method(z.object({}), (_, ctx) => ctx.call("digest.summary"), { effect: "read" }),
     boom: method(z.object({}), () => { throw new MethodError("NOT_FOUND", "no such thing"); }),
     tidy: method(z.object({}), () => { console.info("tidied"); }),
     ask: method(z.object({}), () => { throw new MethodError("CONFIRM", "Really?"); }, { confirm: "Really?" }),
@@ -38,7 +38,7 @@ const digest = definePlugin({
     summary: method(z.object({}), async (_, ctx) => {
       console.log("summarizing");
       return `notes: ${await ctx.call("notes.count")}`;
-    }, { kind: "query" }),
+    }, { effect: "read" }),
   },
 });
 

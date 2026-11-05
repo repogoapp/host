@@ -20,10 +20,10 @@ export function workflowMethods(
     return bridge({ operation, dir, plugin, namespace, workflow: name, root: ctx.root, caller: ctx.caller, input: input as Record<string, unknown>, settings: workflowSettings(definition) });
   };
   const id = z.object({ id: z.string().uuid() }).strict();
-  const spec = (method: WorkflowRequest["operation"], kind: "query" | "mutation", input: z.ZodType, description: string, confirm?: string, output?: z.ZodType): RegisteredMethod => ({
-    name: `${plugin}.${name}.${method}`, plugin, kind, input, description, confirm, output,
+  const spec = (method: WorkflowRequest["operation"], effect: "read" | "write", input: z.ZodType, description: string, confirm?: string, output?: z.ZodType): RegisteredMethod => ({
+    name: `${plugin}.${name}.${method}`, plugin, effect, input, description, confirm, output,
     run: async (input, raw) => {
-      if (kind === "query") recordRead(workflowTag(namespace));
+      if (effect === "read") recordRead(workflowTag(namespace));
       const request = method === "start"
         ? { ...(input as Record<string, unknown>), input: (raw as Record<string, unknown>).input }
         : input;
@@ -31,13 +31,13 @@ export function workflowMethods(
     },
   });
   return [
-    spec("list", "query", z.object({ limit: z.number().int().min(1).max(100).default(20), status: z.string().optional(), cursor: z.string().optional() }).strict(), "List workflow runs", undefined, z.object({ items: z.array(RunSummarySchema), cursor: z.string().nullable() })),
-    spec("get", "query", id, "Get one workflow run"),
-    spec("start", "mutation", z.object({ input: definition.input, key: z.string().min(1).max(200).optional() }).strict(), definition.description ?? "Start a durable workflow", definition.confirm, RunSummarySchema),
-    spec("retry", "mutation", id, "Retry a safely failed query step", undefined, RunSummarySchema),
-    spec("restart", "mutation", id, "Start a run that needs attention over from the beginning, on the current code", undefined, RunSummarySchema),
-    spec("cancel", "mutation", id, "Request cancellation of a workflow", undefined, RunSummarySchema),
-    spec("cancelAll", "mutation", z.object({ status: z.string().optional() }).strict(), "Cancel every unfinished run, or only those in one status", undefined, z.object({ cancelled: z.number().int() })),
+    spec("list", "read", z.object({ limit: z.number().int().min(1).max(100).default(20), status: z.string().optional(), cursor: z.string().optional() }).strict(), "List workflow runs", undefined, z.object({ items: z.array(RunSummarySchema), cursor: z.string().nullable() })),
+    spec("get", "read", id, "Get one workflow run"),
+    spec("start", "write", z.object({ input: definition.input, key: z.string().min(1).max(200).optional() }).strict(), definition.description ?? "Start a durable workflow", definition.confirm, RunSummarySchema),
+    spec("retry", "write", id, "Retry a safely failed query step", undefined, RunSummarySchema),
+    spec("restart", "write", id, "Start a run that needs attention over from the beginning, on the current code", undefined, RunSummarySchema),
+    spec("cancel", "write", id, "Request cancellation of a workflow", undefined, RunSummarySchema),
+    spec("cancelAll", "write", z.object({ status: z.string().optional() }).strict(), "Cancel every unfinished run, or only those in one status", undefined, z.object({ cancelled: z.number().int() })),
   ];
 }
 

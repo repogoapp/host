@@ -40,7 +40,7 @@ func (s *Service) HasRoutes() bool {
 	}
 	for _, p := range found {
 		for _, m := range p.Methods {
-			if open(m.HTTP, m.Kind, m.Confirm) {
+			if open(m.HTTP, m.Stream, m.Confirm) {
 				return true
 			}
 		}
@@ -59,7 +59,7 @@ func (s *Service) ServeHTTP(ctx context.Context, route tunnelwire.PluginRoute, r
 	var access string
 	for _, p := range found {
 		for _, m := range p.Methods {
-			if m.Name == name && open(m.HTTP, m.Kind, m.Confirm) {
+			if m.Name == name && open(m.HTTP, m.Stream, m.Confirm) {
 				access = m.HTTP
 			}
 		}
@@ -98,8 +98,8 @@ func (s *Service) served(ctx context.Context) (Target, []listedPlugin, error) {
 	return t, found, err
 }
 
-func open(access, kind, confirm string) bool {
-	return (access == httpKey || access == httpNone) && kind != "stream" && confirm == ""
+func open(access string, stream bool, confirm string) bool {
+	return (access == httpKey || access == httpNone) && !stream && confirm == ""
 }
 
 // httpInput is a GET's query as an object of strings, else the JSON body.

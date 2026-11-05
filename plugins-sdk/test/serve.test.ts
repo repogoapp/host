@@ -18,14 +18,14 @@ export default definePlugin({
     tags: z.object({ name: z.string() }),
   },
   methods: {
-    texts: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text), { kind: "query" }),
-    root: method(z.object({}), (_, ctx) => ctx.root, { kind: "query" }),
+    texts: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text), { effect: "read" }),
+    root: method(z.object({}), (_, ctx) => ctx.root, { effect: "read" }),
     slowTexts: method(z.object({ status: z.string().default("") }), async (_, ctx) => {
       await Bun.sleep(150);
       return (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text);
-    }, { kind: "query" }),
+    }, { effect: "read" }),
     byPrefix: method(z.object({ prefix: z.string() }), async ({ prefix }, ctx) =>
-      (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text).filter((t) => t.startsWith(prefix)), { kind: "query" }),
+      (await ctx.collections.notes.list({ order: "asc" })).map((n) => n.text).filter((t) => t.startsWith(prefix)), { effect: "read" }),
   },
 });
 `;
@@ -443,7 +443,7 @@ export default definePlugin({
 const neighbourApp = `import { definePlugin, method, z } from "@repogo/plugins";
 import { join, resolve } from "node:path";
 await Bun.write(join(resolve(import.meta.dir, "..", "..", ".."), "neighbour-ran"), "yes");
-export default definePlugin({ methods: { hello: method(z.object({}), () => "hi", { kind: "query" }) } });
+export default definePlugin({ methods: { hello: method(z.object({}), () => "hi", { effect: "read" }) } });
 `;
 
 async function until(check: () => Promise<boolean>, timeout = 4000) {

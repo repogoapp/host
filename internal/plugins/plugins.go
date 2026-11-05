@@ -3,9 +3,9 @@
 // server, and keeps the devices' subscriptions to their queries.
 //
 // A project never ships plugin code: opening or cloning a repo must not make
-// the host run anything. A project ships pages (`.repogo/plugin.ui`,
-// `.repogo/tabs`), which call the environment's plugins with `ctx.root` set to
-// the project.
+// the host run anything. Its pages don't load either: the app takes .ui and
+// .html pages only from the environment's plugins, which call a plugin with
+// `ctx.root` set to the project they're opened in.
 package plugins
 
 import (

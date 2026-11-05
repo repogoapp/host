@@ -2,7 +2,7 @@
 
 Cards read and write live data, from the sources below:
 
-Data: name, method="<source>:<name>" (a query or a stream). Children read
+Data: name, method="<source>:<name>" (a read or a stream). Children read
   the answer as {{name}}, and its fields as {{name.field}} (objects to any
   depth; an array gives {{name.count}}, its elements only through
   Each: no {{name.0}}). Optional debug="true" prints the

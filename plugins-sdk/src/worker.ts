@@ -154,7 +154,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   }
   if (message.type === "call") return call(message.id, message.name, message.input, message.files, message.confirmed, message.caller, message.root, message.chat);
   if (message.type === "subscribe") {
-    if (runtime.methods.get(message.name)?.kind === "stream") {
+    if (runtime.methods.get(message.name)?.stream) {
       return subscribeStream(message.id, message.subscription, message.name, message.input, message.root);
     }
     return subscribe(message.id, message.subscription, message.name, message.input, message.root);
@@ -212,7 +212,7 @@ async function call(id: number, name: string, input: unknown, files: UploadedFil
 async function subscribe(id: number, key: string, name: string, input: unknown, root?: string) {
   starting.add(key);
   try {
-    const { result, reads } = await runtime!.call(name, input, { expect: "query", caller: "card", root });
+    const { result, reads } = await runtime!.call(name, input, { expect: "read", caller: "card", root });
     if (starting.delete(key)) subscriptions.set(key, { name, input, root, reads: new Set(reads), run: 0 });
     post({ type: "reply", id, result });
   } catch (error) {
@@ -238,7 +238,7 @@ function rerun() {
 async function refresh(key: string, subscription: Subscription) {
   const run = ++subscription.run;
   const answer = await runtime!
-    .call(subscription.name, subscription.input, { expect: "query", caller: "card", root: subscription.root })
+    .call(subscription.name, subscription.input, { expect: "read", caller: "card", root: subscription.root })
     .then(({ result, reads }) => ({ result, reads }), (error) => ({ error: toCallError(error) }));
   // Unsubscribed meanwhile, or a newer run started: this answer is stale.
   if (subscriptions.get(key) !== subscription || subscription.run !== run) return;

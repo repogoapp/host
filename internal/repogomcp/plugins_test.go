@@ -179,7 +179,14 @@ export default definePlugin({ namespace: "notes", collections: { notes: z.object
 	if kept := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.get", "input": map[string]any{"id": note.ID}}); kept.IsError || !strings.Contains(kept.Content[0].Text, `"hi"`) {
 		t.Fatalf("the note went before the user agreed: %+v", kept)
 	}
-	if done := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.delete", "input": map[string]any{"id": note.ID}, "confirmed": true}); done.IsError {
-		t.Fatalf("delete with confirmed: %+v", done)
+	if !strings.Contains(asked.Content[0].Text, `action="plugin:notes.notes.delete"`) {
+		t.Fatalf("the agent isn't told to draw a card: %+v", asked)
+	}
+	// The agent can't answer the question itself: confirmed from it is ignored.
+	if self := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.delete", "input": map[string]any{"id": note.ID}, "confirmed": true}); !self.IsError || !strings.Contains(self.Content[0].Text, "CONFIRM") {
+		t.Fatalf("an agent confirmed its own delete: %+v", self)
+	}
+	if kept := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.get", "input": map[string]any{"id": note.ID}}); kept.IsError || !strings.Contains(kept.Content[0].Text, `"hi"`) {
+		t.Fatalf("the note went on the agent's own yes: %+v", kept)
 	}
 }

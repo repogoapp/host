@@ -65,7 +65,7 @@ export function recordRead(tag: string) {
 /** Called before a write runs: a query, and anything it calls, may not write. */
 export function assertWritable(tag: string) {
   if (current.getStore()?.readOnly) {
-    throw new MethodError("FORBIDDEN", `A query can't change data (it tried to write ${tag}).`);
+    throw new MethodError("FORBIDDEN", `A read can't change data (it tried to write ${tag}).`);
   }
 }
 

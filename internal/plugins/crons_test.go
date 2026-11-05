@@ -16,7 +16,7 @@ export default definePlugin({
   collections: { ticks: z.object({ at: z.number() }) },
   methods: {
     tick: method(z.object({}), async (_, ctx) => { await ctx.collections.ticks.create({ at: Date.now() }); }),
-    count: method(z.object({}), async (_, ctx) => (await ctx.collections.ticks.list()).length, { kind: "query" }),
+    count: method(z.object({}), async (_, ctx) => (await ctx.collections.ticks.list()).length, { effect: "read" }),
   },
 });
 `

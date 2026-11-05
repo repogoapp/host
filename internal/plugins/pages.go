@@ -23,9 +23,9 @@ type Page struct {
 	Params []string `json:"params,omitempty"`
 }
 
-// pages is every plugin Data a link can reach in a project's pages (.repogo,
-// .repogo/tabs), then in the environment plugins' pages. A page is a .ui or
-// .md file.
+// pages is every plugin Data a link can reach in a project's .md writing,
+// then in the environment plugins' pages (.ui or .md). A project's .ui never
+// loads in the app, so it is no target.
 func pages(root, global string) []Page {
 	var out []Page
 	_ = filepath.WalkDir(filepath.Join(root, ".repogo"), func(path string, d fs.DirEntry, err error) error {
@@ -42,7 +42,7 @@ func pages(root, global string) []Page {
 			}
 			return nil
 		}
-		if isPageFile(path) {
+		if isPageFile(path) && strings.EqualFold(filepath.Ext(path), ".md") {
 			out = append(out, pageData(path, rel)...)
 		}
 		return nil

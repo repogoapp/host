@@ -4,8 +4,8 @@ const (
 	KindClaude Kind = "claude"
 	KindCodex  Kind = "codex"
 
-	// KindProject is a project's agents (.repogo/agents, or the global
-	// ~/.repogo/agents), run over the Agent Client Protocol;
+	// KindProject is the environment's agents (~/.repogo/plugins/<name>/agent.json),
+	// run in a project over the Agent Client Protocol;
 	// TurnRequest.ProjectAgent names which one a new chat starts.
 	KindProject Kind = "project"
 )

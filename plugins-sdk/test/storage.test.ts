@@ -38,7 +38,7 @@ test("kv sets, reads, lists by prefix and deletes, with tags and events", async 
   await runtime.call("flows.state.set", { key: "run:1", value: { step: "test" } });
   await runtime.call("flows.state.set", { key: "other", value: { step: "x" } });
 
-  const got = await runtime.call("flows.state.get", { key: "run:1" }, { expect: "query" });
+  const got = await runtime.call("flows.state.get", { key: "run:1" }, { expect: "read" });
   expect(got.reads).toEqual(["repo.flows.kv.state"]);
   expect((got.result as KvEntry<{ step: string }>).value).toEqual({ step: "test" });
 
@@ -134,7 +134,7 @@ test("follow replays, then yields new lines, and ends with the key", async () =>
 
 test("tail is a stream method cards can watch", async () => {
   const runtime = await open({ flows });
-  expect(runtime.methods.get("flows.runs.tail")?.kind).toBe("stream");
+  expect(runtime.methods.get("flows.runs.tail")?.stream).toBe(true);
   await runtime.call("flows.runs.append", { key: "r", data: { text: "a" } });
   await runtime.call("flows.runs.end", { key: "r" });
   const items: unknown[] = [];
@@ -182,7 +182,7 @@ test("put writes a folder per file with meta.json, and get, list and search find
   expect(((await runtime.call("flows.photos.get", { id: file.id })).result as BucketFile<unknown>).id).toBe(file.id);
   expect(((await runtime.call("flows.photos.list", { folder: "2026" })).result as unknown[]).length).toBe(1);
   expect(((await runtime.call("flows.photos.list", { folder: "2025" })).result as unknown[]).length).toBe(0);
-  const found = (await runtime.call("flows.photos.search", { query: "suns" }, { expect: "query" })).result as BucketFile<unknown>[];
+  const found = (await runtime.call("flows.photos.search", { query: "suns" }, { expect: "read" })).result as BucketFile<unknown>[];
   expect(found.map((f) => f.id)).toEqual([file.id]);
   expect(((await runtime.call("flows.photos.search", { query: "beach" })).result as unknown[]).length).toBe(1);
   expect(((await runtime.call("flows.photos.search", { query: "winter" })).result as unknown[]).length).toBe(0);
@@ -313,7 +313,7 @@ test("a method and generated data of the same name fail the load", async () => {
   const clash = definePlugin({
     namespace: "clash",
     kv: { state: z.string() },
-    methods: { "state.get": { kind: "query", input: z.object({}), run: () => null } },
+    methods: { "state.get": { effect: "read", input: z.object({}), run: () => null } },
   });
   await expect(runtime.add("clash", clash)).rejects.toThrow("defined twice");
 });
@@ -335,5 +335,5 @@ async function contextOf(runtime: Runtime, plugin = "flows"): Promise<Context> {
 
 /** A plugin with a `ctx` method returning its context. */
 function withContext<T extends PluginDefinition>(plugin: T): T {
-  return { ...plugin, methods: { ...plugin.methods, ctx: method(z.object({}), (_, ctx) => ctx, { kind: "query" }) } };
+  return { ...plugin, methods: { ...plugin.methods, ctx: method(z.object({}), (_, ctx) => ctx, { effect: "read" }) } };
 }

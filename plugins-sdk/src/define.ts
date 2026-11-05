@@ -11,27 +11,29 @@ export type Collections = Record<string, z.ZodObject>;
 export type StreamDefinition = z.ZodType | { item: z.ZodType; retain: Retain };
 
 /**
- * A query only reads, so cards may run it on their own and again when its data
- * changes. A mutation writes, and runs only when the user acts. A stream only
- * reads too, and sends items as they happen for as long as someone watches.
- * Unmarked methods are mutations: repeating one is never assumed safe.
+ * What a method does. `read` only reads, so cards may run it on their own and
+ * again when its data changes. `write` changes data, and runs only when the
+ * user acts. `destructive` can't be undone, and must ask first (`confirm`).
+ * Unmarked methods write: repeating one is never assumed safe.
  */
-export type MethodKind = "query" | "mutation" | "stream";
+export type Effect = "read" | "write" | "destructive";
 
 export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> = {
   input: I;
   /** What it returns; the agent and cards read field names from it. */
   output?: O;
-  kind: MethodKind;
+  effect: Effect;
+  /** Set by `stream`: a read that sends items as they happen. */
+  stream?: true;
   description?: string;
   /**
-   * For what can't be undone: the question a card's button asks before it
-   * runs, such as "Delete every item?". Methods without one run on tap.
+   * The question asked before it runs, such as "Delete {{name}}?", filled from
+   * its input; required for a destructive method. Methods without one run on tap.
    */
   confirm?: string;
   /** Who may call it at the environment's own address; unset, no one. */
   http?: HTTPAccess;
-  /** Set by `cached`: the query answers from what it saved, and checks again when that's old. */
+  /** Set by `cached`: the read answers from what it saved, and checks again when that's old. */
   cache?: CacheOptions;
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>;
 };
@@ -75,25 +77,32 @@ export function definePlugin<T extends PluginDefinition>(plugin: T): T {
   return plugin;
 }
 
+type MethodOptions<O extends z.ZodType> = {
+  output?: O;
+  description?: string;
+  http?: true | { auth: HTTPAccess };
+} & ({ effect: "destructive"; confirm: string } | { effect?: "read" | "write"; confirm?: string });
+
 export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   input: I,
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>,
-  options: { kind?: MethodKind; output?: O; description?: string; confirm?: string; http?: true | { auth: HTTPAccess } } = {},
+  options: MethodOptions<O> = {},
 ): Method<I, O> {
+  if ("kind" in options) throw new Error('method: kind is now effect: "read", "write" or "destructive"');
   return {
-    input, run, kind: options.kind ?? "mutation", output: options.output,
+    input, run, effect: options.effect ?? "write", output: options.output,
     description: options.description, confirm: options.confirm,
     http: options.http === true ? "key" : options.http?.auth,
   };
 }
 
 /**
- * A query that answers at once from what it saved last time, for answers that
+ * A read that answers at once from what it saved last time, for answers that
  * are slow to get: a CLI's list, another service's API. When the saved answer
  * is older than `fresh`, `run` goes again in the background, and cards showing
  * it redraw only if the answer changed. With nothing saved, the first call
  * waits for `run`. Each project keeps its own answers unless `shared`.
- * `run` is read-only, like a query's; it has `timeout` (a minute unless it says).
+ * `run` is read-only, like any read's; it has `timeout` (a minute unless it says).
  */
 export function cached<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   input: I,
@@ -101,7 +110,7 @@ export function cached<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   options: { fresh: Duration; shared?: boolean; timeout?: Duration; output?: O; description?: string },
 ): Method<I, O> {
   return {
-    input, run, kind: "query", output: options.output, description: options.description,
+    input, run, effect: "read", output: options.output, description: options.description,
     cache: { fresh: parseDuration(options.fresh), shared: options.shared ?? false, timeout: parseDuration(options.timeout ?? "1m") },
   };
 }
@@ -110,12 +119,12 @@ export function cached<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
  * A method that sends items as they happen: a log tail, a build's output. Each
  * `yield` is one item; a card shows them as a list that grows. It runs while
  * someone watches and `ctx.signal` aborts when the last one leaves, so pass it
- * on (`Bun.spawn(cmd, { signal: ctx.signal })`). Like a query, it may not write.
+ * on (`Bun.spawn(cmd, { signal: ctx.signal })`). Like any read, it may not write.
  */
 export function stream<I extends z.ZodType>(
   input: I,
   run: (input: z.infer<I>, ctx: Context) => AsyncIterable<unknown>,
   options: { description?: string } = {},
 ): Method<I> {
-  return { input, run, kind: "stream", description: options.description };
+  return { input, run, effect: "read", stream: true, description: options.description };
 }

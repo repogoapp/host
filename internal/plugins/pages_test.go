@@ -126,8 +126,9 @@ func TestPagesMalformedAndEmpty(t *testing.T) {
 	}
 }
 
-// A .ui page is card markup with no fence, in a project and in the
-// environment's plugins alike; other files beside them aren't pages.
+// A .ui page is card markup with no fence, in the environment's plugins; a
+// project's own .ui never loads in the app, so it is no target. Other files
+// beside them aren't pages.
 func TestPagesUIFiles(t *testing.T) {
 	root, global := t.TempDir(), t.TempDir()
 	writePage(t, filepath.Join(root, ".repogo", "tabs", "home.ui"), `<Data name="s" method="plugin:github.status"/>`)
@@ -137,7 +138,6 @@ func TestPagesUIFiles(t *testing.T) {
 
 	got := pages(root, global)
 	want := []Page{
-		{Method: "github.status", Target: ".repogo/tabs/home.ui"},
 		{Method: "notes.list", Target: "~/.repogo/plugins/notes/pages/index.ui"},
 	}
 	if !reflect.DeepEqual(got, want) {

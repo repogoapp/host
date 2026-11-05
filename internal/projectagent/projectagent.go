@@ -1,6 +1,7 @@
 // Package projectagent finds the agents a project can run: each a folder with
 // an agent.json naming a program that speaks the Agent Client Protocol over
-// stdio, in the project's or the environment's agents or plugins folder.
+// stdio, in the environment's plugins folder (~/.repogo/plugins). A repo's own
+// agent.json never runs: it would name a program its author chose.
 package projectagent
 
 import (
@@ -19,21 +20,11 @@ import (
 	"github.com/repogoapp/host/internal/git"
 )
 
-// Folder holds a project's agents, from its checkout's top, and PluginFolder
-// its plugins, any of which may bring an agent.json too.
-const (
-	Folder       = ".repogo/agents"
-	PluginFolder = ".repogo/plugins"
-)
+// PluginsFolder is the environment's plugins, under the host's home: any
+// plugin with an agent.json is an agent every project lists.
+const PluginsFolder = "plugins"
 
-// GlobalFolder and GlobalPluginFolder are the environment's, under the host's
-// home: every project lists their agents, and its own of the same name win.
-const (
-	GlobalFolder       = "agents"
-	GlobalPluginFolder = "plugins"
-)
-
-// ManifestFile is what makes a folder under Folder an agent.
+// ManifestFile is what makes a plugin folder an agent.
 const ManifestFile = "agent.json"
 
 // Where an agent runs: the project, for agents that work on its code, or the
@@ -70,8 +61,7 @@ type Manifest struct {
 	Models   []ProjectAgentModel `json:"models"`
 	ModelEnv string              `json:"modelEnv"`
 
-	// Dir is the agent's folder and Project the checkout it works for, which
-	// holds Dir unless the agent is global.
+	// Dir is the agent's folder and Project the checkout it works for.
 	Dir     string `json:"-"`
 	Project string `json:"-"`
 	// Fingerprint changes when the manifest or its Key does, so a process
@@ -88,8 +78,8 @@ func (m Manifest) Workdir() string {
 }
 
 // Key names the agent's process. One that runs in its own folder serves
-// every project, as a second there may refuse to start; a global one that
-// runs in the project's folder needs a process per project.
+// every project, as a second there may refuse to start; one that runs in the
+// project's folder needs a process per project.
 func (m Manifest) Key() string {
 	if m.Cwd == CwdAgent {
 		return m.Dir
@@ -139,8 +129,8 @@ func (m Manifest) DefaultModel(asked string) string {
 	return m.Models[0].ID
 }
 
-// Root is the checkout a folder is in, so a chat in a subfolder finds the
-// project's agents.
+// Root is the checkout a folder is in: where an agent working on the project's
+// code starts, from a chat in any subfolder.
 func Root(path string) string {
 	if root := git.Root(path); root != "" {
 		return root
@@ -148,38 +138,21 @@ func Root(path string) string {
 	return filepath.Clean(path)
 }
 
-// folders is where the project's agents are found, the lowest first: the
-// environment's folders in global, then the project's plugins and agents.
-func folders(project string, global []string) []string {
-	return append(append([]string{}, global...), filepath.Join(project, PluginFolder), filepath.Join(project, Folder))
-}
-
-// List is every agent the project holding path can run, by ID, from its own
-// folders and the environment's in global, lowest first; a later folder wins
-// a name two share.
-func List(path string, global []string) ([]ProjectAgent, error) {
+// List is every agent in plugins the project holding path can run, by ID.
+func List(path, plugins string) ([]ProjectAgent, error) {
 	project := Root(path)
-	byID := map[string]ProjectAgent{}
-	for _, folder := range folders(project, global) {
-		ids, err := agentIDs(folder)
+	ids, err := agentIDs(plugins)
+	if err != nil || len(ids) == 0 {
+		return nil, err
+	}
+	out := make([]ProjectAgent, 0, len(ids))
+	for _, name := range ids {
+		m, err := read(project, plugins, name)
+		entry := ProjectAgent{ID: name, Name: m.Name, Icon: m.Icon, Models: m.Models, Model: m.DefaultModel("")}
 		if err != nil {
-			return nil, err
+			entry = ProjectAgent{ID: name, Name: name, Error: err.Error()}
 		}
-		for _, name := range ids {
-			m, err := read(project, folder, name)
-			entry := ProjectAgent{ID: name, Name: m.Name, Icon: m.Icon, Models: m.Models, Model: m.DefaultModel("")}
-			if err != nil {
-				entry = ProjectAgent{ID: name, Name: name, Error: err.Error()}
-			}
-			byID[name] = entry
-		}
-	}
-	if len(byID) == 0 {
-		return nil, nil
-	}
-	out := make([]ProjectAgent, 0, len(byID))
-	for _, a := range byID {
-		out = append(out, a)
+		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
@@ -206,21 +179,12 @@ func agentIDs(folder string) ([]string, error) {
 	return out, nil
 }
 
-// Find reads one agent the project holding path can run, from the highest of
-// the folders List reads that has it.
-func Find(path string, global []string, name string) (Manifest, error) {
+// Find reads one agent in plugins, working for the project holding path.
+func Find(path, plugins, name string) (Manifest, error) {
 	if !id.MatchString(name) {
 		return Manifest{}, fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
-	project := Root(path)
-	all := folders(project, global)
-	for i := len(all) - 1; i >= 0; i-- {
-		m, err := read(project, all[i], name)
-		if !errors.Is(err, ErrNotFound) {
-			return m, err
-		}
-	}
-	return Manifest{}, fmt.Errorf("%w: %s", ErrNotFound, name)
+	return read(Root(path), plugins, name)
 }
 
 // read is folder's agent name, working for project.

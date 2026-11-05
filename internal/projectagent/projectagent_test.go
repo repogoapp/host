@@ -8,15 +8,10 @@ import (
 	"testing"
 )
 
-func write(t *testing.T, dir, name, manifest string) {
+// write puts an agent.json for name in plugins, the environment's folder.
+func write(t *testing.T, plugins, name, manifest string) {
 	t.Helper()
-	writeIn(t, filepath.Join(dir, Folder), name, manifest)
-}
-
-// writeIn is write into any agents folder, such as the global one.
-func writeIn(t *testing.T, agents, name, manifest string) {
-	t.Helper()
-	folder := filepath.Join(agents, name)
+	folder := filepath.Join(plugins, name)
 	if err := os.MkdirAll(folder, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -26,24 +21,15 @@ func writeIn(t *testing.T, agents, name, manifest string) {
 }
 
 func TestListShowsEachAgentAndWhyABrokenOneCantRun(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o700); err != nil {
+	plugins, dir := t.TempDir(), t.TempDir()
+	write(t, plugins, "helper", `{"name":"Helper","command":"npx","args":["eve","acp"],"cwd":"agent"}`)
+	write(t, plugins, "plain", `{"command":"gemini"}`)
+	write(t, plugins, "broken", `{"name":"Broken"}`)
+	write(t, plugins, "Bad Name", `{"command":"x"}`)
+	if err := os.MkdirAll(filepath.Join(plugins, "notes"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	write(t, dir, "helper", `{"name":"Helper","command":"npx","args":["eve","acp"],"cwd":"agent"}`)
-	write(t, dir, "plain", `{"command":"gemini"}`)
-	write(t, dir, "broken", `{"name":"Broken"}`)
-	write(t, dir, "Bad Name", `{"command":"x"}`)
-	if err := os.MkdirAll(filepath.Join(dir, Folder, "empty"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	// From a subfolder, the checkout's agents.
-	sub := filepath.Join(dir, "src")
-	if err := os.Mkdir(sub, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	got, err := List(sub, nil)
+	got, err := List(dir, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,28 +38,57 @@ func TestListShowsEachAgentAndWhyABrokenOneCantRun(t *testing.T) {
 		{ID: "helper", Name: "Helper"},
 		{ID: "plain", Name: "plain"},
 	}
-	if len(got) != len(want) {
-		t.Fatalf("got %+v", got)
-	}
-	for i := range want {
-		if !reflect.DeepEqual(got[i], want[i]) {
-			t.Fatalf("entry %d: got %+v, want %+v", i, got[i], want[i])
-		}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
 
+// A repo can't bring an agent: an agent.json in its .repogo/agents or
+// .repogo/plugins would name a program its author chose, so it never runs.
+func TestARepositorysOwnAgentIsNeverRead(t *testing.T) {
+	plugins, dir := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, ".repogo", "agents"), "evil", `{"command":"./run.sh"}`)
+	write(t, filepath.Join(dir, ".repogo", "plugins"), "sneaky", `{"command":"./run.sh"}`)
+	write(t, filepath.Join(dir, ".repogo", "agents"), "muse", `{"name":"Repo muse","command":"./run.sh"}`)
+	write(t, plugins, "muse", `{"name":"Muse","command":"muse-acp"}`)
+	got, err := List(dir, plugins)
+	if err != nil || !reflect.DeepEqual(got, []ProjectAgent{{ID: "muse", Name: "Muse"}}) {
+		t.Fatalf("listed %+v %v", got, err)
+	}
+	for _, name := range []string{"evil", "sneaky"} {
+		if _, err := Find(dir, plugins, name); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s found: %v", name, err)
+		}
+	}
+	if muse, err := Find(dir, plugins, "muse"); err != nil || muse.Dir != filepath.Join(plugins, "muse") {
+		t.Fatalf("muse %+v %v", muse, err)
+	}
+}
+
+// An agent works on the project's checkout, found from any subfolder, or in
+// its own folder when it says so.
 func TestFindResolvesWhereTheAgentRuns(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "helper", `{"command":"npx","cwd":"agent"}`)
-	write(t, dir, "coder", `{"command":"gemini"}`)
-	helper, err := Find(dir, nil, "helper")
+	plugins, dir := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(dir, "src")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(t, plugins, "helper", `{"command":"npx","cwd":"agent"}`)
+	write(t, plugins, "coder", `{"command":"gemini"}`)
+	helper, err := Find(sub, plugins, "helper")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if helper.Workdir() != filepath.Join(dir, Folder, "helper") || helper.Name != "helper" || helper.Fingerprint == "" {
+	if helper.Workdir() != filepath.Join(plugins, "helper") || helper.Name != "helper" || helper.Fingerprint == "" {
 		t.Fatalf("helper %+v", helper)
 	}
-	coder, err := Find(dir, nil, "coder")
+	coder, err := Find(sub, plugins, "coder")
 	if err != nil || coder.Workdir() != dir || coder.Cwd != CwdProject {
 		t.Fatalf("coder %+v %v", coder, err)
 	}
@@ -81,29 +96,30 @@ func TestFindResolvesWhereTheAgentRuns(t *testing.T) {
 		t.Fatal("two manifests share a fingerprint")
 	}
 	for _, name := range []string{"missing", "../escape", ""} {
-		if _, err := Find(dir, nil, name); !errors.Is(err, ErrNotFound) {
+		if _, err := Find(dir, plugins, name); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%q: %v", name, err)
 		}
 	}
-	write(t, dir, "odd", `{"command":"x","cwd":"home"}`)
-	if _, err := Find(dir, nil, "odd"); err == nil {
+	write(t, plugins, "odd", `{"command":"x","cwd":"home"}`)
+	if _, err := Find(dir, plugins, "odd"); err == nil {
 		t.Fatal("unknown cwd accepted")
 	}
 }
 
 func TestListWithoutAgentsIsEmpty(t *testing.T) {
-	got, err := List(t.TempDir(), nil)
-	if err != nil || got != nil {
-		t.Fatalf("got %+v %v", got, err)
+	for _, plugins := range []string{t.TempDir(), filepath.Join(t.TempDir(), "missing")} {
+		if got, err := List(t.TempDir(), plugins); err != nil || got != nil {
+			t.Fatalf("got %+v %v", got, err)
+		}
 	}
 }
 
 func TestModelsListTheirDefaultAndNeedTheirVariable(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "helper", `{"command":"npx","modelEnv":"HELPER_MODEL","models":[{"id":"claude-sonnet-5-5","name":"Sonnet"},{"id":"claude-haiku-5-5"}]}`)
-	write(t, dir, "novar", `{"command":"npx","models":[{"id":"x"}]}`)
-	write(t, dir, "twice", `{"command":"npx","modelEnv":"M","models":[{"id":"x"},{"id":"x"}]}`)
-	got, err := List(dir, nil)
+	plugins, dir := t.TempDir(), t.TempDir()
+	write(t, plugins, "helper", `{"command":"npx","modelEnv":"HELPER_MODEL","models":[{"id":"claude-sonnet-5-5","name":"Sonnet"},{"id":"claude-haiku-5-5"}]}`)
+	write(t, plugins, "novar", `{"command":"npx","models":[{"id":"x"}]}`)
+	write(t, plugins, "twice", `{"command":"npx","modelEnv":"M","models":[{"id":"x"},{"id":"x"}]}`)
+	got, err := List(dir, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +131,7 @@ func TestModelsListTheirDefaultAndNeedTheirVariable(t *testing.T) {
 	if got[1].ID != "novar" || got[1].Error == "" || got[2].ID != "twice" || got[2].Error == "" {
 		t.Fatalf("bad manifests %+v", got[1:])
 	}
-	m, err := Find(dir, nil, "helper")
+	m, err := Find(dir, plugins, "helper")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,48 +142,15 @@ func TestModelsListTheirDefaultAndNeedTheirVariable(t *testing.T) {
 	}
 }
 
-// Every project lists the global agents, and its own agent of the same name
-// replaces the global one in the list and in Find.
-func TestGlobalAgentsJoinEachProjectAndTheProjectsWin(t *testing.T) {
-	global := t.TempDir()
-	writeIn(t, global, "muse", `{"name":"Muse","command":"muse-acp"}`)
-	writeIn(t, global, "helper", `{"name":"Global helper","command":"npx"}`)
-	dir := t.TempDir()
-	write(t, dir, "helper", `{"name":"Helper","command":"npx"}`)
-
-	got, err := List(dir, []string{global})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []ProjectAgent{{ID: "helper", Name: "Helper"}, {ID: "muse", Name: "Muse"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v, want %+v", got, want)
-	}
-	helper, err := Find(dir, []string{global}, "helper")
-	if err != nil || helper.Dir != filepath.Join(dir, Folder, "helper") {
-		t.Fatalf("helper %+v %v", helper, err)
-	}
-	muse, err := Find(dir, []string{global}, "muse")
-	if err != nil || muse.Dir != filepath.Join(global, "muse") || muse.Project != dir || muse.Workdir() != dir {
-		t.Fatalf("muse %+v %v", muse, err)
-	}
-	if _, err := Find(dir, nil, "muse"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("muse without a global folder: %v", err)
-	}
-	if got, err := List(dir, []string{filepath.Join(global, "missing")}); err != nil || len(got) != 1 {
-		t.Fatalf("missing global folder: %+v %v", got, err)
-	}
-}
-
-// A global agent working on the project's code runs once per project; one
-// that runs in its own folder is one process for every project.
-func TestGlobalAgentKeyFollowsWhereItRuns(t *testing.T) {
-	global := t.TempDir()
-	writeIn(t, global, "coder", `{"command":"gemini"}`)
-	writeIn(t, global, "app", `{"command":"npx","cwd":"agent"}`)
+// An agent working on the project's code runs once per project; one that
+// runs in its own folder is one process for every project.
+func TestAgentKeyFollowsWhereItRuns(t *testing.T) {
+	plugins := t.TempDir()
+	write(t, plugins, "coder", `{"command":"gemini"}`)
+	write(t, plugins, "app", `{"command":"npx","cwd":"agent"}`)
 	first, second := t.TempDir(), t.TempDir()
 	key := func(project, name string) Manifest {
-		m, err := Find(project, []string{global}, name)
+		m, err := Find(project, plugins, name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,12 +167,12 @@ func TestGlobalAgentKeyFollowsWhereItRuns(t *testing.T) {
 // An agent and its models may name an icon: an https image or a logo the app
 // ships. Anything else lists the agent with why it can't run.
 func TestIconsAreAnHTTPSImageOrALogoName(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "muse", `{"command":"muse-acp","icon":"https://example.com/muse.png","modelEnv":"M","models":[{"id":"sonnet","icon":"claude"},{"id":"plain"}]}`)
-	write(t, dir, "http", `{"command":"x","icon":"http://example.com/a.png"}`)
-	write(t, dir, "file", `{"command":"x","icon":"./icon.png"}`)
-	write(t, dir, "badmodel", `{"command":"x","modelEnv":"M","models":[{"id":"a","icon":"Not A Logo"}]}`)
-	got, err := List(dir, nil)
+	plugins, dir := t.TempDir(), t.TempDir()
+	write(t, plugins, "muse", `{"command":"muse-acp","icon":"https://example.com/muse.png","modelEnv":"M","models":[{"id":"sonnet","icon":"claude"},{"id":"plain"}]}`)
+	write(t, plugins, "http", `{"command":"x","icon":"http://example.com/a.png"}`)
+	write(t, plugins, "file", `{"command":"x","icon":"./icon.png"}`)
+	write(t, plugins, "badmodel", `{"command":"x","modelEnv":"M","models":[{"id":"a","icon":"Not A Logo"}]}`)
+	got, err := List(dir, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,42 +188,6 @@ func TestIconsAreAnHTTPSImageOrALogoName(t *testing.T) {
 	for _, name := range []string{"http", "file", "badmodel"} {
 		if byID[name].Error == "" || byID[name].Icon != "" {
 			t.Fatalf("%s accepted: %+v", name, byID[name])
-		}
-	}
-}
-
-// A plugin folder may bring an agent: the environment's plugins sit below its
-// agents, and the project's plugins below its agents, which win any name.
-func TestPluginsBringAgentsBelowTheAgentsFolders(t *testing.T) {
-	home := t.TempDir()
-	plugins, agents := filepath.Join(home, "plugins"), filepath.Join(home, "agents")
-	writeIn(t, plugins, "muse", `{"name":"Muse plugin","command":"./bridge.ts"}`)
-	writeIn(t, plugins, "shared", `{"name":"Plugin","command":"x"}`)
-	writeIn(t, agents, "shared", `{"name":"Agent","command":"x"}`)
-	dir := t.TempDir()
-	writeIn(t, filepath.Join(dir, PluginFolder), "local", `{"name":"Local plugin","command":"x"}`)
-	writeIn(t, filepath.Join(dir, PluginFolder), "both", `{"name":"Project plugin","command":"x"}`)
-	write(t, dir, "both", `{"name":"Project agent","command":"x"}`)
-	global := []string{plugins, agents}
-
-	got, err := List(dir, global)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []ProjectAgent{
-		{ID: "both", Name: "Project agent"}, {ID: "local", Name: "Local plugin"},
-		{ID: "muse", Name: "Muse plugin"}, {ID: "shared", Name: "Agent"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v, want %+v", got, want)
-	}
-	muse, err := Find(dir, global, "muse")
-	if err != nil || muse.Dir != filepath.Join(plugins, "muse") || muse.Workdir() != dir {
-		t.Fatalf("muse %+v %v", muse, err)
-	}
-	for name, want := range map[string]string{"shared": "Agent", "both": "Project agent", "local": "Local plugin"} {
-		if m, err := Find(dir, global, name); err != nil || m.Name != want {
-			t.Fatalf("%s: %+v %v", name, m, err)
 		}
 	}
 }

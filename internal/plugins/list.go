@@ -33,11 +33,13 @@ type Listed struct {
 	Methods     []ListedMethod `json:"methods"`
 }
 
-// ListedMethod is one method in a line: Asks when it has a confirm, and Input
-// as its top-level fields, optional ones ending in `?`: `id, text?, done?`.
+// ListedMethod is one method in a line: its effect (read, write or
+// destructive), Stream for a read that sends items, Asks when it has a
+// confirm, and Input as its top-level fields: `id, text?, done?`.
 type ListedMethod struct {
 	Name        string `json:"name"`
-	Kind        string `json:"kind"`
+	Effect      string `json:"effect"`
+	Stream      bool   `json:"stream,omitempty"`
 	Asks        bool   `json:"asks,omitempty"`
 	Input       string `json:"input,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -60,7 +62,8 @@ type Detail struct {
 // when it declares one.
 type DetailMethod struct {
 	Name        string          `json:"name"`
-	Kind        string          `json:"kind"`
+	Effect      string          `json:"effect"`
+	Stream      bool            `json:"stream,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Confirm     string          `json:"confirm,omitempty"`
 	Input       json.RawMessage `json:"input"`
@@ -73,7 +76,8 @@ type manifestPlugin struct {
 	Description string `json:"description"`
 	Methods     []struct {
 		Name        string          `json:"name"`
-		Kind        string          `json:"kind"`
+		Effect      string          `json:"effect"`
+		Stream      bool            `json:"stream"`
 		Description string          `json:"description"`
 		Confirm     string          `json:"confirm"`
 		HTTP        string          `json:"http"`
@@ -171,7 +175,7 @@ func (s *Service) manifest(ctx context.Context, t Target) ([]listedPlugin, *outc
 func listed(p listedPlugin, errors int, all []Page) Listed {
 	out := Listed{Name: p.Name, Errors: errors, Page: indexPage(p.Name, all), Description: p.Description, Methods: []ListedMethod{}}
 	for _, m := range p.Methods {
-		out.Methods = append(out.Methods, ListedMethod{Name: m.Name, Kind: m.Kind, Asks: m.Confirm != "", Input: Signature(m.Input), Description: m.Description})
+		out.Methods = append(out.Methods, ListedMethod{Name: m.Name, Effect: m.Effect, Stream: m.Stream, Asks: m.Confirm != "", Input: Signature(m.Input), Description: m.Description})
 	}
 	return out
 }
@@ -179,7 +183,7 @@ func listed(p listedPlugin, errors int, all []Page) Listed {
 func detail(p listedPlugin, errors int, all []Page, crons []Cron) Detail {
 	out := Detail{Name: p.Name, Path: filepath.Join(p.target.Dir, p.Name), Errors: errors, Description: p.Description, Methods: []DetailMethod{}, Storage: present(p.Storage), Crons: crons}
 	for _, m := range p.Methods {
-		out.Methods = append(out.Methods, DetailMethod{Name: m.Name, Kind: m.Kind, Description: m.Description, Confirm: m.Confirm, Input: schema(m.Input), Output: schema(m.Output)})
+		out.Methods = append(out.Methods, DetailMethod{Name: m.Name, Effect: m.Effect, Stream: m.Stream, Description: m.Description, Confirm: m.Confirm, Input: schema(m.Input), Output: schema(m.Output)})
 	}
 	for _, page := range all {
 		if ownMethod(p.Name, page.Method) {

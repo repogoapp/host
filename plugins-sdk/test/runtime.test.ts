@@ -11,7 +11,7 @@ const notes = definePlugin({
   namespace: "notes",
   collections: { notes: z.object({ text: z.string(), done: z.boolean().default(false) }) },
   methods: {
-    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { kind: "query", output: z.number() }),
+    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { effect: "read", output: z.number() }),
     archiveAll: method(z.object({}), async (_, ctx) => {
       for (const note of await ctx.collections.notes.list()) await ctx.collections.notes.update(note.id, { done: true });
       return null;
@@ -22,7 +22,7 @@ const notes = definePlugin({
 const digest = definePlugin({
   methods: {
     // Reads another plugin through its method: the read is still tracked.
-    summary: method(z.object({}), async (_, ctx) => `notes: ${await ctx.call("notes.count")}`, { kind: "query", output: z.string() }),
+    summary: method(z.object({}), async (_, ctx) => `notes: ${await ctx.call("notes.count")}`, { effect: "read", output: z.string() }),
   },
 });
 
@@ -74,7 +74,7 @@ test("namespace names the folder and the tag; two plugins naming one namespace s
 
   const written = await runtime.call("mine.items.create", { text: "a" });
   expect(written.invalidates).toEqual(["repogo.todos.items"]);
-  const read = await runtime.call("yours.items.list", {}, { expect: "query" });
+  const read = await runtime.call("yours.items.list", {}, { expect: "read" });
   expect((read.result as { text: string }[]).map((item) => item.text)).toEqual(["a"]);
   expect(read.reads).toEqual(["repogo.todos.items"]);
 
@@ -89,7 +89,7 @@ test("a plugin with data and no namespace fails the load", async () => {
 
 test("a plugin with only methods needs no namespace", async () => {
   const runtime = await open();
-  await runtime.add("plain", definePlugin({ methods: { ping: method(z.object({}), () => "pong", { kind: "query" }) } }));
+  await runtime.add("plain", definePlugin({ methods: { ping: method(z.object({}), () => "pong", { effect: "read" }) } }));
   expect((await runtime.call("plain.ping")).result).toBe("pong");
 });
 
@@ -120,11 +120,11 @@ test("calls report what they read and wrote, across plugins", async () => {
 
 test("a card's automatic call refuses anything that writes", async () => {
   const runtime = await open();
-  expect((await runtime.call("notes.count", {}, { expect: "query" })).result).toBe(0);
-  const error = await runtime.call("notes.notes.create", { text: "a" }, { expect: "query" }).catch((e) => e);
+  expect((await runtime.call("notes.count", {}, { expect: "read" })).result).toBe(0);
+  const error = await runtime.call("notes.notes.create", { text: "a" }, { expect: "read" }).catch((e) => e);
   expect(toCallError(error).code).toBe("FORBIDDEN");
-  // Unmarked custom methods are mutations.
-  expect(runtime.methods.get("notes.archiveAll")?.kind).toBe("mutation");
+  // Unmarked custom methods write.
+  expect(runtime.methods.get("notes.archiveAll")?.effect).toBe("write");
 });
 
 test("errors are structured, with messages per field", async () => {
@@ -146,20 +146,23 @@ test("the manifest has each method's kind, input and output", async () => {
   const plugin = runtime.manifest().plugins.find((a) => a.name === "notes")!;
   expect(plugin.description).toBe("Notes");
   const list = plugin.methods.find((m) => m.name === "notes.notes.list")!;
-  expect(list.kind).toBe("query");
+  expect(list.effect).toBe("read");
+  expect(list.stream).toBe(false);
   expect(list.output).toMatchObject({ type: "array", items: { type: "object", properties: { id: { type: "string" }, text: { type: "string" } } } });
-  expect(plugin.methods.find((m) => m.name === "notes.notes.create")!.kind).toBe("mutation");
+  expect(plugin.methods.find((m) => m.name === "notes.notes.create")!.effect).toBe("write");
+  // A generated delete can't be undone: destructive, and it asks first.
+  expect(plugin.methods.find((m) => m.name === "notes.notes.delete")).toMatchObject({ effect: "destructive", confirm: "Delete this record?" });
 });
 
 test("ctx.plugins lists the plugins beside it, and their methods are what ctx.call reaches", async () => {
   await open();
   await runtime.add("catalog", definePlugin({
     methods: {
-      list: method(z.object({}), (_, ctx) => ctx.plugins().map((p) => ({ name: p.name, methods: p.methods.map((m) => m.name) })), { kind: "query" }),
+      list: method(z.object({}), (_, ctx) => ctx.plugins().map((p) => ({ name: p.name, methods: p.methods.map((m) => m.name) })), { effect: "read" }),
       countVia: method(z.object({}), async (_, ctx) => {
         const count = ctx.plugins().flatMap((p) => p.methods).find((m) => m.name === "notes.count")!;
         return ctx.call(count.name);
-      }, { kind: "query" }),
+      }, { effect: "read" }),
     },
   }));
   const { result } = await runtime.call("catalog.list");
@@ -200,13 +203,13 @@ test("a query can't write, even through what it calls", async () => {
   const runtime = await open();
   const sneaky = definePlugin({
     methods: {
-      write: method(z.object({}), async (_, ctx) => ctx.call("notes.notes.create", { text: "x" }), { kind: "query" }),
-      direct: method(z.object({}), async () => (runtime as any).methods.get("notes.notes.create").run({ text: "x", done: false }, {}), { kind: "query" }),
+      write: method(z.object({}), async (_, ctx) => ctx.call("notes.notes.create", { text: "x" }), { effect: "read" }),
+      direct: method(z.object({}), async () => (runtime as any).methods.get("notes.notes.create").run({ text: "x", done: false }, {}), { effect: "read" }),
     },
   });
   await runtime.add("sneaky", sneaky);
-  expect(toCallError(await runtime.call("sneaky.write", {}, { expect: "query" }).catch((e) => e)).code).toBe("FORBIDDEN");
-  expect(toCallError(await runtime.call("sneaky.direct", {}, { expect: "query" }).catch((e) => e)).code).toBe("FORBIDDEN");
+  expect(toCallError(await runtime.call("sneaky.write", {}, { expect: "read" }).catch((e) => e)).code).toBe("FORBIDDEN");
+  expect(toCallError(await runtime.call("sneaky.direct", {}, { expect: "read" }).catch((e) => e)).code).toBe("FORBIDDEN");
   expect((await runtime.call("notes.count")).result).toBe(0);
 });
 
@@ -249,7 +252,7 @@ test("a query is read-only however it's called, even inside a writable call", as
   const runtime = await open();
   const plugin = definePlugin({
     methods: {
-      sneaky: method(z.object({}), async (_, ctx) => ctx.collections.items.create({ name: "x" }), { kind: "query" }),
+      sneaky: method(z.object({}), async (_, ctx) => ctx.collections.items.create({ name: "x" }), { effect: "read" }),
       outer: method(z.object({}), async (_, ctx) => ctx.call("plugin.sneaky")),
     },
     namespace: "plugin",
@@ -310,7 +313,7 @@ test("a null filter matches stored nulls", async () => {
   const plugin = definePlugin({
     namespace: "nulls",
     collections: { items: z.object({ n: z.number().nullable() }) },
-    methods: { empty: method(z.object({}), async (_, ctx) => (await ctx.collections.items.list({ where: { n: null } })).length, { kind: "query" }) },
+    methods: { empty: method(z.object({}), async (_, ctx) => (await ctx.collections.items.list({ where: { n: null } })).length, { effect: "read" }) },
   });
   await runtime.add("nulls", plugin);
   await runtime.call("nulls.items.create", { n: null });
@@ -374,7 +377,7 @@ test("calling a stream returns what it sent, and whether it ended", async () => 
   expect(capped.items).toHaveLength(200);
   expect(capped.done).toBe(false);
   const methods = runtime.manifest().plugins.find((p) => p.name === "ticker")!.methods;
-  expect(methods.find((m) => m.name === "ticker.ticks")?.kind).toBe("stream");
+  expect(methods.find((m) => m.name === "ticker.ticks")).toMatchObject({ effect: "read", stream: true });
 });
 
 test("a schedule that could never run says why, and the good ones beside it are set", async () => {
@@ -429,6 +432,18 @@ test("a folder opened for its schedules imports only the plugins they name", asy
   runtime = await Runtime.open({ dataDir, root: dir });
   await runtime.loadDir(dir, ["wanted"]);
   expect([...runtime.plugins.keys()]).toEqual(["wanted"]);
+});
+
+// A folder holding only an agent.json is an agent: the plugins beside it
+// still load, rather than every plugin failing over one missing app.ts.
+test("an agent's folder in the plugins folder isn't loaded as a plugin", async () => {
+  dataDir = await mkdtemp(join(tmpdir(), "repogo-plugins-"));
+  const dir = await mkdtemp(join(tmpdir(), "repogo-agents-"));
+  await Bun.write(join(dir, "notes", "app.ts"), `export default { methods: {} };`);
+  await Bun.write(join(dir, "helper", "agent.json"), `{"command":"npx"}`);
+  runtime = await Runtime.open({ dataDir, root: dir });
+  await runtime.loadDir(dir);
+  expect([...runtime.plugins.keys()]).toEqual(["notes"]);
 });
 
 test("a cron runs its method when due, once, and the manifest says how it went", async () => {
@@ -524,7 +539,7 @@ test("deleteMany removes what list would return, offset and field order included
       }),
       keepNewest: method(z.object({ keep: z.number() }), (input, ctx) =>
         ctx.collections.runs.deleteMany({ where: { job: "a" }, orderBy: "n", order: "desc", offset: input.keep, limit: 1000 })),
-      left: method(z.object({}), async (_, ctx) => (await ctx.collections.runs.list({ orderBy: "n", order: "asc" })).map((r) => `${r.job}${r.n}`), { kind: "query" }),
+      left: method(z.object({}), async (_, ctx) => (await ctx.collections.runs.list({ orderBy: "n", order: "asc" })).map((r) => `${r.job}${r.n}`), { effect: "read" }),
     },
   }));
   await runtime.call("bench.fill");
@@ -536,8 +551,8 @@ test("ctx.caller is who started the call, and code it calls inherits it", async 
   await open();
   await runtime.add("who", definePlugin({
     methods: {
-      caller: method(z.object({}), (_, ctx) => ctx.caller, { kind: "query" }),
-      relay: method(z.object({}), (_, ctx) => ctx.call("caller"), { kind: "query" }),
+      caller: method(z.object({}), (_, ctx) => ctx.caller, { effect: "read" }),
+      relay: method(z.object({}), (_, ctx) => ctx.call("caller"), { effect: "read" }),
     },
   }));
   expect((await runtime.call("who.caller")).result).toBe("code");
@@ -550,7 +565,7 @@ test("a cron run reports how long it took, and pages showing crons re-run around
   await runtime.add("timed", definePlugin({
     methods: {
       work: method(z.object({}), () => new Promise((resolve) => setTimeout(resolve, 20))),
-      crons: method(z.object({}), (_, ctx) => ctx.plugins().find((p) => p.name === "timed")!.crons[0].runs, { kind: "query" }),
+      crons: method(z.object({}), (_, ctx) => ctx.plugins().find((p) => p.name === "timed")!.crons[0].runs, { effect: "read" }),
     },
   }));
   runtime.setCrons([{ plugin: "timed", method: "work", schedule: "* * * * * *" }]);
@@ -606,8 +621,8 @@ test("records sort by any field, by id, and through the generated list", async (
     namespace: "people",
     collections: { people: z.object({ "display-name": z.string() }) },
     methods: {
-      names: method(z.object({}), async (_, ctx) => (await ctx.collections.people.list({ orderBy: "display-name", order: "asc" })).map((p) => p["display-name"]), { kind: "query" }),
-      byID: method(z.object({}), async (_, ctx) => (await ctx.collections.people.list({ orderBy: "id", order: "asc" })).map((p) => p.id), { kind: "query" }),
+      names: method(z.object({}), async (_, ctx) => (await ctx.collections.people.list({ orderBy: "display-name", order: "asc" })).map((p) => p["display-name"]), { effect: "read" }),
+      byID: method(z.object({}), async (_, ctx) => (await ctx.collections.people.list({ orderBy: "id", order: "asc" })).map((p) => p.id), { effect: "read" }),
     },
   }));
   for (const name of ["Cleo", "Ada", "Bea"]) await runtime.call("people.people.create", { "display-name": name });
@@ -616,4 +631,31 @@ test("records sort by any field, by id, and through the generated list", async (
   expect(ids).toEqual([...ids].sort());
   const page = (await runtime.call("people.people.list", { orderBy: "display-name", order: "asc", offset: 1, limit: 1 })).result as any[];
   expect(page.map((p) => p["display-name"])).toEqual(["Bea"]);
+});
+
+// What can't be undone always asks: a destructive method without a confirm
+// question doesn't load, and one with it asks before it runs.
+test("a destructive method must ask first", async () => {
+  await open();
+  const unasked = definePlugin({
+    methods: { wipe: { input: z.object({}), effect: "destructive", run: () => null } },
+  });
+  await expect(runtime.add("unasked", unasked)).rejects.toThrow("unasked.wipe is destructive, so it needs a confirm question");
+  let wiped = 0;
+  const asked = definePlugin({
+    methods: { wipe: method(z.object({ name: z.string() }), () => { wiped++; return null; }, { effect: "destructive", confirm: "Wipe {{name}}?" }) },
+  });
+  await runtime.add("asked", asked);
+  const question = await runtime.call("asked.wipe", { name: "notes" }, { confirmed: false }).catch(toCallError);
+  expect(question).toMatchObject({ code: "CONFIRM", message: "Wipe notes?" });
+  expect(wiped).toBe(0);
+  await runtime.call("asked.wipe", { name: "notes" }, { confirmed: true });
+  expect(wiped).toBe(1);
+  // A card's automatic call never runs it.
+  expect(await runtime.call("asked.wipe", { name: "x" }, { expect: "read" }).catch(toCallError)).toMatchObject({ code: "FORBIDDEN" });
+});
+
+// kind was renamed: a plugin still writing it is told, not quietly made a write.
+test("the old kind option names its new spelling", () => {
+  expect(() => method(z.object({}), () => null, { kind: "query" } as never)).toThrow("kind is now effect");
 });

@@ -35,7 +35,7 @@ export default definePlugin({ namespace: "fixture.reports", workflows: {
   }),
 } });`);
   await writeFile(join(dir, "sibling", "app.ts"), `import { definePlugin, method, z } from "@repogo/plugins";
-export default definePlugin({ methods: { version: method(z.object({}), () => ${JSON.stringify(version)}, { kind: "query" }) } });`);
+export default definePlugin({ methods: { version: method(z.object({}), () => ${JSON.stringify(version)}, { effect: "read" }) } });`);
   return { root, dir, dataDir: join(root, "data") };
 }
 async function open(f: Awaited<ReturnType<typeof fixture>>) {
@@ -61,7 +61,7 @@ test("an edit mid-run continues on the new code where the recorded steps still m
   await service.tick();
   await waiting;
   await writeFile(join(f.dir, "reports", "version.ts"), 'export const version = "B";');
-  await writeFile(join(f.dir, "sibling", "app.ts"), 'import { definePlugin, method, z } from "@repogo/plugins"; export default definePlugin({ methods: { version: method(z.object({}), () => "B", { kind: "query" }) } });');
+  await writeFile(join(f.dir, "sibling", "app.ts"), 'import { definePlugin, method, z } from "@repogo/plugins"; export default definePlugin({ methods: { version: method(z.object({}), () => "B", { effect: "read" }) } });');
   const completed = until(service, start.id, summary => summary.status === "completed");
   service.start();
   await completed;
@@ -249,7 +249,7 @@ export default definePlugin({ namespace: "fixture.reports", methods: {
   const run = await app.call("reports.report.start", { input: { mode } }) as RunSummary;
   const result = await app.wait("reports.report", run.id) as any;
   expect(result.status).toBe("failed");
-  expect(result.error.message).toContain(mode === "confirm" ? "Delete everything?" : "query can't change data");
+  expect(result.error.message).toContain(mode === "confirm" ? "Delete everything?" : "read can't change data");
   expect(calls).toBe(0);
 });
 

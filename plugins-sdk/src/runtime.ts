@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -11,7 +12,7 @@ import { parseDuration } from "./duration";
 import type { Activity, AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
-import type { HTTPAccess, PluginDefinition, MethodKind } from "./define";
+import type { Effect, HTTPAccess, PluginDefinition } from "./define";
 import { MethodError, toCallError } from "./errors";
 import { EventBus } from "./events";
 import { bucketMethods, kvMethods, streamMethods, type Generated } from "./generated";
@@ -29,7 +30,8 @@ import { callFiles, type UploadedFile } from "./uploads";
 export type RegisteredMethod = {
   name: string;
   plugin: string;
-  kind: MethodKind;
+  effect: Effect;
+  stream?: true;
   description?: string;
   confirm?: string;
   http?: HTTPAccess;
@@ -148,6 +150,8 @@ export class Runtime {
     for (const entry of entries) {
       if (!entry.isDirectory() || !pluginName.test(entry.name)) continue;
       if (only && !only.includes(entry.name)) continue;
+      // A folder with only an agent.json is an agent, not a plugin.
+      if (!existsSync(join(pluginsDir, entry.name, "app.ts"))) continue;
       // Lines written while the module loads are the plugin's, with no run behind them.
       const module = await logContext.run({ plugin: entry.name }, () => import(join(pluginsDir, entry.name, "app.ts")));
       await this.add(entry.name, module.default);
@@ -257,7 +261,8 @@ export class Runtime {
       this.register({
         name: fullName,
         plugin: name,
-        kind: method.kind,
+        effect: method.effect,
+        stream: method.stream,
         description: method.description,
         confirm: method.confirm,
         http: method.http,
@@ -296,16 +301,16 @@ export class Runtime {
   }
 
   /**
-   * Calls a method and reports what it read and wrote. `expect: "query"` is how
+   * Calls a method and reports what it read and wrote. `expect: "read"` is how
    * a card runs a method on its own: it refuses anything that might write, and
-   * so does everything the query calls.
+   * so does everything the read calls.
    */
   /**
    * `confirmed` is false for a tap the user hasn't answered; `ctx.call` leaves it out.
    * `root` (the caller's project, for the environment's own plugins) and `caller`
    * pass on to the code the method calls.
    */
-  async call(name: string, input: unknown = {}, options: { expect?: MethodKind; confirmed?: boolean; root?: string; caller?: Caller; chat?: string; files?: UploadedFile[] } = {}): Promise<CallResult> {
+  async call(name: string, input: unknown = {}, options: { expect?: "read"; confirmed?: boolean; root?: string; caller?: Caller; chat?: string; files?: UploadedFile[] } = {}): Promise<CallResult> {
     // The host's files become the input's, and stay trusted for the calls this one makes.
     if (options.files) {
       const { files, ...rest } = options;
@@ -327,18 +332,18 @@ export class Runtime {
     const where = this.logContextFor(method.plugin, name, options.chat);
     if (!logContext.getStore()) return runWith(where, () => this.call(name, input, options));
     if (where !== logContext.getStore()) return logContext.run(where, () => this.call(name, input, options));
-    if ((options.expect === "query" || currentAccess()?.readOnly) && method.kind === "mutation") {
+    if ((options.expect === "read" || currentAccess()?.readOnly) && method.effect !== "read") {
       throw new MethodError("FORBIDDEN", `${name} changes data, so it only runs when the user acts.`);
     }
     const raw = input ?? {};
     const parsed = method.input.parse(raw);
     // Asked after the input is read, so the question can name what it acts on.
     if (method.confirm && (options.confirmed === false || workflowScope.getStore())) throw new MethodError("CONFIRM", fillConfirm(method.confirm, parsed));
-    if (method.kind === "stream") return { result: await this.sample(name, input), reads: [], invalidates: [] };
+    if (method.stream) return { result: await this.sample(name, input), reads: [], invalidates: [] };
     // Past the check above, a method with a confirm has the user's yes.
     const confirmed = this.callConfirmed.getStore() ?? false;
-    // A query is read-only however it's called, and so is everything it calls.
-    const run = await tracked(method.kind === "query", (tags) => this.notifyInvalidated(tags), () =>
+    // A read is read-only however it's called, and so is everything it calls.
+    const run = await tracked(method.effect === "read", (tags) => this.notifyInvalidated(tags), () =>
       this.callConfirmed.run(confirmed || method.confirm !== undefined, async () => {
         const result = await method.run(parsed, raw);
         await this.events.emit(name, { input: parsed, result });
@@ -362,7 +367,7 @@ export class Runtime {
   stream(name: string, input: unknown, options: { root?: string; caller?: Caller; signal: AbortSignal }, onItem: (item: unknown) => void): Promise<void> {
     const method = this.methods.get(name);
     if (!method) throw new MethodError("NOT_FOUND", `There is no method ${name}.`);
-    if (method.kind !== "stream") throw new MethodError("VALIDATION", `${name} is a ${method.kind}, not a stream.`);
+    if (!method.stream) throw new MethodError("VALIDATION", `${name} is not a stream.`);
     const raw = input ?? {};
     const parsed = method.input.parse(raw);
     const root = options.root ?? this.callRoot.getStore() ?? this.root;
@@ -451,7 +456,7 @@ export class Runtime {
     const name = `${entry.plugin}.${entry.method}`;
     const method = this.methods.get(name);
     if (!method || method.plugin !== entry.plugin) throw new Error(`${entry.method} isn't one of ${entry.plugin}'s methods`);
-    if (method.kind === "stream") throw new Error(`${name} is a stream; a cron runs a query or a mutation`);
+    if (method.stream) throw new Error(`${name} is a stream; a cron runs a read or a write`);
     if (method.confirm) throw new Error(`${name} asks before it runs, so nothing may run it on a schedule`);
     if (!method.input.safeParse({}).success) throw new Error(`${name} needs input; a cron calls it with {}`);
     const parsed = parseSchedule(entry.schedule);
@@ -545,7 +550,8 @@ export class Runtime {
         .filter((method) => method.plugin === name)
         .map((method) => ({
           name: method.name,
-          kind: method.kind,
+          effect: method.effect,
+          stream: method.stream ?? false,
           description: method.description ?? null,
           confirm: method.confirm ?? null,
           http: method.http ?? null,
@@ -633,6 +639,10 @@ export class Runtime {
 
   private register(method: RegisteredMethod) {
     if (this.methods.has(method.name)) throw new Error(`${method.name} is defined twice; rename the method or the data`);
+    // What can't be undone always asks: no card, agent or code runs it unasked.
+    if (method.effect === "destructive" && !method.confirm) {
+      throw new Error(`${method.name} is destructive, so it needs a confirm question, such as { confirm: "Delete {{id}}?" }`);
+    }
     this.methods.set(method.name, method);
   }
 
@@ -653,32 +663,32 @@ export class Runtime {
     const record = schema.extend({ id: z.string(), createdAt: z.string(), updatedAt: z.string() });
     const crud = (
       method: string,
-      kind: MethodKind,
+      effect: Effect,
       input: z.ZodType,
       output: z.ZodType,
       description: string,
       run: (input: any, raw: any) => unknown,
       confirm?: string,
     ) => this.register({
-      name: `${prefix}.${method}`, plugin, kind, description, confirm, input, output,
+      name: `${prefix}.${method}`, plugin, effect, description, confirm, input, output,
       run: async (value, raw) => run(value, raw),
     });
 
-    crud("list", "query", z.object({
+    crud("list", "read", z.object({
       limit: z.number().int().positive().max(500).optional(),
       offset: z.number().int().min(0).optional(),
       orderBy: z.string().optional(),
       order: z.enum(["asc", "desc"]).optional(),
     }), z.array(record), `List ${name} records, newest first unless orderBy says`, (input) => collection.list(input));
-    crud("get", "query", id, record.nullable(), `Get one ${name} record by id, or null`, (input) => collection.get(input.id));
-    crud("create", "mutation", schema, record, `Create a ${name} record`, (input) => collection.create(input));
+    crud("get", "read", id, record.nullable(), `Get one ${name} record by id, or null`, (input) => collection.get(input.id));
+    crud("create", "write", schema, record, `Create a ${name} record`, (input) => collection.create(input));
     // Only the fields the caller sent change: a default never overwrites a field left out.
-    crud("update", "mutation", id.extend(schema.partial().shape), record, `Update fields on a ${name} record`,
+    crud("update", "write", id.extend(schema.partial().shape), record, `Update fields on a ${name} record`,
       ({ id, ...fields }, raw) =>
         collection.update(id, Object.fromEntries(Object.entries(fields).filter(([key]) => Object.hasOwn(raw ?? {}, key)))),
     );
     // A delete can't be undone, so a card asks first.
-    crud("delete", "mutation", id, z.null(), `Delete a ${name} record by id`, async (input) => {
+    crud("delete", "destructive", id, z.null(), `Delete a ${name} record by id`, async (input) => {
       await collection.delete(input.id);
       return null;
     }, "Delete this record?");
@@ -706,7 +716,7 @@ function cronState(job: CronJob): ManifestCron {
 function mcpFailure(server: string, tool: string, error: { code: string; message: string }) {
   switch (error.code) {
     case "NOT_READ_ONLY":
-      return new MethodError("FORBIDDEN", `${server}.${tool} changes data, so it runs from a mutation, not a query.`);
+      return new MethodError("FORBIDDEN", `${server}.${tool} changes data, so it runs from a write, not a read.`);
     case "CONFIRM":
       return new MethodError("FORBIDDEN", `${server}.${tool} may destroy data, so it runs only from a method with a confirm.`);
   }

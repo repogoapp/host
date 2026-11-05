@@ -11,7 +11,7 @@ const notes = definePlugin({
   collections: { notes: z.object({ text: z.string() }) },
   methods: {
     add: method(z.object({ text: z.string() }), (input, ctx) => ctx.collections.notes.create(input)),
-    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { kind: "query" }),
+    count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { effect: "read" }),
     clear: method(z.object({}), (_, ctx) => ctx.collections.notes.deleteMany({ limit: 1000 }), { confirm: "Delete every note?" }),
     ping: method(z.object({}), (_, ctx) => { ctx.notify({ title: "Ping", body: ctx.caller }); }),
   },
@@ -31,7 +31,7 @@ test("a test runtime runs plugins with real data, confirms, crons and notices, t
 });
 
 test("ctx.root is an empty folder of its own unless the test names one", async () => {
-  const where = definePlugin({ methods: { root: method(z.object({}), (_, ctx) => ctx.root, { kind: "query" }) } });
+  const where = definePlugin({ methods: { root: method(z.object({}), (_, ctx) => ctx.root, { effect: "read" }) } });
   const app = await testRuntime({ where });
   const root = (await app.call("where.root")) as string;
   expect(root).not.toBe(process.cwd());
@@ -48,12 +48,12 @@ test("a plugin that can't load fails the test runtime with its reason", async ()
 
 const shop = definePlugin({
   methods: {
-    customers: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers", { limit: 2 }), { kind: "query" }),
+    customers: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers", { limit: 2 }), { effect: "read" }),
     create: method(z.object({ email: z.string() }), (input, ctx) => ctx.mcp("stripe", "create_customer", input)),
     remove: method(z.object({ id: z.string() }), (input, ctx) => ctx.mcp("stripe", "delete_customer", input), { confirm: "Delete {{id}}?" }),
     // Called by remove's neighbour through ctx.call: it runs under the confirm the user answered.
     purge: method(z.object({}), (_, ctx) => ctx.call("remove", { id: "cus_1" }), { confirm: "Delete everything?" }),
-    sneak: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "create_customer", {}), { kind: "query" }),
+    sneak: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "create_customer", {}), { effect: "read" }),
   },
 });
 
@@ -82,7 +82,7 @@ test("ctx.mcp asks for the calling project's tool, read-only in a query and conf
 test("ctx.mcp turns a server's refusal into the error its caller reads", async () => {
   const refusing = definePlugin({
     methods: {
-      read: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "delete_customer"), { kind: "query" }),
+      read: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "delete_customer"), { effect: "read" }),
       write: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "delete_customer")),
     },
   });
@@ -92,13 +92,13 @@ test("ctx.mcp turns a server's refusal into the error its caller reads", async (
     host: async (_plugin, _method, params) => ({ error: { code: refusals[String((params as TestMCPCall).read)], message: "refused" } }),
   });
   await runtime.add("refusing", refusing);
-  await expect(runtime.call("refusing.read")).rejects.toMatchObject({ code: "FORBIDDEN", message: "stripe.delete_customer changes data, so it runs from a mutation, not a query." });
+  await expect(runtime.call("refusing.read")).rejects.toMatchObject({ code: "FORBIDDEN", message: "stripe.delete_customer changes data, so it runs from a write, not a read." });
   await expect(runtime.call("refusing.write")).rejects.toMatchObject({ code: "FORBIDDEN", message: "stripe.delete_customer may destroy data, so it runs only from a method with a confirm." });
   runtime.close();
 });
 
 test("ctx.mcp needs the host", async () => {
-  const lone = definePlugin({ methods: { read: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers"), { kind: "query" }) } });
+  const lone = definePlugin({ methods: { read: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers"), { effect: "read" }) } });
   const app = await testRuntime({ lone });
   await expect(app.call("lone.read")).rejects.toMatchObject({ code: "INTERNAL", message: "ctx.mcp runs only under the RepoGo host." });
   await app.close();
@@ -113,7 +113,7 @@ test("ctx.activity sets the activity through the host in snake_case, with the ca
           compactLabel: "1/2", timer: { kind: "countdown", endsAt: 1_700_000_000_000 }, page: ".repogo/tabs/deploys.ui",
         });
       }),
-      peek: method(z.object({}), async (_, ctx) => { await ctx.activity({ id: "web", title: "Peeking" }); }, { kind: "query" }),
+      peek: method(z.object({}), async (_, ctx) => { await ctx.activity({ id: "web", title: "Peeking" }); }, { effect: "read" }),
     },
   });
   const calls: { method: string; params: unknown }[] = [];

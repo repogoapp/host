@@ -20,7 +20,8 @@ var pluginsTool = tool{
 	Name: "plugins",
 	Description: "List the environment's plugins (~/.repogo/plugins), which every project can use, " +
 		"each with its `errors` in the last hour, the `page` that shows it, " +
-		"and a line per method: `kind` (query, mutation or stream), `asks` when it has a confirm, and `input`, its fields " +
+		"and a line per method: `effect` (read, write or destructive), `stream` for a read that sends items, " +
+		"`asks` when it has a confirm, and `input`, its fields " +
 		"with optional ones ending in `?`; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
 		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema and confirm, its storage, " +
 		"the pages that show its methods (`target` to open with page: and the `params` to add) and the cron lines naming it. " +
@@ -37,14 +38,13 @@ var pluginCallTool = tool{
 	Name: "plugin_call",
 	Description: "Run one method of a plugin this project can use and return its result. " +
 		"`method` is `<plugin>.<method>` as `plugins` lists it, such as `plans.move`; " +
-		"`input` must match that method's input schema. A method with a `confirm` answers CONFIRM with its question " +
-		"instead of running: put the question to the user, and call again with `confirmed: true` only once they agree.",
+		"`input` must match that method's input schema. A method that asks first (`asks`) never runs from here: " +
+		"it answers CONFIRM with its question, and the user runs it by tapping a Button you draw with action=\"plugin:<method>\".",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"method":    map[string]any{"type": "string", "description": "`<plugin>.<method>`, as listed by `plugins`"},
-			"input":     map[string]any{"type": "object", "description": "The method's input"},
-			"confirmed": map[string]any{"type": "boolean", "description": "The user agreed to the method's confirm question"},
+			"method": map[string]any{"type": "string", "description": "`<plugin>.<method>`, as listed by `plugins`"},
+			"input":  map[string]any{"type": "object", "description": "The method's input"},
 		},
 		"required": []string{"method"},
 	},
@@ -65,16 +65,19 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 		return toolResult{Content: []content{{Type: "text", Text: string(answer.Result)}}}
 	}
 	var p struct {
-		Method    string          `json:"method"`
-		Input     json.RawMessage `json:"input"`
-		Confirmed bool            `json:"confirmed"`
+		Method string          `json:"method"`
+		Input  json.RawMessage `json:"input"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil || p.Method == "" {
 		return failed("RepoGo plugins: plugin_call needs a method, such as {\"method\":\"plans.list\",\"input\":{}}")
 	}
-	// A confirm guards what can't be undone from agents as from taps: an agent's
-	// permissions may let every tool call through, so the user's yes is its own step.
-	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, p.Confirmed, plugins.Origin{Caller: plugins.CallerAgent, Chat: turn.ChatID})
+	// A confirm is the user's to answer, never the agent's: its permissions may
+	// let every tool call through. The question goes back for a card to ask.
+	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, false, plugins.Origin{Caller: plugins.CallerAgent, Chat: turn.ChatID})
+	if err == nil && answer.Error != nil && answer.Error.Code == "CONFIRM" {
+		return failed("CONFIRM: " + answer.Error.Message + " " + p.Method + " asks the user first, so it can't run from plugin_call. " +
+			"Draw a Button with action=\"plugin:" + p.Method + "\" and a Param per input field; the user's tap asks this question and runs it.")
+	}
 	return pluginResult(answer, err)
 }
 

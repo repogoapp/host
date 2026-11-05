@@ -24,7 +24,7 @@ func TestSignatureNamesTheTopLevelFields(t *testing.T) {
 
 func TestIndexPagePrefersThePluginsOwnIndex(t *testing.T) {
 	all := []Page{
-		{Method: "notes.texts", Target: ".repogo/tabs/home.ui"},
+		{Method: "notes.texts", Target: ".repogo/tabs/home.md"},
 		{Method: "notes.texts", Target: "~/.repogo/plugins/notes/pages/detail.ui?route=x"},
 		{Method: "notes.get", Target: "~/.repogo/plugins/notes/pages/index.ui?route=note", Params: []string{"id"}},
 		{Method: "notesy.list", Target: "~/.repogo/plugins/notesy/pages/index.ui"},
@@ -35,7 +35,7 @@ func TestIndexPagePrefersThePluginsOwnIndex(t *testing.T) {
 	if got := indexPage("notes", all[:2]); got != "~/.repogo/plugins/notes/pages/detail.ui" {
 		t.Fatalf("own first = %q", got)
 	}
-	if got := indexPage("notes", all[:1]); got != ".repogo/tabs/home.ui" {
+	if got := indexPage("notes", all[:1]); got != ".repogo/tabs/home.md" {
 		t.Fatalf("any = %q", got)
 	}
 	if got := indexPage("other", all); got != "" {
@@ -47,7 +47,7 @@ const shelfPlugin = `import { definePlugin, method, z } from "@repogo/plugins";
 export default definePlugin({
   description: "Books on a shelf",
   methods: {
-    books: method(z.object({}), () => [], { kind: "query", description: "Every book" }),
+    books: method(z.object({}), () => [], { effect: "read", description: "Every book" }),
     shelve: method(z.object({ id: z.string(), title: z.string().optional(), read: z.boolean().default(false) }), () => null, {
       description: "Put a book <back>", confirm: "Shelve {{id}}?",
     }),
@@ -74,8 +74,8 @@ func TestListAnswersSmallAndInFull(t *testing.T) {
 		t.Fatalf("list: %+v %v", list.Error, err)
 	}
 	want := `{"plugins":[{"name":"shelf","page":"~/.repogo/plugins/shelf/pages/index.ui","description":"Books on a shelf","methods":[` +
-		`{"name":"shelf.books","kind":"query","description":"Every book"},` +
-		`{"name":"shelf.shelve","kind":"mutation","asks":true,"input":"id, title?, read?","description":"Put a book <back>"}]}]}`
+		`{"name":"shelf.books","effect":"read","description":"Every book"},` +
+		`{"name":"shelf.shelve","effect":"write","asks":true,"input":"id, title?, read?","description":"Put a book <back>"}]}]}`
 	if string(list.Result) != want {
 		t.Fatalf("list =\n%s\nwant\n%s", list.Result, want)
 	}

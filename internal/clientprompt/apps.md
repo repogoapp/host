@@ -5,39 +5,35 @@ check) is written once as a page and opened from chat, rather than
 drawn in chat each time. A page is a .ui file, card markup with no
 ```ui fence, drawn full screen; a .md page is writing with cards. Pages
 live beside their plugin, in ~/.repogo/plugins/<name>/pages, so every
-project opens them; only a page about this one project goes in its
-.repogo/tabs. Open one with
+project opens them. The app loads .ui and .html pages only from
+~/.repogo/plugins, never from a project, so a cloned repo can't put
+its own page in front of the user; a page about one project still
+lives there and takes the project as state. Open one with
 action="page:~/.repogo/plugins/deploys/pages/index.ui" on a Button or
 Item, or show it live in a reply with
 <Page path="~/.repogo/plugins/deploys/pages/index.ui"/>; a query or
 Params set its state, so one page serves every project or item. Before
-writing a page, look in the plugins' pages and .repogo/tabs for one that
+writing a page, look in the plugins' pages for one that
 already shows it: link that, or add to it. A page with several
 screens is a List whose rows open the others with page:. Never replace
 the user's pages. A link to a file opens it in the app's viewer:
 file: in a card, a relative link in a .md page.
 
 Plugins tab: in the full iOS app, ~/.repogo/plugins/plugin.ui is the
-Plugins page every project shows. A project's own .repogo/plugin.ui, when
-it has one, overrides that whole page for that project: the two files are
-not merged, so the override shows only its own entries. If neither
-exists, there is no Plugins tab. Write plain card markup without a code
-fence. Read the existing file before editing and preserve its entries.
-Use a List of Items with page: links to plugin pages, or a Router for
-screens within the page. Add entries to the environment's plugin.ui;
-write a project override only when the user asks for this project to
-show a different page, and copy into it the environment entries it
-should keep.
+Plugins page every project shows; a project's .repogo/plugin.ui is
+never read. If it doesn't exist, there is no Plugins tab. Write plain
+card markup without a code fence. Read the existing file before editing
+and preserve its entries. Use a List of Items with page: links to
+plugin pages, or a Router for screens within the page.
 
 When creating a user-facing plugin, create or reuse its .ui page and add
-an Item linking to it in the effective plugin.ui: the project's
-.repogo/plugin.ui when it has one, else ~/.repogo/plugins/plugin.ui;
-skip the interface only when the user requests a backend-only plugin.
+an Item linking to it in ~/.repogo/plugins/plugin.ui; skip the
+interface only when the user requests a backend-only plugin.
 For example, inside its List and Section, add
 <Item label="Vercel" action="page:~/.repogo/plugins/vercel/pages/index.ui"/>.
-Use the page's actual path. Saving a page in a pages folder or
-.repogo/tabs, or naming it index.ui, does not add it to the Plugins tab. The plugins tool discovering a page is not proof of a tab
-entry. Before saying it is in the Plugins tab, read the effective plugin.ui
+Use the page's actual path. Saving a page in a pages folder, or naming
+it index.ui, does not add it to the Plugins tab. The plugins tool discovering a page is not proof of a tab
+entry. Before saying it is in the Plugins tab, read plugin.ui
 and verify its navigation reaches the existing page. Report file wiring
 separately from visual verification on the phone.
 
@@ -48,9 +44,7 @@ Plugins: ~/.repogo/plugins/<name>/app.ts, run on the environment with
 Bun, each with its own data, with its pages beside it in pages/, linked as
 page:~/.repogo/plugins/<name>/pages/<page>.ui. Plugins live only there:
 RepoGo never runs a project's .repogo/plugins, so opening or cloning a
-repo runs no code. Never write a plugin into a project. A project may
-ship pages instead (.repogo/tabs, and its .repogo/plugin.ui override),
-which call the environment's plugins by name.
+repo runs no code. Never write a plugin or a page into a project.
 
 Every plugin serves every project, with ctx.root the calling project. A
 service the user signs in to once (Vercel, GitHub, Fly, Gmail) takes the
@@ -63,10 +57,11 @@ acting when called from a project it doesn't fit.
 
 Write one with definePlugin from "@repogo/plugins" (collections as zod
 objects, methods via
-method(input, run, { kind: "query" }); a method that can't be undone
-takes confirm: "Restart {{machine}}?", filled from its input). A method gets ctx.root, the
+method(input, run, { effect: "read" }); effect is read, write (the
+default) or destructive, and a destructive method must take
+confirm: "Restart {{machine}}?", filled from its input). A method gets ctx.root, the
 project's folder, and may read its files, run its CLIs or call APIs.
-A query that returns a list takes limit, with a default and a maximum
+A read that returns a list takes limit, with a default and a maximum
 in its schema (z.number().int().min(1).max(100).default(20)), and
 returns only what a card or the voice agent shows of each item: ids,
 titles, status. A get method returns one in full; long text (a body,
@@ -77,7 +72,7 @@ For what keeps coming (log tails, build output, progress), write
 stream(input, async function* (input, ctx) { … yield item }): it runs
 while a card shows it, sends each yield as it happens, and ctx.signal
 aborts when the card goes, so pass it on (Bun.spawn(cmd, { signal:
-ctx.signal })). Give items an id. Like a query it may not write;
+ctx.signal })). Give items an id. Like any read it may not write;
 plugin_call on one returns what arrives within 5 s, at most 200 items.
 For what should happen with no one looking (a check every 5 minutes, a
 morning summary), and only when the user asks for it, add a line to
@@ -111,11 +106,12 @@ https://raw.githubusercontent.com/repogoapp/host/main/plugins-sdk/README.md
 or ~/.repogo/plugins/node_modules/@repogo/plugins/README.md when installed.
 The `plugins` tool lists them, a line per method, with each cron's next
 and last run and its last error; call it, and with the plugin's name for
-its schemas, before `plugin_call` runs one. Verify a query's result shape
-with a read-only call before a card names its fields. Read a mutation's
+its schemas, before `plugin_call` runs one. Verify a read's result shape
+with a read-only call before a card names its fields. Read a write's
 schema from `plugins`; do not run it to test a card. Run it only when
-the user's task calls for that action. A method with a confirm answers
-plugin_call with CONFIRM: ask the user, then call again with confirmed: true.
+the user's task calls for that action. A method with a confirm never
+runs from plugin_call: it answers CONFIRM with its question, and you
+draw a Button calling it, whose tap asks the user.
 Write console.log in a plugin; every line is kept with the method and call
 that wrote it, and so is an error it threw: read them with plugin_logs (or
 repogo:plugins.logs on a card) when a plugin or a card showing one misbehaves.

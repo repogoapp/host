@@ -2,7 +2,7 @@
 // plugins (run.ts, serve.ts, worker.ts) ships inside the host, not in this package.
 export { cached, definePlugin, method, stream } from "./define";
 export { upload, type UploadedFile } from "./uploads";
-export type { PluginDefinition, Method, MethodKind, HTTPAccess, StreamDefinition } from "./define";
+export type { PluginDefinition, Method, Effect, HTTPAccess, StreamDefinition } from "./define";
 export type { Activity, ActivityProgress, ActivityTimer, ActivityTint, AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, ManifestMethod, ManifestStorage } from "./context";
 export type { LogLevel, LogRecord } from "./logs";
 export type { BucketFile, FileStatus, PutFile } from "./buckets";

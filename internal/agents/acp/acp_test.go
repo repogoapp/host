@@ -166,20 +166,21 @@ func fakeAgent() {
 }
 
 // project is a checkout holding the fake agent, run from its own folder.
-func project(t *testing.T) string {
+func project(t *testing.T) (dir, root string) {
 	t.Helper()
 	return projectWith(t, nil)
 }
 
-// projectWith is project with more agent.json fields.
-func projectWith(t *testing.T, fields map[string]any) string {
+// projectWith is a project and the host root whose plugins hold the fake
+// agent, with more agent.json fields.
+func projectWith(t *testing.T, fields map[string]any) (dir, root string) {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	agentDir := filepath.Join(dir, ".repogo", "agents", "fake")
+	dir, root = t.TempDir(), t.TempDir()
+	agentDir := filepath.Join(root, projectagent.PluginsFolder, "fake")
 	if err := os.MkdirAll(agentDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func projectWith(t *testing.T, fields map[string]any) string {
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.json"), manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return dir
+	return dir, root
 }
 
 func provider(t *testing.T, root string, env ...string) *Provider {
@@ -307,7 +308,7 @@ func kinds(events []agent.Event) []string {
 }
 
 func TestNewChatStreamsAndKeepsItsTranscript(t *testing.T) {
-	dir, root := project(t), t.TempDir()
+	dir, root := project(t)
 	p := provider(t, root)
 	first := send(t, p, agent.TurnRequest{Cwd: dir, Agent: agent.KindProject, ProjectAgent: "fake", Prompt: "hello"}, allowAll)
 	if first.err != nil {
@@ -338,10 +339,10 @@ func TestNewChatStreamsAndKeepsItsTranscript(t *testing.T) {
 
 // An edited agent.json may run another command, so the agent restarts with it.
 func TestChangedManifestRestartsTheAgent(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	before := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "pid"}, allowAll)
-	manifest := filepath.Join(dir, ".repogo", "agents", "fake", "agent.json")
+	manifest := filepath.Join(root, projectagent.PluginsFolder, "fake", "agent.json")
 	var m map[string]any
 	raw, _ := os.ReadFile(manifest)
 	_ = json.Unmarshal(raw, &m)
@@ -357,8 +358,8 @@ func TestChangedManifestRestartsTheAgent(t *testing.T) {
 }
 
 func TestToolCallAsksWithTheAgentsOptions(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "tool"}, allowAll)
 	if got.err != nil {
 		t.Fatal(got.err)
@@ -389,8 +390,8 @@ func TestToolCallAsksWithTheAgentsOptions(t *testing.T) {
 }
 
 func TestStopCancelsTheAgentsTurn(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "wait"}, allowAll)
 	if !errors.Is(got.err, context.Canceled) || got.result.StopReason != stopCancelled {
 		t.Fatalf("err %v stop %q", got.err, got.result.StopReason)
@@ -404,7 +405,7 @@ func TestStopCancelsTheAgentsTurn(t *testing.T) {
 
 func TestRestartedAgentGetsTheConversationOrReopensIt(t *testing.T) {
 	for _, load := range []bool{false, true} {
-		dir, root := project(t), t.TempDir()
+		dir, root := project(t)
 		env := []string{}
 		if load {
 			env = append(env, "REPOGO_FAKE_ACP_LOAD=1")
@@ -434,8 +435,8 @@ func TestRestartedAgentGetsTheConversationOrReopensIt(t *testing.T) {
 // A form the agent sends is the phone's question card: choices by their
 // titles, read back as the values the agent wrote.
 func TestQuestionsAreAskedAndAnsweredWithTheAgentsValues(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	// The first turn only records what was asked; its answer isn't a form's.
 	var asked agent.Approval
 	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "question"}, func(a agent.Approval) string {
@@ -458,8 +459,8 @@ func TestQuestionsAreAskedAndAnsweredWithTheAgentsValues(t *testing.T) {
 
 // A failure reads as the agent's own words; the transport's stays in the log.
 func TestFailuresReadAsTheAgentsWords(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "fail"}, allowAll)
 	if got.err == nil || got.err.Error() != "Fake couldn't answer: The model connection is unavailable." {
 		t.Fatalf("err %v", got.err)
@@ -468,9 +469,9 @@ func TestFailuresReadAsTheAgentsWords(t *testing.T) {
 
 // A chat's row names its project agent and the model its newest turn ran on.
 func TestSessionsNameTheAgentAndModel(t *testing.T) {
-	dir := projectWith(t, map[string]any{"modelEnv": "FAKE_MODEL",
+	dir, root := projectWith(t, map[string]any{"modelEnv": "FAKE_MODEL",
 		"models": []any{map[string]string{"id": "sonnet", "name": "Sonnet"}, map[string]string{"id": "haiku", "name": "Haiku"}}})
-	p := provider(t, t.TempDir())
+	p := provider(t, root)
 	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "hello", Config: agent.TurnConfig{Model: "haiku"}}, allowAll)
 	if got.err != nil {
 		t.Fatal(got.err)
@@ -486,8 +487,8 @@ func TestSessionsNameTheAgentAndModel(t *testing.T) {
 
 // Every turn names its chat, so the phone follows each turn live.
 func TestEveryTurnReportsItsChat(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	first := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "hello"}, allowAll)
 	next := send(t, p, agent.TurnRequest{Cwd: dir, SessionID: first.chat, Prompt: "hello"}, allowAll)
 	if next.err != nil || next.chat != first.chat {
@@ -498,8 +499,8 @@ func TestEveryTurnReportsItsChat(t *testing.T) {
 // One process serves every chat with an agent: eve, for one, refuses a
 // second instance in its folder.
 func TestChatsWithOneAgentShareItsProcess(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	first := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "pid"}, allowAll)
 	second := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "pid"}, allowAll)
 	if first.err != nil || second.err != nil {
@@ -515,7 +516,7 @@ func TestChatsWithOneAgentShareItsProcess(t *testing.T) {
 	}
 }
 
-// A global agent is offered in every project. Working on the project's code,
+// An environment agent is offered in every project. Working on the project's code,
 // it runs once per project; from its own folder, once for all of them.
 func TestGlobalAgentRunsPerProjectUnlessInItsOwnFolder(t *testing.T) {
 	executable, err := os.Executable()
@@ -524,7 +525,7 @@ func TestGlobalAgentRunsPerProjectUnlessInItsOwnFolder(t *testing.T) {
 	}
 	root := t.TempDir()
 	for name, cwd := range map[string]string{"coder": "project", "app": "agent"} {
-		dir := filepath.Join(root, projectagent.GlobalFolder, name)
+		dir := filepath.Join(root, projectagent.PluginsFolder, name)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -556,8 +557,8 @@ func TestGlobalAgentRunsPerProjectUnlessInItsOwnFolder(t *testing.T) {
 // An agent that offers models over ACP is set per chat, and the picker lists
 // what it reported once it ran.
 func TestACPModelsAreSetPerChatAndListed(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir(), "REPOGO_FAKE_ACP_MODELS=1")
+	dir, root := project(t)
+	p := provider(t, root, "REPOGO_FAKE_ACP_MODELS=1")
 	if agents, _ := p.ProjectAgents(dir); len(agents) != 1 || len(agents[0].Models) != 0 {
 		t.Fatalf("models before a run: %+v", agents)
 	}
@@ -586,9 +587,9 @@ func TestACPModelsAreSetPerChatAndListed(t *testing.T) {
 // A manifest's models reach the agent in its modelEnv; another model
 // restarts the agent with it.
 func TestManifestModelStartsTheAgentWithIt(t *testing.T) {
-	dir := projectWith(t, map[string]any{"modelEnv": "FAKE_MODEL",
+	dir, root := projectWith(t, map[string]any{"modelEnv": "FAKE_MODEL",
 		"models": []any{map[string]string{"id": "sonnet", "name": "Sonnet"}, map[string]string{"id": "haiku", "name": "Haiku"}}})
-	p := provider(t, t.TempDir())
+	p := provider(t, root)
 	agents, err := p.ProjectAgents(dir)
 	if err != nil || len(agents[0].Models) != 2 || agents[0].Model != "sonnet" {
 		t.Fatalf("listed %+v %v", agents, err)
@@ -604,8 +605,8 @@ func TestManifestModelStartsTheAgentWithIt(t *testing.T) {
 }
 
 func TestRenameKeepsTheNewestTitle(t *testing.T) {
-	dir := project(t)
-	p := provider(t, t.TempDir())
+	dir, root := project(t)
+	p := provider(t, root)
 	got := send(t, p, agent.TurnRequest{Cwd: dir, ProjectAgent: "fake", Prompt: "hello"}, allowAll)
 	metas, _ := p.Sessions().List()
 	for _, title := range []string{"First", "Second"} {

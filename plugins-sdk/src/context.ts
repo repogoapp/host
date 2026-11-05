@@ -2,7 +2,7 @@ import type { Bucket } from "./buckets";
 import type { Collection } from "./collections";
 import type { Kv } from "./kv";
 import type { Stream } from "./streams";
-import type { HTTPAccess, MethodKind } from "./define";
+import type { Effect, HTTPAccess } from "./define";
 import type { Duration } from "./duration";
 
 /** An alert for the user's phones: what it says, and the page a tap opens. */
@@ -85,7 +85,9 @@ export type Activity = {
 export type ManifestMethod = {
   /** `<plugin>.<method>`, the name `ctx.call` takes. */
   name: string;
-  kind: MethodKind;
+  effect: Effect;
+  /** A read that sends items as they happen. */
+  stream: boolean;
   description: string | null;
   /** What a card asks before running it; null runs on tap. */
   confirm: string | null;
@@ -185,7 +187,7 @@ export type Context = {
    * environment's), with their methods: what `call` can reach.
    */
   plugins: () => Manifest["plugins"];
-  /** Aborts when a stream's last watcher leaves; a query or mutation's never does. */
+  /** Aborts when a stream's last watcher leaves; a read or write's never does. */
   signal: AbortSignal;
   /** Sends an alert to every phone paired with this environment. */
   notify: (notice: Notice) => void;

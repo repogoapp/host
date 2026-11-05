@@ -4,7 +4,7 @@
 //
 //   run.ts serve                           → listens on REPOGO_PLUGINS_SOCKET
 //   run.ts list                            → the manifest
-//   run.ts call <method> [input] [--query] → { result, reads, invalidates } or { error }
+//   run.ts call <method> [input] [--read] → { result, reads, invalidates } or { error }
 
 import "./self";
 import { existsSync } from "node:fs";
@@ -31,11 +31,11 @@ export async function run(args: string[], dirs: Dirs): Promise<{ output: unknown
     const [command, name, input] = args.filter((arg) => !arg.startsWith("--"));
     if (command === "list") return { output: runtime.manifest(), ok: true };
     if (command === "call" && name) {
-      const expect = args.includes("--query") ? "query" : undefined;
+      const expect = args.includes("--read") ? "read" : undefined;
       const result = await runtime.call(name, input ? JSON.parse(input) : {}, { expect });
       return { output: result, ok: true };
     }
-    return { output: { error: { code: "VALIDATION", message: "usage: run.ts list | call <method> [input] [--query]" } }, ok: false };
+    return { output: { error: { code: "VALIDATION", message: "usage: run.ts list | call <method> [input] [--read]" } }, ok: false };
   } catch (error) {
     return { output: { error: toCallError(error) }, ok: false };
   } finally {

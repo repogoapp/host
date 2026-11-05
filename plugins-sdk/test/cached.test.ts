@@ -117,12 +117,12 @@ test("a cached method answers from what it saved and depends only on its own ans
     },
   }));
 
-  const first = await runtime.call("slow.projects", {}, { expect: "query" });
-  const again = await runtime.call("slow.projects", { limit: 10 }, { expect: "query" });
+  const first = await runtime.call("slow.projects", {}, { expect: "read" });
+  const again = await runtime.call("slow.projects", { limit: 10 }, { expect: "read" });
   expect(again.result).toEqual({ fetch: 1, limit: 10 });
   expect(again.reads).toEqual(first.reads);
   expect(again.reads).toHaveLength(1);
   expect(again.reads[0]).toStartWith("slow.cached.");
 
-  await expect(runtime.call("slow.writes", {}, { expect: "query" })).rejects.toThrow("can't change data");
+  await expect(runtime.call("slow.writes", {}, { expect: "read" })).rejects.toThrow("can't change data");
 });
