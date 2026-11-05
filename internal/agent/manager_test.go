@@ -304,6 +304,49 @@ func TestStopChatStopsItsChildChats(t *testing.T) {
 	})
 }
 
+// The prompt bar stops by turn id: stopping the parent's running turn stops
+// its child chats too, and a queued parent turn dropped from the queue does not.
+func TestStopTurnStopsItsChildChats(t *testing.T) {
+	m := NewManager(discard(), quiet(), blockingAdapter{})
+	cwd := t.TempDir()
+	send := func(chatID, parent string) TurnStatus {
+		t.Helper()
+		st, err := m.Send(TurnRequest{ChatID: chatID, Cwd: cwd, Agent: KindClaude, Prompt: "go", Parent: parent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	parent := send("claude:parent", "")
+	parentNext := send("claude:parent", "")
+	child := send("claude:child", "claude:parent")
+	grandchild := send("claude:grandchild", "claude:child")
+	defer m.Stop(parent.TurnID)
+	for name, id := range map[string]string{"parent": parent.TurnID, "child": child.TurnID, "grandchild": grandchild.TurnID} {
+		testwait.For(t, name+" to start", func() bool {
+			st, _ := m.Status(id)
+			return st.State == StateRunning
+		})
+	}
+
+	if err := m.RemoveQueued(parentNext.TurnID); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := m.Status(child.TurnID); st.State != StateRunning {
+		t.Fatalf("child %s after dropping a queued parent turn, want running", st.State)
+	}
+
+	if err := m.Stop(parent.TurnID); err != nil {
+		t.Fatal(err)
+	}
+	for name, id := range map[string]string{"parent": parent.TurnID, "child": child.TurnID, "grandchild": grandchild.TurnID} {
+		testwait.For(t, name+" to stop", func() bool {
+			st, _ := m.Status(id)
+			return st.State == StateStopped
+		})
+	}
+}
+
 // replyingAdapter says something, calls a tool, answers, then finishes once
 // release closes.
 type replyingAdapter struct{ release chan struct{} }

@@ -461,7 +461,25 @@ func (m *Manager) Steer(req TurnRequest) (status TurnStatus, steered bool, err e
 var ErrNotQueued = errkind.New(errkind.Invalid, "turn is no longer queued")
 
 // Stop cancels a running turn, holding its chat's queue, or drops a queued one.
-func (m *Manager) Stop(turnID string) error { return m.stop(turnID, false) }
+// Stopping a chat's running turn also stops the chats its agent started: the
+// prompt bar stops by turn id, and a child left running is the parent's work
+// carrying on after the user said stop.
+func (m *Manager) Stop(turnID string) error {
+	m.mu.Lock()
+	t, ok := m.turns[turnID]
+	m.mu.Unlock()
+	if !ok {
+		return ErrNotFound
+	}
+	s := t.snapshot()
+	if err := m.stop(turnID, false); err != nil {
+		return err
+	}
+	if s.State == StateRunning {
+		m.stopChildren(s.ChatID)
+	}
+	return nil
+}
 
 // StopChat stops a chat's turn, adopted ones included, and every turn of the
 // chats its agent started, even one still waiting for its chat id. ErrNotFound
@@ -469,6 +487,21 @@ func (m *Manager) Stop(turnID string) error { return m.stop(turnID, false) }
 func (m *Manager) StopChat(chatID string) error {
 	m.mu.Lock()
 	own := m.running[chatID]
+	m.mu.Unlock()
+	stopped := m.stopChildren(chatID)
+	if own == nil {
+		if stopped {
+			return nil
+		}
+		return ErrNotFound
+	}
+	return m.Stop(own.snapshot().TurnID)
+}
+
+// stopChildren stops every queued or running turn whose chat chatID's agent
+// started, and theirs in turn. It reports whether any was stopped.
+func (m *Manager) stopChildren(chatID string) bool {
+	m.mu.Lock()
 	all := make([]*turn, 0, len(m.turns))
 	for _, t := range m.turns {
 		all = append(all, t)
@@ -487,13 +520,7 @@ func (m *Manager) StopChat(chatID string) error {
 			m.log.Warn("stopping a child chat's turn failed", "chat", chatID, "turn", s.TurnID, "err", err)
 		}
 	}
-	if own == nil {
-		if stopped {
-			return nil
-		}
-		return ErrNotFound
-	}
-	return m.Stop(own.snapshot().TurnID)
+	return stopped
 }
 
 // Respond answers a pending approval.
