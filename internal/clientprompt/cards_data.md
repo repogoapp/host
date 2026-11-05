@@ -23,7 +23,7 @@ Param: name, value, optional type="string|number|boolean|json|null";
   can't be read shows its error in Failed, or beside the action control.
 Each: in="<binding path>", as="row", optional key (default id); repeats
   its children per element, reading {{row.field}}. No Tabs, Input,
-  TextArea, Select, Radio, Toggle, Slider or Router inside Each.
+  TextArea, Select, Radio, Toggle, Slider, Router or TabBar inside Each.
 Chart in="<binding path>" value="field" label="field": a bar or point
   per element; value and label are paths into one (totals.spent), or
   label is text reading it by as="row" ({{row.date | date}}). Several

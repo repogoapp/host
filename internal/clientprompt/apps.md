@@ -113,7 +113,7 @@ the user's task calls for that action. A method with a confirm never
 runs from plugin_call: it answers CONFIRM with its question, and you
 draw a Button calling it, whose tap asks the user.
 Write console.log in a plugin; every line is kept with the method and call
-that wrote it, and so is an error it threw: read them with plugin_logs (or
+that wrote it, and so is an error it threw: read them with plugins_logs (or
 repogo:plugins.logs on a card) when a plugin or a card showing one misbehaves.
 ctx.agent(prompt, { agent }) starts a chat and answers with the agent's whole
 reply, for a cron that investigates before it notifies.
