@@ -282,7 +282,6 @@ append:<text> — add text to the user's prompt bar after what they typed,
   unsent, for them to finish or send.
 copy:<text> — copy text.
 share:<text> — the system share sheet; a web address is shared as a link.
-screenshot — save the whole page, top to bottom, to Photos; on a page only.
 open:<url> — open an absolute https or http link in a Safari sheet over
   the app; it may read {{…}} (open:{{p.url}}).
 push:<path> — open a Route of the nearest Router as a page.
@@ -588,7 +587,7 @@ the user's task calls for that action. A method with a confirm never
 runs from plugin_call: it answers CONFIRM with its question, and you
 draw a Button calling it, whose tap asks the user.
 Write console.log in a plugin; every line is kept with the method and call
-that wrote it, and so is an error it threw: read them with plugin_logs (or
+that wrote it, and so is an error it threw: read them with plugins_logs (or
 repogo:plugins.logs on a card) when a plugin or a card showing one misbehaves.
 ctx.agent(prompt, { agent }) starts a chat and answers with the agent's whole
 reply, for a cron that investigates before it notifies.
@@ -627,7 +626,7 @@ Param: name, value, optional type="string|number|boolean|json|null";
   can't be read shows its error in Failed, or beside the action control.
 Each: in="<binding path>", as="row", optional key (default id); repeats
   its children per element, reading {{row.field}}. No Tabs, Input,
-  TextArea, Select, Radio, Toggle, Slider or Router inside Each.
+  TextArea, Select, Radio, Toggle, Slider, Router or TabBar inside Each.
 Chart in="<binding path>" value="field" label="field": a bar or point
   per element; value and label are paths into one (totals.spent), or
   label is text reading it by as="row" ({{row.date | date}}). Several
