@@ -60,3 +60,47 @@ func TestPathHonoursTheOverride(t *testing.T) {
 		t.Fatalf("parent not created: %v", err)
 	}
 }
+
+// A readable state folder is closed: the folder 0700, databases and
+// crons.json 0600; other files, and modes already closed, keep theirs.
+func TestSecureClosesTheStateFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".repogo")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]os.FileMode{
+		"cache.db": 0o644, "cache.db-wal": 0o644, "cache.db-shm": 0o644,
+		"usage.db.before-prompt": 0o644, "crons.json": 0o644,
+		"device.json": 0o400, "notes.txt": 0o644,
+	}
+	for name, mode := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Secure(dir); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]os.FileMode{
+		".": 0o700, "cache.db": 0o600, "cache.db-wal": 0o600, "cache.db-shm": 0o600,
+		"usage.db.before-prompt": 0o600, "crons.json": 0o600,
+		// Already closed, kept; not private, left; folders inside are behind the 0700.
+		"device.json": 0o400, "notes.txt": 0o644, "plugins": 0o755,
+	}
+	for name, mode := range want {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != mode {
+			t.Errorf("%s is %o, want %o", name, got, mode)
+		}
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,11 @@ type runner struct {
 	pool       agent.SessionPool[*liveSession]
 	executable func() string
 	home       string
+	// account is Claude's .claude.json, where it keeps each folder's trust.
+	account string
+	// declined is the folders whose settings the user chose not to trust, until restart.
+	trustMu  sync.Mutex
+	declined map[string]bool
 	// adopt is the Manager's, set once as it starts: see agent.Joiner.
 	adopt func(chatID, cwd string)
 }
@@ -41,7 +47,7 @@ func (r *runner) Available() error {
 func (r *runner) Close() { r.pool.Close() }
 
 func (r *runner) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
-	s, err := r.acquireSession(ctx, req)
+	s, err := r.acquireSession(ctx, req, r.settingSources(ctx, req, io))
 	if err != nil {
 		return agent.Result{}, err
 	}
@@ -66,7 +72,7 @@ func (r *runner) Join(ctx context.Context, chatID string, io agent.TurnIO) (agen
 	return s.join(ctx, io)
 }
 
-func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*liveSession, error) {
+func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest, sources []string) (*liveSession, error) {
 	epoch := r.pool.Epoch()
 	var servers []agent.MCPServer
 	if r.deps.MCP != nil {
@@ -81,7 +87,8 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		Servers      []agent.MCPServer
 		Own          bool
 		Instructions string
-	}{servers, own, instructions})
+		Sources      []string
+	}{servers, own, instructions, sources})
 	sum := sha256.Sum256(raw)
 	fingerprint := hex.EncodeToString(sum[:])
 	if s, ok := r.pool.Get(req.ChatID); ok {
@@ -109,7 +116,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		}
 		r.pool.Retire(req.ChatID, s)
 	}
-	s, err := r.startSession(ctx, req, servers, own, instructions)
+	s, err := r.startSession(ctx, req, servers, own, instructions, sources)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +134,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 	return s, nil
 }
 
-func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool, instructions string) (*liveSession, error) {
+func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool, instructions string, sources []string) (*liveSession, error) {
 	id := req.SessionID
 	if id == "" {
 		id = uuid.NewString()
@@ -154,7 +161,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	env := r.environment()
 	options := claudecode.Options{Executable: r.executable(), Cwd: req.Cwd, Env: env,
-		SettingSources: []string{"user", "project", "local"}, AllowBypass: os.Geteuid() != 0 || os.Getenv("IS_SANDBOX") != "", MCPServers: configured,
+		SettingSources: sources, AllowBypass: os.Geteuid() != 0 || os.Getenv("IS_SANDBOX") != "", MCPServers: configured,
 		AppendSystemPrompt: instructions}
 	s.allowBypass = options.AllowBypass
 	if req.SessionID == "" {

@@ -51,6 +51,47 @@ func MkdirAll(parts ...string) (string, error) {
 	return path, nil
 }
 
+// Secure closes dir to other accounts: the folder 0700, its databases and
+// crons.json 0600. MkdirAll can't for a folder v1 made 0755, and SQLite
+// writes under the umask. It only tightens.
+func Secure(dir string) error {
+	if err := chmodTighter(dir, 0o700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !private(e.Name()) {
+			continue
+		}
+		if err := chmodTighter(filepath.Join(dir, e.Name()), 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// private is a file Secure closes: a SQLite database, its -wal and -shm, a
+// copy of one, and crons.json.
+func private(name string) bool {
+	return name == "crons.json" || strings.Contains(name, ".db")
+}
+
+// chmodTighter sets path to want when its mode grants more than want does.
+func chmodTighter(path string, want os.FileMode) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm()&^want == 0 {
+		return nil
+	}
+	return os.Chmod(path, info.Mode().Perm()&want)
+}
+
 // WriteFile replaces path atomically with perm from its first byte, so a
 // secret whose mode was widened is tightened again.
 func WriteFile(path string, data []byte, perm os.FileMode) error {

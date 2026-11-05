@@ -86,6 +86,35 @@ func TestHostToolsReachOnlyTools(t *testing.T) {
 	}
 }
 
+// Agents can list actions but not run, start or stop them: the tools aren't
+// offered, and a call by name never reaches the method, though it is a Tool
+// cards may call.
+func TestAgentsCantRunActions(t *testing.T) {
+	calls := map[string]rpc.Caller{}
+	r := hostRouter(t, calls)
+	rpc.Add(r, "actions.run", func(_ context.Context, c rpc.Caller, _ rpc.None) (rpc.Ack, error) {
+		calls["actions.run"] = c
+		return rpc.OK, nil
+	}, rpc.Tool("Run an action."), rpc.Write)
+	s := hostToolsServer(t, r)
+	token := attachIn(t, s, t.TempDir())
+	names := "," + toolNames(t, s, token) + ","
+	if !strings.Contains(names, ",actions_list,") {
+		t.Errorf("actions_list missing from %s", names)
+	}
+	for _, denied := range []string{"actions_run", "actions_start", "actions_stop"} {
+		if strings.Contains(names, ","+denied+",") {
+			t.Errorf("%s offered: %s", denied, names)
+		}
+	}
+	if got := callTool(t, s, token, "actions_run", map[string]any{}); !got.IsError {
+		t.Fatalf("actions_run answered %+v", got)
+	}
+	if _, ran := calls["actions.run"]; ran {
+		t.Fatal("actions.run ran for an agent")
+	}
+}
+
 // A turn can't message its own chat, and the method never runs; another chat is fine.
 func TestHostToolsRefuseTheCallingChat(t *testing.T) {
 	calls := map[string]rpc.Caller{}

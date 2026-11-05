@@ -83,7 +83,7 @@ func New(deps agent.Dependencies) *Provider {
 		account = filepath.Join(home, ".claude.json")
 	}
 	return &Provider{
-		runner: &runner{deps: deps, executable: executable, home: home},
+		runner: &runner{deps: deps, executable: executable, home: home, account: account},
 		home:   home, accountPath: account, sessions: NewSessions(home),
 	}
 }

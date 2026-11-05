@@ -15,7 +15,7 @@ import (
 const hostToolsInstructions = " The `chats_*` tools list, read, rename, pin, resolve, stop and message " +
 	"the chats on this environment, in every project, as the chat drawer does, and start another agent's chat " +
 	"(`agents_list`, `chats_start`) and wait for its answer (`chats_wait`); `projects_list`, `git_*`, " +
-	"`actions_*`, `schedules_list`, `tunnels_list` and `limits_read` are the app's own reads and actions, which cards call too; " +
+	"`actions_list`, `schedules_list`, `tunnels_list` and `limits_read` are the app's own reads and actions, which cards call too; " +
 	"`reminders_*` notify the user's phones at a set time, set only when the user asks."
 
 // hosttools.json is written from the router by `go test ./internal/rpc/conformance -update`.
@@ -28,8 +28,13 @@ var hostTools = func() []rpc.ToolDef {
 	if err := json.Unmarshal(hostToolsFile, &defs); err != nil {
 		panic("repogomcp: hosttools.json: " + err.Error())
 	}
-	return defs
+	return slices.DeleteFunc(defs, func(d rpc.ToolDef) bool { return slices.Contains(agentDenied, d.Method) })
 }()
+
+// agentDenied are tools cards offer but agents don't get: an action runs a
+// project's actions.json command, which a cloned repo or the agent itself can
+// write, and these tools run without an approval. The user runs actions.
+var agentDenied = []string{"actions.run", "actions.start", "actions.stop"}
 
 // HostToolsFile is the embedded file, for the conformance test that writes it.
 func HostToolsFile() []byte { return hostToolsFile }

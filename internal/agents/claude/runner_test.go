@@ -28,6 +28,12 @@ func TestMain(m *testing.M) {
 }
 
 func fakeRunner() {
+	if file := os.Getenv("REPOGO_FAKE_CLAUDE_ARGS"); file != "" {
+		if f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			_, _ = f.WriteString(strings.Join(os.Args[1:], " ") + "\n")
+			f.Close()
+		}
+	}
 	encoder := json.NewEncoder(os.Stdout)
 	scanner := bufio.NewScanner(os.Stdin)
 	session := ""
