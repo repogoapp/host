@@ -1,6 +1,6 @@
-// Package wsconn is the WebSocket connection the relay, the loopback server,
-// the relay link, and the Go client share: a serialized writer, both sides of
-// the handshake, and a ping loop for peers that vanish without a close frame.
+// Package wsconn is the WebSocket connection the host's server and the Go
+// client share: a serialized writer, both sides of the handshake, and a ping
+// loop for peers that vanish without a close frame.
 package wsconn
 
 import (
@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -22,6 +21,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/handshake"
 	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/wirecodec"
 )
 
 const (
@@ -43,7 +43,12 @@ type Conn struct {
 	// When the last frame arrived, in UnixNano: any frame proves the peer is
 	// alive, so a keepalive with Idle set pings only a quiet connection.
 	lastRead atomic.Int64
+	// deflate is set once the handshake agreed to wirecodec framing.
+	deflate atomic.Bool
 }
+
+// Deflating reports whether the handshake agreed to wirecodec framing.
+func (c *Conn) Deflating() bool { return c.deflate.Load() }
 
 func Wrap(ws *websocket.Conn) *Conn { return &Conn{ws: ws} }
 
@@ -69,43 +74,18 @@ func Listen(addr string, mux *http.ServeMux, log *slog.Logger) (*http.Server, ne
 	return srv, ln.Addr(), nil
 }
 
-// Read returns the next frame of any type.
+// Read returns the next message. Once framing is agreed a binary frame is
+// decoded, and returned as the text frame it carries.
 func (c *Conn) Read(ctx context.Context) (websocket.MessageType, []byte, error) {
 	typ, b, err := c.ws.Read(ctx)
-	if err == nil {
-		c.lastRead.Store(time.Now().UnixNano())
-	}
-	return typ, b, err
-}
-
-// ReadHeld reads the next frame like Read, calling hold with each chunk's size
-// before keeping it, so a caller can bound what every connection holds. A frame
-// not complete within `within` of its first byte closes the connection.
-func (c *Conn) ReadHeld(ctx context.Context, within time.Duration, hold func(n int) error) (websocket.MessageType, []byte, error) {
-	typ, r, err := c.ws.Reader(ctx)
 	if err != nil {
-		return 0, nil, err
-	}
-	slow := time.AfterFunc(within, func() { c.ws.CloseNow() })
-	defer slow.Stop()
-	var b []byte
-	chunk := make([]byte, 32<<10)
-	for {
-		n, err := r.Read(chunk)
-		if n > 0 {
-			if err := hold(n); err != nil {
-				return 0, nil, err
-			}
-			b = append(b, chunk[:n]...)
-		}
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return 0, nil, err
-		}
+		return typ, b, err
 	}
 	c.lastRead.Store(time.Now().UnixNano())
+	if typ == websocket.MessageBinary && c.deflate.Load() {
+		plain, err := wirecodec.Decode(b)
+		return websocket.MessageText, plain, err
+	}
 	return typ, b, nil
 }
 
@@ -137,13 +117,12 @@ func (c *Conn) SendJSON(ctx context.Context, m *jsonrpc.Message) error {
 	return c.Write(ctx, websocket.MessageText, b)
 }
 
-// SendBinary writes an already-framed payload, such as a relay envelope.
-func (c *Conn) SendBinary(ctx context.Context, b []byte) error {
-	return c.Write(ctx, websocket.MessageBinary, b)
-}
-
 // Write is the one place bytes leave: serialized and bounded by WriteTimeout.
+// Once framing is agreed a text message goes as a binary wirecodec frame.
 func (c *Conn) Write(ctx context.Context, typ websocket.MessageType, b []byte) error {
+	if typ == websocket.MessageText && c.deflate.Load() {
+		typ, b = websocket.MessageBinary, wirecodec.Encode(b)
+	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, WriteTimeout)
@@ -201,11 +180,16 @@ func (c *Conn) Accept(ctx context.Context, serverID, version string,
 		if err := check(h, signed); err != nil {
 			return h, err
 		}
-		accepted, err := jsonrpc.Result(msg.ID, handshake.Accepted{DeviceID: h.DeviceID, ServerVersion: version})
+		accepted, err := jsonrpc.Result(msg.ID, handshake.Accepted{DeviceID: h.DeviceID, ServerVersion: version, Deflate: h.Deflate})
 		if err != nil {
 			return h, err
 		}
-		return h, c.SendJSON(ctx, accepted)
+		if err := c.SendJSON(ctx, accepted); err != nil {
+			return h, err
+		}
+		// After the reply, which the client reads before it knows the answer.
+		c.deflate.Store(h.Deflate)
+		return h, nil
 	}()
 	if err != nil {
 		c.refuse(ctx, helloID, err)
@@ -263,6 +247,7 @@ func (c *Conn) Hello(ctx context.Context, hello handshake.Hello, sign func([]byt
 	if accepted.DeviceID != hello.DeviceID {
 		return "", fmt.Errorf("accepted as %q, not this device", accepted.DeviceID)
 	}
+	c.deflate.Store(hello.Deflate && accepted.Deflate)
 	return accepted.ServerVersion, nil
 }
 

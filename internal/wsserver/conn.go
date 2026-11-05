@@ -21,6 +21,16 @@ const (
 	pingTimeout  = 10 * time.Second
 )
 
+// Variables, so tests can shorten them.
+var (
+	// remoteHelloTimeout bounds a passthrough connection's challenge and
+	// hello: a phone answers at once, so a stranger can't hold one open.
+	remoteHelloTimeout = 5 * time.Second
+	// pairTimeout bounds an unpaired device's one pair.complete, which a real
+	// phone sends the moment it connects; the code's own lifetime is separate.
+	pairTimeout = 15 * time.Second
+)
+
 // conn is one client connection: handshake, then a dispatch loop.
 type conn struct {
 	srv *Server
@@ -32,6 +42,8 @@ type conn struct {
 	// stranger is an unpaired device admitted over passthrough while a code is
 	// live: it may make one Unpaired call (pair.complete), then the socket closes.
 	stranger bool
+	// helloDone runs once the hello has passed or failed; nil on loopback.
+	helloDone func()
 }
 
 func newConn(srv *Server, ws *websocket.Conn) *conn {
@@ -43,7 +55,11 @@ func (c *conn) run(ctx context.Context) {
 
 	// Both auth paths share one challenge: a same-machine client answers with
 	// the loopback token, a paired device signs the nonce.
-	h, err := c.ws.Accept(ctx, c.srv.cfg.ServerID, release.Version, func(h handshake.Hello, signed []byte) error {
+	helloCtx, cancelHello := ctx, context.CancelFunc(func() {})
+	if c.bind != nil {
+		helloCtx, cancelHello = context.WithTimeout(ctx, remoteHelloTimeout)
+	}
+	h, err := c.ws.Accept(helloCtx, c.srv.cfg.ServerID, release.Version, func(h handshake.Hello, signed []byte) error {
 		if c.bind != nil {
 			if len(h.ChallengeSig) == 0 || h.LocalToken != "" {
 				return errors.New("a remote connection authenticates by a bound signature only")
@@ -59,6 +75,10 @@ func (c *conn) run(ctx context.Context) {
 		c.caller = rpc.Caller{Device: device.ID(h.DeviceID), Scope: scope}
 		return err
 	})
+	cancelHello()
+	if c.helloDone != nil {
+		c.helloDone()
+	}
 	if err != nil {
 		c.srv.log.Warn("wsserver: handshake failed", "err", err)
 		return
@@ -83,7 +103,7 @@ func (c *conn) run(ctx context.Context) {
 		Name: "wsserver", Log: c.srv.log, Attrs: []any{"device", c.caller.Device},
 	})
 
-	// Calls run concurrently, as over the relay, so a slow one never holds up
+	// Calls run concurrently, so a slow one never holds up
 	// the next; ctx ends them when the socket goes.
 	calls := rpc.NewInflight()
 	for {
@@ -108,7 +128,9 @@ func (c *conn) run(ctx context.Context) {
 // reconnects as paired, so a stranger never holds a live socket here.
 func (c *conn) pairOnce(ctx context.Context) {
 	c.srv.log.Info("wsserver: pairing over passthrough", "device", c.caller.Device)
-	msg, err := c.ws.ReadJSON(ctx)
+	read, cancel := context.WithTimeout(ctx, pairTimeout)
+	msg, err := c.ws.ReadJSON(read)
+	cancel()
 	if err != nil {
 		return
 	}

@@ -36,7 +36,7 @@ func IDFor(pub ed25519.PublicKey) ID {
 // ErrBadID is an id that is not IDLen hex-encoded bytes.
 var ErrBadID = errors.New("device: id must be 16 hex-encoded bytes")
 
-// Bytes is the raw id the relay routes by and the secure channel binds.
+// Bytes is the raw id, as signed messages bind it.
 func (id ID) Bytes() ([]byte, error) {
 	b, err := hex.DecodeString(string(id))
 	if err != nil || len(b) != IDLen {
@@ -44,9 +44,6 @@ func (id ID) Bytes() ([]byte, error) {
 	}
 	return b, nil
 }
-
-// IDFromBytes is the inverse of Bytes.
-func IDFromBytes(b []byte) ID { return ID(hex.EncodeToString(b)) }
 
 // Identity is this machine's own keypair.
 type Identity struct {
@@ -171,7 +168,7 @@ const NonceLen = 32
 
 // challengeTag opens every login message. The signer writes it, so no server
 // can hand out a nonce that makes these bytes read as another signature's
-// message, such as securechan's identity proof.
+// message, such as a TLS pin or a rotation.
 const challengeTag = "repogo-login-v1"
 
 var ErrBadNonce = errkind.New(errkind.Invalid, "device: challenge nonce is not 32 bytes")

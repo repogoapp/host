@@ -1,6 +1,7 @@
-// Command hrelay is plan 520's passthrough relay: phones reach hosts by name
-// under *.h.repogo.app and it only pipes their TLS. It ends TLS only for its
-// own name, h.repogo.app, with a Let's Encrypt certificate, for host links.
+// Command hrelay is RepoGo's relay: phones reach hosts by name under
+// *.h.repogo.app and it only pipes their TLS. It ends TLS only for its own
+// name, h.repogo.app, with a Let's Encrypt certificate, for host links, which
+// also carry the hosts' pushes to APNs.
 package main
 
 import (
@@ -16,7 +17,9 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
+	"github.com/repogoapp/host/internal/appattest"
 	"github.com/repogoapp/host/internal/passthrough"
+	"github.com/repogoapp/host/internal/pushgate"
 )
 
 func main() {
@@ -28,6 +31,11 @@ func main() {
 		os.Exit(1)
 	}
 	maxPerIP, err := strconv.Atoi(env("HRELAY_MAX_PER_IP", "32"))
+	if err != nil {
+		log.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+	gate, err := pushGate(log)
 	if err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
@@ -45,6 +53,7 @@ func main() {
 		MaxWaitingPerHost: 16,
 		DialTimeout:       10 * time.Second,
 		PingInterval:      25 * time.Second,
+		Push:              gate,
 		Log:               log,
 	}
 
@@ -61,6 +70,22 @@ func main() {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
+
+// pushGate answers hosts' pushes with the APNs key from the environment; with
+// none it is nil and the relay refuses them, as a local run does.
+func pushGate(log *slog.Logger) (*pushgate.Gate, error) {
+	deliver := pushgate.APNs(log)
+	if deliver == nil {
+		log.Warn("hrelay: no APNs key; pushes are refused")
+		return nil, nil
+	}
+	verifier, err := appattest.New(pushgate.AppID())
+	if err != nil {
+		return nil, err
+	}
+	log.Info("hrelay: pushes on", "bundle", pushgate.BundleID())
+	return pushgate.New(deliver, verifier.Verify), nil
 }
 
 // linkTLS is the certificate for the relay's own name: a pair from files when

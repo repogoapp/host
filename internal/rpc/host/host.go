@@ -21,10 +21,7 @@ type Deps struct {
 	// Setup is this host's release, GitHub, the agent CLIs and what each offers.
 	Setup hostsetup.Sources
 
-	// TLSPin is the signed pin of the host's passthrough TLS key; false when
-	// the host doesn't serve passthrough.
-	TLSPin func() (device.SignedPin, bool)
-	// TLSRotate replaces the passthrough TLS key; nil when there is none.
+	// TLSRotate replaces the TLS key phones pin; nil when there is none.
 	TLSRotate func() (device.SignedPin, error)
 }
 
@@ -46,28 +43,15 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "host.setup", d.setup)
 	// Detached: a binary swapped with no restart after it is worse than either.
 	rpc.Add(r, "host.update", d.update, rpc.Detached)
-	// tls_pin lets a phone paired before passthrough learn the TLS key to pin.
-	// It is signed by the identity the phone already pins, so the channel
-	// it arrives on need not be trusted.
-	rpc.Add(r, "host.tls_pin", d.tlsPin)
 	// Local: only someone at the machine replaces its key (repogo tls rotate).
 	rpc.Add(r, "host.tls_rotate", d.tlsRotate, rpc.Local)
 }
 
 func (d Deps) tlsRotate(context.Context, rpc.Caller, rpc.None) (device.SignedPin, error) {
 	if d.TLSRotate == nil {
-		return device.SignedPin{}, errkind.New(errkind.NotFound, "this host does not serve passthrough TLS")
+		return device.SignedPin{}, errkind.New(errkind.NotFound, "this host has no relay, so no TLS key")
 	}
 	return d.TLSRotate()
-}
-
-func (d Deps) tlsPin(context.Context, rpc.Caller, rpc.None) (device.SignedPin, error) {
-	if d.TLSPin != nil {
-		if pin, ok := d.TLSPin(); ok {
-			return pin, nil
-		}
-	}
-	return device.SignedPin{}, errkind.New(errkind.NotFound, "this host does not serve passthrough TLS")
 }
 
 func (d Deps) status(context.Context, rpc.Caller, rpc.None) (hostinfo.Status, error) {

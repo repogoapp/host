@@ -23,9 +23,8 @@ import (
 	"github.com/repogoapp/host/internal/store"
 )
 
-// wireBytes is what one message costs through the relay: securechan's codec
-// (deflate at BestSpeed from 1 KB, kept at 90% or less), then the record byte
-// and the AES-GCM tag.
+// wireBytes is what one message would cost with per-message deflate (BestSpeed
+// from 1 KB, kept at 90% or less), a record byte and an AES-GCM tag.
 func wireBytes(plain []byte) int {
 	body := 1 + len(plain)
 	if len(plain) >= 1<<10 {

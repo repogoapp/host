@@ -31,3 +31,23 @@ func TestRotateMessageVector(t *testing.T) {
 		t.Fatalf("RotateMessage = %x", got)
 	}
 }
+
+// The same vector as PairingClient.pairMessage's Swift test.
+func TestPairMessageVector(t *testing.T) {
+	joiner := []byte{4}
+	for i := 1; i <= 64; i++ {
+		joiner = append(joiner, byte(i))
+	}
+	spki := make([]byte, 32)
+	for i := range spki {
+		spki[i] = 7
+	}
+	got, err := PairMessage("26b1b9b47da2817dca94c31be4ae2387", joiner, SignedPin{SPKI: spki, Counter: 1762300000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "7265706f676f2d706169722d686f73742d763126b1b9b47da2817dca94c31be4ae23870041040102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40070707070707070707070707070707070707070707070707070707070707070700000000690a9060"
+	if hex.EncodeToString(got) != want {
+		t.Fatalf("PairMessage = %x", got)
+	}
+}

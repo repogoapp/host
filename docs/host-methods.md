@@ -1062,6 +1062,7 @@ Result:
 - `update_failed` string (omitted when empty)
 - `battery` object{Battery} (omitted when empty) (nullable)
 - `storage` object{Storage} (omitted when empty) (nullable)
+- `device` object{Device} (omitted when empty) (nullable)
 - `network` object{Network}
 - `capabilities` [string] (omitted when empty) (nullable)
 
@@ -1091,18 +1092,6 @@ Result:
 - `from` string
 - `to` string (omitted when empty)
 - `busy` object{Busy} (omitted when empty) (nullable)
-
-## `host.tls_pin`
-
-Params:
-
-- none
-
-Result:
-
-- `spki_sha256` base64 (nullable)
-- `counter` int
-- `signature` base64 (nullable)
 
 ## `host.tls_rotate`
 
@@ -1324,6 +1313,7 @@ Result:
 - `host_id` string
 - `host_public` base64 (nullable)
 - `host_proof` base64 (nullable)
+- `host_signature` base64 (omitted when empty) (nullable)
 - `host_label` string
 
 ## `plugins.logs`

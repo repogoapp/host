@@ -19,7 +19,9 @@ import (
 	"github.com/repogoapp/host/internal/service"
 )
 
-const defaultRelay = "wss://relay.repogo.app/ws"
+// defaultRelay is RepoGo's relay: phones reach the host through it over the
+// host's pinned TLS, and pushes go out through it.
+const defaultRelay = "h.repogo.app:443"
 const defaultPairHost = "https://repogo.app"
 
 func main() {
@@ -41,7 +43,7 @@ func command(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo relay [set <wss-url>|reset]\nrepogo tls rotate\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay URL] [-v]\nrepogo invite")
+		fmt.Println("repogo [install|pair|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo tls rotate\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay host:port] [-v]\nrepogo invite")
 		return nil
 	}
 	if verb == "keep-awake" {
@@ -49,9 +51,6 @@ func command(ctx context.Context, args []string) error {
 	}
 	if verb == "devices" {
 		return devicesCommand(ctx, args)
-	}
-	if verb == "relay" {
-		return relayCommand(ctx, args)
 	}
 	if verb == "tls" {
 		return tlsCommand(ctx, args)
@@ -68,7 +67,7 @@ func command(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("repogo "+verb, flag.ContinueOnError)
 	if verb == "serve" {
 		port := flags.Int("port", 0, "loopback port (0 uses the saved port)")
-		relay := flags.String("relay", "", "relay URL (default: the saved one, else RepoGo's; empty disables)")
+		relay := flags.String("relay", "", "relay address, host:port (default: RepoGo's; empty disables)")
 		verbose := flags.Bool("v", false, "debug logging")
 		if err := flags.Parse(args); err != nil {
 			return err
@@ -92,7 +91,7 @@ func command(ctx context.Context, args []string) error {
 				return err
 			}
 		}
-		// Unset, the relay comes from runtime.json once run has read it.
+		// Unset, the relay is REPOGO_HRELAY's, else RepoGo's.
 		var relayFlag *string
 		flags.Visit(func(f *flag.Flag) {
 			if f.Name == "relay" {

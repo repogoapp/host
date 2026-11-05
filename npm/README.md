@@ -47,7 +47,6 @@ npx @repogo/host pair
 | `npx @repogo/host logs` | Show the host's logs |
 | `npx @repogo/host update` | Update to the latest version; refuses while chats, terminals or actions are running (`--now` stops them) |
 | `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
-| `npx @repogo/host relay` / `relay set <wss-url>` / `relay reset` | Show the relay, switch to your own, or go back to RepoGo's; switching unpairs your devices, so pair them again |
 | `npx @repogo/host tunnels` / `tunnels close <slug>` | List the public URLs open to your local servers, or close one |
 | `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
 

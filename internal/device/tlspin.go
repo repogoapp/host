@@ -21,6 +21,7 @@ type SignedPin struct {
 const (
 	pinTag  = "repogo-tls-pin-v1"
 	bindTag = "repogo-tls-bind-v1"
+	pairTag = "repogo-pair-host-v1"
 
 	// TLSExporterLabel and TLSExporterLen name the TLS exporter value a hello
 	// signs over a passthrough connection (RFC 5705 / 8446 §7.5).
@@ -68,6 +69,35 @@ func VerifyPin(host ed25519.PublicKey, p SignedPin) error {
 		return ErrBadPin
 	}
 	return nil
+}
+
+// PairMessage is what a host signs when it admits a device: the joiner's key
+// and the TLS pin it dialed. Unlike the code's HMAC, only the identity key can
+// make it, so an invite built around a retired TLS key can't complete.
+func PairMessage(host ID, joiner []byte, pin SignedPin) ([]byte, error) {
+	id, err := host.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if len(joiner) == 0 || len(joiner) > 0xffff || len(pin.SPKI) != sha256.Size || pin.Counter < 1 {
+		return nil, ErrBadPin
+	}
+	msg := make([]byte, 0, len(pairTag)+IDLen+2+len(joiner)+sha256.Size+8)
+	msg = append(msg, pairTag...)
+	msg = append(msg, id...)
+	msg = binary.BigEndian.AppendUint16(msg, uint16(len(joiner)))
+	msg = append(msg, joiner...)
+	msg = append(msg, pin.SPKI...)
+	return binary.BigEndian.AppendUint64(msg, uint64(pin.Counter)), nil
+}
+
+// SignPair signs PairMessage for joiner over pin.
+func (i *Identity) SignPair(joiner []byte, pin SignedPin) ([]byte, error) {
+	msg, err := PairMessage(i.ID, joiner, pin)
+	if err != nil {
+		return nil, err
+	}
+	return i.Sign(msg), nil
 }
 
 // BindTLS extends a challenge message with the connection's TLS exporter, so

@@ -28,7 +28,8 @@ var backgrounds = map[string]string{
 	"internal/wsserver/conn.go:conn.Send":                      "a push belongs to no request; wsconn bounds the write",
 	"internal/projectwatch/projectwatch.go:Manager.joinLocked": "a watch room lives until its last subscriber leaves and its linger ends",
 	"internal/hostclient/hostclient.go:Client.read":            "the Go test client's read loop; Close ends the socket",
-	"internal/hostclient/hostclient.go:Client.readRecord":      "the Go test client's read loop; Close ends the socket",
+	"internal/hostinfo/device_darwin.go:macModelName":          "read once at startup, before any request; its timeout ends it",
+	"internal/hostinfo/device_darwin.go:macHasBattery":         "read once at startup, before any request; its timeout ends it",
 }
 
 // history catches comments that narrate what the code once was. Words such as

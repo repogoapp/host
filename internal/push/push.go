@@ -1,6 +1,6 @@
 // Package push turns hook notices into APNs alerts for the paired phones. The
-// relay holds the APNs key, so every send is a `push.send` to it; the host
-// contributes only device tokens and a generic body.
+// relay holds the APNs key, so every send is a push request on the host's link
+// to it; the host contributes only device tokens and a generic body.
 package push
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/power"
-	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/pushgate"
 	"github.com/repogoapp/host/internal/reminder"
 )
 
@@ -27,14 +27,14 @@ const (
 	lowBatteryRearm = 15
 )
 
-// Sender is the relay-addressed call hostlink exposes.
+// Sender delivers one push through the relay: the passthrough link.
 type Sender interface {
-	Control(ctx context.Context, method string, params any) (json.RawMessage, error)
+	Push(ctx context.Context, req pushgate.PushRequest) error
 }
 
 // Send asks the relay to deliver req. dead reports Apple saying the token is
 // gone, for the caller to forget; any other failure is only logged.
-func Send(ctx context.Context, s Sender, log *slog.Logger, req relay.PushRequest) (dead bool) {
+func Send(ctx context.Context, s Sender, log *slog.Logger, req pushgate.PushRequest) (dead bool) {
 	dead, err := Try(ctx, s, req)
 	switch {
 	case dead:
@@ -47,8 +47,8 @@ func Send(ctx context.Context, s Sender, log *slog.Logger, req relay.PushRequest
 
 // Try is Send for a caller that retries: dead is a token Apple will never
 // take, with err saying why; otherwise err is a failure worth trying again.
-func Try(ctx context.Context, s Sender, req relay.PushRequest) (dead bool, err error) {
-	_, err = s.Control(ctx, "push.send", req)
+func Try(ctx context.Context, s Sender, req pushgate.PushRequest) (dead bool, err error) {
+	err = s.Push(ctx, req)
 	var rpcErr *jsonrpc.Error
 	if errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeNotFound {
 		return true, err
@@ -224,9 +224,9 @@ func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, collapseID st
 
 // Request addresses one of peer's tokens, carrying the grant the phone signed
 // for this host; the relay refuses a push without it.
-func Request(peer device.Peer, target device.PushTarget) relay.PushRequest {
-	return relay.PushRequest{
+func Request(peer device.Peer, target device.PushTarget) pushgate.PushRequest {
+	return pushgate.PushRequest{
 		Token: target.Token, Environment: target.Environment,
-		Grant: relay.PushGrant{Device: peer.ID, PublicKey: peer.Public, Signature: target.Grant, GrantedAt: target.GrantedAt},
+		Grant: pushgate.PushGrant{Device: peer.ID, PublicKey: peer.Public, Signature: target.Grant, GrantedAt: target.GrantedAt},
 	}
 }

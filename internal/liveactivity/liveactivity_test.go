@@ -17,7 +17,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/push/pushtest"
-	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/pushgate"
 	"github.com/repogoapp/host/internal/store"
 )
 
@@ -95,7 +95,7 @@ func (f *fixture) last() (event, token string, counts Counts, aps map[string]jso
 		f.t.Fatal("nothing pushed")
 	}
 	req := f.sender.Calls[len(f.sender.Calls)-1]
-	if req.PushType != relay.PushTypeLiveActivity {
+	if req.PushType != pushgate.PushTypeLiveActivity {
 		f.t.Fatalf("push type %q", req.PushType)
 	}
 	var body struct {
@@ -237,12 +237,12 @@ type deadFor struct {
 	token string
 }
 
-func (s *deadFor) Control(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	s.Sender.Control(ctx, method, params)
-	if params.(relay.PushRequest).Token == s.token {
-		return nil, &jsonrpc.Error{Code: jsonrpc.CodeNotFound, Message: "Unregistered"}
+func (s *deadFor) Push(ctx context.Context, req pushgate.PushRequest) error {
+	s.Sender.Push(ctx, req)
+	if req.Token == s.token {
+		return &jsonrpc.Error{Code: jsonrpc.CodeNotFound, Message: "Unregistered"}
 	}
-	return nil, nil
+	return nil
 }
 
 // A dismissed card's token is forgotten and the phone gets a new card.

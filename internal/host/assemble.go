@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	pluginscore "github.com/repogoapp/host/internal/plugins"
@@ -30,13 +31,13 @@ import (
 	gitcore "github.com/repogoapp/host/internal/git"
 	ghcore "github.com/repogoapp/host/internal/github"
 	"github.com/repogoapp/host/internal/hostinfo"
-	"github.com/repogoapp/host/internal/hostlink"
 	"github.com/repogoapp/host/internal/hostsetup"
 	"github.com/repogoapp/host/internal/hosttls"
 	"github.com/repogoapp/host/internal/hostupdate"
 	"github.com/repogoapp/host/internal/liveactivity"
 	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/passthrough"
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/project"
 	"github.com/repogoapp/host/internal/projectsync"
@@ -176,7 +177,7 @@ func (h *Host) openDevices() error {
 	}
 	h.onClose(h.keeper.Release)
 	h.info = hostinfo.New(hostinfo.Deps{
-		Power: h.keeper, Relay: h.relayConnected, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
+		Power: h.keeper, Relay: h.relayLinked, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
 		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "",
 	})
 	h.pairer, err = device.OpenPairer(h.devices, h.state("pair-reusable.json"))
@@ -185,16 +186,16 @@ func (h *Host) openDevices() error {
 	}
 	h.log.Info("device identity", "id", h.devices.Identity().ID, "group", h.devices.GroupID(),
 		"peers", len(h.devices.Peers()))
-	if h.cfg.PassthroughRelay != "" {
+	if h.cfg.Relay != "" {
 		h.hostTLS, err = hosttls.Open(h.state("tls-key.json"), h.devices.Identity())
 		if err != nil {
-			return fmt.Errorf("passthrough TLS key: %w", err)
+			return fmt.Errorf("relay TLS key: %w", err)
 		}
 		h.pairer.SetTLSPin(h.hostTLS.Current().Pin)
 	}
 
-	// Producers hold the emitter; the mux sends on the device's own loopback
-	// socket if it has one, else the relay, the fallback when there is one.
+	// Producers hold the emitter; the mux sends on the device's own socket,
+	// on loopback or through the relay.
 	h.Pushes = emit.NewMux()
 	h.emitter = emit.New(h.Pushes, h.log)
 	h.devices.OnRevoke(func(device.ID) { h.toEveryDevice(devicesrpc.Changed{}) })
@@ -214,12 +215,6 @@ func (h *Host) openDevices() error {
 	s.Host = h.info
 	s.Devices = h.devices
 	s.Pairer = h.pairer
-	s.TLSPin = func() (device.SignedPin, bool) {
-		if h.hostTLS == nil {
-			return device.SignedPin{}, false
-		}
-		return h.hostTLS.Current().Pin, true
-	}
 	s.TLSRotate = h.rotateTLS
 	s.Online = h.online
 	s.PushChanged = h.pushChanged
@@ -450,27 +445,16 @@ func (h *Host) openTransports() error {
 	if err != nil || h.cfg.Relay == "" {
 		return err
 	}
-	h.link, err = hostlink.New(hostlink.Config{
-		URL: h.cfg.Relay, Devices: h.devices, Router: h.Router, Log: h.log,
-		OnDisconnect: h.disconnected,
-		Pairing:      h.pairer.Accepting,
-	})
-	if err != nil {
-		return err
+	h.relay = &passthrough.Listener{
+		RelayAddr: h.cfg.Relay,
+		LinkTLS:   &tls.Config{ServerName: h.relayName(), RootCAs: h.cfg.RelayRoots, MinVersion: tls.VersionTLS13},
+		Identity:  h.devices.Identity(),
+		// The relay pings every 25 s; three missed is a dead link.
+		IdleTimeout: 75 * time.Second,
+		Log:         h.log,
 	}
-	// A phone is on the relay unless it has a socket of its own here.
-	h.Pushes.SetFallback(h.link)
-	h.pushLink = h.link
-	if h.cfg.PushRelay != "" && h.cfg.PushRelay != h.cfg.Relay {
-		h.pushLink, err = hostlink.New(hostlink.Config{
-			URL: h.cfg.PushRelay, Devices: h.devices, ControlOnly: true, Log: h.log,
-		})
-		if err != nil {
-			return err
-		}
-	}
-	h.alerts = push.New(h.devices, h.pushLink, h.log)
-	h.activities = liveactivity.New(h.db, h.devices, h.pushLink, h.log)
+	h.alerts = push.New(h.devices, h.relay, h.log)
+	h.activities = liveactivity.New(h.db, h.devices, h.relay, h.log)
 	return nil
 }
 
@@ -493,12 +477,10 @@ func (h *Host) disconnected(d device.ID) {
 	h.emitter.LeaveAll(d)
 }
 
-// online reports whether a device has a loopback socket or a channel through the relay.
-func (h *Host) online(d device.ID) bool {
-	return h.srv.Online(d) || h.link != nil && h.link.Online(d)
-}
+// online reports whether a device has a socket open, on loopback or through the relay.
+func (h *Host) online(d device.ID) bool { return h.srv.Online(d) }
 
-func (h *Host) relayConnected() bool { return h.link != nil && h.link.Connected() }
+func (h *Host) relayLinked() bool { return h.relay != nil && h.relay.Linked() }
 
 // setupChanged tells every phone the setup state: a sign-in or an install
 // outlives its caller, and changes what the CLI offers, so catalogs are re-read.

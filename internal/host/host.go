@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/agents"
+	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/chat"
 	"github.com/repogoapp/host/internal/chatlive"
 	"github.com/repogoapp/host/internal/chatsync"
@@ -28,7 +30,6 @@ import (
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/hostinfo"
-	"github.com/repogoapp/host/internal/hostlink"
 	"github.com/repogoapp/host/internal/hosttls"
 	"github.com/repogoapp/host/internal/hostupdate"
 	"github.com/repogoapp/host/internal/liveactivity"
@@ -67,14 +68,12 @@ type Config struct {
 	// Port, Token and ServerID are the loopback server's; Port 0 picks a free one.
 	Port            int
 	Token, ServerID string
-	// Relay, when set, is dialled so phones off this network reach the host.
+	// Relay, when set (host:port, as h.repogo.app:443), is the relay phones
+	// reach this host through over pinned TLS, and the one holding the APNs
+	// key that pushes go out through.
 	Relay string
-	// PushRelay holds the APNs key. When it differs from Relay, a second link
-	// to it carries push.send alone.
-	PushRelay string
-	// PassthroughRelay, when set (host:port, as h.repogo.app:443), is the
-	// relay phones reach this host through over pinned TLS (plan 520).
-	PassthroughRelay string
+	// RelayRoots verifies the relay's certificate; nil uses the system's.
+	RelayRoots *x509.CertPool
 
 	// Label names this host to its phones.
 	Label string
@@ -149,12 +148,10 @@ type Host struct {
 	watch     *projectwatch.Manager
 
 	srv *wsserver.Server
-	// hostTLS is the passthrough TLS key; nil when PassthroughRelay is unset.
-	hostTLS *hosttls.Keys
-	// Set in New only when there is a relay; APNs goes through pushLink,
-	// which is link itself unless the relay is the user's own.
-	link       *hostlink.Link
-	pushLink   *hostlink.Link
+	// Set in New only when there is a relay: the host's TLS key phones pin,
+	// the link to the relay, and the pushes that go out on it.
+	hostTLS    *hosttls.Keys
+	relay      *passthrough.Listener
 	alerts     *push.Notifier
 	activities *liveactivity.Driver
 	// What a phone should dial, the relay when there is one; set once listening.
@@ -172,6 +169,10 @@ func New(parent context.Context, cfg Config) (*Host, error) {
 	}
 	if err := os.MkdirAll(cfg.State, 0o700); err != nil {
 		return nil, err
+	}
+	// The state folder holds every chat; no other account on the machine reads it.
+	if err := apphome.Secure(cfg.State); err != nil {
+		cfg.Log.Warn("host: couldn't close the state folder to other accounts", "dir", cfg.State, "err", err)
 	}
 	h := &Host{cfg: cfg, log: cfg.Log}
 	h.ctx, h.cancel = context.WithCancel(parent)
@@ -225,7 +226,7 @@ func (h *Host) Listen() (*net.TCPAddr, error) {
 	}
 	tcp := addr.(*net.TCPAddr)
 	h.info.SetPort(tcp.Port)
-	h.invite.Store(cmp.Or(h.cfg.Relay, fmt.Sprintf("ws://127.0.0.1:%d/ws", tcp.Port)))
+	h.invite.Store(cmp.Or(h.relayURL(), fmt.Sprintf("ws://127.0.0.1:%d/ws", tcp.Port)))
 	h.toolsURL.Store(fmt.Sprintf("http://127.0.0.1:%d%s", tcp.Port, repogomcp.Path))
 	return tcp, nil
 }
@@ -248,64 +249,62 @@ func (h *Host) Start() {
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
 	h.spawn(h.Services.Actions.Watch)
-	if h.link != nil {
-		h.spawn(h.link.Run)
-	}
-	if h.pushLink != nil && h.pushLink != h.link {
-		h.spawn(h.pushLink.Run)
-	}
-	if h.alerts != nil {
+	if h.relay != nil {
+		h.spawn(h.serveRelay)
 		h.spawn(func(ctx context.Context) { h.alerts.Run(ctx, h.bridge) })
-	}
-	if h.activities != nil {
 		h.spawn(func(ctx context.Context) { h.activities.Run(ctx) })
-	}
-	if h.pushLink != nil {
-		h.spawn(func(ctx context.Context) { h.Services.Activities.Run(ctx, h.pushLink) })
-	}
-	if h.hostTLS != nil {
-		h.spawn(h.servePassthrough)
+		h.spawn(func(ctx context.Context) { h.Services.Activities.Run(ctx, h.relay) })
 	}
 }
 
-// rotateTLS replaces the passthrough TLS key, for one that may have leaked:
-// new invites carry the new pin, and phones on passthrough are dropped so they
-// learn it over the relay channel on reconnect, never trusting the old key again.
+// rotateTLS replaces the TLS key phones pin, for one that may have leaked: new
+// invites carry the new pin, and connected phones are dropped. Every phone must
+// pair again, since none trusts the new key.
 func (h *Host) rotateTLS() (device.SignedPin, error) {
 	if h.hostTLS == nil {
-		return device.SignedPin{}, errkind.New(errkind.NotFound, "this host does not serve passthrough TLS")
+		return device.SignedPin{}, errkind.New(errkind.NotFound, "this host has no relay, so no TLS key")
 	}
 	next, err := h.hostTLS.Rotate()
 	if err != nil {
 		return device.SignedPin{}, err
 	}
 	h.pairer.SetTLSPin(next.Pin)
+	// The reusable invite carries the old pin; a phone pairing from it would
+	// pin the retired key. A new link carries the new one.
+	if err := h.pairer.RevokeReusable(); err != nil {
+		h.log.Warn("relay: ending the reusable invite after rotation", "err", err)
+	}
 	h.srv.CloseRemote()
-	h.log.Info("passthrough: TLS key rotated", "counter", next.Pin.Counter)
+	h.log.Info("relay: TLS key rotated", "counter", next.Pin.Counter)
 	return next.Pin, nil
 }
 
-// servePassthrough holds the link to the passthrough relay and serves the
-// phones it routes here, over this host's pinned TLS, until ctx ends.
-func (h *Host) servePassthrough(ctx context.Context) {
-	name, _, err := net.SplitHostPort(h.cfg.PassthroughRelay)
+// serveRelay holds the link to the relay and serves the phones it routes
+// here, over this host's pinned TLS, until ctx ends.
+func (h *Host) serveRelay(ctx context.Context) {
+	passthrough.Listen(ctx, h.relay)
+	defer h.relay.Close()
+	h.log.Info("relay: serving", "relay", h.cfg.Relay, "host", string(h.devices.Identity().ID)+"."+h.relayName())
+	if err := h.srv.ServeRemote(tls.NewListener(h.relay, h.hostTLS.Config())); err != nil && ctx.Err() == nil {
+		h.log.Warn("relay: stopped", "err", err)
+	}
+}
+
+// relayName is the relay's host name: phones dial <host id>.<relayName>.
+func (h *Host) relayName() string {
+	name, _, err := net.SplitHostPort(h.cfg.Relay)
 	if err != nil {
-		h.log.Warn("passthrough: bad relay address", "relay", h.cfg.PassthroughRelay, "err", err)
-		return
+		return h.cfg.Relay
 	}
-	l := passthrough.Listen(ctx, &passthrough.Listener{
-		RelayAddr: h.cfg.PassthroughRelay,
-		LinkTLS:   &tls.Config{ServerName: name, MinVersion: tls.VersionTLS13},
-		Identity:  h.devices.Identity(),
-		// The relay pings every 25 s; three missed is a dead link.
-		IdleTimeout: 75 * time.Second,
-		Log:         h.log,
-	})
-	defer l.Close()
-	h.log.Info("passthrough: serving", "relay", h.cfg.PassthroughRelay, "host", string(h.devices.Identity().ID)+"."+name)
-	if err := h.srv.ServeRemote(tls.NewListener(l, h.hostTLS.Config())); err != nil && ctx.Err() == nil {
-		h.log.Warn("passthrough: stopped", "err", err)
+	return name
+}
+
+// relayURL is where an invite says the host is, empty with no relay.
+func (h *Host) relayURL() string {
+	if h.cfg.Relay == "" {
+		return ""
 	}
+	return "wss://" + h.relayName() + "/ws"
 }
 
 // everyMinute calls each tick at start and then on every minute boundary

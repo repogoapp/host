@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,7 +21,6 @@ import (
 	"github.com/repogoapp/host/internal/host"
 	"github.com/repogoapp/host/internal/hostinfo"
 	"github.com/repogoapp/host/internal/hostupdate"
-	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/nodejs"
 	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/power"
@@ -48,12 +48,7 @@ func run(ctx context.Context, log *slog.Logger, port int, relayFlag *string, sel
 	if port != 0 {
 		conf.Port = port
 	}
-	relayURL := relayFor(relayFlag, conf.Relay)
-	// The phone makes the same call from the relay it paired over.
-	if relayURL != "" && relayURL != defaultRelay {
-		jsonrpc.SetLimit(jsonrpc.CustomRelayMessageBytes)
-	}
-	cfg, err := hostConfig(log, conf, relayURL, self)
+	cfg, err := hostConfig(log, conf, relayFor(relayFlag, os.Getenv("REPOGO_HRELAY")), self)
 	if err != nil {
 		return err
 	}
@@ -113,17 +108,41 @@ func projectsDir(home string) string {
 	return filepath.Join(home, name)
 }
 
-// relayFor is the relay to dial: the -relay flag when given (empty disables),
-// else the one `repogo relay set` saved, else RepoGo's.
-func relayFor(flagged *string, saved string) string {
-	if flagged != nil {
+// relayFor is the relay to link to: the -relay flag when given (empty
+// disables), else REPOGO_HRELAY ("off" disables), else RepoGo's.
+func relayFor(flagged *string, override string) string {
+	switch {
+	case flagged != nil:
 		return *flagged
+	case override == "off":
+		return ""
 	}
-	return cmp.Or(saved, defaultRelay)
+	return cmp.Or(override, defaultRelay)
+}
+
+// relayRoots trusts the certificates in REPOGO_HRELAY_CA as well as the
+// system's, for a relay of one's own with a private certificate.
+func relayRoots() (*x509.CertPool, error) {
+	path := os.Getenv("REPOGO_HRELAY_CA")
+	if path == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("REPOGO_HRELAY_CA: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("REPOGO_HRELAY_CA: no certificate in %s", path)
+	}
+	return roots, nil
 }
 
 // hostConfig is the production host: the user's own state, home and agents.
-func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restarter) (host.Config, error) {
+func hostConfig(log *slog.Logger, conf *localConf, relay string, self restarter) (host.Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return host.Config{}, fmt.Errorf("locate home dir: %w", err)
@@ -136,6 +155,10 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 	if err != nil {
 		return host.Config{}, err
 	}
+	roots, err := relayRoots()
+	if err != nil {
+		return host.Config{}, err
+	}
 	gateway := cmp.Or(os.Getenv("REPOGO_GATEWAY"), tunnel.DefaultGateway)
 	gatewayHost := gateway
 	if h, _, err := net.SplitHostPort(gateway); err == nil {
@@ -145,10 +168,9 @@ func hostConfig(log *slog.Logger, conf *localConf, relayURL string, self restart
 		State: state, Home: home, Attachments: attachments,
 		// Visible in the user's home rather than under a dotfile: it holds their source.
 		Projects: projectsDir(home),
-		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relayURL, PushRelay: defaultRelay,
-		PassthroughRelay: passthroughFor(relayURL, os.Getenv("REPOGO_HRELAY")),
-		Label:            device.Label(),
-		Gateway:          gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
+		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relay, RelayRoots: roots,
+		Label:   device.Label(),
+		Gateway: gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
 		Update: hostupdate.Deps{
 			Version: release.Version, Root: self.root, Marker: self.marker,
 			Latest: release.Latest, Stage: release.Stage, Restart: self.restart,
@@ -192,23 +214,4 @@ func pluginsSDK() string {
 		return ""
 	}
 	return os.Getenv("REPOGO_PLUGINS_SDK")
-}
-
-// defaultPassthrough is where phones reach a host on RepoGo's relay over
-// pinned TLS (plan 520); the relay only pipes bytes to it.
-const defaultPassthrough = "h.repogo.app:443"
-
-// passthroughFor is the passthrough relay a host links to: RepoGo's for a
-// host on RepoGo's relay, none for a custom relay (whose phones only know that
-// relay), and REPOGO_HRELAY over either, with "off" for none.
-func passthroughFor(relayURL, override string) string {
-	switch {
-	case override == "off":
-		return ""
-	case override != "":
-		return override
-	case relayURL == defaultRelay:
-		return defaultPassthrough
-	}
-	return ""
 }

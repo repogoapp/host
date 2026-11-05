@@ -1,5 +1,6 @@
-# Plan 520's passthrough relay, its own app beside repogo-relay, which keeps
-# serving today's apps. Deploy from apps/host: fly deploy -c hrelay/fly.toml
+# RepoGo's relay: phones reach hosts through it, and hosts send their pushes
+# on their link. Deploy from apps/host: fly deploy -c hrelay/fly.toml
+# Secrets: APNS_AUTH_KEY, APNS_KEY_ID, APNS_TEAM_ID, APPLE_BUNDLE_ID.
 app = "repogo-h-relay"
 primary_region = "ewr"
 

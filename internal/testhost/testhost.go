@@ -29,6 +29,8 @@ type Host struct {
 	Config  registry.Config
 	Root    string
 	Devices *device.Store
+	// State is the host's own folder.
+	State string
 }
 
 // New builds the host, not started, and closes it when the test ends. Agents
@@ -52,7 +54,7 @@ func New(t testing.TB, opts ...func(*host.Config)) *Host {
 		t.Fatal(err)
 	}
 	t.Cleanup(h.Close)
-	return &Host{Host: h, Config: h.Services, Root: root, Devices: h.Services.Devices}
+	return &Host{Host: h, Config: h.Services, Root: root, Devices: h.Services.Devices, State: cfg.State}
 }
 
 // Config is a host config on fresh temporary directories with every

@@ -44,6 +44,9 @@ type CompleteResult struct {
 	HostID     device.ID `json:"host_id"`
 	HostPublic []byte    `json:"host_public"`
 	HostProof  []byte    `json:"host_proof"`
+	// HostSignature is the host identity's signature over the joiner's key and
+	// the TLS pin it dialed (device.PairMessage); empty without a relay.
+	HostSignature []byte `json:"host_signature,omitempty"`
 	// Sent here because the client saves the pairing before it ever connects
 	// as a paired device.
 	HostLabel string `json:"host_label"`
@@ -108,13 +111,20 @@ func (d Deps) complete(_ context.Context, _ rpc.Caller, a CompleteParams) (Compl
 	}
 
 	self := d.Store.Identity()
+	var signature []byte
+	if pin := d.Pairer.TLSPin(); pin != nil {
+		if signature, err = self.SignPair(joiner.Public, *pin); err != nil {
+			return CompleteResult{}, err
+		}
+	}
 	// The host's own proof goes back so the joiner can confirm it paired with
 	// the machine whose screen it scanned, rather than something in the middle.
 	return CompleteResult{
-		GroupID:    d.Store.GroupID(),
-		HostID:     self.ID,
-		HostPublic: self.Public,
-		HostProof:  hostProof,
-		HostLabel:  device.Label(),
+		GroupID:       d.Store.GroupID(),
+		HostID:        self.ID,
+		HostPublic:    self.Public,
+		HostProof:     hostProof,
+		HostSignature: signature,
+		HostLabel:     device.Label(),
 	}, nil
 }

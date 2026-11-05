@@ -12,7 +12,6 @@ import (
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/handshake"
-	"github.com/repogoapp/host/internal/host"
 	"github.com/repogoapp/host/internal/hostclient"
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/rpc"
@@ -26,22 +25,24 @@ import (
 // relay, so revoking runs through the same wiring the host ships with.
 type running struct {
 	*testhost.Host
-	ws, relay string
+	ws    string
+	relay *testhost.Relay
+	pin   [32]byte
 }
 
 func start(t *testing.T) *running {
 	t.Helper()
-	relay := testhost.Relay(t)
-	th := testhost.New(t, func(c *host.Config) { c.Relay = relay })
+	relay := testhost.StartRelay(t)
+	th := testhost.New(t, relay.On)
 	addr, err := th.Listen()
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
 	th.Start()
-	testwait.For(t, "the host to attach to the relay", func() bool {
+	testwait.For(t, "the host to link to the relay", func() bool {
 		return th.Config.Host.Status().RelayConnected
 	})
-	return &running{Host: th, ws: fmt.Sprintf("ws://%s/ws", addr), relay: relay}
+	return &running{Host: th, ws: fmt.Sprintf("ws://%s/ws", addr), relay: relay, pin: th.Pin(t)}
 }
 
 // local calls the router as the CLI does: from this machine, as the host.
@@ -60,10 +61,9 @@ func (h *running) local(t *testing.T, method string, params, into any) error {
 
 func (h *running) overRelay(t *testing.T, phone *device.Identity, timeout time.Duration) (*hostclient.Client, error) {
 	t.Helper()
-	return h.dial(t, timeout, hostclient.Config{
-		URL: h.relay, Identity: phone, GroupID: h.Devices.GroupID(), Role: handshake.RoleClient, Platform: "ios",
-		Host: h.Devices.Identity().ID, HostPublic: h.Devices.Identity().Public,
-	})
+	return h.dial(t, timeout, h.relay.Through(hostclient.Config{
+		Identity: phone, GroupID: h.Devices.GroupID(), Role: handshake.RoleClient, Platform: "ios",
+	}, h.Devices.Identity().ID, h.pin))
 }
 
 func (h *running) overLoopback(t *testing.T, phone *device.Identity) (*hostclient.Client, error) {
@@ -170,18 +170,18 @@ func TestRevokeRemovesAPhoneEverywhere(t *testing.T) {
 
 	// (b) Both open connections fail their next call.
 	if err := call(t, lostRelay, "devices.list", nil, nil); err == nil {
-		t.Error("the lost phone's relay channel still answered")
+		t.Error("the lost phone's socket through the relay still answered")
 	}
 	if err := call(t, lostLocal, "devices.list", nil, nil); err == nil {
 		t.Error("the lost phone's loopback socket still answered")
 	}
 
-	// (a) Its hello is refused as unknown; through the relay it is a stranger, dropped unanswered.
+	// (a) Its hello is refused as unknown, on loopback and through the relay.
 	if _, err := h.overLoopback(t, lost); err == nil || !strings.Contains(err.Error(), device.ErrUnknownDevice.Error()) {
 		t.Errorf("loopback hello after revoke: %v, want refused as an unknown device", err)
 	}
 	if _, err := h.overRelay(t, lost, 500*time.Millisecond); err == nil {
-		t.Error("the lost phone opened a relay channel after revoke")
+		t.Error("the lost phone connected through the relay after revoke")
 	}
 
 	// (c) The invite it held is over.

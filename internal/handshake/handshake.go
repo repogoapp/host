@@ -35,8 +35,12 @@ type Hello struct {
 	// Canonical JSON does not exist and a signature must never need it.
 	ChallengeSig []byte `json:"challenge_sig,omitempty"`
 
-	// Localhost only: the token from the 0600 runtime file. Rejected on the relay path.
+	// Localhost only: the token from the 0600 runtime file. Refused over TLS through the relay.
 	LocalToken string `json:"local_token,omitempty"`
+
+	// Deflate asks for wirecodec framing after the handshake; it applies only
+	// when Accepted.Deflate confirms it.
+	Deflate bool `json:"deflate,omitempty"`
 }
 
 // Accepted is the result of a successful hello.
@@ -46,6 +50,10 @@ type Accepted struct {
 
 	// The running build, not the server's identity, so a stale binary is visible.
 	ServerVersion string `json:"server_version"`
+
+	// Deflate confirms the hello's: every message after this one, both ways,
+	// is a binary frame in wirecodec framing. Absent, frames stay plain text.
+	Deflate bool `json:"deflate,omitempty"`
 }
 
 type Rejected struct {

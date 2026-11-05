@@ -28,7 +28,10 @@ type Status struct {
 	Battery *power.Battery `json:"battery,omitempty"`
 	// Absent when the home volume can't be read.
 	Storage *Storage `json:"storage,omitempty"`
-	Network Network  `json:"network"`
+	// What kind of machine this is; absent only when the startup read
+	// hasn't finished in time.
+	Device  *Device `json:"device,omitempty"`
+	Network Network `json:"network"`
 	// Capabilities are what a phone may ask of this host, such as
 	// CapabilitySchedules; a phone filters its pickers on them.
 	Capabilities []string `json:"capabilities,omitempty"`
@@ -73,7 +76,13 @@ type Deps struct {
 	PublicIP func(context.Context) (string, error)
 	// Trash is whether deleted files and projects go to the Trash: files.TrashDir.
 	Trash bool
+	// ReadDevice reads what kind of machine this is, once; nil is the system's.
+	ReadDevice func() Device
 }
+
+// deviceWait is how long host.status waits on the startup device read, so a
+// phone that connects as the host starts still gets its icon.
+const deviceWait = 2 * time.Second
 
 type Service struct {
 	d       Deps
@@ -87,10 +96,25 @@ type Service struct {
 	publicIP    string
 	publicAt    time.Time
 	publicStale chan struct{}
+
+	device     *Device
+	deviceRead chan struct{}
 }
 
 func New(d Deps) *Service {
-	return &Service{d: d, started: time.Now(), publicStale: make(chan struct{}, 1)}
+	s := &Service{d: d, started: time.Now(), publicStale: make(chan struct{}, 1), deviceRead: make(chan struct{})}
+	read := d.ReadDevice
+	if read == nil {
+		read = readDevice
+	}
+	go func() {
+		device := read()
+		s.mu.Lock()
+		s.device = &device
+		s.mu.Unlock()
+		close(s.deviceRead)
+	}()
+	return s
 }
 
 // Release is this host's build and whether a newer one is out, in the fields
@@ -157,6 +181,10 @@ func (s *Service) Release(ctx context.Context) Release {
 func (s *Service) Status() Status {
 	local := localNetwork()
 	storage, hasStorage := homeStorage()
+	select {
+	case <-s.deviceRead:
+	case <-time.After(deviceWait):
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := Status{
@@ -171,6 +199,10 @@ func (s *Service) Status() Status {
 	}
 	if hasStorage {
 		out.Storage = &storage
+	}
+	if s.device != nil {
+		device := *s.device
+		out.Device = &device
 	}
 	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos,
 		CapabilityUsageTime, CapabilityAgentTime}

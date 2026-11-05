@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	"github.com/coder/websocket"
 
@@ -21,6 +21,7 @@ import (
 	"github.com/repogoapp/host/internal/handshake"
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/wirecodec"
 	"github.com/repogoapp/host/internal/wsconn"
 )
 
@@ -45,11 +46,11 @@ type Config struct {
 	// hold a bearer of its own, not the runtime token. Host is still checked.
 	SelfAuthed map[string]http.Handler
 
-	// Router is the host's vocabulary, shared with the relay path.
+	// Router is the host's vocabulary, on loopback and through the relay alike.
 	Router *rpc.Router
 
 	// Pushes is where a connected device is registered so unsolicited events
-	// reach it over this socket rather than the relay.
+	// reach it over its socket.
 	Pushes *emit.Mux
 
 	// OnDisconnect runs when a device's last socket here closes.
@@ -72,7 +73,13 @@ type Server struct {
 	conns map[device.ID]*conn
 	// open is every socket past its hello, a device's superseded ones included.
 	open map[*conn]struct{}
+	// unproven counts passthrough connections still before their hello.
+	unproven atomic.Int32
 }
+
+// maxUnproven caps passthrough connections before their hello, so streams a
+// stranger opens and holds can't pile up; each lasts remoteHelloTimeout.
+var maxUnproven int32 = 64
 
 func New(cfg Config) (*Server, error) {
 	if cfg.Token == "" {
@@ -152,7 +159,8 @@ func (s *Server) CloseRemote() {
 func (s *Server) ServeRemote(lis net.Listener) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleRemoteWS)
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelDebug)}
+	// Short, as the TLS handshake shares it: a phone sends its request at once.
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: remoteHelloTimeout, ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelDebug)}
 	s.mu.Lock()
 	s.remote = srv
 	s.mu.Unlock()
@@ -189,15 +197,23 @@ func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no TLS exporter", http.StatusForbidden)
 		return
 	}
+	if s.unproven.Add(1) > maxUnproven {
+		s.unproven.Add(-1)
+		http.Error(w, "too many connections waiting", http.StatusServiceUnavailable)
+		return
+	}
+	var proven sync.Once
+	done := func() { proven.Do(func() { s.unproven.Add(-1) }) }
+	defer done()
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		s.log.Warn("wsserver: remote accept failed", "err", err)
 		return
 	}
-	// The host's own limit, as the relay route has: higher on a custom relay.
-	c.SetReadLimit(int64(jsonrpc.Limit()))
+	c.SetReadLimit(jsonrpc.MaxMessageBytes + wirecodec.Overhead)
 	conn := newConn(s, c)
 	conn.bind = exporter
+	conn.helloDone = done
 	conn.run(r.Context())
 }
 
@@ -216,7 +232,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("wsserver: accept failed", "err", err)
 		return
 	}
-	c.SetReadLimit(jsonrpc.MaxMessageBytes)
+	c.SetReadLimit(jsonrpc.MaxMessageBytes + wirecodec.Overhead)
 
 	newConn(s, c).run(r.Context())
 }

@@ -118,15 +118,11 @@ func run(relay string) error {
 	fmt.Printf("connected: %s in %v, TLS 1.3 %s, hello bound to the session ✓ (host %s)\n",
 		target, time.Since(start).Round(time.Millisecond), group, remote.ServerVersion())
 
-	var pinned device.SignedPin
-	if err := remote.Call(ctx, "host.tls_pin", nil, &pinned); err != nil {
-		return fmt.Errorf("host.tls_pin: %w", err)
-	}
 	var status json.RawMessage
 	if err := remote.Call(ctx, "host.status", nil, &status); err != nil {
 		return fmt.Errorf("host.status: %w", err)
 	}
-	fmt.Printf("calls over passthrough: host.tls_pin counter %d ✓, host.status %d bytes ✓\n", pinned.Counter, len(status))
+	fmt.Printf("calls over passthrough: host.status %d bytes ✓\n", len(status))
 
 	return nil
 }

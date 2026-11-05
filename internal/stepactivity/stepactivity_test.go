@@ -15,7 +15,7 @@ import (
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/push/pushtest"
-	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/pushgate"
 )
 
 type fixture struct {
@@ -84,7 +84,7 @@ func (f *fixture) last() sent {
 		f.t.Fatal("nothing pushed")
 	}
 	req := f.sender.Calls[len(f.sender.Calls)-1]
-	if req.PushType != relay.PushTypeLiveActivity || req.Priority != 10 {
+	if req.PushType != pushgate.PushTypeLiveActivity || req.Priority != 10 {
 		f.t.Fatalf("push type %q priority %d", req.PushType, req.Priority)
 	}
 	var body struct {
@@ -257,12 +257,12 @@ type deadFor struct {
 	token string
 }
 
-func (s *deadFor) Control(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	_, _ = s.Sender.Control(ctx, method, params)
-	if params.(relay.PushRequest).Token == s.token {
-		return nil, &jsonrpc.Error{Code: jsonrpc.CodeNotFound, Message: "Unregistered"}
+func (s *deadFor) Push(ctx context.Context, req pushgate.PushRequest) error {
+	s.Sender.Push(ctx, req)
+	if req.Token == s.token {
+		return &jsonrpc.Error{Code: jsonrpc.CodeNotFound, Message: "Unregistered"}
 	}
-	return nil, nil
+	return nil
 }
 
 // The user swiped it away: its token goes and it never starts there again.

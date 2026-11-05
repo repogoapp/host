@@ -1,6 +1,7 @@
-// Package passthrough is plan 520's relay: phones open TLS to a host through
-// it, and it only pipes bytes. It reads the ClientHello's server name to pick
-// the host and never holds a key for that TLS.
+// Package passthrough is the relay phones reach hosts through: phones open TLS
+// to a host through it, and it only pipes bytes. It reads the ClientHello's
+// server name to pick the host and never holds a key for that TLS. Hosts also
+// send their pushes on their link, since the relay holds the APNs key.
 package passthrough
 
 import (
@@ -17,11 +18,14 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/pushgate"
 )
 
 // Relay routes a phone's TLS stream to the host its server name names:
@@ -35,16 +39,20 @@ type Relay struct {
 	// ProxyProtocol reads a PROXY v1 line first, for the caller's address
 	// behind Fly's proxy; per-address limits need it.
 	ProxyProtocol bool
-	// MaxPerIP caps one address's open connections; zero means no cap.
+	// MaxPerIP caps one address's open connections, an IPv6 /64 counting as
+	// one address; zero means no cap.
 	MaxPerIP int
 	// MaxWaitingPerHost caps the phone streams waiting on one host's dial-back,
-	// since each costs that host a dial and a TLS handshake; zero means no cap.
+	// since each costs that host a dial; a stream stops counting once the host
+	// answers, so held streams can't fill it. Zero means no cap.
 	MaxWaitingPerHost int
 	// DialTimeout bounds how long a phone waits for its host to dial back.
 	DialTimeout time.Duration
 	// PingInterval spaces the pings on a host's link: they keep idle paths
 	// open and let the host notice a dead relay. Zero sends none.
 	PingInterval time.Duration
+	// Push answers the push lines hosts send on their link; nil refuses them.
+	Push *pushgate.Gate
 
 	Log *slog.Logger
 
@@ -57,8 +65,26 @@ type Relay struct {
 
 type link struct {
 	mu    sync.Mutex
+	conn  net.Conn
 	enc   *json.Encoder
 	pings int
+}
+
+// linkWriteTimeout bounds one write to a host, so a host that stops reading
+// fails its link rather than holding every writer behind it.
+const linkWriteTimeout = 10 * time.Second
+
+// send writes one line to the host; pings, dial notices and push replies take turns.
+func (l *link) send(line relayLine) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.conn.SetWriteDeadline(time.Now().Add(linkWriteTimeout))
+	defer l.conn.SetWriteDeadline(time.Time{})
+	err := l.enc.Encode(line)
+	if err != nil {
+		l.conn.Close()
+	}
+	return err
 }
 
 // Control lines are newline-delimited JSON inside the link TLS.
@@ -68,6 +94,9 @@ type hostLine struct {
 	DeviceID  string `json:"device_id,omitempty"`
 	PublicKey []byte `json:"public_key,omitempty"`
 	Signature []byte `json:"signature,omitempty"`
+	// ID and Push are a push request, op "push"; the reply carries the same ID.
+	ID   uint64                `json:"id,omitempty"`
+	Push *pushgate.PushRequest `json:"push,omitempty"`
 }
 
 type relayLine struct {
@@ -78,7 +107,17 @@ type relayLine struct {
 	OK       bool   `json:"ok,omitempty"`
 	Ping     bool   `json:"ping,omitempty"`
 	Error    string `json:"error,omitempty"`
+	// ID answers the push request with that ID; Code is its JSON-RPC error code.
+	ID   uint64 `json:"id,omitempty"`
+	Code int    `json:"code,omitempty"`
 }
+
+const (
+	// maxPushes bounds one link's push requests in flight.
+	maxPushes = 16
+	// pushTimeout bounds one push request, APNs included.
+	pushTimeout = 10 * time.Second
+)
 
 var errPeeked = errors.New("passthrough: client hello read")
 
@@ -116,7 +155,7 @@ func (r *Relay) handle(ctx context.Context, c net.Conn) {
 			return
 		}
 	}
-	ip := hostOnly(addr)
+	ip := addressKey(hostOnly(addr))
 	if !r.admit(ip) {
 		r.Log.Debug("passthrough: address over its cap", "ip", ip)
 		return
@@ -160,22 +199,25 @@ func (r *Relay) servePhone(ctx context.Context, phone *replayConn, id device.ID)
 	r.waiting[id]++
 	r.pending[token] = ready
 	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		delete(r.pending, token)
-		if r.waiting[id]--; r.waiting[id] <= 0 {
-			delete(r.waiting, id)
-		}
-		r.mu.Unlock()
-	}()
-	l.mu.Lock()
-	err := l.enc.Encode(relayLine{Dial: token})
-	l.mu.Unlock()
-	if err != nil {
+	var once sync.Once
+	stopWaiting := func() {
+		once.Do(func() {
+			r.mu.Lock()
+			delete(r.pending, token)
+			if r.waiting[id]--; r.waiting[id] <= 0 {
+				delete(r.waiting, id)
+			}
+			r.mu.Unlock()
+		})
+	}
+	defer stopWaiting()
+	if err := l.send(relayLine{Dial: token}); err != nil {
 		return
 	}
 	select {
 	case host := <-ready:
+		// Answered: no longer waiting, however long the stream then lasts.
+		stopWaiting()
 		defer host.Close()
 		phone.SetReadDeadline(time.Time{})
 		splice(phone, host)
@@ -221,7 +263,7 @@ func (r *Relay) serveLink(ctx context.Context, raw net.Conn) {
 }
 
 // holdLink proves the host holds its identity key, then keeps the link for
-// dial notices until it drops.
+// dial notices and the host's push requests until it drops.
 func (r *Relay) holdLink(ctx context.Context, conn *tls.Conn, reader *bufio.Reader, enc *json.Encoder) {
 	nonce := make([]byte, device.NonceLen)
 	rand.Read(nonce)
@@ -238,7 +280,7 @@ func (r *Relay) holdLink(ctx context.Context, conn *tls.Conn, reader *bufio.Read
 		enc.Encode(relayLine{Error: err.Error()})
 		return
 	}
-	l := &link{enc: enc}
+	l := &link{conn: conn, enc: enc}
 	r.mu.Lock()
 	r.links[id] = l
 	r.mu.Unlock()
@@ -249,10 +291,7 @@ func (r *Relay) holdLink(ctx context.Context, conn *tls.Conn, reader *bufio.Read
 		}
 		r.mu.Unlock()
 	}()
-	l.mu.Lock()
-	err = enc.Encode(relayLine{OK: true})
-	l.mu.Unlock()
-	if err != nil {
+	if err := l.send(relayLine{OK: true}); err != nil {
 		return
 	}
 	conn.SetReadDeadline(time.Time{})
@@ -260,15 +299,61 @@ func (r *Relay) holdLink(ctx context.Context, conn *tls.Conn, reader *bufio.Read
 	if r.PingInterval > 0 {
 		stop := make(chan struct{})
 		defer close(stop)
-		go r.ping(conn, l, stop)
+		go r.ping(l, stop)
 	}
-	// The host sends nothing more; a read returns when the link drops.
-	io.Copy(io.Discard, conn)
+	r.readPushes(ctx, id, reader, l)
+}
+
+// readPushes answers the host's push lines until the link drops. Each runs on
+// its own goroutine, so a slow APNs never holds up the next.
+func (r *Relay) readPushes(ctx context.Context, id device.ID, reader *bufio.Reader, l *link) {
+	var window pushgate.Window
+	inFlight := make(chan struct{}, maxPushes)
+	for {
+		var line hostLine
+		if err := readLine(reader, &line); err != nil {
+			return
+		}
+		if line.Op != "push" || line.Push == nil {
+			continue
+		}
+		switch {
+		case r.Push == nil:
+			l.send(relayLine{ID: line.ID, Code: jsonrpc.CodeUnavailable, Error: "this relay has no APNs key"})
+			continue
+		case !window.Allow(pushgate.HostBurst):
+			l.send(relayLine{ID: line.ID, Code: jsonrpc.CodeDenied, Error: "push rate limit"})
+			continue
+		}
+		select {
+		case inFlight <- struct{}{}:
+		default:
+			l.send(relayLine{ID: line.ID, Code: jsonrpc.CodeUnavailable, Error: "too many pushes in flight"})
+			continue
+		}
+		go func() {
+			defer func() { <-inFlight }()
+			ctx, cancel := context.WithTimeout(ctx, pushTimeout)
+			defer cancel()
+			reply := relayLine{ID: line.ID, OK: true}
+			if err := r.Push.Send(ctx, id, *line.Push); err != nil {
+				reply = relayLine{ID: line.ID, Code: jsonrpc.CodeInternal, Error: err.Error()}
+				var rpcErr *jsonrpc.Error
+				if errors.As(err, &rpcErr) {
+					reply.Code, reply.Error = rpcErr.Code, rpcErr.Message
+				}
+				if reply.Code == jsonrpc.CodeInternal {
+					r.Log.Warn("passthrough: push failed", "host", id, "err", err)
+				}
+			}
+			l.send(reply)
+		}()
+	}
 }
 
 // ping writes on the link until it stops or a write fails; a failed write
 // closes the link, so the read in holdLink returns and the link is dropped.
-func (r *Relay) ping(conn net.Conn, l *link, stop <-chan struct{}) {
+func (r *Relay) ping(l *link, stop <-chan struct{}) {
 	t := time.NewTicker(r.PingInterval)
 	defer t.Stop()
 	for {
@@ -276,14 +361,11 @@ func (r *Relay) ping(conn net.Conn, l *link, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-t.C:
+			err := l.send(relayLine{Ping: true})
 			l.mu.Lock()
-			conn.SetWriteDeadline(time.Now().Add(r.PingInterval))
-			err := l.enc.Encode(relayLine{Ping: true})
-			conn.SetWriteDeadline(time.Time{})
 			l.pings++
 			l.mu.Unlock()
 			if err != nil {
-				conn.Close()
 				return
 			}
 		}
@@ -411,6 +493,20 @@ func newToken() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// addressKey is what MaxPerIP counts: the address, or an IPv6 address's /64,
+// which one machine is usually handed whole.
+func addressKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || !addr.Is6() || addr.Is4In6() {
+		return ip
+	}
+	prefix, err := addr.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return prefix.String()
 }
 
 func hostOnly(addr string) string {

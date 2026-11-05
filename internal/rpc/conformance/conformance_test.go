@@ -1,5 +1,6 @@
 // Package conformance checks that a method answers the same however it was
-// reached: in process, over the loopback WebSocket, or through the relay.
+// reached: in process, over the loopback WebSocket, or over the host's pinned TLS
+// as phones reach it through the relay.
 package conformance_test
 
 import (
@@ -109,7 +110,6 @@ var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reu
 var unchecked = map[string]string{
 	"host.setup":      "shells out to gh and every agent CLI and asks the npm registry for versions; composition covered in internal/hostsetup",
 	"host.update":     "downloads a release and restarts the host; covered in internal/hostupdate",
-	"host.tls_pin":    "answers only when the host serves passthrough TLS; covered in internal/wsserver remote_test",
 	"host.tls_rotate": "replaces the host's TLS key and drops passthrough sockets; covered in internal/hosttls and internal/wsserver remote_test",
 	"devices.rotate":  "replaces the caller's own key and closes its sockets; covered in internal/device rotate_test and internal/wsserver remote_test",
 	"catalog.read":    "probes every agent CLI as host.setup does; covered with fakes in the catalog family suite",
@@ -118,7 +118,7 @@ var unchecked = map[string]string{
 	"activities.set":        "plugins only, keyed by the calling plugin; covered in internal/stepactivity and its rpc family",
 	"devices.hello":         "paired-device record update; loopback callers are denied",
 
-	"pair.complete":        "admits a device; driven end to end by bench/e2e instead",
+	"pair.complete":        "admits a device; covered over pinned TLS in internal/wsserver remote_test",
 	"limits.read":          "reads the Keychain, an undocumented endpoint, and a codex subprocess",
 	"limits.reset":         "spends a Codex reset credit; outcome parsing is in agentusage",
 	"tools.update":         "runs the user's package manager",
@@ -176,7 +176,7 @@ var unchecked = map[string]string{
 	"usage.clear_time":  "deletes devices' screen time from the usage ledger; covered in internal/shipping (activity_test.go)",
 
 	"forward.fetch":        "driven against a real dev server by TestForwardFetchOverEveryTransport",
-	"forward.pipe_open":    "the pipe lane pushes, and pushes only reach a relay-side client; covered in internal/forward",
+	"forward.pipe_open":    "the pipe lane pushes, and pushes only reach a phone-side client; covered in internal/forward",
 	"forward.pipe_send":    "same",
 	"forward.pipe_close":   "same",
 	"projects.detect_icon": "needs a real project directory; covered by the project core",
@@ -219,12 +219,13 @@ var unchecked = map[string]string{
 // --- the host under test -----------------------------------------------------
 
 type host struct {
-	root     string
-	router   *rpc.Router
-	devices  *device.Store
-	wsURL    string
-	relayURL string
-	self     device.ID
+	root      string
+	router    *rpc.Router
+	devices   *device.Store
+	wsURL     string
+	remoteURL string
+	pin       [32]byte
+	self      device.ID
 }
 
 // newHost serves every family over temporary data on all three transports;
@@ -243,12 +244,13 @@ func newHost(t *testing.T, extra ...func(*rpc.Router)) *host {
 
 	tr := testhost.Serve(t, devices, router)
 	return &host{
-		root:     root,
-		router:   router,
-		devices:  devices,
-		wsURL:    tr.WS,
-		relayURL: tr.Relay,
-		self:     devices.Identity().ID,
+		root:      root,
+		router:    router,
+		devices:   devices,
+		wsURL:     tr.WS,
+		remoteURL: tr.Remote,
+		pin:       tr.Pin,
+		self:      devices.Identity().ID,
 	}
 }
 
@@ -296,9 +298,14 @@ func callers(t *testing.T, h *host) []caller {
 	t.Helper()
 	phone := h.pair(t)
 	overWS := dialWS(t, h, phone)
-	overRelay := dial(t, hostclient.Config{
-		URL: h.relayURL, Identity: phone, GroupID: h.devices.GroupID(),
-		Role: handshake.RoleClient, Platform: "ios", Host: h.self, HostPublic: h.devices.Identity().Public,
+	overTLS := dial(t, hostclient.Config{
+		URL: h.remoteURL, Identity: phone, GroupID: h.devices.GroupID(),
+		Role: handshake.RoleClient, Platform: "ios", TLS: testhost.PinnedTLS(h.pin),
+	})
+	// The phone asks for compressed messages; every case runs through the codec too.
+	deflated := dial(t, hostclient.Config{
+		URL: h.remoteURL, Identity: phone, GroupID: h.devices.GroupID(),
+		Role: handshake.RoleClient, Platform: "ios", TLS: testhost.PinnedTLS(h.pin), Deflate: true,
 	})
 
 	remote := func(c *hostclient.Client) func(*testing.T, string, any) (json.RawMessage, error) {
@@ -323,7 +330,8 @@ func callers(t *testing.T, h *host) []caller {
 			return h.router.Call(context.Background(), rpc.Caller{Device: h.self, Scope: rpc.ScopeLocal}, method, b)
 		}},
 		{name: "loopback-ws", call: remote(overWS)},
-		{name: "relay", call: remote(overRelay)},
+		{name: "remote-tls", call: remote(overTLS)},
+		{name: "remote-tls-deflate", call: remote(deflated)},
 	}
 }
 

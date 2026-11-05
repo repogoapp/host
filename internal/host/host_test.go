@@ -19,7 +19,10 @@ import (
 	"github.com/repogoapp/host/internal/chatlive"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/host"
+	"github.com/repogoapp/host/internal/passthrough"
 	"github.com/repogoapp/host/internal/power"
+	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/reminder"
 	"github.com/repogoapp/host/internal/rpc/registry"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/testhost"
@@ -266,16 +269,37 @@ func TestMissingDependenciesAreNamed(t *testing.T) {
 	}
 }
 
-// On the user's own relay, pushes take a second link to RepoGo's, which holds
-// the APNs key; on RepoGo's relay one link carries both.
-func TestOwnRelaySendsPushesOverASecondLink(t *testing.T) {
-	own, ours := testhost.Relay(t), testhost.Relay(t)
-	th := testhost.New(t, func(c *host.Config) { c.Relay, c.PushRelay = own, ours })
-	if link, push := th.PushLinks(); link == nil || push == nil || link == push {
-		t.Fatalf("own relay: chat link %p, push link %p, want two", link, push)
+// The host's pushes go out on its link to the relay, which checks the phone's
+// grant against the host that link proved and hands them to APNs.
+func TestPushesGoOutOnTheRelayLink(t *testing.T) {
+	sent := make(chan pushgate.PushRequest, 1)
+	relay := testhost.StartRelay(t, func(r *passthrough.Relay) {
+		r.Push = pushgate.New(func(_ context.Context, req pushgate.PushRequest) error { sent <- req; return nil },
+			func([]byte, []byte, []byte, []byte, string, time.Time) error { return nil })
+	})
+	th := testhost.New(t, relay.On)
+	if _, err := th.Listen(); err != nil {
+		t.Fatal(err)
 	}
-	th = testhost.New(t, func(c *host.Config) { c.Relay, c.PushRelay = ours, ours })
-	if link, push := th.PushLinks(); link == nil || link != push {
-		t.Fatalf("RepoGo's relay: chat link %p, push link %p, want one", link, push)
+	th.Start()
+	hostID := th.Devices.Identity().ID
+	testwait.For(t, "the host's link", func() bool { return relay.Linked(hostID) && th.Config.Host.Status().RelayConnected })
+
+	phone, err := device.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := phone.GrantPush(hostID, device.PushTarget{Service: device.PushAPNs, Token: "abcd", Environment: pushgate.EnvironmentSandbox, GrantedAt: time.Now().UnixMilli()})
+	if err := th.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Client: device.Client{Platform: "ios"}, Push: &target}); err != nil {
+		t.Fatal(err)
+	}
+	th.Remind(t.Context(), reminder.Alert{ID: "r1", Text: "Stand up"})
+	select {
+	case req := <-sent:
+		if req.Token != "abcd" || !strings.Contains(string(req.Payload), "Stand up") {
+			t.Fatalf("APNs got %+v", req)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no push reached the relay")
 	}
 }

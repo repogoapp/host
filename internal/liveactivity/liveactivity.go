@@ -14,7 +14,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/push"
-	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/pushgate"
 	"github.com/repogoapp/host/internal/store"
 )
 
@@ -402,7 +402,7 @@ const (
 // priority: Apple holds low-priority updates while the phone is locked.
 func (d *Driver) deliver(ctx context.Context, peer device.Peer, kind string, to device.PushTarget, payload []byte) outcome {
 	req := push.Request(peer, to)
-	req.Payload, req.PushType, req.Priority = payload, relay.PushTypeLiveActivity, 10
+	req.Payload, req.PushType, req.Priority = payload, pushgate.PushTypeLiveActivity, 10
 	isDead, err := push.Try(ctx, d.send, req)
 	switch {
 	case isDead:

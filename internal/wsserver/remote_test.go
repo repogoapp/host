@@ -1,8 +1,10 @@
 package wsserver_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,19 +12,23 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/big"
 	"net"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/hostclient"
 	"github.com/repogoapp/host/internal/hosttls"
-	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/passthrough"
 	"github.com/repogoapp/host/internal/rpc/pairing"
 	"github.com/repogoapp/host/internal/rpc/registry"
@@ -41,6 +47,7 @@ type remote struct {
 	srv     *wsserver.Server
 	devices *device.Store
 	pairer  *device.Pairer
+	root    string
 }
 
 func newRemote(t *testing.T) *remote { return newRemoteOn(t, nil) }
@@ -55,7 +62,6 @@ func newRemoteOn(t *testing.T, through func(host *device.Identity) net.Listener)
 		t.Fatal(err)
 	}
 	cert := keys.Current()
-	th.Config.TLSPin = func() (device.SignedPin, bool) { return keys.Current().Pin, true }
 	router, err := registry.New(th.Config)
 	if err != nil {
 		t.Fatal(err)
@@ -78,9 +84,10 @@ func newRemoteOn(t *testing.T, through func(host *device.Identity) net.Listener)
 		}
 		url = "wss://" + lis.Addr().String() + "/ws"
 	}
+	th.Config.Pairer.SetTLSPin(cert.Pin)
 	go srv.ServeRemote(tls.NewListener(lis, keys.Config()))
 	t.Cleanup(func() { srv.Shutdown(context.Background()); lis.Close() })
-	return &remote{url: url, pin: cert.SPKI, cert: cert, keys: keys, srv: srv, devices: th.Devices, pairer: th.Config.Pairer}
+	return &remote{url: url, pin: cert.SPKI, cert: cert, keys: keys, srv: srv, devices: th.Devices, pairer: th.Config.Pairer, root: th.Root}
 }
 
 func (r *remote) pair(t *testing.T) *device.Identity {
@@ -129,13 +136,8 @@ func TestRemotePhoneConnectsOverPinnedTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pin a phone paired before passthrough would fetch, signed by the host.
-	var pin device.SignedPin
-	if err := call(t, c, "host.tls_pin", nil, &pin); err != nil {
+	if err := call(t, c, "devices.list", nil, nil); err != nil {
 		t.Fatal(err)
-	}
-	if err := device.VerifyPin(r.devices.Identity().Public, pin); err != nil || [32]byte(pin.SPKI) != r.pin {
-		t.Fatalf("host.tls_pin = %+v, %v", pin, err)
 	}
 }
 
@@ -205,8 +207,7 @@ func TestRemoteThroughThePassthroughRelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pin device.SignedPin
-	if err := call(t, c, "host.tls_pin", nil, &pin); err != nil {
+	if err := call(t, c, "devices.list", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -265,6 +266,40 @@ func TestAStrangerPairsOverPassthroughWhileACodeIsLive(t *testing.T) {
 	}
 }
 
+// pair.complete answers with the host identity's signature over the joiner's
+// key and the pin it dialed, which only the real host can make: an invite
+// built around a retired TLS key can't finish pairing.
+func TestPairCompleteIsSignedByTheHost(t *testing.T) {
+	r := newRemote(t)
+	invite, err := r.pairer.Begin("wss://relay.test/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	phone, _ := device.Generate()
+	c, err := r.dial(t, phone, r.pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got pairing.CompleteResult
+	if err := call(t, c, "pair.complete", pairing.CompleteParams{
+		DeviceID: string(phone.ID), PublicKey: phone.Public, Label: "iPhone", Platform: "ios",
+		Proof: device.Proof(invite.Code, phone.Public),
+	}, &got); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := device.PairMessage(got.HostID, phone.Public, r.cert.Pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ed25519.Verify(got.HostPublic, msg, got.HostSignature) {
+		t.Fatal("the host's signature doesn't cover this phone's key and the pin it dialed")
+	}
+	other, _ := device.Generate()
+	if forged, _ := device.PairMessage(got.HostID, other.Public, r.cert.Pin); ed25519.Verify(got.HostPublic, forged, got.HostSignature) {
+		t.Fatal("the signature also verifies for another phone's key")
+	}
+}
+
 func TestAStrangerIsRefusedWithoutALiveCode(t *testing.T) {
 	r := newRemote(t)
 	phone, _ := device.Generate()
@@ -294,8 +329,8 @@ func TestAStrangerGetsOnlyPairComplete(t *testing.T) {
 	}
 }
 
-// A rotated key: phones on passthrough are dropped, the old pin is refused from
-// then on, and host.tls_pin hands out the new one with a higher counter.
+// A rotated key: connected phones are dropped, the old pin is refused from then
+// on, and the new key carries a higher counter.
 func TestRotatingTheTLSKey(t *testing.T) {
 	r := newRemote(t)
 	phone := r.pair(t)
@@ -308,34 +343,141 @@ func TestRotatingTheTLSKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.srv.CloseRemote()
-	testwait.For(t, "the old session to drop", func() bool { return call(t, before, "host.tls_pin", nil, nil) != nil })
+	testwait.For(t, "the old session to drop", func() bool { return call(t, before, "devices.list", nil, nil) != nil })
 	if _, err := r.dial(t, phone, r.pin); err == nil {
 		t.Fatal("the old pin still connects after rotation")
 	}
-	after, err := r.dial(t, phone, next.SPKI)
-	if err != nil {
+	if _, err := r.dial(t, phone, next.SPKI); err != nil {
 		t.Fatalf("the new pin doesn't connect: %v", err)
 	}
-	var pin device.SignedPin
-	if err := call(t, after, "host.tls_pin", nil, &pin); err != nil || pin.Counter != 2 || [32]byte(pin.SPKI) != next.SPKI {
-		t.Fatalf("host.tls_pin after rotation = %+v, %v", pin, err)
+	if next.Pin.Counter <= r.cert.Pin.Counter {
+		t.Fatalf("the new pin's counter is %d, not above %d", next.Pin.Counter, r.cert.Pin.Counter)
 	}
 }
 
-func TestRemoteReadsUpToTheHostsLimit(t *testing.T) {
-	// A host on a custom relay raises its limit; the direct route must too.
-	jsonrpc.SetLimit(jsonrpc.CustomRelayMessageBytes)
-	t.Cleanup(func() { jsonrpc.SetLimit(jsonrpc.MaxMessageBytes) })
+// counted is a TCP connection that tallies the bytes it reads.
+type counted struct {
+	net.Conn
+	n *atomic.Int64
+}
+
+func (c counted) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	c.n.Add(int64(n))
+	return n, err
+}
+
+// A phone that asks for deflate gets a large page compressed on the wire; one
+// that doesn't, as app 1.0.3, gets the same page as plain text.
+func TestANegotiatedConnectionCarriesACompressedPage(t *testing.T) {
 	r := newRemote(t)
-	c, err := r.dial(t, r.pair(t), r.pin)
+	var rows []string
+	for i := range 2000 {
+		rows = append(rows, fmt.Sprintf(`{"idx":%d,"kind":"assistant","text":"retry the upload"}`, i))
+	}
+	file := filepath.Join(r.root, "page.json")
+	if err := os.WriteFile(file, []byte("["+strings.Join(rows, ",")+"]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func(deflate bool) (int64, []byte) {
+		var n atomic.Int64
+		c, err := r.dial(t, r.pair(t), r.pin, func(cfg *hostclient.Config) {
+			cfg.Deflate = deflate
+			cfg.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+				return counted{conn, &n}, err
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Deflating() != deflate {
+			t.Fatalf("asked for deflate %v, got %v", deflate, c.Deflating())
+		}
+		before := n.Load()
+		var got struct {
+			Content []byte `json:"content"`
+		}
+		if err := call(t, c, "fs.read", map[string]string{"path": file}, &got); err != nil {
+			t.Fatal(err)
+		}
+		return n.Load() - before, got.Content
+	}
+	plainBytes, plain := read(false)
+	packedBytes, packed := read(true)
+	if !bytes.Equal(packed, plain) || !bytes.Contains(packed, []byte(`"idx":1999`)) {
+		t.Fatal("the compressed page didn't read back as the plain one")
+	}
+	t.Logf("page: %d bytes compressed, %d plain", packedBytes, plainBytes)
+	if packedBytes*3 > plainBytes {
+		t.Fatalf("the page took %d bytes compressed and %d plain; want at least 3x smaller", packedBytes, plainBytes)
+	}
+}
+
+// A stranger admitted to pair has a short window for its one pair.complete,
+// separate from the code's own lifetime: one that connects and goes silent is
+// dropped rather than holding a slot.
+func TestASilentStrangerIsDroppedAfterThePairingDeadline(t *testing.T) {
+	wsserver.ShortenTimeouts(t, 5*time.Second, 200*time.Millisecond, 64)
+	r := newRemote(t)
+	if _, err := r.pairer.Begin("wss://relay.test/ws"); err != nil {
+		t.Fatal(err)
+	}
+	stranger, _ := device.Generate()
+	c, err := r.dial(t, stranger, r.pin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Past the RepoGo relay's 8 MiB: the method may refuse it, the socket may not.
-	big := strings.Repeat("x", jsonrpc.MaxMessageBytes+1<<20)
-	_ = call(t, c, "host.tls_pin", map[string]string{"pad": big}, nil)
-	var pin device.SignedPin
-	if err := call(t, c, "host.tls_pin", nil, &pin); err != nil {
-		t.Fatalf("the connection did not survive a message over 8 MiB: %v", err)
+	testwait.For(t, "the silent stranger dropped", func() bool {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		return c.Ping(ctx) != nil
+	})
+}
+
+// A passthrough connection that never says hello is closed after the hello
+// window, and only so many may wait at once; a paired phone still connects.
+func TestUnprovenConnectionsAreCappedAndTimedOut(t *testing.T) {
+	wsserver.ShortenTimeouts(t, 300*time.Millisecond, 15*time.Second, 2)
+	r := newRemote(t)
+	silent := func() (*websocket.Conn, error) {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		ws, _, err := websocket.Dial(ctx, r.url, &websocket.DialOptions{HTTPClient: &http.Client{Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13},
+		}}})
+		if err == nil {
+			t.Cleanup(func() { ws.CloseNow() })
+		}
+		return ws, err
 	}
+	first, err := silent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := silent(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := silent(); err == nil {
+		t.Fatal("a third connection waited past the cap")
+	}
+	// Each silent one is closed at the end of its window, freeing the cap.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for {
+		if _, _, err := first.Read(ctx); err != nil {
+			break
+		}
+	}
+	if ctx.Err() != nil {
+		t.Fatal("a silent connection outlived its hello window")
+	}
+	phone := r.pair(t)
+	testwait.For(t, "a paired phone to connect", func() bool {
+		c, err := r.dial(t, phone, r.pin)
+		if err == nil {
+			c.Close()
+		}
+		return err == nil
+	})
 }

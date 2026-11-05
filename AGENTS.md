@@ -4,7 +4,7 @@ Applies to everything in this repo. Checked out as `apps/host` inside the RepoGo
 app repo, that repo's root `AGENTS.md` and internal notes apply too.
 
 One Go module (`github.com/repogoapp/host`): the `repogo` host binary and the hosted
-`relay`. `README.md` is the public, customer-facing page. No hosted database and
+relay, `hrelay`. `README.md` is the public, customer-facing page. No hosted database and
 one small relay is the point; keep it that way.
 
 ## Never
@@ -53,9 +53,10 @@ them; comments explain why, in one line, only where it isn't obvious.
 
 | Package | Role | Smell |
 | --- | --- | --- |
-| `jsonrpc`, `handshake`, `tunnelwire` | Wire structs and codes, no behaviour; `tunnelwire` is public so the tunnel gateway shares it | any import |
+| `jsonrpc`, `handshake`, `wirecodec`, `tunnelwire` | Wire structs, codes and the per-message codec, no other behaviour; `tunnelwire` is public so the tunnel gateway shares it | any import |
 | `chatwire`, `wirejson` | What leaves the host: a chat's transcript as the phone receives it, and required arrays at JSON boundaries | parsing transcripts |
-| `wsserver`, `wsconn`, `relay/`, `internal/relay`, `hostlink`, `redial`, `hostclient`, `securechan`, `api` | Move bytes: server, shared WebSocket connection, dumb router, host dial and its one reconnect loop, Go test client, end-to-end seal/open, loopback HTTP onto `rpc` | knows what a chat is |
+| `wsserver`, `wsconn`, `passthrough`, `hosttls`, `redial`, `hostclient`, `api` | Move bytes: server, shared WebSocket connection, the relay that pipes phones' TLS and the host's link to it, the host's pinned TLS key, the one reconnect loop, Go test client, loopback HTTP onto `rpc` | knows what a chat is |
+| `pushgate` | The relay's side of a push: the phone's grant, rate limits, APNs | host state |
 | `appattest` | Verify Apple app attestation and assertions for push authorization | app or host state |
 | `rpc`, `rpc/<family>` | One method → one core call; typed params and result, access and lifetime on the `rpc.Add` line. Thin | logic a second transport would copy |
 | `rpc/registry` | Wiring table only; every service required | needs helper funcs |

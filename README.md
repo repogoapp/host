@@ -35,8 +35,7 @@ can pair and start chatting right away.
 | `npx @repogo/host logs` | Show the host's logs |
 | `npx @repogo/host update` | Update to the latest version; refuses while chats, terminals or actions are running (`--now` stops them) |
 | `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
-| `npx @repogo/host relay` / `relay set <wss-url>` / `relay reset` | Show the relay, switch to your own, or go back to RepoGo's; switching unpairs your devices, so pair them again |
-| `npx @repogo/host tls rotate` | Replace the host's TLS key, for one that may have leaked; phones learn the new one on their next connection |
+| `npx @repogo/host tls rotate` | Replace the host's TLS key, for one that may have leaked; every paired device pairs again |
 | `npx @repogo/host tunnels` / `tunnels close <slug>` | List the public URLs open to your local servers, or close one |
 | `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
 
@@ -47,18 +46,12 @@ The host has three parts.
 ### Connections
 
 The host dials out and listens only on `127.0.0.1`, never on your network.
-Phones reach it one of two ways, both end-to-end encrypted:
+Phones reach it through RepoGo's relay, `h.repogo.app`, over TLS 1.3 that runs
+straight from the phone to the host: the relay only pipes the bytes.
 
-- **Direct** (TLS passthrough), the default with RepoGo's relay. Phones run
-  TLS 1.3 straight to the host, and the relay only pipes the bytes.
-- **Relay** (Noise), RepoGo's earlier channel. Hosts before 0.1.42, phones
-  that haven't learned the host's TLS pin yet, and custom relays use it.
-
-Pairing gives the phone the host's identity (an Ed25519 key) and, on 0.1.42
-and later, its signed TLS pin. A phone's own key is Ed25519, or P-256 when it
-lives in the iPhone's Secure Enclave.
-
-#### Direct
+Pairing gives the phone the host's identity (an Ed25519 key) and its signed
+TLS pin. A phone's own key is Ed25519, or P-256 when it lives in the iPhone's
+Secure Enclave.
 
 ```
 phone ──TLS 1.3──▶ relay ──same bytes──▶ host
@@ -66,7 +59,7 @@ phone ──TLS 1.3──▶ relay ──same bytes──▶ host
         reads the name, holds no key
 ```
 
-1. The host holds a link to `h.repogo.app:443`, the passthrough relay in
+1. The host holds a link to `h.repogo.app:443`, the relay in
    [`hrelay/`](hrelay/). That TLS ends at the relay with a Let's Encrypt
    certificate, and the host proves its identity by signing a challenge.
 2. A phone opens TLS to `<host-id>.h.repogo.app`. The relay reads the server
@@ -77,13 +70,18 @@ phone ──TLS 1.3──▶ relay ──same bytes──▶ host
    `~/.repogo/tls-key.json` (0600) and a fresh self-signed certificate wraps it
    at each start. The phone pins the key's SPKI SHA-256, signed by the host's
    identity over `repogo-tls-pin-v1`, the host ID, the SPKI and a counter, and
-   ignores CAs. `repogo tls rotate` makes a new key under the next counter;
-   phones refuse the new certificate once, fetch its signed pin over the relay
-   channel, and come back direct.
+   ignores CAs. `repogo tls rotate` makes a new key under the next counter; no
+   phone trusts it, so every device pairs again.
 4. TLS is 1.3 only on both ends, so the key exchange is X25519MLKEM768.
 5. The phone's hello signs the host's challenge plus 32 bytes exported from
    this TLS session (`EXPORTER-repogo-hello`), so a signature can't be replayed
    on another connection. The host checks it against its paired devices.
+6. A hello may ask for compression (`"deflate": true`), and the host's reply
+   confirms it. From then on every message, both ways, is a binary frame: one
+   codec byte (`0x00` raw, `0x01` deflate), then the message. Each message is
+   compressed alone, and only when it is 1 KB or more and shrinks to 90% or
+   less; it may not inflate past the 8 MB message limit. Without the flag,
+   messages stay plain text frames.
 
 A phone that isn't paired is let in only while a pairing code is live, and only
 for one `pair.complete` of its own key. `devices.rotate` moves a paired phone to
@@ -93,58 +91,32 @@ no pairing again.
 
 The relay caps each address at 32 connections and each host at 16 phones
 waiting to be dialed back, pings links every 25 s, and drops a control line
-over 64 KB. `REPOGO_HRELAY` sets the passthrough relay's address (`host:port`)
-or turns it `off`; a host on a custom relay leaves it off unless set.
+over 64 KB. `REPOGO_HRELAY` sets the relay's address (`host:port`) or turns it
+`off`, and `REPOGO_HRELAY_CA` names a PEM file of extra roots for a relay with
+a private certificate.
 
-#### Relay channel
+#### Push notifications
 
-Each phone connects to RepoGo's relay (or yours) over a WebSocket, and the
-relay routes each message by a small header and never holds a key. Each
-connection runs a Noise XX handshake with an ML-KEM-1024 step
-(`Noise_XXhfs_25519+MLKEM1024_AESGCM_SHA256`), so messages are sealed with
-AES-GCM and the key exchange is post-quantum. The phone and the host each check
-the other's paired identity before anything is sent.
-
-A saved pairing starts with frame `0x04` instead of the pairing handshake's
-`0x01`. If the device is no longer paired, the host returns `0x05` followed by
-an Ed25519 signature over `repogo-not-paired-v1`, the 16-byte phone and host
-IDs, and SHA-256 of that request frame. The fresh handshake binds the refusal
-to one connection attempt, so a relay cannot forge or replay it. The phone
-keeps the environment listed as No Longer Paired and stops reconnecting until
-the user pairs again. A missing reply remains an ordinary connection failure.
-
-The relay bounds handshakes to 8 KiB and allows 240 connection attempts per
-address in each one-minute window, counting an IPv6 /64 as one address. One
-address holds at most 16 sockets at once, and one IPv6 /48 at most 64. It
-tracks at most 4,096 addresses per window; past that, new addresses keep only
-the concurrent-connection cap until the next window. Offline presence is best
-effort: it remembers at most 4,096 departed devices with 128 peers each, and
-never retains a device with no peers. When that cache is full, the oldest
-departure is forgotten; connected devices still exchange traffic.
-
+The relay holds the APNs key, so the host sends each push on its link to it.
 Push notifications require a grant signed by the paired phone and an Apple App
 Attest assertion covering the host, token, APNs environment, and grant time. The
-app only grants tokens received through its notification APIs. The relay pins
-Apple's App Attest root and the app's identifier; a self-created identity and a
-leaked token are insufficient. Grants are reusable for up to 7 days, with Apple's
+relay checks the grant against the host its link proved. The app only grants
+tokens received through its notification APIs. The relay pins Apple's App
+Attest root and the app's identifier; a self-created identity and a leaked token
+are insufficient. Grants are reusable for up to 7 days, with Apple's
 certificates checked as of the grant's signed time, so their assertion counters
-are not treated as one-shot login counters. The attestation binds the app key to the phone identity.
+are not treated as one-shot login counters. The attestation binds the app key to
+the phone identity.
 
 The relay can't revoke a grant, so an unpaired host can push until its last
-grant expires; phones re-sign on every connection. Behind a proxy, set
-`RELAY_CLIENT_IP_HEADER` to the header it puts the caller's address in, and
-only when it sets that header on every request; otherwise leave it unset.
-
-Self-hosted relays that send push notifications need `APPLE_APP_ID_PREFIX`
-(defaults to `APNS_TEAM_ID`) and `APPLE_BUNDLE_ID` (defaults to `app.repogo`).
-The iOS app needs the App Attest capability in its provisioning profile; the
-App Clip receives no pushes. This grant format requires matching iOS, host, and
-relay releases; signature-only grants are refused, and phones must reconnect to
-register fresh grants. Push registration fails closed when App Attest is unavailable.
+grant expires; phones re-sign on every connection. Each host may send 240
+pushes a minute and each token may receive 120. The iOS app needs the App
+Attest capability in its provisioning profile; the App Clip receives no pushes.
+Push registration fails closed when App Attest is unavailable.
 
 ### RPC calls
 
-The phone talks to the host in JSON-RPC 2.0 over either connection: list
+The phone talks to the host in JSON-RPC 2.0 over that connection: list
 chats, send a prompt, read a file, check git status, open a terminal. The host
 pushes live updates (a reply streaming in, a file changing) the same way. Every
 method's params and result are listed in [`docs/host-methods.md`](docs/host-methods.md),
@@ -203,14 +175,13 @@ go test ./...
 ```
 
 `internal/rpc/conformance` runs every method through the in-process router, a
-local WebSocket, and a real relay, on temporary data.
+local WebSocket, and the host's pinned TLS, on temporary data.
 
 ### Layout
 
 ```
 repogo/      the host binary: commands, config, start, update
-relay/       the relay channel's relay, which routes encrypted bytes
-hrelay/      the passthrough relay behind h.repogo.app, which pipes TLS
+hrelay/      the relay behind h.repogo.app: pipes phones' TLS, sends pushes
 npm/         the `npx @repogo/host` installer
 plugins-sdk/ `@repogo/plugins`, the package plugins are written with
 tunnelwire/  wire types shared with the tunnel gateway

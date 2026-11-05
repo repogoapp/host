@@ -45,7 +45,7 @@ var (
 // Invite is what the QR encodes.
 type Invite struct {
 	// Where to reach the host. For local pairing this is the loopback address;
-	// for remote it is the relay.
+	// for remote it is the relay's address.
 	Address string `json:"address"`
 
 	GroupID string `json:"group_id"`
@@ -61,8 +61,8 @@ type Invite struct {
 	Code      string `json:"code"`
 	ExpiresAt int64  `json:"expires_at"`
 
-	// TLSPin, when the host serves passthrough TLS, is its pinned TLS key,
-	// signed by InviterPublic. Older apps ignore it and use the relay channel.
+	// TLSPin, when the host has a relay, is the TLS key phones pin, signed by
+	// InviterPublic: a phone reaches the host only with it.
 	TLSPin *SignedPin `json:"tls_pin,omitempty"`
 }
 
@@ -119,12 +119,19 @@ func (p *Pairer) SetTLSPin(pin SignedPin) {
 	p.tlsPin = &pin
 }
 
+// TLSPin is the pin phones dial now; nil without a relay.
+func (p *Pairer) TLSPin() *SignedPin {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.tlsPin
+}
+
 type reusableCode struct {
 	Code      string `json:"code"`
 	ExpiresAt int64  `json:"expires_at"`
 
-	// TLSPin, when the host serves passthrough TLS, is its pinned TLS key,
-	// signed by InviterPublic. Older apps ignore it and use the relay channel.
+	// TLSPin, when the host has a relay, is the TLS key phones pin, signed by
+	// InviterPublic: a phone reaches the host only with it.
 	TLSPin *SignedPin `json:"tls_pin,omitempty"`
 }
 

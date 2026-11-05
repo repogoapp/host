@@ -1,10 +1,9 @@
-// Package hostclient is the Go client the benches and conformance suite drive;
-// Host empty talks to the socket's peer, Host set routes through the relay.
+// Package hostclient is the Go client the benches and conformance suite drive,
+// on loopback or over a host's pinned TLS through the relay.
 package hostclient
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -19,8 +18,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/handshake"
 	"github.com/repogoapp/host/internal/jsonrpc"
-	"github.com/repogoapp/host/internal/relay"
-	"github.com/repogoapp/host/internal/securechan"
+	"github.com/repogoapp/host/internal/wirecodec"
 	"github.com/repogoapp/host/internal/wsconn"
 )
 
@@ -39,14 +37,8 @@ type Config struct {
 	Platform string
 
 	// LocalToken authenticates a same-machine caller that has no keypair. It is
-	// rejected by the relay, where a signature is the only proof.
+	// refused over TLS, where a signature is the only proof.
 	LocalToken string
-
-	// Host routes every message through the relay to this device, inside the
-	// end-to-end channel HostPublic pins. Empty means the peer on the other
-	// end of the socket IS the host.
-	Host       device.ID
-	HostPublic ed25519.PublicKey
 
 	// Unsigned skips the challenge signature; a same-machine client authenticates
 	// with LocalToken alone.
@@ -64,13 +56,14 @@ type Config struct {
 	// Dial replaces the TCP dial, as to reach a host by name through a relay
 	// address the name does not resolve to.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Deflate asks for compressed messages, as the phone does.
+	Deflate bool
 }
 
 type Client struct {
 	cfg  Config
 	ws   *wsconn.Conn
 	peer string
-	sess *securechan.Session
 	bind []byte
 
 	mu      sync.Mutex
@@ -114,7 +107,7 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 			return nil, fmt.Errorf("hostclient: TLS exporter: %w", err)
 		}
 	}
-	ws.SetReadLimit(int64(relay.FrameBytes(jsonrpc.Limit())))
+	ws.SetReadLimit(jsonrpc.MaxMessageBytes + wirecodec.Overhead)
 
 	c := &Client{
 		cfg:           cfg,
@@ -127,16 +120,12 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		ws.CloseNow()
 		return nil, err
 	}
-	if cfg.Host != "" {
-		c.sess, err = securechan.Initiate(ctx, cfg.Identity, cfg.Host, cfg.HostPublic, c.writeRouted, c.readRouted)
-		if err != nil {
-			ws.CloseNow()
-			return nil, fmt.Errorf("hostclient: secure channel: %w", err)
-		}
-	}
 	go c.read()
 	return c, nil
 }
+
+// Deflating reports whether the host agreed to compressed messages.
+func (c *Client) Deflating() bool { return c.ws.Deflating() }
 
 // ServerVersion is the build the peer reported at handshake.
 func (c *Client) ServerVersion() string { return c.peer }
@@ -168,6 +157,7 @@ func (c *Client) shake(ctx context.Context) error {
 		Platform:   c.cfg.Platform,
 		Label:      c.cfg.Label,
 		LocalToken: c.cfg.LocalToken,
+		Deflate:    c.cfg.Deflate,
 	}, sign)
 	if err != nil {
 		return fmt.Errorf("hostclient: %w", err)
@@ -225,13 +215,7 @@ func (c *Client) Call(ctx context.Context, method string, params, into any) erro
 func (c *Client) read() {
 	defer close(c.Notifications)
 	for {
-		var b []byte
-		var err error
-		if c.cfg.Host != "" {
-			b, err = c.readRecord()
-		} else {
-			_, b, err = c.ws.Read(context.Background())
-		}
+		_, b, err := c.ws.Read(context.Background())
 		if err != nil {
 			c.fail(err)
 			return
@@ -285,49 +269,7 @@ func (c *Client) send(ctx context.Context, m *jsonrpc.Message) error {
 	if err != nil {
 		return err
 	}
-	if c.cfg.Host == "" {
-		return c.ws.Write(ctx, websocket.MessageText, b)
-	}
-	return c.sess.Seal(b, func(wire []byte) error { return c.writeRouted(ctx, wire) })
-}
-
-// writeRouted wraps a payload in the relay envelope addressed to the host.
-func (c *Client) writeRouted(ctx context.Context, payload []byte) error {
-	envelope, err := relay.Encode(c.cfg.Host, payload)
-	if err != nil {
-		return err
-	}
-	return c.ws.SendBinary(ctx, envelope)
-}
-
-// readRouted returns the next payload the host sent, whatever its kind.
-func (c *Client) readRouted(ctx context.Context) ([]byte, error) {
-	for {
-		_, b, err := c.ws.Read(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if _, payload, err := relay.Decode(b); err == nil && len(payload) > 0 {
-			return payload, nil
-		}
-	}
-}
-
-// readRecord opens the next record. A reset means the host lost our
-// session; like the phone, this client treats that as a dropped connection.
-func (c *Client) readRecord() ([]byte, error) {
-	for {
-		payload, err := c.readRouted(context.Background())
-		if err != nil {
-			return nil, err
-		}
-		switch payload[0] {
-		case securechan.Record:
-			return c.sess.Open(payload)
-		case securechan.Reset:
-			return nil, securechan.ErrNoSession
-		}
-	}
+	return c.ws.Write(ctx, websocket.MessageText, b)
 }
 
 // trimQuotes turns a raw JSON id back into the string we sent. Ids are opaque

@@ -60,8 +60,10 @@ func TestStatusCarriesTheNetworkWithoutWaitingOnTheLookup(t *testing.T) {
 }
 
 func newService(p Battery) *Service {
-	return New(Deps{Power: p, Relay: func() bool { return false }})
+	return New(Deps{Power: p, Relay: func() bool { return false }, ReadDevice: func() Device { return studio }})
 }
+
+var studio = Device{OS: "macos", OSVersion: "26.1", FormFactor: FormDesktop, ModelName: "Mac Studio"}
 
 func TestADevelopmentBuildCannotUpdate(t *testing.T) {
 	got := newService(reading{}).Release(t.Context())

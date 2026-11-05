@@ -3,21 +3,17 @@ package pushtest
 
 import (
 	"context"
-	"encoding/json"
 
-	"github.com/repogoapp/host/internal/relay"
+	"github.com/repogoapp/host/internal/pushgate"
 )
 
-// Sender records every push.send and answers each with Reply.
+// Sender records every push and answers each with Reply.
 type Sender struct {
-	Calls []relay.PushRequest
+	Calls []pushgate.PushRequest
 	Reply error
 }
 
-func (s *Sender) Control(_ context.Context, method string, params any) (json.RawMessage, error) {
-	if method != "push.send" {
-		panic(method)
-	}
-	s.Calls = append(s.Calls, params.(relay.PushRequest))
-	return nil, s.Reply
+func (s *Sender) Push(_ context.Context, req pushgate.PushRequest) error {
+	s.Calls = append(s.Calls, req)
+	return s.Reply
 }

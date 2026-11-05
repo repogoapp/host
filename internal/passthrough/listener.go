@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/pushgate"
 )
 
-// Listener is the host's end: it holds a link to the relay and yields each
-// phone stream the relay announces. The streams are still the phone's TLS;
-// wrap the Listener with tls.NewListener and the host's pinned certificate.
+// Listener is the host's end: it holds a link to the relay, yields each phone
+// stream announced there, and sends pushes on it. The streams are still the
+// phone's TLS; wrap the Listener with tls.NewListener and the pinned certificate.
 type Listener struct {
 	// RelayAddr is the relay's TCP address; LinkTLS reaches its own name.
 	RelayAddr string
@@ -31,16 +33,37 @@ type Listener struct {
 	cancel context.CancelFunc
 	once   sync.Once
 
-	mu     sync.Mutex
-	linked bool
+	mu sync.Mutex
+	// out writes to the current link; nil while there is none.
+	out     *linkWriter
+	nextID  uint64
+	pending map[uint64]chan relayLine
 }
 
-var ErrClosed = errors.New("passthrough: listener closed")
+type linkWriter struct {
+	mu   sync.Mutex
+	conn net.Conn
+	enc  *json.Encoder
+}
+
+func (w *linkWriter) send(line hostLine) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	defer w.conn.SetWriteDeadline(time.Time{})
+	return w.enc.Encode(line)
+}
+
+var (
+	ErrClosed = errors.New("passthrough: listener closed")
+	errNoLink = &jsonrpc.Error{Code: jsonrpc.CodeUnavailable, Message: "not linked to the relay"}
+)
 
 // Listen holds the link until ctx ends or Close, dialing again when it drops.
 func Listen(ctx context.Context, l *Listener) *Listener {
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.conns = make(chan net.Conn)
+	l.pending = map[uint64]chan relayLine{}
 	go l.run(ctx)
 	return l
 }
@@ -64,7 +87,50 @@ func (l *Listener) Addr() net.Addr { return relayAddr(l.RelayAddr) }
 func (l *Listener) Linked() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.linked
+	return l.out != nil
+}
+
+// Push asks the relay to deliver req through APNs. A refusal is a
+// *jsonrpc.Error with the relay's code; CodeNotFound is a dead token.
+func (l *Listener) Push(ctx context.Context, req pushgate.PushRequest) error {
+	reply := make(chan relayLine, 1)
+	l.mu.Lock()
+	out := l.out
+	if out == nil {
+		l.mu.Unlock()
+		return errNoLink
+	}
+	l.nextID++
+	id := l.nextID
+	l.pending[id] = reply
+	l.mu.Unlock()
+	defer func() {
+		l.mu.Lock()
+		delete(l.pending, id)
+		l.mu.Unlock()
+	}()
+	if err := out.send(hostLine{Op: "push", ID: id, Push: &req}); err != nil {
+		return err
+	}
+	select {
+	case answer := <-reply:
+		if answer.OK {
+			return nil
+		}
+		return &jsonrpc.Error{Code: answer.Code, Message: answer.Error}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// answered hands a push reply to its caller; a link that drops fails the rest.
+func (l *Listener) answered(line relayLine) {
+	l.mu.Lock()
+	reply := l.pending[line.ID]
+	l.mu.Unlock()
+	if reply != nil {
+		reply <- line
+	}
 }
 
 func (l *Listener) run(ctx context.Context) {
@@ -72,7 +138,7 @@ func (l *Listener) run(ctx context.Context) {
 	backoff := 250 * time.Millisecond
 	for ctx.Err() == nil {
 		err := l.hold(ctx)
-		l.setLinked(false)
+		l.setLinked(nil)
 		if ctx.Err() != nil {
 			return
 		}
@@ -103,7 +169,8 @@ func (l *Listener) hold(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := json.NewEncoder(conn).Encode(hostLine{
+	out := &linkWriter{conn: conn, enc: json.NewEncoder(conn)}
+	if err := out.send(hostLine{
 		Op:        "hello",
 		DeviceID:  string(l.Identity.ID),
 		PublicKey: l.Identity.Public,
@@ -118,7 +185,8 @@ func (l *Listener) hold(ctx context.Context) error {
 	if !answer.OK {
 		return errors.New("passthrough: relay refused the link: " + answer.Error)
 	}
-	l.setLinked(true)
+	l.setLinked(out)
+	l.Log.Info("passthrough: linked to the relay", "relay", l.RelayAddr)
 	for {
 		if l.IdleTimeout > 0 {
 			conn.SetReadDeadline(time.Now().Add(l.IdleTimeout))
@@ -127,8 +195,11 @@ func (l *Listener) hold(ctx context.Context) error {
 		if err := readLine(reader, &notice); err != nil {
 			return err
 		}
-		if notice.Dial != "" {
+		switch {
+		case notice.Dial != "":
 			go l.accept(ctx, notice.Dial)
+		case notice.ID != 0:
+			l.answered(notice)
 		}
 	}
 }
@@ -166,10 +237,19 @@ func (l *Listener) dial(ctx context.Context, first hostLine) (*tls.Conn, *bufio.
 	return conn, bufio.NewReader(conn), nil
 }
 
-func (l *Listener) setLinked(v bool) {
+// setLinked records the current link, or none; pushes waiting on a dropped
+// link fail at once rather than at their deadline.
+func (l *Listener) setLinked(out *linkWriter) {
 	l.mu.Lock()
-	l.linked = v
-	l.mu.Unlock()
+	defer l.mu.Unlock()
+	l.out = out
+	if out != nil {
+		return
+	}
+	for id, reply := range l.pending {
+		reply <- relayLine{ID: id, Code: errNoLink.Code, Error: "the link to the relay dropped"}
+		delete(l.pending, id)
+	}
 }
 
 type relayAddr string

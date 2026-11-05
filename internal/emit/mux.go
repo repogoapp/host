@@ -8,26 +8,18 @@ import (
 )
 
 // ErrNoRoute is returned when no transport can reach a device: none has
-// claimed it and there is no fallback.
+// claimed it.
 var ErrNoRoute = errors.New("emit: no route to device")
 
 // Mux is the Transport producers hold: a push goes out on whichever transport
-// attached the device, else the fallback, the relay, whose sessions this host cannot see.
+// attached the device, its socket on loopback or through the relay.
 type Mux struct {
-	mu       sync.RWMutex
-	routes   map[device.ID]Transport
-	fallback Transport
+	mu     sync.RWMutex
+	routes map[device.ID]Transport
 }
 
 func NewMux() *Mux {
 	return &Mux{routes: map[device.ID]Transport{}}
-}
-
-// SetFallback is where a device is sent when nothing has attached for it.
-func (m *Mux) SetFallback(t Transport) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.fallback = t
 }
 
 // Attach claims a device for a transport. A later attach replaces an earlier
@@ -49,7 +41,7 @@ func (m *Mux) Detach(d device.ID, t Transport) {
 }
 
 // Attached is every device a transport has claimed: the clients with a
-// socket on this host, local ones included; phones on the relay are not.
+// socket on this host, on loopback or through the relay.
 func (m *Mux) Attached() []device.ID {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -60,13 +52,10 @@ func (m *Mux) Attached() []device.ID {
 	return ids
 }
 
-// Send delivers to the device's attached transport, else the fallback.
+// Send delivers to the device's attached transport.
 func (m *Mux) Send(to device.ID, method string, payload []byte) error {
 	m.mu.RLock()
-	t, ok := m.routes[to]
-	if !ok {
-		t = m.fallback
-	}
+	t := m.routes[to]
 	m.mu.RUnlock()
 	if t == nil {
 		return ErrNoRoute

@@ -469,3 +469,41 @@ func mustDial(t *testing.T, addr string) net.Conn {
 	}
 	return c
 }
+
+// A stream stops counting as waiting once its host dials back: streams a
+// stranger opens and then holds can't fill the cap and lock real phones out.
+func TestHeldStreamsDoNotFillTheWaitingCap(t *testing.T) {
+	s := startWith(t, options{relay: func(r *Relay) { r.MaxWaitingPerHost = 1 }})
+	name := string(s.host.ID) + suffix
+	for range 3 {
+		held := tls.Client(mustDial(t, s.direct), &tls.Config{ServerName: name, InsecureSkipVerify: true})
+		t.Cleanup(func() { held.Close() })
+		held.SetDeadline(time.Now().Add(5 * time.Second))
+		if err := held.Handshake(); err != nil {
+			t.Fatalf("a stream didn't reach the host: %v", err)
+		}
+	}
+	testwait.For(t, "no stream left waiting", func() bool { return s.relay.waitingOn(s.host.ID) == 0 })
+	resp, err := s.phone(name, s.pin)
+	if err != nil {
+		t.Fatalf("held streams locked the phone out: %v", err)
+	}
+	resp.Body.Close()
+}
+
+// One machine is usually handed an IPv6 /64 whole, so the per-address cap
+// counts the /64; IPv4, and IPv4 written as IPv6, count per address.
+func TestAddressKeyCountsAnIPv6PrefixAsOne(t *testing.T) {
+	for in, want := range map[string]string{
+		"2001:db8:1:2::1":      "2001:db8:1:2::/64",
+		"2001:db8:1:2:ffff::9": "2001:db8:1:2::/64",
+		"2001:db8:1:3::1":      "2001:db8:1:3::/64",
+		"203.0.113.9":          "203.0.113.9",
+		"::ffff:203.0.113.9":   "::ffff:203.0.113.9",
+		"not an address":       "not an address",
+	} {
+		if got := addressKey(in); got != want {
+			t.Errorf("addressKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

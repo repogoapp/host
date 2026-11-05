@@ -15,30 +15,25 @@ func (r *recorder) Send(to device.ID, method string, _ []byte) error {
 	return nil
 }
 
-func TestMuxPrefersAttachedRouteOverFallback(t *testing.T) {
-	direct, relay := &recorder{}, &recorder{}
+func TestMuxSendsOnTheAttachedRoute(t *testing.T) {
+	direct := &recorder{}
 	m := emit.NewMux()
-	m.SetFallback(relay)
 	m.Attach("phone", direct)
 
 	if err := m.Send("phone", "x.y", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Send("laptop", "x.y", nil); err != nil {
-		t.Fatal(err)
+	if err := m.Send("laptop", "x.y", nil); !errors.Is(err, emit.ErrNoRoute) {
+		t.Errorf("an unattached device: err = %v, want ErrNoRoute", err)
 	}
 	if len(direct.got) != 1 || direct.got[0] != "phone x.y" {
 		t.Errorf("direct got %v, want the phone's frame", direct.got)
 	}
-	if len(relay.got) != 1 || relay.got[0] != "laptop x.y" {
-		t.Errorf("relay got %v, want the unattached device's frame", relay.got)
-	}
 }
 
 func TestMuxDetachOnlyByCurrentHolder(t *testing.T) {
-	old, next, relay := &recorder{}, &recorder{}, &recorder{}
+	old, next := &recorder{}, &recorder{}
 	m := emit.NewMux()
-	m.SetFallback(relay)
 
 	m.Attach("phone", old)
 	m.Attach("phone", next) // reconnect before the old socket noticed
@@ -48,15 +43,12 @@ func TestMuxDetachOnlyByCurrentHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(next.got) != 1 {
-		t.Errorf("the reconnected route was lost: next=%v relay=%v", next.got, relay.got)
+		t.Errorf("the reconnected route was lost: next=%v", next.got)
 	}
 
 	m.Detach("phone", next)
-	if err := m.Send("phone", "x.y", nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(relay.got) != 1 {
-		t.Errorf("after a real detach the fallback should carry it; relay=%v", relay.got)
+	if err := m.Send("phone", "x.y", nil); !errors.Is(err, emit.ErrNoRoute) {
+		t.Errorf("after a real detach: err = %v, want ErrNoRoute", err)
 	}
 }
 

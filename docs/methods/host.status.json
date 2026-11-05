@@ -13,6 +13,12 @@
     "total_bytes": 1,
     "free_bytes": 1
   },
+  "device": {
+    "os": "os",
+    "os_version": "os_version",
+    "form_factor": "form_factor",
+    "model_name": "model_name"
+  },
   "network": {
     "lan_ip": "lan_ip",
     "public_ip": "public_ip",

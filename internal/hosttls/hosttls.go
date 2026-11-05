@@ -55,7 +55,7 @@ func LoadOrCreate(path string, host *device.Identity) (*Cert, error) {
 		if err != nil {
 			return nil, err
 		}
-		s = stored{Key: der, Counter: 1}
+		s = stored{Key: der, Counter: nextCounter(0)}
 		if err := apphome.WriteJSON(path, s, 0o600); err != nil {
 			return nil, fmt.Errorf("hosttls: write %s: %w", path, err)
 		}
@@ -69,6 +69,13 @@ func LoadOrCreate(path string, host *device.Identity) (*Cert, error) {
 		return nil, errors.New("hosttls: key is not ECDSA")
 	}
 	return issue(key, s.Counter, host)
+}
+
+// nextCounter is the counter a new key takes: past the last one, and never
+// below the time in seconds, so a host whose key file was lost (a reinstall)
+// still starts above every pin its phones hold and they accept the new key.
+func nextCounter(last int64) int64 {
+	return max(last+1, time.Now().Unix())
 }
 
 func issue(key *ecdsa.PrivateKey, counter int64, host *device.Identity) (*Cert, error) {
@@ -152,7 +159,7 @@ func (k *Keys) Rotate() (*Cert, error) {
 	if err != nil {
 		return nil, err
 	}
-	next := k.Current().Pin.Counter + 1
+	next := nextCounter(k.Current().Pin.Counter)
 	c, err := issue(key, next, k.host)
 	if err != nil {
 		return nil, err

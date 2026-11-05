@@ -1,5 +1,6 @@
 // Command hrelaye2e checks a deployed passthrough relay end to end: a
-// throwaway host links to it, and a pinned client reaches that host by name.
+// throwaway host links to it, a pinned client reaches that host by name, and a
+// push without Apple's evidence is refused by the relay's gate, not dropped.
 //
 //	go run ./bench/hrelaye2e [-relay h.repogo.app:443]
 package main
@@ -26,7 +27,9 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/passthrough"
+	"github.com/repogoapp/host/internal/pushgate"
 )
 
 func main() {
@@ -105,7 +108,30 @@ func run(relay, name string) error {
 		return fmt.Errorf("unexpected body %q", body)
 	}
 	fmt.Printf("phone reached %s in %v: %q (group %v)\n", target, time.Since(start).Round(time.Millisecond), body, <-groups)
-	return nil
+	return pushRefused(ctx, l, host.ID)
+}
+
+// pushRefused sends a push whose grant carries no App Attest evidence: a relay
+// with APNs answers denied, one without answers unavailable. Apple is never called.
+func pushRefused(ctx context.Context, l *passthrough.Listener, host device.ID) error {
+	phone, err := device.Generate()
+	if err != nil {
+		return err
+	}
+	target := phone.GrantPush(host, device.PushTarget{Service: device.PushAPNs, Token: "00", Environment: pushgate.EnvironmentSandbox, GrantedAt: time.Now().UnixMilli()})
+	err = l.Push(ctx, pushgate.PushRequest{Token: target.Token, Environment: target.Environment, Payload: []byte(`{"aps":{}}`),
+		Grant: pushgate.PushGrant{Device: phone.ID, PublicKey: phone.Public, Signature: target.Grant, GrantedAt: target.GrantedAt}})
+	var rpcErr *jsonrpc.Error
+	switch {
+	case errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeDenied:
+		fmt.Println("push answered: denied without App Attest, so APNs is on ✓")
+		return nil
+	case errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeUnavailable:
+		return errors.New("push answered: this relay has no APNs key")
+	case err == nil:
+		return errors.New("a push without App Attest was accepted")
+	}
+	return fmt.Errorf("push: %w", err)
 }
 
 func selfSigned() (tls.Certificate, [32]byte, error) {
