@@ -54,6 +54,7 @@ func main() {
 		DialTimeout:       10 * time.Second,
 		PingInterval:      25 * time.Second,
 		Push:              gate,
+		Limits:            hostLimits,
 		Log:               log,
 	}
 
@@ -109,6 +110,17 @@ func linkTLS(name string, log *slog.Logger) (*tls.Config, error) {
 		Email:      os.Getenv("HRELAY_ACME_EMAIL"),
 	}
 	return m.TLSConfig(), nil
+}
+
+// hostLimits meter each environment's phones together. The heaviest week
+// measured (11-05) peaked at 285 MB a day and 11 MB a minute, so ordinary use
+// never meets them; a host used as a bulk tunnel is slowed, then cut off.
+var hostLimits = passthrough.Limits{
+	Burst:     32 << 20,
+	Rate:      4 << 20,
+	DailyWarn: 2 << 30,
+	DailyCap:  10 << 30,
+	Idle:      2 * time.Minute,
 }
 
 func env(key, fallback string) string {

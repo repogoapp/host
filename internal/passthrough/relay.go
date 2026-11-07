@@ -53,6 +53,9 @@ type Relay struct {
 	PingInterval time.Duration
 	// Push answers the push lines hosts send on their link; nil refuses them.
 	Push *pushgate.Gate
+	// Limits meter each host's phone streams: speed, a daily allowance and
+	// an idle timeout. The zero value meters nothing.
+	Limits Limits
 
 	Log *slog.Logger
 
@@ -61,6 +64,11 @@ type Relay struct {
 	pending map[string]chan *replayConn
 	perIP   map[string]int
 	waiting map[device.ID]int
+	meters  map[device.ID]*meter
+
+	// clock and sleep stand in for time.Now and time.Sleep in tests.
+	clock func() time.Time
+	sleep func(time.Duration)
 }
 
 type link struct {
@@ -188,6 +196,10 @@ func (r *Relay) servePhone(ctx context.Context, phone *replayConn, id device.ID)
 		// Closing is all the relay can do: it can't speak inside the phone's TLS.
 		return
 	}
+	if r.overCap(id) {
+		// Logged once when it passed the cap; refused quietly until midnight UTC.
+		return
+	}
 	token := newToken()
 	ready := make(chan *replayConn, 1)
 	r.mu.Lock()
@@ -220,7 +232,7 @@ func (r *Relay) servePhone(ctx context.Context, phone *replayConn, id device.ID)
 		stopWaiting()
 		defer host.Close()
 		phone.SetReadDeadline(time.Time{})
-		splice(phone, host)
+		r.splice(id, phone, host)
 	case <-time.After(r.DialTimeout):
 		r.Log.Debug("passthrough: host did not dial back", "host", id)
 	case <-ctx.Done():
@@ -474,19 +486,6 @@ func readProxyLine(r *bufio.Reader) (string, error) {
 		return "", fmt.Errorf("passthrough: bad PROXY line %q", line)
 	}
 	return net.JoinHostPort(f[2], f[4]), nil
-}
-
-func splice(a, b *replayConn) {
-	done := make(chan struct{}, 2)
-	pipe := func(dst, src *replayConn) {
-		io.Copy(dst, src)
-		dst.CloseWrite()
-		done <- struct{}{}
-	}
-	go pipe(a, b)
-	go pipe(b, a)
-	<-done
-	<-done
 }
 
 func newToken() string {
