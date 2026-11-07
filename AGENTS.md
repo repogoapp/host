@@ -44,7 +44,7 @@ The least code that does the job. Read the nearest existing examples and match
 them; comments explain why, in one line, only where it isn't obvious.
 
 1. Comments state a reason, never a history ("used to", "no longer", "previously").
-2. No comment longer than three lines; a longer decision goes in the work's plan.
+2. No comment longer than five lines; a longer decision goes in the work's plan.
 3. The second copy is the trigger: needing something twice moves the first to a shared place.
 4. No code behind a constant `false`, no fields nobody sets or reads, no nil-defaulting of injected deps.
 5. Docs move with code: `docs/host-methods.md`, `docs/host-events.md` and the Roles table match `ls internal` and the router. This repo is public: `README.md`, comments and docs carry no plan numbers, internal paths or references to other RepoGo repos.

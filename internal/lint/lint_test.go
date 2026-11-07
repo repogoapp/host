@@ -150,6 +150,10 @@ func recvName(e ast.Expr) string {
 	return ""
 }
 
+// maxCommentLines is the longest comment allowed; a longer decision goes in
+// the work's plan.
+const maxCommentLines = 5
+
 // Package docs, build constraints and license headers sit above the package
 // clause and are exempt: a package's overview is where its role is written.
 func TestCommentsAreShort(t *testing.T) {
@@ -168,8 +172,8 @@ func TestCommentsAreShort(t *testing.T) {
 			if g.End() < f.ast.Package || exempt[g] {
 				continue
 			}
-			if n := commentLines(g); n > 3 {
-				t.Errorf("%s: %d-line comment; keep it to three lines", f.at(g.Pos()), n)
+			if n := commentLines(g); n > maxCommentLines {
+				t.Errorf("%s: %d-line comment; keep it to %d lines", f.at(g.Pos()), n, maxCommentLines)
 			}
 		}
 	}
