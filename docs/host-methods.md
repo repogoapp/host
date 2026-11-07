@@ -253,6 +253,7 @@ Result:
 - `next_index` int
 - `first_index` int
 - `has_before` bool
+- `turn_live` bool (omitted when empty)
 
 ## `chats.subagent`
 

@@ -13,12 +13,19 @@ import (
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/rpc/chats"
 	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/testhost"
 )
 
 // Family-level tests: the testhost's services behind the chats family, with
 // one chat cached. Chat behaviour itself is tested in internal/chat.
 func newRouter(t *testing.T) (*rpc.Router, string) {
+	t.Helper()
+	r, th := newRouterHost(t)
+	return r, string(th.Devices.Identity().ID)
+}
+
+func newRouterHost(t *testing.T) (*rpc.Router, *testhost.Host) {
 	t.Helper()
 	th := testhost.New(t)
 	if err := th.Config.Store.Sync(session.Meta{
@@ -29,7 +36,7 @@ func newRouter(t *testing.T) (*rpc.Router, string) {
 	}
 	r := rpc.New(slog.New(slog.DiscardHandler))
 	chats.Register(r, chats.Deps{Chats: th.Config.Chats, Live: th.Config.Live})
-	return r, string(th.Devices.Identity().ID)
+	return r, th
 }
 
 func call(t *testing.T, r *rpc.Router, method string, params any) (json.RawMessage, error) {
@@ -90,6 +97,39 @@ func TestResolveAnswersTheResolvedRow(t *testing.T) {
 	}
 	if json.Unmarshal(raw, &res) != nil || res.Chat.ResolvedAt == nil {
 		t.Fatalf("resolve reply = %s", raw)
+	}
+}
+
+// The page a chat opens on says whether a turn runs, so the phone pins the
+// prompt on its first frame; an older page never says so.
+func TestTailPageSaysWhetherATurnRuns(t *testing.T) {
+	r, th := newRouterHost(t)
+	turnLive := func(params map[string]any) bool {
+		t.Helper()
+		raw, err := call(t, r, "chats.messages", params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var page struct {
+			TurnLive bool `json:"turn_live"`
+		}
+		if err := json.Unmarshal(raw, &page); err != nil {
+			t.Fatal(err)
+		}
+		return page.TurnLive
+	}
+	tail := map[string]any{"chat_id": "claude:sess-1", "limit": 50, "tail": true}
+	if turnLive(tail) {
+		t.Error("idle chat's tail page says a turn runs")
+	}
+	if err := th.Config.Store.SetStatus("claude:sess-1", "/tmp/project", agent.ChatWorking, time.Now(), store.TurnObservation{}); err != nil {
+		t.Fatal(err)
+	}
+	if !turnLive(tail) {
+		t.Error("working chat's tail page doesn't say a turn runs")
+	}
+	if turnLive(map[string]any{"chat_id": "claude:sess-1", "limit": 50, "since_index": 0}) {
+		t.Error("a non-tail page says a turn runs")
 	}
 }
 

@@ -91,7 +91,14 @@ func (d Deps) messages(_ context.Context, _ rpc.Caller, a MessagesParams) (chatw
 	if err != nil {
 		return chatwire.Page{}, err
 	}
-	return d.Wire.Page(page), nil
+	out := d.Wire.Page(page)
+	// The page a chat opens on says whether a turn runs; see chatwire.Page.
+	if a.Tail {
+		if c, err := d.Chats.Info(a.ChatID); err == nil {
+			out.TurnLive = c.Status.Active()
+		}
+	}
+	return out, nil
 }
 
 // subagent is in the same event shape as chats.messages. With agent_id it is

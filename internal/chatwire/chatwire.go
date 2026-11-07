@@ -39,6 +39,11 @@ type Page struct {
 	NextIndex  int  `json:"next_index"`
 	FirstIndex int  `json:"first_index"`
 	HasBefore  bool `json:"has_before"`
+
+	// TurnLive is a tail page's word that a turn is running (queued, working
+	// or waiting on the user), so a client opening the chat pins its prompt on
+	// the first frame rather than after subscribing. Absent on other pages.
+	TurnLive bool `json:"turn_live,omitempty"`
 }
 
 // Message is one transcript row.

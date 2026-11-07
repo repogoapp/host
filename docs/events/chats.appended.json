@@ -44,5 +44,6 @@
   "event_count": 1,
   "next_index": 1,
   "first_index": 1,
-  "has_before": true
+  "has_before": true,
+  "turn_live": true
 }

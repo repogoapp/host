@@ -35,6 +35,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `next_index` int
 - `first_index` int
 - `has_before` bool
+- `turn_live` bool (omitted when empty)
 
 ## `chats.approval`
 
