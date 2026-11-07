@@ -22,7 +22,7 @@ const (
 const Overhead = 1
 
 const (
-	// Below this, deflate saves a few hundred bytes at most (bench/compress).
+	// Below this, deflate saves a few hundred bytes at most.
 	compressMin = 1 << 10
 	// A compressed body is kept only when it is at most 90% of the original:
 	// already-compressed data (images, archives) goes raw.
