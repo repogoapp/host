@@ -461,9 +461,8 @@ func (m *Manager) Steer(req TurnRequest) (status TurnStatus, steered bool, err e
 var ErrNotQueued = errkind.New(errkind.Invalid, "turn is no longer queued")
 
 // Stop cancels a running turn, holding its chat's queue, or drops a queued one.
-// Stopping a chat's running turn also stops the chats its agent started: the
-// prompt bar stops by turn id, and a child left running is the parent's work
-// carrying on after the user said stop.
+// It also stops the chats that turn's agent started: a child left running is
+// the parent's work carrying on after the user said stop.
 func (m *Manager) Stop(turnID string) error {
 	m.mu.Lock()
 	t, ok := m.turns[turnID]
