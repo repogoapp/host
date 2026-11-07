@@ -28,7 +28,7 @@ import (
 	"github.com/repogoapp/host/internal/tunnel"
 )
 
-func run(ctx context.Context, log *slog.Logger, port int, relayFlag *string, self restarter) error {
+func run(ctx context.Context, log *slog.Logger, port int, lan bool, relayFlag *string, self restarter) error {
 	// Leaf packages with one or two lines to say log through slog's default.
 	slog.SetDefault(log)
 	// A CLI installed from a phone lands in ~/.local/bin, which the service's
@@ -48,7 +48,7 @@ func run(ctx context.Context, log *slog.Logger, port int, relayFlag *string, sel
 	if port != 0 {
 		conf.Port = port
 	}
-	cfg, err := hostConfig(log, conf, relayFor(relayFlag, os.Getenv("REPOGO_HRELAY")), self)
+	cfg, err := hostConfig(log, conf, lan, relayFor(relayFlag, os.Getenv("REPOGO_HRELAY")), self)
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,9 @@ func relayRoots() (*x509.CertPool, error) {
 }
 
 // hostConfig is the production host: the user's own state, home and agents.
-func hostConfig(log *slog.Logger, conf *localConf, relay string, self restarter) (host.Config, error) {
+// lan is -lan, for this run only: conf is written back at listen, so the
+// flag must not land in it, or one run would turn LAN on for every start.
+func hostConfig(log *slog.Logger, conf *localConf, lan bool, relay string, self restarter) (host.Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return host.Config{}, fmt.Errorf("locate home dir: %w", err)
@@ -169,7 +171,9 @@ func hostConfig(log *slog.Logger, conf *localConf, relay string, self restarter)
 		// Visible in the user's home rather than under a dotfile: it holds their source.
 		Projects: projectsDir(home),
 		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relay, RelayRoots: roots,
-		Label:   device.Label(),
+		Label: device.Label(),
+		// Phones on the same tailnet, and with --lan the same network, dial these before the relay.
+		DirectPort: host.DefaultDirectPort, Tailnet: !conf.NoTailscale, LAN: conf.LAN || lan,
 		Gateway: gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",
 		Update: hostupdate.Deps{
 			Version: release.Version, Root: self.root, Marker: self.marker,

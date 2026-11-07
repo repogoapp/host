@@ -21,9 +21,15 @@
   },
   "network": {
     "lan_ip": "lan_ip",
+    "lan_port": 1,
     "public_ip": "public_ip",
     "local_hostname": "local_hostname",
-    "port": 1
+    "port": 1,
+    "tailscale": {
+      "ip": "ip",
+      "name": "name",
+      "port": 1
+    }
   },
   "capabilities": [
     "capabilities"

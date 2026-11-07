@@ -96,6 +96,10 @@ type Service struct {
 	publicIP    string
 	publicAt    time.Time
 	publicStale chan struct{}
+	tailnetIP   string
+	tailnetPort int
+	lanIP       string
+	lanPort     int
 
 	device     *Device
 	deviceRead chan struct{}

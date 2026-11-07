@@ -5,6 +5,7 @@ package wsserver
 import (
 	"context"
 	"crypto/subtle"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -64,22 +65,25 @@ type Config struct {
 }
 
 type Server struct {
-	cfg    Config
-	log    *slog.Logger
-	http   *http.Server
-	remote *http.Server
+	cfg  Config
+	log  *slog.Logger
+	http *http.Server
 
-	mu    sync.Mutex
-	conns map[device.ID]*conn
+	mu sync.Mutex
+	// remote is each ServeRemote running: the relay's, and the tailnet's.
+	remote map[*http.Server]struct{}
+	conns  map[device.ID]*conn
 	// open is every socket past its hello, a device's superseded ones included.
 	open map[*conn]struct{}
-	// unproven counts passthrough connections still before their hello.
-	unproven atomic.Int32
 }
 
-// maxUnproven caps passthrough connections before their hello, so streams a
-// stranger opens and holds can't pile up; each lasts remoteHelloTimeout.
+// maxUnproven caps one listener's connections before their hello, so streams
+// a stranger opens and holds can't pile up; each lasts remoteHelloTimeout.
 var maxUnproven int32 = 64
+
+// maxOpen caps one listener's sockets, counted before TLS, so a flood on the
+// LAN can't hold the relay's or the tailnet's connections hostage.
+var maxOpen = 256
 
 func New(cfg Config) (*Server, error) {
 	if cfg.Token == "" {
@@ -91,7 +95,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Router == nil || cfg.Devices == nil || cfg.Pushes == nil || cfg.OnDisconnect == nil {
 		return nil, errors.New("wsserver: router, devices, pushes and on-disconnect are required")
 	}
-	s := &Server{cfg: cfg, log: cfg.Log, conns: map[device.ID]*conn{}, open: map[*conn]struct{}{}}
+	s := &Server{cfg: cfg, log: cfg.Log, conns: map[device.ID]*conn{}, open: map[*conn]struct{}{}, remote: map[*http.Server]struct{}{}}
 	cfg.Devices.OnRevoke(s.revoked)
 	return s, nil
 }
@@ -153,17 +157,24 @@ func (s *Server) CloseRemote() {
 	}
 }
 
-// ServeRemote serves phones that reach this host over pinned TLS through the
-// passthrough relay. lis yields TLS connections. Only /ws is served there, and
-// only to paired devices whose hello is bound to that TLS session.
-func (s *Server) ServeRemote(lis net.Listener) error {
+// ServeRemote ends pinned TLS with keys on lis, the relay's or a direct one,
+// and serves /ws only to paired devices whose hello binds that session. Each
+// listener has its own limits, so one flooded can't starve another.
+func (s *Server) ServeRemote(lis net.Listener, keys *tls.Config) error {
+	var unproven atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", s.handleRemoteWS)
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) { s.handleRemoteWS(w, r, &unproven) })
+	lis = tls.NewListener(&capped{Listener: lis, open: make(chan struct{}, maxOpen)}, keys)
 	// Short, as the TLS handshake shares it: a phone sends its request at once.
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: remoteHelloTimeout, ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelDebug)}
 	s.mu.Lock()
-	s.remote = srv
+	s.remote[srv] = struct{}{}
 	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.remote, srv)
+		s.mu.Unlock()
+	}()
 	err := srv.Serve(lis)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -173,10 +184,13 @@ func (s *Server) ServeRemote(lis net.Listener) error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
-	remote := s.remote
+	remote := make([]*http.Server, 0, len(s.remote))
+	for srv := range s.remote {
+		remote = append(remote, srv)
+	}
 	s.mu.Unlock()
-	if remote != nil {
-		remote.Shutdown(ctx)
+	for _, srv := range remote {
+		srv.Shutdown(ctx)
 	}
 	if s.http == nil {
 		return nil
@@ -187,7 +201,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // handleRemoteWS is /ws over passthrough TLS. Its Host is the relay name, not
 // loopback, so the loopback check is replaced by the TLS binding: the hello
 // must sign this session's exporter, and the local token is never accepted.
-func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request, unproven *atomic.Int32) {
 	if r.TLS == nil {
 		http.Error(w, "TLS required", http.StatusForbidden)
 		return
@@ -197,13 +211,13 @@ func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no TLS exporter", http.StatusForbidden)
 		return
 	}
-	if s.unproven.Add(1) > maxUnproven {
-		s.unproven.Add(-1)
+	if unproven.Add(1) > maxUnproven {
+		unproven.Add(-1)
 		http.Error(w, "too many connections waiting", http.StatusServiceUnavailable)
 		return
 	}
 	var proven sync.Once
-	done := func() { proven.Do(func() { s.unproven.Add(-1) }) }
+	done := func() { proven.Do(func() { unproven.Add(-1) }) }
 	defer done()
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
@@ -360,4 +374,37 @@ func (s *Server) authenticate(h *handshake.Hello, signed []byte) (rpc.Scope, err
 		return rpc.ScopeRemote, errors.New("paired devices must authenticate by signature, not by token")
 	}
 	return rpc.ScopeLocal, nil
+}
+
+// capped closes connections past its capacity as they are accepted, before
+// any TLS work, and frees a place when one closes.
+type capped struct {
+	net.Listener
+	open chan struct{}
+}
+
+func (l *capped) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		select {
+		case l.open <- struct{}{}:
+			return &cappedConn{Conn: c, free: func() { <-l.open }}, nil
+		default:
+			c.Close()
+		}
+	}
+}
+
+type cappedConn struct {
+	net.Conn
+	once sync.Once
+	free func()
+}
+
+func (c *cappedConn) Close() error {
+	c.once.Do(c.free)
+	return c.Conn.Close()
 }

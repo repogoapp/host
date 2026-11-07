@@ -3,6 +3,8 @@ package hostinfo
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +95,41 @@ func TestStatusCarriesTheHomeVolume(t *testing.T) {
 	status := newService(reading{}).Status()
 	if s := status.Storage; s == nil || s.TotalBytes == 0 || s.FreeBytes > s.TotalBytes {
 		t.Fatalf("storage %+v, want the home volume with free within total", s)
+	}
+}
+
+func TestTailnetPortOnlyForTheServedAddress(t *testing.T) {
+	s := New(Deps{Power: reading{}, Relay: func() bool { return false }, ReadDevice: func() Device { return Device{} }})
+	s.SetTailnet("100.81.230.35", 47443)
+	if got := s.network(Network{Tailscale: &Tailscale{IP: "100.81.230.35"}}).Tailscale.Port; got != 47443 {
+		t.Fatalf("served address: port %d, want 47443", got)
+	}
+	// Tailscale moved the machine to a new address the host hasn't bound yet.
+	if got := s.network(Network{Tailscale: &Tailscale{IP: "100.64.0.9"}}).Tailscale.Port; got != 0 {
+		t.Fatalf("unserved address: port %d, want none", got)
+	}
+}
+
+// --lan serves only a private address on a real interface: never the
+// internet, a work VPN, or the tailnet.
+func TestTheLocalNetworkIsPrivateAndNotATunnel(t *testing.T) {
+	wifi := &net.Interface{Name: "en0", Flags: net.FlagUp | net.FlagBroadcast}
+	for _, c := range []struct {
+		ip    string
+		iface *net.Interface
+		want  bool
+	}{
+		{"192.168.1.102", wifi, true},
+		{"10.0.4.12", wifi, true},
+		{"172.20.10.3", wifi, true}, // an iPhone hotspot
+		{"64.135.138.236", wifi, false},
+		{"100.81.230.35", wifi, false},
+		{"10.8.0.2", &net.Interface{Name: "utun4", Flags: net.FlagUp | net.FlagPointToPoint}, false},
+		{"10.8.0.2", &net.Interface{Name: "wg0", Flags: net.FlagUp}, false},
+		{"192.168.1.102", nil, false},
+	} {
+		if got := isLocalNetwork(netip.MustParseAddr(c.ip), c.iface); got != c.want {
+			t.Errorf("%s on %v: %t, want %t", c.ip, c.iface, got, c.want)
+		}
 	}
 }

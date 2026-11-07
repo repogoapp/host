@@ -6,6 +6,7 @@
 #
 #   scripts/restart.sh        rebuild + restart
 #   scripts/restart.sh -v     extra args go to `serve`
+#   scripts/restart.sh -lan   also serve phones on the local network, this run only
 set -euo pipefail
 
 # Run from an action, this script is the host's own child: the host kills the

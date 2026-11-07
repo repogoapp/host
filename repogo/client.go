@@ -101,6 +101,12 @@ func printStatus(ctx context.Context) error {
 		return err
 	}
 	fmt.Printf("repogo %s · up %s · relay connected: %t\n", status.Version, (time.Duration(status.Uptime) * time.Second).String(), status.RelayConnected)
+	if n := status.Network; n.LANPort != 0 {
+		fmt.Printf("  local network: serving %s:%d (repogo start --lan=false turns it off)\n", n.LANIP, n.LANPort)
+	}
+	if ts := status.Network.Tailscale; ts != nil && ts.Port != 0 {
+		fmt.Printf("  tailscale: serving %s:%d\n", ts.IP, ts.Port)
+	}
 	for _, p := range paired {
 		fmt.Printf("  %s (%s)\n", p.Label, p.ID)
 	}

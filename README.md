@@ -32,6 +32,8 @@ can pair and start chatting right away.
 | `npx @repogo/host status` | Show whether the host is running |
 | `npx @repogo/host devices` / `devices revoke <id>` | List the paired devices, or remove one: its connections close and it can no longer reach the host |
 | `npx @repogo/host start` / `stop` / `restart` | Start, stop or restart the background host |
+| `npx @repogo/host start --lan` | Also let phones on the same Wi-Fi connect straight to this machine, skipping the relay. It stays on for whatever network the machine joins, a café's included, so anyone there can reach the port (but can't connect without pairing). `--lan=false` turns it off |
+| `npx @repogo/host start --tailscale=false` | Stop serving phones on this machine's Tailscale address. On by default: phones on your tailnet connect straight to it. Turn it off on a shared or work tailnet, where every member can reach the port |
 | `npx @repogo/host logs` | Show the host's logs |
 | `npx @repogo/host update` | Update to the latest version; refuses while chats, terminals or actions are running (`--now` stops them) |
 | `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
@@ -45,8 +47,8 @@ The host has three parts.
 
 ### Connections
 
-The host dials out and listens only on `127.0.0.1`, never on your network.
-Phones reach it through RepoGo's relay, `h.repogo.app`, over TLS 1.3 that runs
+The host dials out, and on its own listens only on `127.0.0.1`. Phones reach
+it through RepoGo's relay, `h.repogo.app`, over TLS 1.3 that runs
 straight from the phone to the host: the relay only pipes the bytes.
 
 Pairing gives the phone the host's identity (an Ed25519 key) and its signed
@@ -93,7 +95,24 @@ The relay caps each address at 32 connections and each host at 16 phones
 waiting to be dialed back, pings links every 25 s, and drops a control line
 over 64 KB. `REPOGO_HRELAY` sets the relay's address (`host:port`) or turns it
 `off`, and `REPOGO_HRELAY_CA` names a PEM file of extra roots for a relay with
-a private certificate.
+a private certificate. It also meters each host's phone traffic, all its phones
+together: a 32 MB burst, then 4 MB/s; a log line past 2 GB in a UTC day and a
+refusal past 10 GB until midnight; and it closes a stream idle for 2 minutes.
+
+#### Direct on your network
+
+From 0.1.44 (with RepoGo 1.0.4), the host also serves phones without the relay:
+
+- **Tailscale, on by default.** When Tailscale is up, the host listens on this
+  machine's tailnet address, port 47443, and follows the address as Tailscale
+  comes, goes or changes it. `repogo start --tailscale=false` turns it off.
+- **Local network, off by default.** `repogo start --lan` also listens on the
+  machine's LAN address, on whatever network it joins; `--lan=false` turns it
+  off. The setting is saved in `~/.repogo/runtime.json`.
+
+`host.status` reports each address, and the phone tries them before the relay.
+Each listener serves the same pinned TLS and session-bound hello as the relay
+route, and caps how many connections may wait before their hello.
 
 #### Push notifications
 

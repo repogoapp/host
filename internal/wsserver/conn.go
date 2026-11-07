@@ -42,7 +42,8 @@ type conn struct {
 	// stranger is an unpaired device admitted over passthrough while a code is
 	// live: it may make one Unpaired call (pair.complete), then the socket closes.
 	stranger bool
-	// helloDone runs once the hello has passed or failed; nil on loopback.
+	// helloDone frees the place held before the hello, once it passed or
+	// failed, or a stranger's pairing ended; nil on loopback.
 	helloDone func()
 }
 
@@ -76,7 +77,9 @@ func (c *conn) run(ctx context.Context) {
 		return err
 	})
 	cancelHello()
-	if c.helloDone != nil {
+	// A stranger holds its place through pairing, or one could hold many
+	// sockets for pairTimeout each while counting for none.
+	if c.helloDone != nil && !c.stranger {
 		c.helloDone()
 	}
 	if err != nil {

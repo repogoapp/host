@@ -68,6 +68,7 @@ func command(ctx context.Context, args []string) error {
 	if verb == "serve" {
 		port := flags.Int("port", 0, "loopback port (0 uses the saved port)")
 		relay := flags.String("relay", "", "relay address, host:port (default: RepoGo's; empty disables)")
+		lan := flags.Bool("lan", false, "also serve the local network for this run; repogo start --lan saves it")
 		verbose := flags.Bool("v", false, "debug logging")
 		if err := flags.Parse(args); err != nil {
 			return err
@@ -98,11 +99,13 @@ func command(ctx context.Context, args []string) error {
 				relayFlag = relay
 			}
 		})
-		return serve(ctx, log, *port, relayFlag)
+		return serve(ctx, log, *port, *lan, relayFlag)
 	}
 	now := flags.Bool("now", false, "stop running chats, terminals and actions before updating")
 	pairHost := flags.String("pair-host", defaultPairHost, "pairing link origin")
 	reusable := flags.String("reusable", "", "pair: an invite many devices may join with, for days or hours (14d, 36h), or off")
+	lan := flags.Bool("lan", false, "start: also serve phones on this machine's local network (--lan=false turns it off)")
+	tailscale := flags.Bool("tailscale", true, "start: serve phones on this machine's Tailscale address (--tailscale=false turns it off)")
 	// --reusable is for App Review's pairing only, so -h leaves it out.
 	flags.Usage = func() {
 		fmt.Fprintf(flags.Output(), "Usage of %s:\n", flags.Name())
@@ -117,6 +120,27 @@ func command(ctx context.Context, args []string) error {
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flags.Args())
+	}
+	// --lan and --tailscale are saved, so the background host keeps them
+	// across restarts; a running host restarts only when one changed.
+	var lanSet, tailscaleSet *bool
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "lan":
+			lanSet = lan
+		case "tailscale":
+			tailscaleSet = tailscale
+		}
+	})
+	directChanged := false
+	if lanSet != nil || tailscaleSet != nil {
+		if verb != "" && verb != "start" && verb != "install" {
+			return fmt.Errorf("--lan and --tailscale go with repogo start")
+		}
+		var err error
+		if directChanged, err = saveDirect(lanSet, tailscaleSet); err != nil {
+			return err
+		}
 	}
 	if *reusable != "" {
 		if verb != "pair" {
@@ -160,7 +184,11 @@ func command(ctx context.Context, args []string) error {
 				fmt.Fprintln(os.Stderr, err)
 			}
 		}
-		if err := s.Start(ctx); err != nil {
+		start := s.Start
+		if directChanged && current && verb != "install" {
+			start = s.Restart
+		}
+		if err := start(ctx); err != nil {
 			return err
 		}
 		if err := waitReady(ctx, ""); err != nil {

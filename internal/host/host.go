@@ -7,7 +7,6 @@ package host
 import (
 	"cmp"
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"net"
 	"os"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -74,6 +74,11 @@ type Config struct {
 	Relay string
 	// RelayRoots verifies the relay's certificate; nil uses the system's.
 	RelayRoots *x509.CertPool
+	// DirectPort, with a relay, is where phones also reach this host straight,
+	// on the addresses below; zero serves neither.
+	DirectPort int
+	// Tailnet serves the machine's Tailscale address; LAN its local network's.
+	Tailnet, LAN bool
 
 	// Label names this host to its phones.
 	Label string
@@ -251,6 +256,12 @@ func (h *Host) Start() {
 	h.spawn(h.Services.Actions.Watch)
 	if h.relay != nil {
 		h.spawn(h.serveRelay)
+		if h.cfg.DirectPort != 0 && h.cfg.Tailnet {
+			h.spawn(func(ctx context.Context) { h.serveDirect(ctx, "tailnet", hostinfo.TailnetIP, h.info.SetTailnet) })
+		}
+		if h.cfg.DirectPort != 0 && h.cfg.LAN {
+			h.spawn(func(ctx context.Context) { h.serveDirect(ctx, "lan", hostinfo.LANIP, h.info.SetLAN) })
+		}
 		h.spawn(func(ctx context.Context) { h.alerts.Run(ctx, h.bridge) })
 		h.spawn(func(ctx context.Context) { h.activities.Run(ctx) })
 		h.spawn(func(ctx context.Context) { h.Services.Activities.Run(ctx, h.relay) })
@@ -285,8 +296,58 @@ func (h *Host) serveRelay(ctx context.Context) {
 	passthrough.Listen(ctx, h.relay)
 	defer h.relay.Close()
 	h.log.Info("relay: serving", "relay", h.cfg.Relay, "host", string(h.devices.Identity().ID)+"."+h.relayName())
-	if err := h.srv.ServeRemote(tls.NewListener(h.relay, h.hostTLS.Config())); err != nil && ctx.Err() == nil {
+	if err := h.srv.ServeRemote(h.relay, h.hostTLS.Config()); err != nil && ctx.Err() == nil {
 		h.log.Warn("relay: stopped", "err", err)
+	}
+}
+
+// DefaultDirectPort is where a host serves phones on Tailscale and the LAN.
+// Fixed, so the address a phone saved still works after a restart.
+const DefaultDirectPort = 47443
+
+// addressCheck is how often serveDirect looks for its address to change.
+const addressCheck = 15 * time.Second
+
+// serveDirect serves phones on one address, the tailnet's or the LAN's, over
+// the relay's pinned TLS, following it as it changes. It binds that address
+// alone, never every interface, and tells record what it serves.
+func (h *Host) serveDirect(ctx context.Context, name string, address func() string, record func(ip string, port int)) {
+	var (
+		ip  string
+		lis net.Listener
+	)
+	stop := func() {
+		if lis != nil {
+			lis.Close()
+			lis = nil
+		}
+		record("", 0)
+	}
+	defer stop()
+	ticker := time.NewTicker(addressCheck)
+	defer ticker.Stop()
+	for {
+		if now := address(); now != ip {
+			stop()
+			ip = now
+			if ip != "" {
+				addr := net.JoinHostPort(ip, strconv.Itoa(h.cfg.DirectPort))
+				l, err := net.Listen("tcp", addr)
+				if err != nil {
+					h.log.Warn(name+": listen", "addr", addr, "err", err)
+				} else {
+					lis = l
+					record(ip, h.cfg.DirectPort)
+					h.log.Info(name+": serving", "addr", addr)
+					go h.srv.ServeRemote(l, h.hostTLS.Config())
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

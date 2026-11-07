@@ -85,7 +85,7 @@ func newRemoteOn(t *testing.T, through func(host *device.Identity) net.Listener)
 		url = "wss://" + lis.Addr().String() + "/ws"
 	}
 	th.Config.Pairer.SetTLSPin(cert.Pin)
-	go srv.ServeRemote(tls.NewListener(lis, keys.Config()))
+	go srv.ServeRemote(lis, keys.Config())
 	t.Cleanup(func() { srv.Shutdown(context.Background()); lis.Close() })
 	return &remote{url: url, pin: cert.SPKI, cert: cert, keys: keys, srv: srv, devices: th.Devices, pairer: th.Config.Pairer, root: th.Root}
 }
@@ -480,4 +480,90 @@ func TestUnprovenConnectionsAreCappedAndTimedOut(t *testing.T) {
 		}
 		return err == nil
 	})
+}
+
+// alsoOn serves r's host on a second listener, as the LAN beside the relay,
+// and returns its wss:// URL.
+func (r *remote) alsoOn(t *testing.T) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go r.srv.ServeRemote(lis, r.keys.Config())
+	t.Cleanup(func() { lis.Close() })
+	return "wss://" + lis.Addr().String() + "/ws"
+}
+
+// silentOn opens a TLS WebSocket to url that never says hello.
+func silentOn(t *testing.T, url string) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: &http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13},
+	}}})
+	if err == nil {
+		t.Cleanup(func() { ws.CloseNow() })
+	}
+	return err
+}
+
+// Strangers holding one listener's places waiting for a hello leave another
+// listener's alone: a LAN flood can't keep a phone off the relay.
+func TestAFullListenerLeavesTheOthersOpen(t *testing.T) {
+	wsserver.ShortenTimeouts(t, 5*time.Second, 15*time.Second, 1)
+	r := newRemote(t)
+	lan := r.alsoOn(t)
+	if err := silentOn(t, lan); err != nil {
+		t.Fatal(err)
+	}
+	if err := silentOn(t, lan); err == nil {
+		t.Fatal("the LAN listener waited past its cap")
+	}
+	c, err := r.dial(t, r.pair(t), r.pin)
+	if err != nil {
+		t.Fatalf("a full LAN listener kept a phone off the other: %v", err)
+	}
+	c.Close()
+}
+
+// Sockets past a listener's cap are closed before any TLS work.
+func TestAListenerClosesSocketsPastItsCap(t *testing.T) {
+	wsserver.CapOpen(t, 2)
+	r := newRemote(t)
+	addr := strings.TrimSuffix(strings.TrimPrefix(r.url, "wss://"), "/ws")
+	for range 2 {
+		c, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+	}
+	over, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer over.Close()
+	over.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := over.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("a socket past the cap stayed open: %v", err)
+	}
+}
+
+// A stranger pairing keeps its place until pairing ends, so strangers can't
+// hold many sockets while counting for none.
+func TestAStrangerHoldsItsPlaceWhilePairing(t *testing.T) {
+	wsserver.ShortenTimeouts(t, 5*time.Second, 15*time.Second, 1)
+	r := newRemote(t)
+	if _, err := r.pairer.Begin("wss://relay.test/ws"); err != nil {
+		t.Fatal(err)
+	}
+	stranger, _ := device.Generate()
+	if _, err := r.dial(t, stranger, r.pin); err != nil {
+		t.Fatal(err)
+	}
+	if err := silentOn(t, r.url); err == nil {
+		t.Fatal("a second connection waited while the stranger held the only place")
+	}
 }

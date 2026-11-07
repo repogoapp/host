@@ -13,6 +13,12 @@ type localConf struct {
 	Port     int    `json:"port"`
 	Token    string `json:"token"`
 	ServerID string `json:"server_id"`
+	// LAN serves phones on this machine's local network address too, set by
+	// `repogo start --lan`. Off unless asked: anyone on the network can reach the port.
+	LAN bool `json:"lan,omitempty"`
+	// NoTailscale keeps the host off its tailnet, set by `repogo start
+	// --tailscale=false`: on a shared or work tailnet every member reaches the port.
+	NoTailscale bool `json:"no_tailscale,omitempty"`
 }
 
 func confPath() (string, error) {
@@ -39,6 +45,31 @@ func loadOrCreateConf(path string) (*localConf, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+// saveDirect records which direct paths the host serves, --lan and
+// --tailscale as given (nil leaves one as it is), and reports whether
+// anything changed, so a running host restarts only when it did.
+func saveDirect(lan, tailscale *bool) (bool, error) {
+	path, err := confPath()
+	if err != nil {
+		return false, err
+	}
+	c, err := loadOrCreateConf(path)
+	if err != nil {
+		return false, err
+	}
+	was := *c
+	if lan != nil {
+		c.LAN = *lan
+	}
+	if tailscale != nil {
+		c.NoTailscale = !*tailscale
+	}
+	if *c == was {
+		return false, nil
+	}
+	return true, writeConf(path, c)
 }
 
 func writeConf(path string, c *localConf) error {

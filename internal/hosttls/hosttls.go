@@ -86,11 +86,13 @@ func issue(key *ecdsa.PrivateKey, counter int64, host *device.Identity) (*Cert, 
 	// Phones check the key, not these dates; they only have to parse.
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "RepoGo host " + string(host.ID)},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(10 * 365 * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		// No host id: anyone who reaches a direct port could read it here, and
+		// phones check only the key.
+		Subject:     pkix.Name{CommonName: "RepoGo host"},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {

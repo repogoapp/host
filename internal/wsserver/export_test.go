@@ -12,3 +12,10 @@ func ShortenTimeouts(t *testing.T, hello, pair time.Duration, unproven int32) {
 	remoteHelloTimeout, pairTimeout, maxUnproven = hello, pair, unproven
 	t.Cleanup(func() { remoteHelloTimeout, pairTimeout, maxUnproven = oldHello, oldPair, oldCap })
 }
+
+// CapOpen sets how many sockets one remote listener holds, for one test.
+func CapOpen(t *testing.T, n int) {
+	old := maxOpen
+	maxOpen = n
+	t.Cleanup(func() { maxOpen = old })
+}

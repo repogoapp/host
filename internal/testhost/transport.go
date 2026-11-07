@@ -63,7 +63,7 @@ func Serve(t testing.TB, devices *device.Store, router *rpc.Router) *Transports 
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.ServeRemote(tls.NewListener(lis, keys.Config()))
+	go srv.ServeRemote(lis, keys.Config())
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
