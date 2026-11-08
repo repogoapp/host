@@ -16,7 +16,7 @@ opt into plain HTTP, for this machine's containers or the public.
 - [The context](#the-context)
 - [Events](#events)
 - [How cards and agents reach a plugin](#how-cards-and-agents-reach-a-plugin)
-- [Errors and confirmations](#errors-and-confirmations)
+- [Errors and approvals](#errors-and-approvals)
 - [Testing](#testing)
 
 ## Quick start
@@ -37,7 +37,7 @@ export default definePlugin({
     clear: method(z.object({}), async (_, ctx) => {
       for (const note of await ctx.collections.notes.list({ limit: 500 })) await ctx.collections.notes.delete(note.id);
       return null;
-    }, { effect: "destructive", confirm: "Delete every note?" }),
+    }, { effect: "destructive", approve: "Delete every note?" }),
   },
 });
 ```
@@ -75,7 +75,7 @@ lives beside its plugin and takes the project as state (`?project=…`).
 A plugin's name is its folder's: lowercase letters, digits and hyphens. The
 environment's plugins run together in one Worker, so a plugin's blocking code
 stalls the others: use async APIs. They load together too: one that fails to
-load (a throw at import, a destructive method without a `confirm`, data without
+load (a throw at import, a destructive method without an `approve`, data without
 a `namespace`, a method named like a generated one) stops every plugin in the
 folder, and each call answers its error, until it's fixed.
 
@@ -93,7 +93,7 @@ A user-facing plugin needs both its saved page and a link from `~/.repogo/plugin
 ## Methods
 
 ```ts
-method(input, run, { effect?, description?, output?, confirm?, http? })
+method(input, run, { effect?, description?, output?, approve?, approveUpTo?, http? })
 cached(input, run, { fresh, shared?, timeout?, description?, output?, http? })
 stream(input, async function* run, { description? })
 ```
@@ -106,14 +106,15 @@ JSON can carry.
 | --- | --- | --- |
 | `read` | Only reads; writing throws | Cards on their own, and again whenever data it read changes |
 | `write` (the default) | Reads and writes | Only when someone acts: a tap, an agent, a cron, other code |
-| `destructive` | Writes what can't be undone; needs a `confirm` | Only after the user answers its question, on a tap |
+| `destructive` | Writes what can't be undone; needs an `approve` | Only after the user answers its question |
 | `stream()` | A read that yields items as they happen | A card while it shows it |
 
 Mark every method that only reads `effect: "read"`: that's what lets a card
 show it and keep it current. Mark what can't be undone (a delete, a send, a
-deploy) `effect: "destructive"` with a `confirm` question; a destructive method
-without one doesn't load. A method with a `confirm` never runs from an agent's
-`plugin_call` or a cron: the agent draws a button, and the user's tap asks. Give each a `description`; agents read it to choose
+deploy) `effect: "destructive"` with an `approve` question; a destructive method
+without one doesn't load. A method with an `approve` asks before it runs, from
+a tap or an agent ([Errors and approvals](#errors-and-approvals)), and never
+runs from a cron. Give each a `description`; agents read it to choose
 a method. `output`, a zod schema of the result, tells agents and cards its
 field names.
 
@@ -172,7 +173,7 @@ projects: cached(z.object({ limit: z.number().int().min(1).max(200).default(100)
 
 Cards, agents and crons reach every method. A method answers plain HTTP too
 when its `http` option names an address, with who may call it there. `method`
-and `cached` take it; a stream or a method with a `confirm` is never served,
+and `cached` take it; a stream or a method with an `approve` is never served,
 since no one is there to watch or answer.
 
 ```ts
@@ -495,9 +496,9 @@ For a plugin folder named `reports`, the host generates:
 - `reports.report.restart({ id })`: start a run that needs attention over from the beginning, on the current code.
 
 These use the existing plugin methods, `ctx.call`, cards and subscriptions.
-The namespace is required. `confirm` on the workflow confirms its start;
+The namespace is required. `approve` on the workflow asks before its start;
 it does not preapprove later host actions. An unattended workflow refuses
-confirmation-gated plugin methods. The calling project and caller
+plugin methods that ask. The calling project and caller
 are preserved. A start `key` deduplicates within that project, plugin and
 workflow while its run is retained; reusing it with different input fails.
 
@@ -740,7 +741,7 @@ customers: method(z.object({}), async (_, ctx) => {
 ```
 
 A read may run only the server's read-only tools, as a card's `Data` may. A
-tool marked destructive runs only from a method with a `confirm`, or one
+tool marked destructive runs only from a method with an `approve`, or one
 called from it with `ctx.call`: the user's answer to that question is its
 yes. A refusal throws `FORBIDDEN`; a tool's own error throws `INTERNAL` with
 its message. Only servers switched on for `ctx.root` answer, so a cron of an
@@ -775,7 +776,7 @@ Events run in memory: none is retried, and a handler that throws is logged.
 (its effect, whether it asks first, and its input's fields, optional ones ending
 in `?`), and every line of `~/.repogo/crons.json` with how it's going.
 `plugins` with `plugin` set answers that plugin in full: each method's input
-and output JSON Schema and confirm, its `storage` (each bucket's and stream's
+and output JSON Schema, `approve` and `approveUpTo`, its `storage` (each bucket's and stream's
 folder), the pages that show its methods, and the cron lines naming it.
 `plugin_call` runs one. Inspect a method's schema before naming it in a card.
 Verify a read's fields with a read-only call. Do not execute writes just to
@@ -843,7 +844,7 @@ Inside plugin code, `ctx.kv.flags.set("alerts", true)` saves the same value.
 The generated `preferences.flags.get({ key: "alerts" })` returns an entry with
 `value` and timestamps, while `ctx.kv.flags.get("alerts")` returns the value alone.
 
-## Errors and confirmations
+## Errors and approvals
 
 Throw `new MethodError(code, message, fieldErrors?)` for a failure the caller
 should read: `VALIDATION`, `NOT_FOUND`, `FORBIDDEN` or `INTERNAL`.
@@ -854,13 +855,36 @@ a message per field. Anything else thrown is
 words; `INTERNAL` reaches it as `Internal server error`
 ([Serving over HTTP](#serving-over-http)).
 
-A method's `confirm` is asked before a card's tap runs it. An agent's
-`plugin_call` never runs it: it gets the question back as a `CONFIRM` error and
-draws a button, and the user's tap asks. Ordinary `ctx.call` from plugin code skips
-it; an unattended workflow refuses confirmation-gated methods. A `destructive`
-method must have one. `{{field}}` in the question is
-filled from the call's input, so it can say what it acts on:
-`confirm: "Restart {{machine}}?"`.
+A method's `approve` is the question asked before it runs. `{{field}}` in it
+is filled from the call's input, so it can say what it acts on:
+`approve: "Restart {{machine}}?"`. A `destructive` method must have one.
+
+- **A card's tap** always asks it first.
+- **An agent's `plugin_call`** asks it in the chat, as a tool approval, and runs
+  the method only on the user's yes. `approveUpTo` names the least strict chat
+  mode that still asks; the method asks in that mode and every stricter one,
+  and runs unasked in the rest. The modes, strictest first, are
+  `approval-required`, `auto-accept-edits` and `full-access`; unset is
+  `full-access`, so it asks in every mode. A chat whose mode the host can't
+  tell asks.
+- **Plan mode:** an agent's call to any method that isn't a `read` is refused,
+  with or without an `approve`.
+- **Code:** `ctx.call` from plugin code skips it, and an unattended workflow
+  or cron refuses methods that ask.
+
+```ts
+upload: method(Build, run, {
+  effect: "destructive",
+  approve: "Upload build {{buildNumber}}?",              // asks in every mode
+}),
+rename: method(Rename, run, {
+  approve: "Rename {{name}}?",
+  approveUpTo: "auto-accept-edits",                       // full access runs it unasked
+}),
+```
+
+In full access an agent can run commands without asking, so there the
+question catches a careless call rather than stopping a determined one.
 
 ## Testing
 

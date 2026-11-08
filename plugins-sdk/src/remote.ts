@@ -23,7 +23,7 @@ export async function remotePlugin(url: string, name: string): Promise<PluginDef
   const methods: Record<string, Method> = {};
   for (const m of listing.methods) {
     methods[m.name] = method(z.fromJSONSchema(m.input as z.core.JSONSchema.JSONSchema), (input) => call(`${base}/${m.name}`, input), {
-      // A method with a confirm is never served, so none here is destructive.
+      // A method with an approve is never served, so none here is destructive.
       effect: m.effect as "read" | "write",
       description: m.description ?? undefined,
       output: m.output ? z.fromJSONSchema(m.output as z.core.JSONSchema.JSONSchema) : undefined,

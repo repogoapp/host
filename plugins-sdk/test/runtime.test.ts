@@ -151,7 +151,7 @@ test("the manifest has each method's kind, input and output", async () => {
   expect(list.output).toMatchObject({ type: "array", items: { type: "object", properties: { id: { type: "string" }, text: { type: "string" } } } });
   expect(plugin.methods.find((m) => m.name === "notes.notes.create")!.effect).toBe("write");
   // A generated delete can't be undone: destructive, and it asks first.
-  expect(plugin.methods.find((m) => m.name === "notes.notes.delete")).toMatchObject({ effect: "destructive", confirm: "Delete this record?" });
+  expect(plugin.methods.find((m) => m.name === "notes.notes.delete")).toMatchObject({ effect: "destructive", approve: "Delete this record?" });
 });
 
 test("ctx.plugins lists the plugins beside it, and their methods are what ctx.call reaches", async () => {
@@ -172,26 +172,36 @@ test("ctx.plugins lists the plugins beside it, and their methods are what ctx.ca
   expect((await runtime.call("catalog.countVia")).result).toBe(0);
 });
 
-test("a method's confirm reaches the manifest, and a collection's delete asks by default", async () => {
+test("a method's approve reaches the manifest, and a collection's delete asks by default", async () => {
   const runtime = await open();
   await runtime.add("risky", definePlugin({
     methods: {
-      wipe: method(z.object({}), () => null, { confirm: "Wipe everything?" }),
+      wipe: method(z.object({}), () => null, { approve: "Wipe everything?" }),
+      rename: method(z.object({}), () => null, { approve: "Rename it?", approveUpTo: "auto-accept-edits" }),
       tidy: method(z.object({}), () => null),
     },
   }));
   const methods = runtime.manifest().plugins.flatMap((plugin) => plugin.methods);
-  const confirm = (name: string) => methods.find((m) => m.name === name)!.confirm;
-  expect(confirm("risky.wipe")).toBe("Wipe everything?");
-  expect(confirm("risky.tidy")).toBeNull();
-  expect(confirm("notes.notes.delete")).toBe("Delete this record?");
-  expect(confirm("notes.notes.create")).toBeNull();
+  const listed = (name: string) => methods.find((m) => m.name === name)!;
+  expect(listed("risky.wipe")).toMatchObject({ approve: "Wipe everything?", approveUpTo: "full-access" });
+  expect(listed("risky.rename")).toMatchObject({ approve: "Rename it?", approveUpTo: "auto-accept-edits" });
+  expect(listed("risky.tidy")).toMatchObject({ approve: null, approveUpTo: null });
+  expect(listed("notes.notes.delete")).toMatchObject({ approve: "Delete this record?", approveUpTo: "full-access" });
+  expect(listed("notes.notes.create").approve).toBeNull();
+});
+
+test("approveUpTo names a mode and needs a question; the old confirm is refused", () => {
+  // @ts-expect-error a mode RepoGo doesn't have
+  expect(() => method(z.object({}), () => null, { approve: "Sure?", approveUpTo: "yolo" })).toThrow("approveUpTo is one of");
+  expect(() => method(z.object({}), () => null, { approveUpTo: "full-access" })).toThrow("needs an approve question");
+  // @ts-expect-error confirm was renamed
+  expect(() => method(z.object({}), () => null, { confirm: "Sure?" })).toThrow("confirm is now approve");
 });
 
 test("a tap runs a confirm method only once answered; code calling code isn't asked", async () => {
   const runtime = await open();
   await runtime.add("risky", definePlugin({
-    methods: { wipe: method(z.object({}), () => "wiped", { confirm: "Wipe everything?" }) },
+    methods: { wipe: method(z.object({}), () => "wiped", { approve: "Wipe everything?" }) },
   }));
   const asked = await runtime.call("risky.wipe", {}, { confirmed: false }).catch((e) => e);
   expect(toCallError(asked)).toEqual({ code: "CONFIRM", message: "Wipe everything?" });
@@ -386,7 +396,7 @@ test("a schedule that could never run says why, and the good ones beside it are 
     methods: {
       job: method(z.object({}), () => null),
       needs: method(z.object({ id: z.string() }), () => null),
-      asks: method(z.object({}), () => null, { confirm: "Sure?" }),
+      asks: method(z.object({}), () => null, { approve: "Sure?" }),
       tail: stream(z.object({}), async function* () {}),
     },
   }));
@@ -516,7 +526,7 @@ test("a confirm question names what it acts on, and a bad input fails before it'
   await open();
   await runtime.add("fleet", definePlugin({
     methods: {
-      restart: method(z.object({ machine: z.string().regex(/^[a-z0-9]+$/) }), () => "done", { confirm: "Restart {{machine}}? {{missing}}It drops its connections." }),
+      restart: method(z.object({ machine: z.string().regex(/^[a-z0-9]+$/) }), () => "done", { approve: "Restart {{machine}}? {{missing}}It drops its connections." }),
     },
   }));
   await expect(runtime.call("fleet.restart", { machine: "m42" }, { confirmed: false })).rejects.toThrow("Restart m42? It drops its connections.");
@@ -524,7 +534,7 @@ test("a confirm question names what it acts on, and a bad input fails before it'
   expect(bad).toMatchObject({ code: "VALIDATION" });
   expect((await runtime.call("fleet.restart", { machine: "m42" }, { confirmed: true })).result).toBe("done");
   // The manifest keeps the question as written.
-  expect(runtime.manifest().plugins.find((p) => p.name === "fleet")!.methods[0].confirm).toBe("Restart {{machine}}? {{missing}}It drops its connections.");
+  expect(runtime.manifest().plugins.find((p) => p.name === "fleet")!.methods[0].approve).toBe("Restart {{machine}}? {{missing}}It drops its connections.");
 });
 
 test("deleteMany removes what list would return, offset and field order included", async () => {
@@ -583,7 +593,7 @@ test("a stream with a confirm asks too, and a stream knows who watches it", asyn
   await open();
   await runtime.add("tails", definePlugin({
     methods: {
-      risky: { ...stream(z.object({}), async function* () { yield 1; }), confirm: "Tail it?" },
+      risky: { ...stream(z.object({}), async function* () { yield 1; }), approve: "Tail it?" },
       who: stream(z.object({}), async function* (_, ctx) { yield ctx.caller; }),
     },
   }));
@@ -640,10 +650,10 @@ test("a destructive method must ask first", async () => {
   const unasked = definePlugin({
     methods: { wipe: { input: z.object({}), effect: "destructive", run: () => null } },
   });
-  await expect(runtime.add("unasked", unasked)).rejects.toThrow("unasked.wipe is destructive, so it needs a confirm question");
+  await expect(runtime.add("unasked", unasked)).rejects.toThrow("unasked.wipe is destructive, so it needs an approve question");
   let wiped = 0;
   const asked = definePlugin({
-    methods: { wipe: method(z.object({ name: z.string() }), () => { wiped++; return null; }, { effect: "destructive", confirm: "Wipe {{name}}?" }) },
+    methods: { wipe: method(z.object({ name: z.string() }), () => { wiped++; return null; }, { effect: "destructive", approve: "Wipe {{name}}?" }) },
   });
   await runtime.add("asked", asked);
   const question = await runtime.call("asked.wipe", { name: "notes" }, { confirmed: false }).catch(toCallError);

@@ -23,7 +23,7 @@ export function workflowContext(base: Context, run: RunContext & { root: string;
 export type WorkflowOptions<O extends z.ZodType = z.ZodType> = {
   description?: string;
   output?: O;
-  confirm?: string;
+  approve?: string;
   timeout?: Duration;
   maxOffline?: Duration;
   retention?: Duration;

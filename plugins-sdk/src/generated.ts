@@ -15,7 +15,7 @@ export type Generated = {
   description: string;
   input: z.ZodType;
   output?: z.ZodType;
-  confirm?: string;
+  approve?: string;
   run: (input: any, signal: AbortSignal) => unknown;
 };
 
@@ -42,7 +42,7 @@ export function kvMethods(name: string, kv: Kv<any>, schema: z.ZodType): Record<
     },
     delete: {
       effect: "destructive", description: `Delete a ${name} key`, input: z.object({ key }), output: z.null(),
-      confirm: "Delete this key?", run: async ({ key }) => (await kv.delete(key), null),
+      approve: "Delete this key?", run: async ({ key }) => (await kv.delete(key), null),
     },
   };
 }
@@ -76,7 +76,7 @@ export function streamMethods(name: string, stream: Stream<any>, schema: z.ZodTy
     },
     delete: {
       effect: "destructive", description: `Delete a ${name} key and its lines`, input: z.object({ key }), output: z.null(),
-      confirm: "Delete this stream and its lines?", run: async ({ key }) => (await stream.delete(key), null),
+      approve: "Delete this stream and its lines?", run: async ({ key }) => (await stream.delete(key), null),
     },
   };
 }
@@ -130,7 +130,7 @@ export function bucketMethods(name: string, bucket: Bucket<any>, schema: z.ZodOb
     },
     delete: {
       effect: "destructive", description: `Delete a ${name} file and its meta`, input: z.object({ id }), output: z.null(),
-      confirm: "Delete this file?", run: async ({ id }) => (await bucket.delete(id), null),
+      approve: "Delete this file?", run: async ({ id }) => (await bucket.delete(id), null),
     },
   };
 }

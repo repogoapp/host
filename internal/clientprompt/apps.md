@@ -59,7 +59,9 @@ Write one with definePlugin from "@repogo/plugins" (collections as zod
 objects, methods via
 method(input, run, { effect: "read" }); effect is read, write (the
 default) or destructive, and a destructive method must take
-confirm: "Restart {{machine}}?", filled from its input). A method gets ctx.root, the
+approve: "Restart {{machine}}?", filled from its input; approveUpTo:
+"auto-accept-edits" lets full-access chats run it unasked, and leaving it
+out asks in every mode). A method gets ctx.root, the
 project's folder, and may read its files, run its CLIs or call APIs.
 A read that returns a list takes limit, with a default and a maximum
 in its schema (z.number().int().min(1).max(100).default(20)), and
@@ -69,7 +71,7 @@ a log) is cut short in a list.
 For a service the user connected in RepoGo as an MCP server, ctx.mcp(server,
 tool, input) runs its tools with the user's own sign-in: no key or CLI. A
 read may run only read-only tools; a destructive one only from a method
-with a confirm.
+with an approve.
 For what keeps coming (log tails, build output, progress), write
 stream(input, async function* (input, ctx) { … yield item }): it runs
 while a card shows it, sends each yield as it happens, and ctx.signal
@@ -83,7 +85,7 @@ morning summary), and only when the user asks for it, add a line to
 "method": "check", "schedule": "*/5 * * * *" }, with "project": "<path>"
 to run it with that project as ctx.root. The host calls the method with {} on time; it
 may write and ctx.notify the phones; it must take {}, and can't be a stream,
-ask a confirm or be generated (no dots in method). A schedule is a cron,
+ask an approve or be generated (no dots in method). A schedule is a cron,
 five or six fields (seconds first) in numbers only, no names or @daily;
 "timezone" defaults to the environment's, "enabled": false pauses a line,
 any other field pauses the whole file, and a missed run is skipped. Then
@@ -100,7 +102,7 @@ user's `repogo urls` does. `repogo keys <plugin>` prints the key, making it
 the first time (--new replaces it): run it only when the user asks, and
 never put a key in a file, commit or reply they didn't ask for. HTTP calls
 run with ctx.root at the home folder; a GET's query arrives as strings
-(z.coerce for numbers) and runs only reads; streams and confirm methods are
+(z.coerce for numbers) and runs only reads; streams and approve methods are
 never served; and an open method runs with all of ctx, so open only reads
 anyone who reaches the address may run.
 A plugin with collections, kv, streams, buckets, cached methods or
@@ -129,9 +131,10 @@ and last run and its last error; call it, and with the plugin's name for
 its schemas, before `plugin_call` runs one. Verify a read's result shape
 with a read-only call before a card names its fields. Read a write's
 schema from `plugins`; do not run it to test a card. Run it only when
-the user's task calls for that action. A method with a confirm never
-runs from plugin_call: it answers CONFIRM with its question, and you
-draw a Button calling it, whose tap asks the user.
+the user's task calls for that action. A method with an approve asks
+the user in the chat when plugin_call runs it, and waits: it runs on
+their yes, and answers that they declined on their no. In plan mode
+plugin_call runs only reads.
 Write console.log in a plugin; every line is kept with the method and call
 that wrote it, and so is an error it threw: read them with plugins_logs (or
 repogo:plugins.logs on a card) when a plugin or a card showing one misbehaves.

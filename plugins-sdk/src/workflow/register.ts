@@ -20,8 +20,8 @@ export function workflowMethods(
     return bridge({ operation, dir, plugin, namespace, workflow: name, root: ctx.root, caller: ctx.caller, input: input as Record<string, unknown>, settings: workflowSettings(definition) });
   };
   const id = z.object({ id: z.string().uuid() }).strict();
-  const spec = (method: WorkflowRequest["operation"], effect: "read" | "write", input: z.ZodType, description: string, confirm?: string, output?: z.ZodType): RegisteredMethod => ({
-    name: `${plugin}.${name}.${method}`, plugin, effect, input, description, confirm, output,
+  const spec = (method: WorkflowRequest["operation"], effect: "read" | "write", input: z.ZodType, description: string, approve?: string, output?: z.ZodType): RegisteredMethod => ({
+    name: `${plugin}.${name}.${method}`, plugin, effect, input, description, approve, output,
     run: async (input, raw) => {
       if (effect === "read") recordRead(workflowTag(namespace));
       const request = method === "start"
@@ -33,7 +33,7 @@ export function workflowMethods(
   return [
     spec("list", "read", z.object({ limit: z.number().int().min(1).max(100).default(20), status: z.string().optional(), cursor: z.string().optional() }).strict(), "List workflow runs", undefined, z.object({ items: z.array(RunSummarySchema), cursor: z.string().nullable() })),
     spec("get", "read", id, "Get one workflow run"),
-    spec("start", "write", z.object({ input: definition.input, key: z.string().min(1).max(200).optional() }).strict(), definition.description ?? "Start a durable workflow", definition.confirm, RunSummarySchema),
+    spec("start", "write", z.object({ input: definition.input, key: z.string().min(1).max(200).optional() }).strict(), definition.description ?? "Start a durable workflow", definition.approve, RunSummarySchema),
     spec("retry", "write", id, "Retry a safely failed query step", undefined, RunSummarySchema),
     spec("restart", "write", id, "Start a run that needs attention over from the beginning, on the current code", undefined, RunSummarySchema),
     spec("cancel", "write", id, "Request cancellation of a workflow", undefined, RunSummarySchema),

@@ -60,7 +60,7 @@ func (s *Service) HasRoutes() bool {
 	}
 	for _, p := range found {
 		for _, m := range p.Methods {
-			if open(m.HTTP[Public], m.Stream, m.Confirm) {
+			if open(m.HTTP[Public], m.Stream, m.Approve) {
 				return true
 			}
 		}
@@ -113,7 +113,7 @@ func (s *Service) serve(ctx context.Context, at Address, route tunnelwire.Plugin
 	var access, effect string
 	for _, p := range found {
 		for _, m := range p.Methods {
-			if m.Name == name && open(m.HTTP[at], m.Stream, m.Confirm) {
+			if m.Name == name && open(m.HTTP[at], m.Stream, m.Approve) {
 				access, effect = m.HTTP[at], m.Effect
 			}
 		}
@@ -176,7 +176,7 @@ func (s *Service) listing(ctx context.Context, plugin string) (*http.Response, e
 		}
 		var methods []listedMethod
 		for _, m := range p.Methods {
-			if m.HTTP[Device] == httpNone && open(m.HTTP[Device], m.Stream, m.Confirm) {
+			if m.HTTP[Device] == httpNone && open(m.HTTP[Device], m.Stream, m.Approve) {
 				methods = append(methods, listedMethod{Name: within(plugin, m.Name), Effect: m.Effect, Description: m.Description, Input: m.Input, Output: m.Output})
 			}
 		}
@@ -203,8 +203,8 @@ func (s *Service) served(ctx context.Context) (Target, []listedPlugin, error) {
 // within is a method's name inside its plugin: today for boppr.today.
 func within(plugin, name string) string { return strings.TrimPrefix(name, plugin+".") }
 
-func open(access string, stream bool, confirm string) bool {
-	return (access == httpKey || access == httpNone) && !stream && confirm == ""
+func open(access string, stream bool, approve string) bool {
+	return (access == httpKey || access == httpNone) && !stream && approve == ""
 }
 
 // httpInput is a GET's query as an object of strings, else the JSON body.

@@ -9,7 +9,7 @@ import { Runtime } from "./runtime";
 import type { UploadedFile } from "./uploads";
 
 // Plugins run for a test as the host runs them: real collections, kv, streams
-// and buckets in a temporary folder, the same checks, confirms and crons.
+// and buckets in a temporary folder, the same checks, approvals and crons.
 
 export type TestCall = {
   /** False is a tap the user hasn't answered yet: a method with a `confirm` answers CONFIRM. */

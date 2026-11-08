@@ -56,7 +56,13 @@ func pluginsServer(t *testing.T, service *plugins.Service) *Server {
 
 func attachIn(t *testing.T, s *Server, cwd string) string {
 	t.Helper()
-	turn := agent.RunningTurn{Ctx: context.Background(), TurnID: "t1", ChatID: "claude:s1", Cwd: cwd, Device: "phone"}
+	return attachAsking(t, s, cwd, agent.TurnConfig{}, nil)
+}
+
+// attachAsking attaches a turn run with cfg whose chat answers approvals with ask.
+func attachAsking(t *testing.T, s *Server, cwd string, cfg agent.TurnConfig, ask func(context.Context, agent.Approval) (json.RawMessage, error)) string {
+	t.Helper()
+	turn := agent.RunningTurn{Ctx: context.Background(), TurnID: "t1", ChatID: "claude:s1", Cwd: cwd, Device: "phone", Config: cfg, Ask: ask}
 	entry, release := s.Attach(&fakeSession{turn: turn}, agent.TurnRequest{Cwd: cwd})
 	t.Cleanup(release)
 	return strings.TrimPrefix(entry.Headers[0].Value, "Bearer ")
@@ -144,8 +150,14 @@ func TestPluginCallRunsAnEnvironmentPlugin(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "notes"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	plugin := `import { definePlugin, z } from "@repogo/plugins";
-export default definePlugin({ namespace: "notes", collections: { notes: z.object({ text: z.string() }) } });
+	plugin := `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  namespace: "notes",
+  collections: { notes: z.object({ text: z.string() }) },
+  methods: {
+    tidy: method(z.object({}), () => "tidied", { approve: "Tidy the notes?", approveUpTo: "auto-accept-edits" }),
+  },
+});
 `
 	if err := os.WriteFile(filepath.Join(dir, "notes", "app.ts"), []byte(plugin), 0o644); err != nil {
 		t.Fatal(err)
@@ -188,5 +200,80 @@ export default definePlugin({ namespace: "notes", collections: { notes: z.object
 	}
 	if kept := callTool(t, s, token, "plugin_call", map[string]any{"method": "notes.notes.get", "input": map[string]any{"id": note.ID}}); kept.IsError || !strings.Contains(kept.Content[0].Text, `"hi"`) {
 		t.Fatalf("the note went on the agent's own yes: %+v", kept)
+	}
+
+	// In a chat that can ask, the question goes to the user as an approval:
+	// their no keeps the note, their yes deletes it.
+	var approvals []agent.Approval
+	pick := approveNoID
+	answer := func(_ context.Context, a agent.Approval) (json.RawMessage, error) {
+		approvals = append(approvals, a)
+		return json.Marshal(pick)
+	}
+	chat := attachAsking(t, s, root, agent.TurnConfig{PermissionMode: agent.PermissionFullAccess}, func(_ context.Context, a agent.Approval) (json.RawMessage, error) {
+		approvals = append(approvals, a)
+		return json.Marshal(pick)
+	})
+	declined := callTool(t, s, chat, "plugin_call", map[string]any{"method": "notes.notes.delete", "input": map[string]any{"id": note.ID}})
+	if !declined.IsError || !strings.Contains(declined.Content[0].Text, "declined") {
+		t.Fatalf("a no: %+v", declined)
+	}
+	if len(approvals) != 1 || approvals[0].Title == "" || len(approvals[0].Options) != 2 || !strings.Contains(string(approvals[0].Input), "notes.notes.delete") {
+		t.Fatalf("the approval: %+v", approvals)
+	}
+	if kept := callTool(t, s, chat, "plugin_call", map[string]any{"method": "notes.notes.get", "input": map[string]any{"id": note.ID}}); kept.IsError {
+		t.Fatalf("the note went on the user's no: %+v", kept)
+	}
+	pick = approveYesID
+	if done := callTool(t, s, chat, "plugin_call", map[string]any{"method": "notes.notes.delete", "input": map[string]any{"id": note.ID}}); done.IsError {
+		t.Fatalf("a yes: %+v", done)
+	}
+	if gone := callTool(t, s, chat, "plugin_call", map[string]any{"method": "notes.notes.get", "input": map[string]any{"id": note.ID}}); gone.IsError || strings.Contains(gone.Content[0].Text, `"hi"`) {
+		t.Fatalf("the note stayed after the user's yes: %+v", gone)
+	}
+
+	// approveUpTo auto-accept-edits: full access runs it unasked, the stricter modes ask.
+	approvals, pick = nil, approveNoID
+	if ran := callTool(t, s, chat, "plugin_call", map[string]any{"method": "notes.tidy"}); ran.IsError || !strings.Contains(ran.Content[0].Text, "tidied") || len(approvals) != 0 {
+		t.Fatalf("full access past approveUpTo: %+v, asked %d", ran, len(approvals))
+	}
+	for _, mode := range []agent.PermissionMode{agent.PermissionAutoAcceptEdits, agent.PermissionApprovalRequired, ""} {
+		approvals = nil
+		strict := attachAsking(t, s, root, agent.TurnConfig{PermissionMode: mode}, answer)
+		if got := callTool(t, s, strict, "plugin_call", map[string]any{"method": "notes.tidy"}); !got.IsError || len(approvals) != 1 || approvals[0].Title != "Tidy the notes?" {
+			t.Fatalf("%q within approveUpTo: %+v, asked %d", mode, got, len(approvals))
+		}
+	}
+
+	// Plan mode runs reads only, whatever the method asks.
+	planning := attachAsking(t, s, root, agent.TurnConfig{PermissionMode: agent.PermissionFullAccess, Mode: "plan"}, answer)
+	for _, method := range []string{"notes.tidy", "notes.notes.create"} {
+		if got := callTool(t, s, planning, "plugin_call", map[string]any{"method": method, "input": map[string]any{"text": "plan"}}); !got.IsError || !strings.Contains(got.Content[0].Text, "plan mode") {
+			t.Fatalf("%s in plan mode: %+v", method, got)
+		}
+	}
+	if listed := callTool(t, s, planning, "plugin_call", map[string]any{"method": "notes.notes.list"}); listed.IsError {
+		t.Fatalf("a read in plan mode: %+v", listed)
+	}
+}
+
+func TestAsksIn(t *testing.T) {
+	for _, c := range []struct {
+		upTo string
+		mode agent.PermissionMode
+		want bool
+	}{
+		{"", agent.PermissionFullAccess, true},
+		{"full-access", agent.PermissionFullAccess, true},
+		{"auto-accept-edits", agent.PermissionFullAccess, false},
+		{"auto-accept-edits", agent.PermissionAutoAcceptEdits, true},
+		{"approval-required", agent.PermissionAutoAcceptEdits, false},
+		{"approval-required", agent.PermissionApprovalRequired, true},
+		{"approval-required", "", true},
+		{"approval-required", "yolo", true},
+	} {
+		if got := asksIn(c.upTo, c.mode); got != c.want {
+			t.Errorf("asksIn(%q, %q) = %v", c.upTo, c.mode, got)
+		}
 	}
 }

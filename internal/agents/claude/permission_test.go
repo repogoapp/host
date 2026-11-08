@@ -131,3 +131,18 @@ func TestDiagnosticsRedactCommonCredentials(t *testing.T) {
 		t.Fatal("lost diagnostic")
 	}
 }
+
+// RepoGo's tools see the mode Claude is in now: a plan approved mid-turn
+// leaves plan, and a turn Claude never changed keeps its settings.
+func TestLiveConfig(t *testing.T) {
+	start := agent.TurnConfig{PermissionMode: agent.PermissionFullAccess, Mode: "plan"}
+	if got := liveConfig(start, "plan"); got.Mode != "plan" || got.PermissionMode != agent.PermissionFullAccess {
+		t.Fatalf("planning: %+v", got)
+	}
+	if got := liveConfig(start, "acceptEdits"); got.Mode != "agent" || got.PermissionMode != agent.PermissionAutoAcceptEdits {
+		t.Fatalf("plan approved with auto mode: %+v", got)
+	}
+	if got := liveConfig(start, ""); got != start {
+		t.Fatalf("no mode set: %+v", got)
+	}
+}

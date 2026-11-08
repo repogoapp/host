@@ -45,7 +45,7 @@ func (s *Service) Served(ctx context.Context, plugin string) ([]ServedMethod, er
 		for _, m := range p.Methods {
 			method := ServedMethod{Plugin: p.Name, Method: within(p.Name, m.Name), Effect: m.Effect, URLs: []MethodURL{}}
 			for _, at := range []Address{Device, Public} {
-				if base := bases[at]; base != "" && open(m.HTTP[at], m.Stream, m.Confirm) {
+				if base := bases[at]; base != "" && open(m.HTTP[at], m.Stream, m.Approve) {
 					method.URLs = append(method.URLs, MethodURL{Address: at, URL: base + "/" + p.Name + "/" + method.Method, Key: m.HTTP[at] == httpKey})
 				}
 			}

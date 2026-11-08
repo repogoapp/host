@@ -240,7 +240,7 @@ test.each(["confirm", "host"])("unattended workflows refuse unsafe capability pa
   const f = await fixture();
   await writeFile(join(f.dir, "reports", "app.ts"), `import { definePlugin, workflow, method, z } from "@repogo/plugins";
 export default definePlugin({ namespace: "fixture.reports", methods: {
- danger: method(z.object({}), () => { throw new Error("should never execute"); }, {confirm:"Delete everything?"}),
+ danger: method(z.object({}), () => { throw new Error("should never execute"); }, {approve:"Delete everything?"}),
 }, workflows: {
  report: workflow(z.object({mode:z.string()}), async ({mode}, ctx) => ctx.step.run("work", () => mode === "confirm" ? ctx.call("danger") : ctx.host("actions.run", {}), {kind:${JSON.stringify(mode === "host" ? "query" : "mutation")}})),
 }});`);

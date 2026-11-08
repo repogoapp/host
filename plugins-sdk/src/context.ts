@@ -2,7 +2,7 @@ import type { Bucket } from "./buckets";
 import type { Collection } from "./collections";
 import type { Kv } from "./kv";
 import type { Stream } from "./streams";
-import type { Effect, HTTPAddresses } from "./define";
+import type { Effect, HTTPAddresses, PermissionMode } from "./define";
 import type { Duration } from "./duration";
 
 /** An alert for the user's phones: what it says, and the page a tap opens. */
@@ -90,7 +90,9 @@ export type ManifestMethod = {
   stream: boolean;
   description: string | null;
   /** What a card asks before running it; null runs on tap. */
-  confirm: string | null;
+  approve: string | null;
+  /** The least strict chat mode an agent's call still asks in; null with no approve. */
+  approveUpTo: PermissionMode | null;
   /** Who may call it over HTTP, at each address; null, no one anywhere. */
   http: HTTPAddresses | null;
   /** JSON Schema of the input, and of the output when the method declares one. */
@@ -179,7 +181,7 @@ export type Context = {
    * Runs a tool of an MCP server the user switched on for the calling project:
    * `ctx.mcp("stripe", "stripe_api_read", { … })`, answering the tool's result.
    * A query may run only read-only tools; a destructive tool runs only from a
-   * method with a `confirm`. Its answer doesn't re-run a query.
+   * method with an `approve`. Its answer doesn't re-run a query.
    */
   mcp: (server: string, tool: string, input?: unknown) => Promise<unknown>;
   /**

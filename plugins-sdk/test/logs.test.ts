@@ -26,7 +26,7 @@ const notes = definePlugin({
     viaDigest: method(z.object({}), (_, ctx) => ctx.call("digest.summary"), { effect: "read" }),
     boom: method(z.object({}), () => { throw new MethodError("NOT_FOUND", "no such thing"); }),
     tidy: method(z.object({}), () => { console.info("tidied"); }),
-    ask: method(z.object({}), () => { throw new MethodError("CONFIRM", "Really?"); }, { confirm: "Really?" }),
+    ask: method(z.object({}), () => { throw new MethodError("CONFIRM", "Really?"); }, { approve: "Really?" }),
   },
   on: {
     "notes.created": async () => { console.log("handler saw a note"); },

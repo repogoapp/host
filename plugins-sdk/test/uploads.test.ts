@@ -28,7 +28,7 @@ const receipts = definePlugin({
       return kept.map((file) => file.name);
     }),
     forward: method(z.object({ files: z.array(upload()) }), async ({ files }, ctx) => ctx.call("ingest", { files, month: "may" })),
-    remove: method(z.object({ files: z.array(upload()) }), async ({ files }) => files.length, { confirm: "Remove these files?" }),
+    remove: method(z.object({ files: z.array(upload()) }), async ({ files }) => files.length, { approve: "Remove these files?" }),
   },
 });
 

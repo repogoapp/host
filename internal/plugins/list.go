@@ -34,8 +34,8 @@ type Listed struct {
 }
 
 // ListedMethod is one method in a line: its effect (read, write or
-// destructive), Stream for a read that sends items, Asks when it has a
-// confirm, and Input as its top-level fields: `id, text?, done?`.
+// destructive), Stream for a read that sends items, Asks when it has an
+// approve question, and Input as its top-level fields: `id, text?, done?`.
 type ListedMethod struct {
 	Name        string `json:"name"`
 	Effect      string `json:"effect"`
@@ -45,7 +45,7 @@ type ListedMethod struct {
 	Description string `json:"description,omitempty"`
 }
 
-// Detail is one plugin in full: its folder, each method's schemas and confirm,
+// Detail is one plugin in full: its folder, each method's schemas and approve,
 // its storage, the pages that show its methods and the cron lines naming it.
 type Detail struct {
 	Name        string          `json:"name"`
@@ -65,7 +65,8 @@ type DetailMethod struct {
 	Effect      string          `json:"effect"`
 	Stream      bool            `json:"stream,omitempty"`
 	Description string          `json:"description,omitempty"`
-	Confirm     string          `json:"confirm,omitempty"`
+	Approve     string          `json:"approve,omitempty"`
+	ApproveUpTo string          `json:"approveUpTo,omitempty"`
 	Input       json.RawMessage `json:"input"`
 	Output      json.RawMessage `json:"output,omitempty"`
 }
@@ -79,7 +80,8 @@ type manifestPlugin struct {
 		Effect      string             `json:"effect"`
 		Stream      bool               `json:"stream"`
 		Description string             `json:"description"`
-		Confirm     string             `json:"confirm"`
+		Approve     string             `json:"approve"`
+		ApproveUpTo string             `json:"approveUpTo"`
 		HTTP        map[Address]string `json:"http"`
 		Input       json.RawMessage    `json:"input"`
 		Output      json.RawMessage    `json:"output"`
@@ -119,6 +121,34 @@ func (s *Service) List(ctx context.Context, path, plugin string) (outcome.Answer
 	}
 	p := found[i]
 	return encode(detail(p, errs[errorsKey(p.target.Dir, p.Name)], all, s.cronsOf(p)))
+}
+
+// Asking is how a method asks before it runs: Effect, and its approve
+// question and the least strict mode that still asks (ApproveUpTo).
+type Asking struct {
+	Effect      string
+	Approve     string
+	ApproveUpTo string
+}
+
+// Method is how a folder's method asks, by its `<plugin>.<method>` name;
+// false when no plugin has it.
+func (s *Service) Method(ctx context.Context, path, name string) (Asking, bool, error) {
+	found, failure, err := s.manifests(ctx, path)
+	if err != nil {
+		return Asking{}, false, err
+	}
+	if failure != nil {
+		return Asking{}, false, fmt.Errorf("plugins: %s", failure.Message)
+	}
+	for _, p := range found {
+		for _, m := range p.Methods {
+			if m.Name == name {
+				return Asking{Effect: m.Effect, Approve: m.Approve, ApproveUpTo: m.ApproveUpTo}, true, nil
+			}
+		}
+	}
+	return Asking{}, false, nil
 }
 
 // Plugins is every plugin a folder can use with a line per method, as the
@@ -175,7 +205,7 @@ func (s *Service) manifest(ctx context.Context, t Target) ([]listedPlugin, *outc
 func listed(p listedPlugin, errors int, all []Page) Listed {
 	out := Listed{Name: p.Name, Errors: errors, Page: indexPage(p.Name, all), Description: p.Description, Methods: []ListedMethod{}}
 	for _, m := range p.Methods {
-		out.Methods = append(out.Methods, ListedMethod{Name: m.Name, Effect: m.Effect, Stream: m.Stream, Asks: m.Confirm != "", Input: Signature(m.Input), Description: m.Description})
+		out.Methods = append(out.Methods, ListedMethod{Name: m.Name, Effect: m.Effect, Stream: m.Stream, Asks: m.Approve != "", Input: Signature(m.Input), Description: m.Description})
 	}
 	return out
 }
@@ -183,7 +213,7 @@ func listed(p listedPlugin, errors int, all []Page) Listed {
 func detail(p listedPlugin, errors int, all []Page, crons []Cron) Detail {
 	out := Detail{Name: p.Name, Path: filepath.Join(p.target.Dir, p.Name), Errors: errors, Description: p.Description, Methods: []DetailMethod{}, Storage: present(p.Storage), Crons: crons}
 	for _, m := range p.Methods {
-		out.Methods = append(out.Methods, DetailMethod{Name: m.Name, Effect: m.Effect, Stream: m.Stream, Description: m.Description, Confirm: m.Confirm, Input: schema(m.Input), Output: schema(m.Output)})
+		out.Methods = append(out.Methods, DetailMethod{Name: m.Name, Effect: m.Effect, Stream: m.Stream, Description: m.Description, Approve: m.Approve, ApproveUpTo: m.ApproveUpTo, Input: schema(m.Input), Output: schema(m.Output)})
 	}
 	for _, page := range all {
 		if ownMethod(p.Name, page.Method) {

@@ -9,7 +9,7 @@ and write them live:
 Data method="plugin:<plugin>.<method>" subscribes and redraws whenever
   the answer changes, from any card, page or agent.
 plugin:<plugin>.<method> — a Button, Item, Swipe or Toggle action that runs a method.
-  A method the plugin gave a confirm question asks it first.
+  A method the plugin gave an approve question asks it first.
 Upload: label and/or icon, variant like Button; accept="image/*|video/*|
   application/pdf" (MIME types, default */*); multiple="true" for up to
   10; action="plugin:<plugin>.<method>", Params and then as on Button.

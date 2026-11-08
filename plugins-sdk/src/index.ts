@@ -3,7 +3,7 @@
 export { cached, definePlugin, method, stream } from "./define";
 export { remotePlugin } from "./remote";
 export { upload, type UploadedFile } from "./uploads";
-export type { PluginDefinition, Method, Effect, HTTPAccess, HTTPAddresses, HTTPOption, StreamDefinition } from "./define";
+export type { PluginDefinition, Method, Effect, PermissionMode, HTTPAccess, HTTPAddresses, HTTPOption, StreamDefinition } from "./define";
 export type { Activity, ActivityProgress, ActivityTimer, ActivityTint, AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, ManifestMethod, ManifestStorage } from "./context";
 export type { LogLevel, LogRecord } from "./logs";
 export type { BucketFile, FileStatus, PutFile } from "./buckets";

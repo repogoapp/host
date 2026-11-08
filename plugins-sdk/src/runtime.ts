@@ -12,7 +12,7 @@ import { parseDuration } from "./duration";
 import type { Activity, AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
-import type { Effect, HTTPAddresses, PluginDefinition } from "./define";
+import type { Effect, HTTPAddresses, PermissionMode, PluginDefinition } from "./define";
 import { MethodError, toCallError } from "./errors";
 import { EventBus } from "./events";
 import { bucketMethods, kvMethods, streamMethods, type Generated } from "./generated";
@@ -33,7 +33,8 @@ export type RegisteredMethod = {
   effect: Effect;
   stream?: true;
   description?: string;
-  confirm?: string;
+  approve?: string;
+  approveUpTo?: PermissionMode;
   http?: HTTPAddresses;
   input: z.ZodType;
   output?: z.ZodType;
@@ -129,7 +130,7 @@ export class Runtime {
   private callSignal = new AsyncLocalStorage<AbortSignal>();
   /** Who started the outermost call, `ctx.caller` to the code it runs. */
   private callCaller = new AsyncLocalStorage<Caller>();
-  /** Whether the user answered a `confirm` for this call or one it runs within, which a destructive MCP tool needs. */
+  /** Whether the user answered an `approve` for this call or one it runs within, which a destructive MCP tool needs. */
   private callConfirmed = new AsyncLocalStorage<boolean>();
   /** Read through `ctx.plugins()` and written as each cron run starts and ends; this runtime's own, so other Workers aren't stirred. */
   private cronsTag = `crons.${crypto.randomUUID()}`;
@@ -264,7 +265,8 @@ export class Runtime {
         effect: method.effect,
         stream: method.stream,
         description: method.description,
-        confirm: method.confirm,
+        approve: method.approve,
+        approveUpTo: method.approveUpTo,
         http: method.http,
         input: method.input,
         output: method.output,
@@ -343,13 +345,13 @@ export class Runtime {
     const raw = input ?? {};
     const parsed = method.input.parse(raw);
     // Asked after the input is read, so the question can name what it acts on.
-    if (method.confirm && (options.confirmed === false || workflowScope.getStore())) throw new MethodError("CONFIRM", fillConfirm(method.confirm, parsed));
+    if (method.approve && (options.confirmed === false || workflowScope.getStore())) throw new MethodError("CONFIRM", fillQuestion(method.approve, parsed));
     if (method.stream) return { result: await this.sample(name, input), reads: [], invalidates: [] };
-    // Past the check above, a method with a confirm has the user's yes.
+    // Past the check above, a method with an approve has the user's yes.
     const confirmed = this.callConfirmed.getStore() ?? false;
     // A read is read-only however it's called, and so is everything it calls.
     const run = await tracked(method.effect === "read", (tags) => this.notifyInvalidated(tags), () =>
-      this.callConfirmed.run(confirmed || method.confirm !== undefined, async () => {
+      this.callConfirmed.run(confirmed || method.approve !== undefined, async () => {
         const result = await method.run(parsed, raw);
         await this.events.emit(name, { input: parsed, result });
         return result;
@@ -358,7 +360,7 @@ export class Runtime {
     const invalidates = run.outermost ? [...run.access.writes] : [];
     if (invalidates.length > 0) this.notifyInvalidated(invalidates);
     if (!run.ok) {
-      // A confirm is a question, not a failure; anything else is the plugin's error to read later.
+      // An approve is a question, not a failure; anything else is the plugin's error to read later.
       if (!(run.error instanceof MethodError && run.error.code === "CONFIRM")) record("error", [run.error]);
       throw run.error;
     }
@@ -462,7 +464,7 @@ export class Runtime {
     const method = this.methods.get(name);
     if (!method || method.plugin !== entry.plugin) throw new Error(`${entry.method} isn't one of ${entry.plugin}'s methods`);
     if (method.stream) throw new Error(`${name} is a stream; a cron runs a read or a write`);
-    if (method.confirm) throw new Error(`${name} asks before it runs, so nothing may run it on a schedule`);
+    if (method.approve) throw new Error(`${name} asks before it runs, so nothing may run it on a schedule`);
     if (!method.input.safeParse({}).success) throw new Error(`${name} needs input; a cron calls it with {}`);
     const parsed = parseSchedule(entry.schedule);
     try { checkTimezone(timezone); } catch { throw new Error(`"${timezone}" isn't a time zone`); }
@@ -558,7 +560,8 @@ export class Runtime {
           effect: method.effect,
           stream: method.stream ?? false,
           description: method.description ?? null,
-          confirm: method.confirm ?? null,
+          approve: method.approve ?? null,
+          approveUpTo: method.approve ? method.approveUpTo ?? "full-access" : null,
           http: method.http ?? null,
           input: z.toJSONSchema(method.input, { io: "input", unrepresentable: "any" }),
           output: method.output ? z.toJSONSchema(method.output, { io: "output", unrepresentable: "any" }) : null,
@@ -645,8 +648,8 @@ export class Runtime {
   private register(method: RegisteredMethod) {
     if (this.methods.has(method.name)) throw new Error(`${method.name} is defined twice; rename the method or the data`);
     // What can't be undone always asks: no card, agent or code runs it unasked.
-    if (method.effect === "destructive" && !method.confirm) {
-      throw new Error(`${method.name} is destructive, so it needs a confirm question, such as { confirm: "Delete {{id}}?" }`);
+    if (method.effect === "destructive" && !method.approve) {
+      throw new Error(`${method.name} is destructive, so it needs an approve question, such as { approve: "Delete {{id}}?" }`);
     }
     this.methods.set(method.name, method);
   }
@@ -673,9 +676,9 @@ export class Runtime {
       output: z.ZodType,
       description: string,
       run: (input: any, raw: any) => unknown,
-      confirm?: string,
+      approve?: string,
     ) => this.register({
-      name: `${prefix}.${method}`, plugin, effect, description, confirm, input, output,
+      name: `${prefix}.${method}`, plugin, effect, description, approve, input, output,
       run: async (value, raw) => run(value, raw),
     });
 
@@ -700,8 +703,8 @@ export class Runtime {
   }
 }
 
-/** A confirm question with `{{field}}` filled from the call's input: "Restart {{machine}}?". */
-function fillConfirm(question: string, input: unknown) {
+/** An approve question with `{{field}}` filled from the call's input: "Restart {{machine}}?". */
+function fillQuestion(question: string, input: unknown) {
   const fields = (input ?? {}) as Record<string, unknown>;
   return question.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, field) => {
     const value = Object.hasOwn(fields, field) ? fields[field] : undefined;
@@ -723,7 +726,7 @@ function mcpFailure(server: string, tool: string, error: { code: string; message
     case "NOT_READ_ONLY":
       return new MethodError("FORBIDDEN", `${server}.${tool} changes data, so it runs from a write, not a read.`);
     case "CONFIRM":
-      return new MethodError("FORBIDDEN", `${server}.${tool} may destroy data, so it runs only from a method with a confirm.`);
+      return new MethodError("FORBIDDEN", `${server}.${tool} may destroy data, so it runs only from a method with an approve.`);
   }
   return new MethodError("INTERNAL", error.message);
 }

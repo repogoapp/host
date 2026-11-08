@@ -13,10 +13,17 @@ export type StreamDefinition = z.ZodType | { item: z.ZodType; retain: Retain };
 /**
  * What a method does. `read` only reads, so cards may run it on their own and
  * again when its data changes. `write` changes data, and runs only when the
- * user acts. `destructive` can't be undone, and must ask first (`confirm`).
+ * user acts. `destructive` can't be undone, and must ask first (`approve`).
  * Unmarked methods write: repeating one is never assumed safe.
  */
 export type Effect = "read" | "write" | "destructive";
+
+/**
+ * The chat's permission modes, strictest first, as RepoGo names them for every
+ * agent. `approveUpTo` names the least strict one a method still asks in.
+ */
+export const permissionModes = ["approval-required", "auto-accept-edits", "full-access"] as const;
+export type PermissionMode = (typeof permissionModes)[number];
 
 export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> = {
   input: I;
@@ -30,7 +37,13 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
    * The question asked before it runs, such as "Delete {{name}}?", filled from
    * its input; required for a destructive method. Methods without one run on tap.
    */
-  confirm?: string;
+  approve?: string;
+  /**
+   * The least strict chat mode in which an agent's call still asks `approve`:
+   * it asks in that mode and every stricter one, and runs unasked in the rest.
+   * Unset is "full-access", every mode. A card's tap always asks.
+   */
+  approveUpTo?: PermissionMode;
   /** Who may call it over HTTP, at each address; an address it doesn't name serves it to no one. */
   http?: HTTPAddresses;
   /** Set by `cached`: the read answers from what it saved, and checks again when that's old. */
@@ -94,7 +107,8 @@ type MethodOptions<O extends z.ZodType> = {
   output?: O;
   description?: string;
   http?: HTTPOption;
-} & ({ effect: "destructive"; confirm: string } | { effect?: "read" | "write"; confirm?: string });
+  approveUpTo?: PermissionMode;
+} & ({ effect: "destructive"; approve: string } | { effect?: "read" | "write"; approve?: string });
 
 export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   input: I,
@@ -102,9 +116,14 @@ export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   options: MethodOptions<O> = {},
 ): Method<I, O> {
   if ("kind" in options) throw new Error('method: kind is now effect: "read", "write" or "destructive"');
+  if ("confirm" in options) throw new Error('method: confirm is now approve: "Delete {{id}}?"');
+  if (options.approveUpTo !== undefined && !permissionModes.includes(options.approveUpTo)) {
+    throw new Error(`method: approveUpTo is one of ${permissionModes.join(", ")}`);
+  }
+  if (options.approveUpTo !== undefined && !options.approve) throw new Error("method: approveUpTo needs an approve question to ask");
   return {
     input, run, effect: options.effect ?? "write", output: options.output,
-    description: options.description, confirm: options.confirm,
+    description: options.description, approve: options.approve, approveUpTo: options.approveUpTo,
     http: httpAddresses(options.http),
   };
 }

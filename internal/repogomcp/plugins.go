@@ -1,6 +1,8 @@
 package repogomcp
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 
@@ -22,9 +24,9 @@ var pluginsTool = tool{
 	Description: "List the environment's plugins (~/.repogo/plugins), which every project can use, " +
 		"each with its `errors` in the last hour, the `page` that shows it, " +
 		"and a line per method: `effect` (read, write or destructive), `stream` for a read that sends items, " +
-		"`asks` when it has a confirm, and `input`, its fields " +
+		"`asks` when it has an approve question, and `input`, its fields " +
 		"with optional ones ending in `?`; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
-		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema and confirm, its storage, " +
+		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema, `approve` and `approveUpTo`, its storage, " +
 		"the pages that show its methods (`target` to open with page: and the `params` to add) and the cron lines naming it. " +
 		"Call this, and with the plugin's name for its schemas, before plugin_call; again after writing or changing a plugin or crons.json.",
 	InputSchema: map[string]any{
@@ -39,8 +41,9 @@ var pluginCallTool = tool{
 	Name: "plugin_call",
 	Description: "Run one method of a plugin this project can use and return its result. " +
 		"`method` is `<plugin>.<method>` as `plugins` lists it, such as `plans.move`; " +
-		"`input` must match that method's input schema. A method that asks first (`asks`) never runs from here: " +
-		"it answers CONFIRM with its question, and the user runs it by tapping a Button you draw with action=\"plugin:<method>\".",
+		"`input` must match that method's input schema. A method that asks first (`asks`) puts its question to the user " +
+		"in the chat and waits, unless this chat's mode is less strict than its `approveUpTo`: it runs on their yes, " +
+		"and answers that they declined on their no. In plan mode only reads run.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -72,14 +75,110 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 	if err := json.Unmarshal(args, &p); err != nil || p.Method == "" {
 		return failed("RepoGo plugins: plugin_call needs a method, such as {\"method\":\"plans.list\",\"input\":{}}")
 	}
-	// A confirm is the user's to answer, never the agent's: its permissions may
-	// let every tool call through. The question goes back for a card to ask.
-	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, false, plugins.Origin{Caller: plugins.CallerAgent, Chat: turn.ChatID})
-	if err == nil && answer.Error != nil && answer.Error.Code == "CONFIRM" {
-		return failed("CONFIRM: " + answer.Error.Message + " " + p.Method + " asks the user first, so it can't run from plugin_call. " +
+	// Planning changes nothing: only reads run, asked or not.
+	if turn.Config.Mode == "plan" {
+		if m, ok, err := service.Method(turn.Ctx, turn.Cwd, p.Method); err == nil && ok && m.Effect != "read" {
+			return failed("RepoGo: this chat is in plan mode, so plugin_call runs only reads, and " + p.Method + " is a " + m.Effect +
+				". Put it in the plan; it can run once the user leaves plan mode.")
+		}
+	}
+	// An approve is the user's to answer, never the agent's: its permissions may
+	// let every tool call through. The question goes to the chat as an approval,
+	// and the call waits on it, unless the chat's mode is past the method's approveUpTo.
+	origin := plugins.Origin{Caller: plugins.CallerAgent, Chat: turn.ChatID}
+	answer, err := service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, false, origin)
+	if err != nil || answer.Error == nil || answer.Error.Code != "CONFIRM" {
+		return pluginResult(answer, err)
+	}
+	if m, ok, err := service.Method(turn.Ctx, turn.Cwd, p.Method); err == nil && ok && !asksIn(m.ApproveUpTo, turn.Config.PermissionMode) {
+		return pluginResult(service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, true, origin))
+	}
+	if turn.Ask == nil {
+		return failed("CONFIRM: " + answer.Error.Message + " " + p.Method + " asks the user first, and this chat can't ask. " +
 			"Draw a Button with action=\"plugin:" + p.Method + "\" and a Param per input field; the user's tap asks this question and runs it.")
 	}
-	return pluginResult(answer, err)
+	switch approve(turn, p.Method, p.Input, answer.Error.Message) {
+	case approveYes:
+		return pluginResult(service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, true, origin))
+	case approveNo:
+		return failed("The user declined " + p.Method + " (\"" + answer.Error.Message + "\"). It didn't run; don't call it again unless they ask.")
+	default:
+		return failed("Nobody answered " + p.Method + "'s question (\"" + answer.Error.Message + "\"), so it didn't run.")
+	}
+}
+
+// modeRank orders the chat's permission modes from strictest.
+var modeRank = map[agent.PermissionMode]int{
+	agent.PermissionApprovalRequired: 0, agent.PermissionAutoAcceptEdits: 1, agent.PermissionFullAccess: 2,
+}
+
+// asksIn is whether a method that asks up to upTo asks in a chat's mode: in
+// that mode and every stricter one. A mode the host can't tell asks, and an
+// unset upTo is full access, every mode.
+func asksIn(upTo string, mode agent.PermissionMode) bool {
+	at, known := modeRank[mode]
+	if !known {
+		return true
+	}
+	limit, set := modeRank[agent.PermissionMode(upTo)]
+	if !set {
+		limit = modeRank[agent.PermissionFullAccess]
+	}
+	return at <= limit
+}
+
+type approveAnswer int
+
+const (
+	approveUnanswered approveAnswer = iota
+	approveYes
+	approveNo
+)
+
+const (
+	approveYesID = "allow-once"
+	approveNoID  = "reject"
+)
+
+// approve puts a method's question on the turn's chat, as an agent's tool
+// approval is, and waits for the user's pick. Its own call id, so the prompt
+// carries the plugin's question rather than the plugin_call row's title.
+func approve(turn agent.RunningTurn, method string, input json.RawMessage, question string) approveAnswer {
+	detail, _ := json.Marshal(map[string]json.RawMessage{"method": mustJSON(method), "input": orEmpty(input)})
+	answer, err := turn.Ask(turn.Ctx, agent.Approval{
+		CallID: "plugin-approve:" + randomID(), Title: question, Kind: "plugin", Input: detail,
+		Options: []agent.ApprovalOption{
+			{OptionID: approveYesID, Name: "Yes", Kind: "allow_once"},
+			{OptionID: approveNoID, Name: "No", Kind: "reject_once"},
+		},
+	})
+	if err != nil {
+		return approveUnanswered
+	}
+	var picked string
+	_ = json.Unmarshal(answer, &picked)
+	if picked == approveYesID {
+		return approveYes
+	}
+	return approveNo
+}
+
+func mustJSON(v any) json.RawMessage {
+	raw, _ := json.Marshal(v)
+	return raw
+}
+
+func orEmpty(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return json.RawMessage("{}")
+	}
+	return raw
+}
+
+func randomID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // pluginResult passes a plugin's answer to the agent as is. A failed call keeps its

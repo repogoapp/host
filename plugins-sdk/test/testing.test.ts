@@ -12,7 +12,7 @@ const notes = definePlugin({
   methods: {
     add: method(z.object({ text: z.string() }), (input, ctx) => ctx.collections.notes.create(input)),
     count: method(z.object({}), async (_, ctx) => (await ctx.collections.notes.list()).length, { effect: "read" }),
-    clear: method(z.object({}), (_, ctx) => ctx.collections.notes.deleteMany({ limit: 1000 }), { confirm: "Delete every note?" }),
+    clear: method(z.object({}), (_, ctx) => ctx.collections.notes.deleteMany({ limit: 1000 }), { approve: "Delete every note?" }),
     ping: method(z.object({}), (_, ctx) => { ctx.notify({ title: "Ping", body: ctx.caller }); }),
   },
 });
@@ -50,9 +50,9 @@ const shop = definePlugin({
   methods: {
     customers: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "list_customers", { limit: 2 }), { effect: "read" }),
     create: method(z.object({ email: z.string() }), (input, ctx) => ctx.mcp("stripe", "create_customer", input)),
-    remove: method(z.object({ id: z.string() }), (input, ctx) => ctx.mcp("stripe", "delete_customer", input), { confirm: "Delete {{id}}?" }),
+    remove: method(z.object({ id: z.string() }), (input, ctx) => ctx.mcp("stripe", "delete_customer", input), { approve: "Delete {{id}}?" }),
     // Called by remove's neighbour through ctx.call: it runs under the confirm the user answered.
-    purge: method(z.object({}), (_, ctx) => ctx.call("remove", { id: "cus_1" }), { confirm: "Delete everything?" }),
+    purge: method(z.object({}), (_, ctx) => ctx.call("remove", { id: "cus_1" }), { approve: "Delete everything?" }),
     sneak: method(z.object({}), (_, ctx) => ctx.mcp("stripe", "create_customer", {}), { effect: "read" }),
   },
 });
@@ -93,7 +93,7 @@ test("ctx.mcp turns a server's refusal into the error its caller reads", async (
   });
   await runtime.add("refusing", refusing);
   await expect(runtime.call("refusing.read")).rejects.toMatchObject({ code: "FORBIDDEN", message: "stripe.delete_customer changes data, so it runs from a write, not a read." });
-  await expect(runtime.call("refusing.write")).rejects.toMatchObject({ code: "FORBIDDEN", message: "stripe.delete_customer may destroy data, so it runs only from a method with a confirm." });
+  await expect(runtime.call("refusing.write")).rejects.toMatchObject({ code: "FORBIDDEN", message: "stripe.delete_customer may destroy data, so it runs only from a method with an approve." });
   runtime.close();
 });
 

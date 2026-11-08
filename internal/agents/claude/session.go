@@ -243,7 +243,23 @@ func (s *liveSession) Running() (agent.RunningTurn, bool) {
 		return agent.RunningTurn{}, false
 	}
 	return agent.RunningTurn{Ctx: s.turnCtx, TurnID: s.io.TurnID, ChatID: s.key, Cwd: s.cwd, Device: s.io.Device,
-		Config: s.io.Config, Parent: s.io.Parent, Ask: s.ask}, true
+		Config: liveConfig(s.io.Config, s.mode), Parent: s.io.Parent, Ask: s.ask}, true
+}
+
+// liveConfig is the turn's settings with Claude's mode as it is now, which a
+// plan approved mid-turn has changed; RepoGo's tools check what's live.
+func liveConfig(cfg agent.TurnConfig, mode string) agent.TurnConfig {
+	switch mode {
+	case "plan":
+		cfg.Mode = "plan"
+	case "default":
+		cfg.Mode, cfg.PermissionMode = "agent", agent.PermissionApprovalRequired
+	case "acceptEdits", "auto":
+		cfg.Mode, cfg.PermissionMode = "agent", agent.PermissionAutoAcceptEdits
+	case "bypassPermissions":
+		cfg.Mode, cfg.PermissionMode = "agent", agent.PermissionFullAccess
+	}
+	return cfg
 }
 func (s *liveSession) ask(ctx context.Context, approval agent.Approval) (json.RawMessage, error) {
 	s.mu.Lock()

@@ -49,14 +49,14 @@ export default definePlugin({
   methods: {
     books: method(z.object({}), () => [], { effect: "read", description: "Every book" }),
     shelve: method(z.object({ id: z.string(), title: z.string().optional(), read: z.boolean().default(false) }), () => null, {
-      description: "Put a book <back>", confirm: "Shelve {{id}}?",
+      description: "Put a book <back>", approve: "Shelve {{id}}?",
     }),
   },
 });
 `
 
 // The default answer is a line per method; naming the plugin answers its
-// schemas, confirm and pages, and an unknown name lists the names.
+// schemas, approve and pages, and an unknown name lists the names.
 func TestListAnswersSmallAndInFull(t *testing.T) {
 	dir := sdk(t)
 	s, _ := newService(t, dir)
@@ -89,7 +89,7 @@ func TestListAnswersSmallAndInFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	shelve := got.Methods[1]
-	if got.Path != filepath.Join(root, ".repogo", "plugins", "shelf") || shelve.Confirm != "Shelve {{id}}?" || !strings.Contains(string(shelve.Input), `"required":["id"]`) || len(got.Pages) != 1 {
+	if got.Path != filepath.Join(root, ".repogo", "plugins", "shelf") || shelve.Approve != "Shelve {{id}}?" || !strings.Contains(string(shelve.Input), `"required":["id"]`) || len(got.Pages) != 1 {
 		t.Fatalf("shelf in full = %s", full.Result)
 	}
 	if strings.Contains(string(full.Result), "$schema") || strings.Contains(string(full.Result), "null") {

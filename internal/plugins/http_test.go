@@ -23,7 +23,7 @@ export default definePlugin({
     fails: method(z.object({}), () => { throw new Error("fetch https://api.example.com/?token=sk_live_secret failed"); }, { effect: "read", http: { public: "none" } }),
     local: method(z.object({}), (input, ctx) => ({ caller: ctx.caller }), { effect: "read", http: { device: "none" } }),
     closed: method(z.object({}), () => "closed"),
-    asks: method(z.object({}), () => "asked", { http: { public: "none", device: "none" }, confirm: "Sure?" }),
+    asks: method(z.object({}), () => "asked", { http: { public: "none", device: "none" }, approve: "Sure?" }),
     tail: stream(z.object({}), async function* () { yield 1; }),
   },
 });
@@ -101,7 +101,7 @@ func TestServesTheDeviceAddress(t *testing.T) {
 	if status, _ := get("/hello/local", "Sec-Fetch-Site", "cross-site"); status != http.StatusForbidden {
 		t.Fatalf("a browser's call: %d", status)
 	}
-	// Public-only, a key's, a confirm's and a stream's methods aren't served here.
+	// Public-only, a key's, an approve's and a stream's methods aren't served here.
 	for _, path := range []string{"/hello/ping", "/hello/keyed", "/hello/closed", "/hello/asks", "/hello/tail", "/nope/local", "/nope"} {
 		if status, _ := get(path); status != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", path, status)
