@@ -8,12 +8,16 @@ import (
 	"cmp"
 	"context"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"runtime/pprof"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,6 +83,9 @@ type Config struct {
 	DirectPort int
 	// Tailnet serves the machine's Tailscale address; LAN its local network's.
 	Tailnet, LAN bool
+	// DevicePort is where this machine and its containers reach plugin methods
+	// opened to `device`; zero serves none.
+	DevicePort int
 
 	// Label names this host to its phones.
 	Label string
@@ -254,6 +261,9 @@ func (h *Host) Start() {
 	h.spawn(h.bridge.Run)
 	h.spawn(h.tunnels.Run)
 	h.spawn(h.Services.Actions.Watch)
+	if h.cfg.DevicePort != 0 {
+		h.spawn(h.serveDevice)
+	}
 	if h.relay != nil {
 		h.spawn(h.serveRelay)
 		if h.cfg.DirectPort != 0 && h.cfg.Tailnet {
@@ -266,6 +276,15 @@ func (h *Host) Start() {
 		h.spawn(func(ctx context.Context) { h.activities.Run(ctx) })
 		h.spawn(func(ctx context.Context) { h.Services.Activities.Run(ctx, h.relay) })
 	}
+}
+
+// tlsKey is the key phones pin now, for host.status; nil without a relay.
+func (h *Host) tlsKey() *hostinfo.TLSKey {
+	if h.hostTLS == nil {
+		return nil
+	}
+	pin := h.hostTLS.Current().Pin
+	return &hostinfo.TLSKey{SPKI: hex.EncodeToString(pin.SPKI), Counter: pin.Counter}
 }
 
 // rotateTLS replaces the TLS key phones pin, for one that may have leaked: new
@@ -348,6 +367,75 @@ func (h *Host) serveDirect(ctx context.Context, name string, address func() stri
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// DefaultDevicePort is where this machine and its containers reach plugin
+// methods opened to `device`. Fixed, so a container is told it once.
+const DefaultDevicePort = 47444
+
+// serveDevice serves plugin methods opened to `device` on loopback and on each
+// container network's gateway, binding a gateway when a container brings it up.
+// Never the LAN: no key is asked here, so the network is the boundary.
+func (h *Host) serveDevice(ctx context.Context) {
+	srv := &http.Server{Handler: http.HandlerFunc(h.Services.Plugins.ServeDevice), ReadHeaderTimeout: 10 * time.Second}
+	defer srv.Close()
+	// Each network tried, by the address served on it, with its listener; nil
+	// when it couldn't bind, so it isn't retried until the address goes and comes back.
+	bound := map[netip.Prefix]net.Listener{}
+	ticker := time.NewTicker(addressCheck)
+	defer ticker.Stop()
+	for {
+		want := append([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/8")}, hostinfo.ContainerNetworks(ctx)...)
+		for network, l := range bound {
+			if !slices.Contains(want, network) {
+				if l != nil {
+					l.Close()
+				}
+				delete(bound, network)
+			}
+		}
+		for _, network := range want {
+			if _, tried := bound[network]; tried {
+				continue
+			}
+			addr := net.JoinHostPort(network.Addr().String(), strconv.Itoa(h.cfg.DevicePort))
+			l, err := net.Listen("tcp", addr)
+			if err != nil {
+				h.log.Warn("device: listen", "addr", addr, "err", err)
+				bound[network] = nil
+				continue
+			}
+			bound[network] = l
+			h.log.Info("device: serving", "addr", addr)
+			go srv.Serve(callersFrom{l, network.Masked()})
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// callersFrom accepts only callers inside network: the machine takes packets
+// for an address on any interface unless the system says otherwise, so being
+// bound to a container's gateway doesn't keep the LAN out.
+type callersFrom struct {
+	net.Listener
+	network netip.Prefix
+}
+
+func (l callersFrom) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		if from, err := netip.ParseAddrPort(c.RemoteAddr().String()); err == nil && l.network.Contains(from.Addr().Unmap()) {
+			return c, nil
+		}
+		c.Close()
 	}
 }
 

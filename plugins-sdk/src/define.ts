@@ -31,18 +31,31 @@ export type Method<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodT
    * its input; required for a destructive method. Methods without one run on tap.
    */
   confirm?: string;
-  /** Who may call it at the environment's own address; unset, no one. */
-  http?: HTTPAccess;
+  /** Who may call it over HTTP, at each address; an address it doesn't name serves it to no one. */
+  http?: HTTPAddresses;
   /** Set by `cached`: the read answers from what it saved, and checks again when that's old. */
   cache?: CacheOptions;
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>;
 };
 
 /**
- * `key`: the host checks a key the caller sends. `none`: anyone reaches the
- * method, which checks the caller itself, such as a provider's signature.
+ * `key`: the caller sends the plugin's key as a bearer token, which the host
+ * checks before the method runs. `none`: anyone who reaches the address may call.
  */
 export type HTTPAccess = "key" | "none";
+
+/**
+ * `public`: the environment's own address, through the tunnel. `device`: this
+ * machine's loopback and its containers' gateway, where the network is the boundary.
+ */
+export type HTTPAddresses = { device?: HTTPAccess; public?: HTTPAccess };
+
+/** `true` is `{ public: "key" }`. */
+export type HTTPOption = true | HTTPAddresses;
+
+function httpAddresses(option: HTTPOption | undefined): HTTPAddresses | undefined {
+  return option === true ? { public: "key" } : option;
+}
 
 export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>;
 
@@ -80,7 +93,7 @@ export function definePlugin<T extends PluginDefinition>(plugin: T): T {
 type MethodOptions<O extends z.ZodType> = {
   output?: O;
   description?: string;
-  http?: true | { auth: HTTPAccess };
+  http?: HTTPOption;
 } & ({ effect: "destructive"; confirm: string } | { effect?: "read" | "write"; confirm?: string });
 
 export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
@@ -92,7 +105,7 @@ export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   return {
     input, run, effect: options.effect ?? "write", output: options.output,
     description: options.description, confirm: options.confirm,
-    http: options.http === true ? "key" : options.http?.auth,
+    http: httpAddresses(options.http),
   };
 }
 
@@ -107,10 +120,10 @@ export function method<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
 export function cached<I extends z.ZodType, O extends z.ZodType = z.ZodType>(
   input: I,
   run: (input: z.infer<I>, ctx: Context) => unknown | Promise<unknown>,
-  options: { fresh: Duration; shared?: boolean; timeout?: Duration; output?: O; description?: string },
+  options: { fresh: Duration; shared?: boolean; timeout?: Duration; output?: O; description?: string; http?: HTTPOption },
 ): Method<I, O> {
   return {
-    input, run, effect: "read", output: options.output, description: options.description,
+    input, run, effect: "read", output: options.output, description: options.description, http: httpAddresses(options.http),
     cache: { fresh: parseDuration(options.fresh), shared: options.shared ?? false, timeout: parseDuration(options.timeout ?? "1m") },
   };
 }

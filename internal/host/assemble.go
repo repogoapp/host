@@ -138,8 +138,12 @@ func (h *Host) openTools() error {
 		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
 		Logged: func(ev pluginscore.Logged) { h.toEveryDevice(ev) },
 		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
-		Host:   h.pluginHost,
-		Log:    h.log,
+		Keys:   pluginKeys{h},
+		// The identity opens after this; it's read only once requests arrive.
+		HostID:     func() string { return string(h.devices.Identity().ID) },
+		DevicePort: h.cfg.DevicePort,
+		Host:       h.pluginHost,
+		Log:        h.log,
 	})
 	h.onClose(h.Services.Plugins.Close)
 	h.tools = repogomcp.New(repogomcp.Config{
@@ -151,6 +155,16 @@ func (h *Host) openTools() error {
 	h.Services.Browser = browser
 	return nil
 }
+
+// pluginKeys is state.db's plugin_keys for the plugins service, which is
+// built before the store opens; it's read only once requests arrive.
+type pluginKeys struct{ h *Host }
+
+func (k pluginKeys) PluginKey(plugin string) (string, int64, error) { return k.h.db.PluginKey(plugin) }
+func (k pluginKeys) SetPluginKey(plugin, key string, at int64) error {
+	return k.h.db.SetPluginKey(plugin, key, at)
+}
+func (k pluginKeys) DeletePluginKey(plugin string) error { return k.h.db.DeletePluginKey(plugin) }
 
 // pluginHost runs a plugin's ctx.host as the host's own device; the router
 // keeps a plugin caller to the methods agents and cards can call.
@@ -178,7 +192,7 @@ func (h *Host) openDevices() error {
 	h.onClose(h.keeper.Release)
 	h.info = hostinfo.New(hostinfo.Deps{
 		Power: h.keeper, Relay: h.relayLinked, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
-		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "",
+		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "", TLSKey: h.tlsKey,
 	})
 	h.pairer, err = device.OpenPairer(h.devices, h.state("pair-reusable.json"))
 	if err != nil {

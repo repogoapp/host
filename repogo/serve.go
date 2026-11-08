@@ -181,6 +181,7 @@ func hostConfig(log *slog.Logger, conf *localConf, lan bool, relay string, self 
 		},
 		UpdateFailed: self.failed,
 		PluginsSDK:   pluginsSDK(),
+		DevicePort:   host.DefaultDevicePort,
 		Agents:       agents.New,
 		InstallHooks: notify.EnsureHooks,
 		Power: func(log *slog.Logger, wanted func() bool, onBattery func(power.Battery)) (host.Keeper, error) {

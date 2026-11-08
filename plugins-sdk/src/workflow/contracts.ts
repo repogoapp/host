@@ -15,7 +15,7 @@ export type WorkflowTarget = { dir: string; plugin: string; namespace: string; w
 export type WorkflowRequest = WorkflowTarget & {
   operation: "start" | "list" | "get" | "cancel" | "cancelAll" | "retry" | "restart";
   input: Record<string, unknown>;
-  caller?: "card" | "agent" | "cron" | "code" | "http";
+  caller?: "card" | "agent" | "cron" | "code" | "http" | "device";
   settings?: { timeoutMs: number; maxOfflineMs: number; retentionMs: number };
 };
 export type WorkflowBridge = (request: WorkflowRequest) => Promise<unknown>;
@@ -23,7 +23,7 @@ export const RunMetadataSchema = z.object({
   id: z.string().uuid(),
   dir: z.string().refine(isAbsolute), root: z.string().refine(isAbsolute),
   namespace: z.string().regex(/^[a-z0-9][a-z0-9.-]*$/), plugin: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
-  caller: z.enum(["card", "agent", "cron", "code", "http"]),
+  caller: z.enum(["card", "agent", "cron", "code", "http", "device"]),
   workflow: z.string().regex(/^[a-z][a-zA-Z0-9_-]*$/), input: z.json(), key: z.string().nullable(),
   timeoutMs: DurationMsSchema, maxOfflineMs: DurationMsSchema, retentionMs: DurationMsSchema, createdAt: z.iso.datetime(),
 }).strict();

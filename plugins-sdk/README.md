@@ -3,11 +3,12 @@
 Plugins are small apps that run on your environment, the machine the RepoGo
 host runs on. A plugin keeps its own data, does work with your tools and APIs,
 and is reached two ways: agents call its methods as tools, and cards on your
-phone draw its data live and run its methods when you tap.
+phone draw its data live and run its methods when you tap. A method may also
+opt into plain HTTP, for this machine's containers or the public.
 
 - [Quick start](#quick-start)
 - [Where plugins live](#where-plugins-live)
-- [Methods](#methods): reads, writes, destructive methods, streams, cached reads
+- [Methods](#methods): reads, writes, destructive methods, streams, cached reads, [serving over HTTP](#serving-over-http)
 - [Data](#data): namespaces, collections, kv, streams, buckets, uploads
 - [Workflows](#workflows)
 - [Crons](#crons)
@@ -73,7 +74,10 @@ lives beside its plugin and takes the project as state (`?project=…`).
 
 A plugin's name is its folder's: lowercase letters, digits and hyphens. The
 environment's plugins run together in one Worker, so a plugin's blocking code
-stalls the others: use async APIs.
+stalls the others: use async APIs. They load together too: one that fails to
+load (a throw at import, a destructive method without a `confirm`, data without
+a `namespace`, a method named like a generated one) stops every plugin in the
+folder, and each call answers its error, until it's fixed.
 
 Pages beside an environment plugin (`pages/*.ui`, or `pages/*.md`) open from
 any project as `~/.repogo/plugins/<name>/pages/<page>.ui`. A
@@ -89,7 +93,8 @@ A user-facing plugin needs both its saved page and a link from `~/.repogo/plugin
 ## Methods
 
 ```ts
-method(input, run, { effect?, description?, output?, confirm? })
+method(input, run, { effect?, description?, output?, confirm?, http? })
+cached(input, run, { fresh, shared?, timeout?, description?, output?, http? })
 stream(input, async function* run, { description? })
 ```
 
@@ -126,8 +131,9 @@ open: method(z.object({ limit: z.number().int().min(1).max(100).default(20) }), 
 
 A **stream** sends each `yield` to the card as it happens, for as long as the
 card shows it. `ctx.signal` aborts when the card goes, so hand it to what you
-start. Give items an `id`. An agent calling a stream gets what arrives within
-5 seconds, at most 200 items.
+start. Give items an `id`. An agent calling a stream, or `ctx.call` on one,
+gets `{ items, done }`: what arrives within 5 seconds, at most 200 items, with
+`done` false when it was cut off.
 
 ```ts
 tail: stream(z.object({ file: z.string() }), async function* ({ file }, ctx) {
@@ -161,6 +167,86 @@ projects: cached(z.object({ limit: z.number().int().min(1).max(200).default(100)
 - Answers live in the namespace's `data.db`, so a plugin with a cached method
   needs a `namespace`. An answer over 1 MB is returned but not saved, and one
   nobody has asked for in 30 days is deleted.
+
+### Serving over HTTP
+
+Cards, agents and crons reach every method. A method answers plain HTTP too
+when its `http` option names an address, with who may call it there. `method`
+and `cached` take it; a stream or a method with a `confirm` is never served,
+since no one is there to watch or answer.
+
+```ts
+today: cached(z.object({}), async () => sales(), { fresh: "5m", http: { device: "none" } }),
+```
+
+| Address | Where | Reached at |
+| --- | --- | --- |
+| `device` | This machine's loopback and its Apple containers' gateways, port 47444; Docker Desktop's containers reach it through `host.docker.internal` | `http://127.0.0.1:47444/<plugin>/<method>` |
+| `public` | The environment's own name, through the tunnel | `https://h-<host id>.repogo.dev/<plugin>/<method>` |
+
+| Access | Who may call |
+| --- | --- |
+| `key` | Only a caller sending the plugin's key as `Authorization: Bearer <key>`, which the host checks before the method runs |
+| `none` | Anyone who reaches the address. On `device` the network is the boundary; on `public` it's anyone with the URL, since a method doesn't see the request's headers to check a signature |
+
+`http: true` is `{ public: "key" }`. An address a method doesn't name answers
+404, as do a method that doesn't exist and a missing or wrong key, so callers
+can't learn which plugins are installed.
+
+`repogo urls shop` lists each of a plugin's methods served over HTTP with its
+URLs, filled in with this host's id.
+
+Each plugin has one key, for all its methods that take one, at both
+addresses. `repogo keys shop` prints it, making it the first time; running it
+again shows the same key. `repogo keys shop --new` replaces it, and the old
+one stops working at once; `repogo keys shop --delete` leaves the methods
+answering no one. RepoGo's tools for agents and a plugin's `ctx.host` can't
+reach keys, though anything that runs commands as you can run `repogo keys`,
+as it can read your plugins' own secrets. The method itself never sees the key.
+
+A POST's JSON body is the input as it is. A GET's query is the input, as
+strings, and only a `read` may be called that way:
+link previews and crawlers fetch any URL they're shown, so a write answers
+405 to a GET. The answer is the result as JSON, or `{ error, fields }` with
+400, 403 or 404 for a `MethodError` with those codes, in its own words. Any
+other error, such as a failed `fetch`, answers 500 `Internal server error`,
+since its text may hold a token or a path; the host logs the real one. The
+device address takes calls only from this machine and its containers'
+networks, and refuses a browser's, since any web page can reach loopback.
+
+A body that isn't JSON answers 400, as does one over 1 MB at the device
+address (413 at the public one), and the public address answers 429 to a
+caller sending too many. A plugin folder that fails to load answers 502. HEAD is a
+GET, and a query key given twice keeps its first value. HTTP calls have no
+project: `ctx.root` is the home folder. `ctx.caller` is `http` for a public call and `device`
+for one at the device address.
+
+When an HTTP caller hangs up, or the public address stops waiting after 60
+seconds, `ctx.signal` aborts: hand it to `fetch` and `Bun.spawn` so the work
+stops. The public address runs at most 32 calls at once and answers 503 to
+another; a call counts until its method returns, so one that ignores the
+signal keeps its place until it's done.
+
+A method served over HTTP runs with all of `ctx`: one that starts an agent,
+runs an action or calls another method lets its caller do the same. Every
+container on this machine reaches every method open to `device`, and so does
+every account and app on it. Open only what you'd show anyone who can reach
+the address: reads, never a send or a delete.
+
+**A plugin elsewhere that stands in for one here.** `GET /<plugin>` at the
+device address lists the methods it serves there with no key, with their
+schemas, and `remotePlugin` builds a plugin from it. In a container, a plugin
+of the same name whose `app.ts` is only this serves the Mac's plugin, and its
+pages, copied or mounted, work unchanged; the code, keys and data stay on the Mac:
+
+```ts
+import { remotePlugin } from "@repogo/plugins";
+export default await remotePlugin("http://192.168.64.1:47444", "shop");
+```
+
+It reads the list when the plugin loads, so it fails to load while the Mac
+can't be reached. A page's button for a method the Mac doesn't serve there
+fails, as it would for any missing method.
 
 ## Data
 
@@ -206,7 +292,9 @@ await ctx.collections.tasks.delete(task.id);
 await ctx.collections.tasks.deleteMany({ where: { status: "done" }, offset: 100, limit: 500 }); // done ones past the newest 100, 500 at a time
 ```
 
-`list` is newest first by default, at most 100 unless `limit` says (the generated `list` takes up to 500).
+`list` is newest first by default, at most 100 unless `limit` says. The
+generated `list` cards and agents call takes `limit` (up to 500), `offset`,
+`orderBy` and `order` but no `where`: write a `read` method to filter.
 `where` matches top-level fields exactly; `null` matches a missing one.
 `orderBy` is `id`, `createdAt`, `updatedAt` or one of the record's own fields, and
 `offset` passes over that many first. `deleteMany` takes the same options and
@@ -390,7 +478,7 @@ export default definePlugin({
         await ctx.kv.reports.set("latest", report);
         return report;
       });
-    }, { timeout: "30d", maxOffline: "14d", retention: "30d" }),
+    }, { timeout: "30d", maxOffline: "14d", retention: "30d" }), // the defaults
   },
   kv: { reports: z.object({ title: z.string() }) },
 });
@@ -398,7 +486,7 @@ export default definePlugin({
 
 For a plugin folder named `reports`, the host generates:
 
-- `reports.report.list({ limit?, status?, cursor? })`: bounded summaries and a next cursor.
+- `reports.report.list({ limit?, status?, cursor? })`: bounded summaries (20 unless `limit` says, at most 100) and a next cursor. A status is `pending`, `running`, `waiting`, `attention`, `completed`, `failed`, `cancelled`, `expired`, `unknown` or `blocked`.
 - `reports.report.get({ id })`: one summary, input, result, error and the latest 20 operations (steps and sleeps).
 - `reports.report.start({ input, key? })`: persist and queue a run; returns its summary immediately.
 - `reports.report.cancel({ id })`: persist cancellation intent and abort active work.
@@ -441,8 +529,10 @@ with `kind: "sleep"`. Terminal runs have no pending wake time.
 `attempts` counts the first invocation and defaults to 1. Only steps declared
 `kind: "query"` may automatically retry; they cannot write SDK data or call
 mutations. Within query steps, use `ctx.mcp` for read-aware host access;
-generic `ctx.host`, notifications and agent starts are refused. Query backoff defaults to full jitter with initial `2s`, factor 2
-and maximum `1m`. Import `NonRetryable` and throw it for a permanent failure.
+generic `ctx.host`, notifications and agent starts are refused. A step's `kind`
+defaults to `"mutation"`, and `attempts` is at most 100. Query backoff,
+`backoff: { initial, factor, max }`, defaults to full jitter with initial `2s`,
+factor 2 and maximum `1m`. Import `NonRetryable` and throw it for a permanent failure.
 Step `timeout` defaults to `5m`. The callback receives `signal`, `attempt`,
 `attempts`, `runId`, `stepId` and an `idempotencyKey` stable across its attempts.
 Pass its signal to fetch or subprocess APIs. A timeout aborts cooperatively;
@@ -513,7 +603,7 @@ itself. Each line names a plugin, one of its methods and a schedule:
 
 | Field | What |
 | --- | --- |
-| `plugin`, `method` | The plugin's folder name and one of its methods, called with `{}` as a tap would |
+| `plugin`, `method` | The plugin's folder name and one of the methods it wrote (not a generated or workflow one), called with `{}` as a tap would |
 | `project` | The project the run gets as `ctx.root`, an absolute path or one starting `~/`; left out, the home folder. The plugin is always the environment's |
 | `schedule` | A cron: five fields (minute hour day-of-month month day-of-week), or six with seconds first (`*/5 * * * * *`); each `*`, a number, a range, a list or a step |
 | `timezone` | Defaults to the environment's |
@@ -541,7 +631,7 @@ that were running when it happened.
 
 Write `console.log` (or `warn`, `error`, `debug`); nothing else is needed. The
 host keeps every line with the plugin, the method and the call that wrote it,
-who called (`card`, `agent`, `cron`), and the chat for an agent's call, plus
+who called (`card`, `agent`, `cron`, `code`, or `http` and `device` for HTTP), and the chat for an agent's call, plus
 the arguments as JSON. An error a method throws, or one nothing caught, is
 kept too, with its stack. Read them with the agent's `plugins_logs` tool, or on
 a card with `<Data method="repogo:plugins.logs">`, which reloads as lines land:
@@ -558,18 +648,18 @@ Every method, handler and cron gets `ctx`:
 | Field | What |
 | --- | --- |
 | `plugin` | The plugin's name |
-| `caller` | Who started the call: `card`, `agent`, `cron`, or `code` |
+| `caller` | Who started the call: `card`, `agent`, `cron`, `code`, or a request at the public (`http`) or device (`device`) address |
 | `root` | The calling project's checkout |
 | `collections`, `kv`, `streams`, `buckets` | The plugin's data |
 | `call(method, input)` | Runs a method of a plugin in the same folder; `"open"` is this plugin's own |
 | `plugins()` | The plugins in the same folder, with their methods |
-| `host(method, params)` | Runs one of the host's methods that agents and cards may call (`git.status`, `chats.list`, `actions.run`, …); others fail with `FORBIDDEN` |
+| `host(method, params)` | Runs one of the host's methods that agents and cards may call (`git.status`, `chats.list`, `actions.run`, …); others fail with `FORBIDDEN`, and one that doesn't exist with `INTERNAL` |
 | `mcp(server, tool, input)` | Runs a tool of an MCP server the user connected in RepoGo and switched on for the calling project; see below |
 | `notify({ title, body, page?, url?, collapse? })` | Alerts every paired phone; a tap opens `url` (an `https` or `itms-services` link) if set, else `page`, and alerts sharing `collapse` replace each other |
 | `activity({ id, title, body?, page?, symbol?, tint?, label?, compactLabel?, progress?, timer?, status? })` | Shows or updates a Live Activity on every paired phone; see below |
 | `agent(prompt, { agent, project?, title?, timeout? })` | Starts a chat with `prompt` and waits for the agent's whole answer: `{ chatId, text }`; see below |
 | `emit(event, payload)` | Sends `<plugin>.<event>` to handlers |
-| `signal` | Aborts when a stream's card goes |
+| `signal` | Aborts when a stream's card goes, or when an HTTP caller leaves before a read or write answers |
 | `log(...)` | The same as `console.log` |
 
 A query doesn't re-run when what a `ctx.host` method read changes.
@@ -674,7 +764,9 @@ on: {
 | Bucket | `<name>.created`, `<name>.changed` (the file's bytes), `<name>.metaChanged`, `<name>.deleted` (the file) |
 | Any method | `<method>` (`{ input, result }`) |
 
-Changes to a bucket's folder made by hand emit too, once the host sees them.
+Changes to a bucket's folder made by hand emit too, once the host sees them;
+streams emit none. A plugin's `on` hears only its own events, and runs inside
+the call that emitted them, so a slow handler delays that call's answer.
 Events run in memory: none is retried, and a handler that throws is logged.
 
 ## How cards and agents reach a plugin
@@ -753,10 +845,14 @@ The generated `preferences.flags.get({ key: "alerts" })` returns an entry with
 
 ## Errors and confirmations
 
-Throw `new MethodError(code, message)` for a failure the caller should read:
-`VALIDATION`, `NOT_FOUND`, `FORBIDDEN` or `INTERNAL`. Input that fails its
-schema answers `VALIDATION` with a message per field. Anything else thrown is
-`INTERNAL` with its message.
+Throw `new MethodError(code, message, fieldErrors?)` for a failure the caller
+should read: `VALIDATION`, `NOT_FOUND`, `FORBIDDEN` or `INTERNAL`.
+`fieldErrors` maps a JSON pointer (`"/minutes"`) to its message, and reaches an
+HTTP caller as `fields`. Input that fails its schema answers `VALIDATION` with
+a message per field. Anything else thrown is
+`INTERNAL` with its message. An HTTP caller gets only the first three in their
+words; `INTERNAL` reaches it as `Internal server error`
+([Serving over HTTP](#serving-over-http)).
 
 A method's `confirm` is asked before a card's tap runs it. An agent's
 `plugin_call` never runs it: it gets the question back as a `CONFIRM` error and
@@ -776,12 +872,16 @@ user's MCP servers:
 import { testRuntime } from "@repogo/plugins/testing";
 import notes from "./app";
 
-const app = await testRuntime({ notes });
-await app.call("notes.add", { text: "hi" });
+const app = await testRuntime({ notes });                 // { root?, mcp?, host? } as a second argument
+await app.call("notes.notes.create", { text: "hi" });
 await app.call("notes.clear", {}, { confirmed: false }); // throws CONFIRM, as an unanswered tap
-app.setCrons([{ plugin: "notes", method: "tidy", schedule: "* * * * *" }]); // as a crons.json line would
+app.setCrons([{ plugin: "notes", method: "open", schedule: "* * * * *" }]); // a crons.json line, with root for project
 await app.tickCrons(Date.now() + 60_000);                // runs whatever is due by then
 app.notices;                                             // every ctx.notify so far
 app.logs;                                                // every console line so far, with its method and caller
+app.manifest();                                          // the plugins and methods, as the host lists them
 await app.close();
 ```
+
+`call` takes `{ confirmed?, caller?, root?, chat?, files? }`; leaving
+`confirmed` out runs a `confirm` method without asking, as `ctx.call` does.

@@ -32,6 +32,8 @@ type Status struct {
 	// hasn't finished in time.
 	Device  *Device `json:"device,omitempty"`
 	Network Network `json:"network"`
+	// TLS is the key phones pin to reach this host; absent without a relay.
+	TLS *TLSKey `json:"tls,omitempty"`
 	// Capabilities are what a phone may ask of this host, such as
 	// CapabilitySchedules; a phone filters its pickers on them.
 	Capabilities []string `json:"capabilities,omitempty"`
@@ -78,6 +80,8 @@ type Deps struct {
 	Trash bool
 	// ReadDevice reads what kind of machine this is, once; nil is the system's.
 	ReadDevice func() Device
+	// TLSKey is the key phones pin now; nil, or one returning nil, without a relay.
+	TLSKey func() *TLSKey
 }
 
 // deviceWait is how long host.status waits on the startup device read, so a
@@ -182,6 +186,13 @@ func (s *Service) Release(ctx context.Context) Release {
 }
 
 // Status is the host as it runs now; it asks nothing over the network.
+// TLSKey is the host's TLS key as phones pin it: its SPKI hash in hex, and the
+// counter a rotation raises.
+type TLSKey struct {
+	SPKI    string `json:"spki_sha256"`
+	Counter int64  `json:"counter"`
+}
+
 func (s *Service) Status() Status {
 	local := localNetwork()
 	storage, hasStorage := homeStorage()
@@ -197,6 +208,9 @@ func (s *Service) Status() Status {
 		UpdateFailed:   s.d.UpdateFailed,
 		RelayConnected: s.d.Relay(),
 		Network:        s.network(local),
+	}
+	if s.d.TLSKey != nil {
+		out.TLS = s.d.TLSKey()
 	}
 	if b, ok := s.d.Power.Battery(); ok {
 		out.Battery = &b

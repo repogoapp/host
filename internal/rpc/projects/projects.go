@@ -4,6 +4,7 @@ package projects
 
 import (
 	"context"
+	"time"
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/files"
@@ -52,14 +53,16 @@ type RenameParams struct {
 	Path string `json:"path"`
 	// Blank clears the rename, back to the repository or folder name.
 	Name string `json:"name"`
+	// When the user renamed it, in ms. A phone stamps every checkout's write
+	// with the same time; 0 is now, for an agent's call.
+	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 type PinParams struct {
 	Path   string `json:"path"`
 	Pinned bool   `json:"pinned"`
-	// With pinned, the pinned project this one goes just below; empty (or one
-	// no longer pinned) is the top. Pinning a pinned project moves it.
-	After string `json:"after,omitempty"`
+	// When the user pinned or unpinned it, in ms; 0 is now, as for a rename.
+	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 // Remote-reachable: every project listed is a folder fs.* would already serve.
@@ -67,12 +70,12 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "projects.list", d.list, rpc.Tool("The projects on this environment, with each one's folder "+
 		"(the cwd chats take), name, pin and changed files."), rpc.Read, rpc.LiveOn("projects.changed"))
 	rpc.Add(r, "projects.detect_icon", d.detectIcon)
-	// The user's marks on a listed project. Each answers the project's row and
-	// sends it to every other device as projects.changed.
+	// The user's marks on a listed project. Each answers the project's row and,
+	// when it was written, sends it to every other device as projects.changed;
+	// one older than what the host holds is ignored.
 	rpc.Add(r, "projects.rename", d.rename, rpc.Tool("Rename a project, by its folder as projects.list gives it. "+
 		"A blank name clears the rename, back to the repository or folder name."), rpc.Write)
-	rpc.Add(r, "projects.pin", d.pin, rpc.Tool("Pin a project to the top of the project list, or unpin it. "+
-		"With after, the pinned project it goes just below, which moves a pinned one."), rpc.Write)
+	rpc.Add(r, "projects.pin", d.pin, rpc.Tool("Pin a project, or unpin it, by its folder as projects.list gives it."), rpc.Write)
 	// add is the folder picker's Select, making a folder it could only see a root.
 	// add and create answer the new project's row, listed at once.
 	rpc.Add(r, "projects.add", d.add)
@@ -91,33 +94,32 @@ func (d Deps) list(_ context.Context, _ rpc.Caller, _ rpc.None) (ListResult, err
 }
 
 func (d Deps) rename(_ context.Context, _ rpc.Caller, a RenameParams) (store.Project, error) {
-	row, err := d.Store.Rename(a.Path, a.Name)
-	return d.marked(row, err)
+	row, written, err := d.Store.Rename(a.Path, a.Name, stampOrNow(a.UpdatedAt))
+	return d.marked(row, written, err)
 }
 
-// pin answers the pinned or unpinned row. A move that had to renumber the
-// pins sends every row it moved as projects.changed.
 func (d Deps) pin(_ context.Context, _ rpc.Caller, a PinParams) (store.Project, error) {
-	if !a.Pinned {
-		row, err := d.Store.Unpin(a.Path)
-		return d.marked(row, err)
+	row, written, err := d.Store.SetPinned(a.Path, a.Pinned, stampOrNow(a.UpdatedAt))
+	return d.marked(row, written, err)
+}
+
+// stampOrNow is a mark's time: the device's, or now for a call without one.
+func stampOrNow(updatedAt int64) int64 {
+	if updatedAt > 0 {
+		return updatedAt
 	}
-	rows, err := d.Store.Pin(a.Path, a.After)
+	return time.Now().UnixMilli()
+}
+
+// marked answers a row the user marked, stamped as listed, and announces it
+// when the mark was written.
+func (d Deps) marked(row store.Project, written bool, err error) (store.Project, error) {
 	if err != nil {
 		return store.Project{}, err
 	}
-	for _, row := range rows[1:] {
+	if written {
 		d.Sync.Announce(row)
 	}
-	return d.marked(rows[0], nil)
-}
-
-// marked announces a row the user changed and answers it, stamped as listed.
-func (d Deps) marked(row store.Project, err error) (store.Project, error) {
-	if err != nil {
-		return store.Project{}, err
-	}
-	d.Sync.Announce(row)
 	row.HostID = string(d.Self)
 	return row, nil
 }
@@ -148,7 +150,7 @@ func (d Deps) listed(ctx context.Context, path string, err error) (store.Project
 	d.Sync.Once(ctx)
 	row, err := d.Store.Project(path)
 	if wasListed {
-		return d.marked(row, err)
+		return d.marked(row, true, err)
 	}
 	if err != nil {
 		return store.Project{}, err

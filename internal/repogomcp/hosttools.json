@@ -597,6 +597,21 @@
     }
   },
   {
+    "name": "plugins_urls",
+    "method": "plugins.urls",
+    "description": "The environment's plugin methods that answer plain HTTP: each URL, device (this machine and its containers) or public (the internet), and whether it needs the plugin's key, which the user prints with repogo keys \u003cplugin\u003e.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "plugin": {
+          "description": "Only this plugin's methods; empty is every plugin's",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "projects_list",
     "method": "projects.list",
     "description": "The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.",
@@ -618,6 +633,9 @@
         },
         "path": {
           "type": "string"
+        },
+        "updated_at": {
+          "type": "integer"
         }
       },
       "type": "object"
@@ -626,18 +644,18 @@
   {
     "name": "projects_pin",
     "method": "projects.pin",
-    "description": "Pin a project to the top of the project list, or unpin it. With after, the pinned project it goes just below, which moves a pinned one.",
+    "description": "Pin a project, or unpin it, by its folder as projects.list gives it.",
     "read_only": false,
     "input_schema": {
       "properties": {
-        "after": {
-          "type": "string"
-        },
         "path": {
           "type": "string"
         },
         "pinned": {
           "type": "boolean"
+        },
+        "updated_at": {
+          "type": "integer"
         }
       },
       "type": "object"

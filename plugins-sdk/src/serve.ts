@@ -28,9 +28,10 @@ const uploadedFile = z.object({ id: z.string(), name: z.string(), type: z.string
 
 const requestSchema = z.discriminatedUnion("method", [
   z.object({ id: z.number(), method: z.literal("list"), params: target }),
-  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ files: z.array(uploadedFile).optional(), confirmed: z.boolean().optional(), caller: z.enum(["card", "agent", "cron", "code", "http"]).optional(), chat: z.string().optional() }) }),
+  z.object({ id: z.number(), method: z.literal("call"), params: named.extend({ files: z.array(uploadedFile).optional(), confirmed: z.boolean().optional(), caller: z.enum(["card", "agent", "cron", "code", "http", "device"]).optional(), chat: z.string().optional() }) }),
   z.object({ id: z.number(), method: z.literal("subscribe"), params: named.extend({ subscription: z.string().min(1) }) }),
   z.object({ id: z.number(), method: z.literal("unsubscribe"), params: z.object({ subscription: z.string() }) }),
+  z.object({ id: z.number(), method: z.literal("cancel"), params: z.object({ call: z.number() }) }),
   z.object({ id: z.number(), method: z.literal("reload"), params: target }),
   z.object({
     id: z.number(), method: z.literal("crons"),
@@ -42,7 +43,9 @@ const requestSchema = z.discriminatedUnion("method", [
   }),
 ]);
 
-type Connection = Socket<{ inbox: string; outbox: Uint8Array[] }>;
+/** `calls` aborts each call this host is waiting on, by the host's id for it. */
+type ConnectionData = { inbox: string; outbox: Uint8Array[]; calls: Map<number, () => void> };
+type Connection = Socket<ConnectionData>;
 
 type Subscription = {
   connection: Connection;
@@ -123,11 +126,17 @@ class Checkout {
   }
 
   request(message: { type: "list" } | { type: "crons"; crons: CronEntry[] } | { type: "call"; name: string; input: unknown; files?: UploadedFile[]; confirmed: boolean; caller: Caller; root?: string; chat?: string } | { type: "subscribe"; subscription: string; name: string; input: unknown; root?: string }): Promise<Answer> {
+    return this.send(message).answer;
+  }
+
+  /** A request with the id a `cancel` names it by. */
+  send(message: Parameters<Checkout["request"]>[0]): { id: number; answer: Promise<Answer> } {
     const id = ++this.nextID;
-    return new Promise((resolve) => {
+    const answer = new Promise<Answer>((resolve) => {
       this.waiting.set(id, resolve);
       this.post({ ...message, id } as ToWorker);
     });
+    return { id, answer };
   }
 
   post(message: ToWorker) {
@@ -324,16 +333,23 @@ export async function serve(options: ServeOptions) {
     const { id } = request;
     switch (request.method) {
       case "list":
+        return { id, ...(await checkoutFor(request.params.dir).request({ type: "list" })) };
       case "call": {
         const checkout = checkoutFor(request.params.dir);
-        const answer =
-          request.method === "list"
-            ? await checkout.request({ type: "list" })
-            : await checkout.request({
-              type: "call", name: request.params.name, input: request.params.input ?? {}, files: request.params.files,
-              confirmed: request.params.confirmed ?? false, caller: request.params.caller ?? "code", root: request.params.root, chat: request.params.chat,
-            });
-        return { id, ...answer };
+        const sent = checkout.send({
+          type: "call", name: request.params.name, input: request.params.input ?? {}, files: request.params.files,
+          confirmed: request.params.confirmed ?? false, caller: request.params.caller ?? "code", root: request.params.root, chat: request.params.chat,
+        });
+        connection.data.calls.set(id, () => checkout.post({ type: "cancel", id: sent.id }));
+        try {
+          return { id, ...(await sent.answer) };
+        } finally {
+          connection.data.calls.delete(id);
+        }
+      }
+      case "cancel": {
+        connection.data.calls.get(request.params.call)?.();
+        return { id, result: {} };
       }
       case "subscribe": {
         const { dir, name, subscription, root } = request.params;
@@ -409,11 +425,11 @@ export async function serve(options: ServeOptions) {
 
   await mkdir(dirname(options.socket), { recursive: true });
   await rm(options.socket, { force: true });
-  const listener = Bun.listen<{ inbox: string; outbox: Uint8Array[] }>({
+  const listener = Bun.listen<ConnectionData>({
     unix: options.socket,
     socket: {
       open(connection) {
-        connection.data = { inbox: "", outbox: [] };
+        connection.data = { inbox: "", outbox: [], calls: new Map() };
         connections.add(connection);
         workflows.start();
       },
@@ -431,7 +447,8 @@ export async function serve(options: ServeOptions) {
       },
       close(connection) {
         connections.delete(connection);
-        // A host that goes away takes its subscriptions with it.
+        // A host that goes away takes its subscriptions and its calls with it.
+        for (const cancel of connection.data.calls.values()) cancel();
         for (const [id, subscription] of subscriptions) {
           if (subscription.connection === connection) unsubscribe(id);
         }

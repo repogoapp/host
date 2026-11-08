@@ -31,6 +31,10 @@
       "port": 1
     }
   },
+  "tls": {
+    "spki_sha256": "spki_sha256",
+    "counter": 1
+  },
   "capabilities": [
     "capabilities"
   ]

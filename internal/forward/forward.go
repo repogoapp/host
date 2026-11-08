@@ -15,10 +15,15 @@ import (
 
 var ErrPort = errkind.New(errkind.Invalid, "forward: port must be between 1 and 65535")
 
+// dialTimeout bounds a loopback connect: a listener that doesn't accept in
+// this long is wedged, and waiting on it only holds the caller.
+const dialTimeout = 10 * time.Second
+
 // Loopback is a client that can only reach this machine's 127.0.0.1: the port
 // is caller-supplied, and a client that would dial anywhere turns a proxy
-// into an open one running as the user. timeout 0 is none, for streams.
-func Loopback(timeout time.Duration) *http.Client {
+// into an open one running as the user. timeout 0 is none, for streams;
+// headerTimeout bounds the wait for a response's headers, 0 none.
+func Loopback(timeout, headerTimeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout: timeout,
 		// Redirects are the caller's to follow: it owns the address bar.
@@ -29,8 +34,9 @@ func Loopback(timeout time.Duration) *http.Client {
 			DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
 				return dialLoopback(ctx, addr)
 			},
-			MaxIdleConnsPerHost: 16,
-			IdleConnTimeout:     30 * time.Second,
+			MaxIdleConnsPerHost:   16,
+			IdleConnTimeout:       30 * time.Second,
+			ResponseHeaderTimeout: headerTimeout,
 		},
 	}
 }
@@ -54,6 +60,6 @@ func dialLoopback(ctx context.Context, addr string) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("forward: bad address %q: %w", addr, err)
 	}
-	var d net.Dialer
+	d := net.Dialer{Timeout: dialTimeout}
 	return d.DialContext(ctx, "tcp4", "127.0.0.1:"+port)
 }

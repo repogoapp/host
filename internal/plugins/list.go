@@ -75,14 +75,14 @@ type manifestPlugin struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Methods     []struct {
-		Name        string          `json:"name"`
-		Effect      string          `json:"effect"`
-		Stream      bool            `json:"stream"`
-		Description string          `json:"description"`
-		Confirm     string          `json:"confirm"`
-		HTTP        string          `json:"http"`
-		Input       json.RawMessage `json:"input"`
-		Output      json.RawMessage `json:"output"`
+		Name        string             `json:"name"`
+		Effect      string             `json:"effect"`
+		Stream      bool               `json:"stream"`
+		Description string             `json:"description"`
+		Confirm     string             `json:"confirm"`
+		HTTP        map[Address]string `json:"http"`
+		Input       json.RawMessage    `json:"input"`
+		Output      json.RawMessage    `json:"output"`
 	} `json:"methods"`
 	Storage json.RawMessage `json:"storage"`
 }

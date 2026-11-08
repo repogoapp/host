@@ -12,7 +12,7 @@ import { parseDuration } from "./duration";
 import type { Activity, AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
 export type { Manifest, ManifestCron, ManifestMethod } from "./context";
-import type { Effect, HTTPAccess, PluginDefinition } from "./define";
+import type { Effect, HTTPAddresses, PluginDefinition } from "./define";
 import { MethodError, toCallError } from "./errors";
 import { EventBus } from "./events";
 import { bucketMethods, kvMethods, streamMethods, type Generated } from "./generated";
@@ -34,7 +34,7 @@ export type RegisteredMethod = {
   stream?: true;
   description?: string;
   confirm?: string;
-  http?: HTTPAccess;
+  http?: HTTPAddresses;
   input: z.ZodType;
   output?: z.ZodType;
   /** `raw` is the input as sent, before defaults filled it in. */
@@ -83,7 +83,7 @@ type CronJob = {
 /** A due time missed by more than this, as when the machine slept through it, is skipped. */
 const cronLateMs = 2 * 60_000;
 
-/** A call that isn't a stream has a signal that never aborts. */
+/** A call no one can cancel has a signal that never aborts. */
 const never = new AbortController().signal;
 
 /** How long `ctx.agent` waits for the agent's answer unless the call says. */
@@ -125,7 +125,7 @@ export class Runtime {
 
   /** The caller's project while a call runs, for plugins that serve every project. */
   private callRoot = new AsyncLocalStorage<string>();
-  /** A running stream's signal, `ctx.signal` to the code it runs. */
+  /** A running stream's or cancelable call's signal, `ctx.signal` to the code it runs. */
   private callSignal = new AsyncLocalStorage<AbortSignal>();
   /** Who started the outermost call, `ctx.caller` to the code it runs. */
   private callCaller = new AsyncLocalStorage<Caller>();
@@ -310,7 +310,12 @@ export class Runtime {
    * `root` (the caller's project, for the environment's own plugins) and `caller`
    * pass on to the code the method calls.
    */
-  async call(name: string, input: unknown = {}, options: { expect?: "read"; confirmed?: boolean; root?: string; caller?: Caller; chat?: string; files?: UploadedFile[] } = {}): Promise<CallResult> {
+  async call(name: string, input: unknown = {}, options: { expect?: "read"; confirmed?: boolean; root?: string; caller?: Caller; chat?: string; files?: UploadedFile[]; signal?: AbortSignal } = {}): Promise<CallResult> {
+    // `ctx.signal` for this call and the calls it makes: aborted when the caller leaves.
+    if (options.signal) {
+      const { signal, ...rest } = options;
+      return this.callSignal.run(signal, () => this.call(name, input, rest));
+    }
     // The host's files become the input's, and stay trusted for the calls this one makes.
     if (options.files) {
       const { files, ...rest } = options;

@@ -213,6 +213,17 @@ func (s *server) read(onPush func(push), onNotice func(Notice), onLog func(logPu
 // request sends one request and waits for its reply. The error is the
 // connection's; a plugin's own failure comes back as the wireError.
 func (s *server) request(ctx context.Context, method string, params any) (json.RawMessage, *wireError, error) {
+	return s.exchange(ctx, method, params, false)
+}
+
+// callHeld is a call for an HTTP caller who may leave. When ctx ends first the
+// call's ctx.signal aborts, and callHeld still returns only once the plugin
+// answers, so whatever the caller holds stays held while that work runs.
+func (s *server) callHeld(ctx context.Context, params callParams) (json.RawMessage, *wireError, error) {
+	return s.exchange(ctx, "call", params, true)
+}
+
+func (s *server) exchange(ctx context.Context, method string, params any, hold bool) (json.RawMessage, *wireError, error) {
 	ch := make(chan reply, 1)
 	s.mu.Lock()
 	s.nextID++
@@ -225,15 +236,8 @@ func (s *server) request(ctx context.Context, method string, params any) (json.R
 		s.mu.Unlock()
 	}()
 
-	b, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
-	if err != nil {
+	if err := s.write(id, method, params); err != nil {
 		return nil, nil, err
-	}
-	s.writeMu.Lock()
-	_, err = s.conn.Write(append(b, '\n'))
-	s.writeMu.Unlock()
-	if err != nil {
-		return nil, nil, errServerGone
 	}
 	select {
 	case r := <-ch:
@@ -241,8 +245,38 @@ func (s *server) request(ctx context.Context, method string, params any) (json.R
 	case <-s.gone:
 		return nil, nil, errServerGone
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		if !hold {
+			return nil, nil, ctx.Err()
+		}
 	}
+	s.mu.Lock()
+	s.nextID++
+	cancelID := s.nextID
+	s.mu.Unlock()
+	// Its reply has no waiter and is dropped; the call's own reply ends the wait.
+	if err := s.write(cancelID, "cancel", map[string]int{"call": id}); err != nil {
+		return nil, nil, err
+	}
+	select {
+	case <-ch:
+	case <-s.gone:
+	}
+	return nil, nil, ctx.Err()
+}
+
+// write sends one line under id.
+func (s *server) write(id int, method string, params any) error {
+	b, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
+	if err != nil {
+		return err
+	}
+	s.writeMu.Lock()
+	_, err = s.conn.Write(append(b, '\n'))
+	s.writeMu.Unlock()
+	if err != nil {
+		return errServerGone
+	}
+	return nil
 }
 
 // answerHost runs a plugin's ctx.host off the read loop, so a slow host method

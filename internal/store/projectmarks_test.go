@@ -3,7 +3,6 @@ package store
 import (
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"testing"
 	"time"
@@ -51,19 +50,19 @@ func TestProjectNamesFollowOneRule(t *testing.T) {
 		}
 	}
 
-	row, err := db.Rename("/src/codev2", "  RepoGo   v2 ")
-	if err != nil || row.DisplayName != "RepoGo v2" {
-		t.Fatalf("rename = %q, %v", row.DisplayName, err)
+	row, _, err := db.Rename("/src/codev2", "  RepoGo   v2 ", 100)
+	if err != nil || row.DisplayName != "RepoGo v2" || row.Name != "RepoGo v2" || row.DefaultName != "repogo" {
+		t.Fatalf("rename = %q (name %q), %v", row.DisplayName, row.Name, err)
 	}
-	if row, _ := db.Rename("/src/codev2", "  "); row.DisplayName != "repogo" {
-		t.Fatalf("blank rename = %q, want the repository back", row.DisplayName)
+	if row, _, _ := db.Rename("/src/codev2", "  ", 200); row.DisplayName != "repogo" || row.Name != "" {
+		t.Fatalf("blank rename = %q (name %q), want the repository back", row.DisplayName, row.Name)
 	}
-	if _, err := db.Rename("/not/listed", "x"); !errors.Is(err, ErrInvalid) {
+	if _, _, err := db.Rename("/not/listed", "x", 300); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("renaming an unlisted folder = %v, want ErrInvalid", err)
 	}
 }
 
-// A pinned project is listed even past the cap, on top, and unpinning clears it.
+// A pinned project is listed even past the cap, and unpinning lets it go.
 func TestAPinnedProjectIsAlwaysListed(t *testing.T) {
 	db := newStore(t)
 	rows := make([]Project, maxProjects+1)
@@ -74,36 +73,95 @@ func TestAPinnedProjectIsAlwaysListed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// /p/000 is the oldest, past the newest maxProjects.
-	moved, err := db.Pin("/p/000", "")
-	if err != nil || len(moved) != 1 || moved[0].PinOrder == nil {
-		t.Fatalf("pin = %+v, %v", moved, err)
+	row, written, err := db.SetPinned("/p/000", true, 100)
+	if err != nil || !written || !row.Pinned || row.PinnedUpdatedAt != 100 {
+		t.Fatalf("pin = %+v, %v, %v", row, written, err)
 	}
 	listed, err := db.ListProjects("host")
-	if err != nil || len(listed) != maxProjects+1 || listed[0].Path != "/p/000" {
-		t.Fatalf("listed %d, first %s (%v)", len(listed), listed[0].Path, err)
+	if err != nil || len(listed) != maxProjects+1 || !slices.ContainsFunc(listed, func(p Project) bool { return p.Path == "/p/000" }) {
+		t.Fatalf("listed %d, want %d with /p/000 (%v)", len(listed), maxProjects+1, err)
 	}
-	if row, _ := db.Unpin("/p/000"); row.PinOrder != nil {
-		t.Fatal("unpinning left the pin")
+	if row, _, _ := db.SetPinned("/p/000", false, 200); row.Pinned || row.PinnedUpdatedAt != 200 {
+		t.Fatalf("unpin = %+v", row)
 	}
 	if listed, _ := db.ListProjects("host"); len(listed) != maxProjects {
 		t.Fatalf("listed %d after unpinning, want %d", len(listed), maxProjects)
 	}
+	if _, _, err := db.SetPinned("/missing", true, 300); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unlisted path = %v, want ErrInvalid", err)
+	}
 }
 
-// pinned is the pinned paths as ListProjects orders them.
-func pinned(t *testing.T, db *Store) []string {
-	t.Helper()
-	listed, err := db.ListProjects("host")
-	if err != nil {
+// A name or pin older than the stored one is ignored, whatever it says; an
+// equal time is too, so a repeated write changes nothing.
+func TestAnOlderMarkIsIgnored(t *testing.T) {
+	db := newStore(t)
+	syncFolders(t, db, "/a")
+
+	if _, written, _ := db.Rename("/a", "New", 200); !written {
+		t.Fatal("first rename not written")
+	}
+	row, written, err := db.Rename("/a", "Old", 100)
+	if err != nil || written || row.Name != "New" || row.NameUpdatedAt != 200 {
+		t.Fatalf("older rename = %q at %d, written %v (%v)", row.Name, row.NameUpdatedAt, written, err)
+	}
+	if _, written, _ := db.Rename("/a", "Same time", 200); written {
+		t.Fatal("a rename at the stored time was written")
+	}
+
+	if _, written, _ := db.SetPinned("/a", false, 300); !written {
+		t.Fatal("first unpin not written")
+	}
+	row, written, _ = db.SetPinned("/a", true, 250)
+	if written || row.Pinned || row.PinnedUpdatedAt != 300 {
+		t.Fatalf("older pin = %v at %d, written %v", row.Pinned, row.PinnedUpdatedAt, written)
+	}
+	// The name's time and the pin's are separate: the pin at 300 doesn't
+	// outvote a rename at 250.
+	if row, written, _ := db.Rename("/a", "Later", 250); !written || row.Name != "Later" {
+		t.Fatalf("rename at 250 = %q, written %v", row.Name, written)
+	}
+}
+
+// Clearing a name or unpinning keeps the time, so the row stays and an older
+// write still loses.
+func TestAClearKeepsItsTime(t *testing.T) {
+	db := newStore(t)
+	syncFolders(t, db, "/a")
+	db.Rename("/a", "Named", 100)
+	db.SetPinned("/a", true, 100)
+	db.Rename("/a", "", 200)
+	db.SetPinned("/a", false, 200)
+
+	var name string
+	var nameAt, pinnedAt int64
+	if err := db.db.QueryRow(`SELECT name, name_updated_at, pinned_updated_at FROM state.project_marks WHERE path = '/a'`).
+		Scan(&name, &nameAt, &pinnedAt); err != nil || name != "" || nameAt != 200 || pinnedAt != 200 {
+		t.Fatalf("cleared row = %q, %d, %d (%v)", name, nameAt, pinnedAt, err)
+	}
+	if row, written, _ := db.Rename("/a", "Named", 150); written || row.DisplayName != "a" {
+		t.Fatalf("an older name came back: %q, written %v", row.DisplayName, written)
+	}
+}
+
+// A name or pin stored before marks had times reads as set, at time 0, and
+// any timed change beats it.
+func TestAMarkWithoutATimeLosesToAnyChange(t *testing.T) {
+	db := newStore(t)
+	syncFolders(t, db, "/a")
+	if _, err := db.db.Exec(`INSERT INTO state.project_marks (path, pinned_at, name) VALUES ('/a', 2.5, 'Before')`); err != nil {
 		t.Fatal(err)
 	}
-	var paths []string
-	for _, row := range listed {
-		if row.PinOrder != nil {
-			paths = append(paths, row.Path)
-		}
+	row, _ := db.Project("/a")
+	if row.Name != "Before" || row.NameUpdatedAt != 0 || !row.Pinned || row.PinnedUpdatedAt != 0 {
+		t.Fatalf("untimed row = %+v", row)
 	}
-	return paths
+	if row, written, _ := db.Rename("/a", "After", 1); !written || row.Name != "After" {
+		t.Fatalf("timed rename = %q, written %v", row.Name, written)
+	}
+	if row, written, _ := db.SetPinned("/a", false, 1); !written || row.Pinned {
+		t.Fatalf("timed unpin = %v, written %v", row.Pinned, written)
+	}
 }
 
 func syncFolders(t *testing.T, db *Store, paths ...string) {
@@ -117,81 +175,9 @@ func syncFolders(t *testing.T, db *Store, paths ...string) {
 	}
 }
 
-// A new pin goes on top; a move writes only the moved row.
-func TestPinsGoOnTopAndAMoveWritesOneRow(t *testing.T) {
-	db := newStore(t)
-	syncFolders(t, db, "/a", "/b", "/c", "/d")
-	for _, path := range []string{"/a", "/b", "/c"} {
-		if _, err := db.Pin(path, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if got := pinned(t, db); !slices.Equal(got, []string{"/c", "/b", "/a"}) {
-		t.Fatalf("pins = %v, want newest on top", got)
-	}
-
-	moved, err := db.Pin("/a", "/c")
-	if err != nil || len(moved) != 1 || moved[0].Path != "/a" {
-		t.Fatalf("move = %+v, %v; want only /a", moved, err)
-	}
-	if got := pinned(t, db); !slices.Equal(got, []string{"/c", "/a", "/b"}) {
-		t.Fatalf("pins = %v, want /c /a /b", got)
-	}
-
-	// The end of the list, then the top; an after no longer pinned is the top.
-	if _, err := db.Pin("/c", "/b"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Pin("/b", "/d"); err != nil {
-		t.Fatal(err)
-	}
-	if got := pinned(t, db); !slices.Equal(got, []string{"/b", "/a", "/c"}) {
-		t.Fatalf("pins = %v, want /b /a /c", got)
-	}
-	if row, _ := db.Project("/d"); row.PinOrder != nil {
-		t.Fatal("a move pinned its unpinned after")
-	}
-
-	if _, err := db.Unpin("/a"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Pin("/a", ""); err != nil {
-		t.Fatal(err)
-	}
-	if got := pinned(t, db); !slices.Equal(got, []string{"/a", "/b", "/c"}) {
-		t.Fatalf("repinned = %v, want /a on top", got)
-	}
-	if _, err := db.Pin("/missing", ""); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("unlisted path = %v, want ErrInvalid", err)
-	}
-}
-
-// Neighbours with no number between them renumber every pin, in order.
-func TestAPinWithNoRoomRenumbers(t *testing.T) {
-	db := newStore(t)
-	syncFolders(t, db, "/a", "/b", "/c")
-	tight := map[string]float64{"/a": 1, "/b": math.Nextafter(1, 2)}
-	for path, order := range tight {
-		if _, err := db.db.Exec(`INSERT INTO state.project_marks (path, pinned_at) VALUES (?, ?)`, path, order); err != nil {
-			t.Fatal(err)
-		}
-	}
-	moved, err := db.Pin("/c", "/a")
-	if err != nil || len(moved) != 3 || moved[0].Path != "/c" {
-		t.Fatalf("moved = %+v, %v; want all three, /c first", moved, err)
-	}
-	if got := pinned(t, db); !slices.Equal(got, []string{"/a", "/c", "/b"}) {
-		t.Fatalf("pins = %v, want /a /c /b", got)
-	}
-	for i, path := range []string{"/a", "/c", "/b"} {
-		if row, _ := db.Project(path); *row.PinOrder != float64(i) {
-			t.Fatalf("%s = %v, want %d", path, *row.PinOrder, i)
-		}
-	}
-}
-
-// Unpinned projects follow the pins: the used ones by their last prompt or a
-// later pick, then the never-used ones by activity.
+// The list goes by use: the used ones by their last prompt or a later pick,
+// then the never-used ones by activity. A pin doesn't move a project; devices
+// order the pins themselves.
 func TestTheListOrdersByUse(t *testing.T) {
 	db := newStore(t)
 	if _, err := db.SyncProjects([]Project{
@@ -205,7 +191,7 @@ func TestTheListOrdersByUse(t *testing.T) {
 	if err := db.Pick("/picked", time.UnixMilli(5000)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Pin("/pinned", ""); err != nil {
+	if _, _, err := db.SetPinned("/pinned", true, 100); err != nil {
 		t.Fatal(err)
 	}
 	listed, err := db.ListProjects("host")
@@ -216,11 +202,11 @@ func TestTheListOrdersByUse(t *testing.T) {
 	for _, row := range listed {
 		paths = append(paths, row.Path)
 	}
-	if want := []string{"/pinned", "/picked", "/prompted", "/fresh"}; !slices.Equal(paths, want) {
+	if want := []string{"/picked", "/prompted", "/fresh", "/pinned"}; !slices.Equal(paths, want) {
 		t.Fatalf("listed %v, want %v", paths, want)
 	}
-	if listed[1].UsedAt != 5000 || listed[2].UsedAt != 3000 || listed[3].UsedAt != 0 {
-		t.Fatalf("used_at = %d, %d, %d; want 5000, 3000, 0", listed[1].UsedAt, listed[2].UsedAt, listed[3].UsedAt)
+	if listed[0].UsedAt != 5000 || listed[1].UsedAt != 3000 || listed[2].UsedAt != 0 {
+		t.Fatalf("used_at = %d, %d, %d; want 5000, 3000, 0", listed[0].UsedAt, listed[1].UsedAt, listed[2].UsedAt)
 	}
 }
 

@@ -23,13 +23,13 @@ Select: name, options="Next.js|Vite", optional value; self-closing; declares sta
 Input, TextArea, Select, Radio and Slider take label (a small header above) and footer (a line below), as a form's rows do.
 Radio: name, options="Build muscle|Lose fat|Get stronger", optional value, direction="col|row" (default col); self-closing; declares state like Select.
 Toggle: name, nonempty label, literal initial value="true|false" (default false); declares state like Tabs.
-  Optional action calls a source (plugin:, mcp: or repogo:), with Param children
+  Optional action calls a data source, with Param children
   and then as on Button. Params read the new value. Only a user flip calls it;
   loading or refreshing never does. The switch waits disabled while saving or
   confirming, and restores its previous value on failure or cancellation.
   Without action it only changes local state; no separate State is needed.
 Slider: name, min/max (default 0/1), optional positive step/value; plain decimals; self-closing; declares state like Tabs (no State needed).
-Chart: type="bar|line", values="3|5|2" (or spaces or commas), labels="Mon|Tue|Wed"; self-closing; color defaults primary, height compact.
+Chart: type="bar|line", values="3|5|2" (or spaces or commas), labels="Mon|Tue|Wed"; self-closing unless it holds Series (Card data); color defaults primary, height compact.
 Text: plain text; font="title|heading|body|caption|code", default body.
   A {{…}} it reads rolls to a new value, as the system's numbers do; set
   animate="false" on a Text of several values or a sentence.
@@ -39,16 +39,13 @@ Markdown: its text drawn as Markdown (headings, lists, tables, code, links);
   the card; the indent is dropped. A ```ui fence inside shows as code.
   When its text has its own code fence, open the card with four backticks
   (````ui … ````) so the inner fence doesn't end it.
-Image: url (http or https, may read {{…}}); size="sm|md|lg|xl" (or points)
+Image: url (http or https, or a data:image/ URL; may read {{…}}); size="sm|md|lg|xl" (or points)
   for a square, else width and aspect="16:9"; fit="fill|fit" (fill crops,
   the default; fit shows it all); with neither size nor aspect it keeps its
   own shape uncropped; radius (pill for a circle); alt for VoiceOver.
 File: path (as file: takes it, may read {{…}}); draws that file of the
   environment in the card with the app's viewer: a PDF, an image, a video
   or audio, a CSV or SQLite table, JSON, Markdown, a Mermaid diagram;
-  height (default regular).
-Tree: path of a folder (as File takes it); draws it as the app's live
-  file tree, with git changes; a tapped file opens in the editor;
   height (default regular).
 Icon: name="SF Symbol"; size="sm|md|lg", default md; alt names it for
   VoiceOver (without one it's decorative).
@@ -75,17 +72,17 @@ ContextMenu: a child of a Button, Item, Image or any visual element:
   what a long-press shows, its tap unchanged. Contains Buttons, Menus
   and Dividers as a Menu does, and an optional Preview first, lifted
   above the menu: url="…" a live web page, file="…" a file, page="…"
-  a project page (Params set its state), or children drawn as a card.
+  a page (Params set its state), or children drawn as a card.
   On an Item that can't swipe, its Swipes join the menu.
 Toolbar: Buttons and Menus for the bar of the page or sheet the card is
   on (an Add button, a "…" Menu); where there's no bar, a row of them.
   Like Menu, its items are written directly.
 Divider, Spacer: separator and flexible space along the parent layout.
 State: a local string value; declare it at the top (anywhere but inside Each).
-  A page's State is also its parameters: page:x.ui?name=value and a
+  A page's State is also its parameters: page:~/.repogo/plugins/<name>/pages/x.ui?name=value and a
   Page's Params set a declared name's starting value (the user's edits win).
-Page: path (~/.repogo/plugins/<name>/pages/<page>.ui, or a project page,
-  with an optional ?name=value query); Param children set the page's
+Page: path of a page (as page: takes it, with an optional ?name=value
+  query); Param children set the page's
   state, reading {{…}}. Draws that page's card here, live, so a page
   written once serves a link and a card. Not inside a Page.
 Router: optional id and initial route path (may read {{state}}, so a
@@ -168,8 +165,8 @@ show="<test>": visible only while the test passes.
 selected="<test>": selected styling.
 Button/Menu/Item and every control enabled="<test>": enabled only then.
 A test is one comparison: x (set), !x (empty), a=b, a!=b, a<b, a>b. The
-  left side is a state or a path into data, the right a literal; numbers
-  compare as numbers. Empty is missing, null, "", [] or {}; numbers are
+  left side is a state or a path into data, the right a literal; < and >
+  compare numbers as numbers, = and != compare text (1.0 isn't 1). Empty is missing, null, "", [] or {}; numbers are
   never empty, so a Slider at 0 is set. No and/or: nest an If for and,
   chain ElseIf for or.
 If test="…", then ElseIf test="…" and Else as its next siblings: the
@@ -215,9 +212,8 @@ push:<path> — open a Route of the nearest Router as a page.
 present:<path> — open a Route as a sheet.
 page:<path> — open a plugin's page, from chat or another page
   (page:~/.repogo/plugins/notes/pages/index.ui); .ui and .html pages
-  load only from ~/.repogo/plugins;
-  a query sets the page's state and may read {{…}}
-  (page:~/.repogo/plugins/vercel/pages/index.ui?project={{p.name}}&route=project);
+  load only from ~/.repogo/plugins; a query sets the page's state and may
+  read {{…}} (page:~/.repogo/plugins/deploys/pages/index.ui?project={{p.name}}&route=project);
   sheet="large" on the Button or Item opens it in a sheet instead,
   sheet="full" over the whole screen. When a
   page shows what the user asked for, link it rather than redraw it.
@@ -240,7 +236,7 @@ set: values, and send:/append:/copy:/share:/open:/page:/file: payloads.
 Other supported positions are named in each element or action's description,
 including file paths and line numbers. Keep tag names and method names literal.
 A filter writes a value in the phone's locale: {{t | relative}} (5 min. ago, kept
-current), date, time, datetime, number (number:2), currency:USD, percent
+current), date and datetime (date:short, :long or :full), time, number (number:2), currency:USD, percent
 (0.42 is 42%), bytes; for a path, name (a.json) and folder (docs/events).
 Dates are ISO 8601 or Unix seconds or milliseconds.
 Use send: only for a button that starts work, such as Deploy or Fix it;
@@ -337,7 +333,7 @@ Example:
 ```ui
 <Col surface="card" padding="lg" radius="lg" width="fill" gap="md">
   <Text font="heading">New project</Text>
-  <Input name="project" value="RepoGo Runtime" placeholder="Project name"/>
+  <Input name="project" value="Acme Dashboard" placeholder="Project name"/>
   <Radio name="framework" options="Next.js|Vite|SvelteKit" value="Vite"/>
   <Toggle name="tests" label="Run tests first" value="true"/>
   <Slider name="memory" min="128" max="2048" step="128" value="1280"/>
@@ -354,7 +350,7 @@ Example:
     <Item icon="bell.badge.fill" iconColor="red" label="Alerts">
       <Toggle name="alerts" label="Alerts" value="true"/>
     </Item>
-    <Item icon="book.fill" label="Docs" action="open:https://repogo.app/docs"/>
+    <Item icon="book.fill" label="Docs" action="open:https://example.com/docs"/>
   </Section>
 </List>
 ```

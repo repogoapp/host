@@ -34,10 +34,11 @@ type fakeGateway struct {
 }
 
 type fakeConn struct {
-	ctx    context.Context
-	conn   *websocket.Conn
-	hostID device.ID
-	in     chan tunnelwire.Message
+	ctx     context.Context
+	conn    *websocket.Conn
+	hostID  device.ID
+	cancels bool // the host's Hello said it reads HTTPCancel
+	in      chan tunnelwire.Message
 }
 
 func newFakeGateway(t *testing.T, id string) *fakeGateway {
@@ -81,6 +82,7 @@ func (g *fakeGateway) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.hostID = device.IDFor(hello.PublicKey)
+	c.cancels = hello.CancelsHTTP
 	g.conns <- c
 	defer close(c.in)
 	for {
@@ -270,7 +272,6 @@ func TestServesOnlyWhatItOpened(t *testing.T) {
 		"another domain":                 {strconv.Itoa(shared), "abcdefghij12.example.com"},
 		"a deeper name under the domain": {strconv.Itoa(shared), "abcdefghij12.deeper." + Domain},
 		"no Host line from the gateway":  {strconv.Itoa(shared), ""},
-		"the parent of the domain":       {strconv.Itoa(shared), "abcdefghij12.repogo.dev"},
 	} {
 		status, _, body := c.get(t, name, req[0], req[1])
 		if status != http.StatusForbidden || strings.Contains(body, "private") || body == "shared" {

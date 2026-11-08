@@ -20,7 +20,8 @@ type Plugins interface {
 	// HasRoutes reports whether any plugin serves HTTP; while one does, the
 	// host keeps its gateway socket open.
 	HasRoutes() bool
-	// ServeHTTP answers req for route, or ErrNoRoute.
+	// ServeHTTP answers req for route, or ErrNoRoute. When ctx ends first it
+	// asks the plugin to stop and returns only once the plugin has answered.
 	ServeHTTP(ctx context.Context, route tunnelwire.PluginRoute, req *http.Request) (*http.Response, error)
 }
 
@@ -64,14 +65,20 @@ func (l *link) servePlugin(ctx context.Context, req *tunnelwire.PluginRequest) {
 	copyHeaders(httpReq.Header, req.HeaderLines, nil)
 	forwarded(httpReq.Header, public)
 
+	// ServeHTTP returns once the plugins have answered, canceled or not, so
+	// this request's slot stays taken for as long as their work runs.
 	resp, err := l.s.cfg.Plugins.ServeHTTP(ctx, route, httpReq)
 	switch {
+	case ctx.Err() != nil:
+		if err == nil {
+			_ = resp.Body.Close()
+		}
 	case errors.Is(err, ErrNoRoute):
 		notFound()
 	case err != nil:
 		l.s.cfg.Log.Warn("tunnel: plugin route failed", "plugin", route.Plugin, "method", route.Method, "err", err)
 		l.sendError(id, http.StatusBadGateway, "The plugin couldn't answer this request.", "Plugin error")
 	default:
-		l.relay(id, method, resp, false)
+		l.relay(ctx, id, method, resp, false)
 	}
 }

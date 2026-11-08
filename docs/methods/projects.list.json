@@ -16,7 +16,11 @@
       "last_message_at": 1,
       "used_at": 1,
       "display_name": "display_name",
-      "pin_order": 1.5,
+      "default_name": "default_name",
+      "name": "name",
+      "name_updated_at": 1,
+      "pinned": true,
+      "pinned_updated_at": 1,
       "host_id": "host_id"
     }
   ]

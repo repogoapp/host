@@ -14,7 +14,8 @@ import (
 // reach them from a turn.
 
 const pluginsInstructions = " `plugins` lists the environment's plugins (`~/.repogo/plugins`), which every project " +
-	"can call, and their methods; `plugin_call` runs one."
+	"can call, and their methods; `plugin_call` runs one; `plugins_logs` reads what they wrote, and `plugins_urls` " +
+	"the URLs of methods served over HTTP."
 
 var pluginsTool = tool{
 	Name: "plugins",

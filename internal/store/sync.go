@@ -59,10 +59,23 @@ type Project struct {
 	// What every surface calls the project: the user's name, else the
 	// repository, else the folder (projectName).
 	DisplayName string `json:"display_name"`
-	// Its place among the pinned projects, lowest on top; nil is not pinned.
-	// Only the order means anything: a move writes the midpoint of its new
-	// neighbours (Store.Pin). Stored in project_marks.pinned_at.
-	PinOrder *float64 `json:"pin_order,omitempty"`
+	// What it is called with no rename: the repository, else the folder. A
+	// device shows it when the newest rename across checkouts is a clear.
+	// This and the marks below are omitted when empty, so a phone reads an
+	// older host's rows (HOST-MIGRATIONS.md).
+	DefaultName string `json:"default_name,omitempty"`
+
+	// The user's name for it as set here; "" when never set or cleared. A
+	// device shows the newest Name across the project's checkouts (by
+	// NameUpdatedAt), so a host that missed a rename is outvoted.
+	Name string `json:"name,omitempty"`
+	// When Name was set, in ms, by the device that set it; 0 never.
+	NameUpdatedAt int64 `json:"name_updated_at,omitempty"`
+	// Whether it is pinned here, and when that was set, in ms; 0 never. A
+	// device shows the newest across the project's checkouts and orders the
+	// pins itself.
+	Pinned          bool  `json:"pinned,omitempty"`
+	PinnedUpdatedAt int64 `json:"pinned_updated_at,omitempty"`
 
 	// The host serving this row. Stamped on the way out, not stored: a device
 	// mirrors more than one host, and two of them can hold the same path.
@@ -153,7 +166,7 @@ func (s *Store) Activity() (map[string]Activity, error) {
 // append the WHERE and ORDER BY.
 const projectSelect = `SELECT p.path, p.chat_count, p.activity_at, p.last_message_at, ` + projectUsedAt + ` AS used_at,
 	p.repo_owner, p.repo_name, p.root_commit, p.kind, p.icon_hash, p.diff_available, p.files_changed, p.additions, p.deletions,
-	m.name, m.pinned_at
+	m.name, m.name_updated_at, m.pinned_at IS NOT NULL, m.pinned_updated_at
 	FROM projects p LEFT JOIN state.project_marks m ON m.path = p.path `
 
 // projectUsedAt is Project.UsedAt over projects p and project_marks m.
@@ -170,12 +183,19 @@ func (s *Store) projects(clauses string, args ...any) ([]Project, error) {
 	for rows.Next() {
 		var p Project
 		var name *string
+		var nameUpdatedAt, pinnedUpdatedAt sql.NullInt64
 		if err := rows.Scan(&p.Path, &p.ChatCount, &p.ActivityAt, &p.LastMessageAt, &p.UsedAt,
 			&p.RepoOwner, &p.RepoName, &p.RootCommit, &p.Kind, &p.IconHash, &p.DiffAvailable, &p.FilesChanged, &p.Additions, &p.Deletions,
-			&name, &p.PinOrder); err != nil {
+			&name, &nameUpdatedAt, &p.Pinned, &pinnedUpdatedAt); err != nil {
 			return nil, err
 		}
 		p.DisplayName = projectName(p.Path, p.RepoName, name)
+		p.DefaultName = projectName(p.Path, p.RepoName, nil)
+		if name != nil {
+			p.Name = *name
+		}
+		p.NameUpdatedAt = nameUpdatedAt.Int64
+		p.PinnedUpdatedAt = pinnedUpdatedAt.Int64
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -394,14 +414,14 @@ type SyncResult struct {
 	Delete   []string `json:"delete" wire:"array"`
 }
 
-// ListProjects is every pinned project, in pin order, then the maxProjects
-// most recently used (UsedAt, then ActivityAt), each stamped with host. Path
-// breaks ties, so reads agree.
+// ListProjects is the maxProjects most recently used projects (UsedAt, then
+// ActivityAt) and every pinned one past them, each stamped with host. Devices
+// order the pins themselves. Path breaks ties, so reads agree.
 func (s *Store) ListProjects(host string) ([]Project, error) {
 	projects, err := s.projects(`WHERE m.pinned_at IS NOT NULL OR p.path IN (
 		  SELECT p.path FROM projects p LEFT JOIN state.project_marks m ON m.path = p.path
 		  ORDER BY `+projectUsedAt+` DESC, p.activity_at DESC, p.path LIMIT ?)
-		ORDER BY m.pinned_at IS NULL, m.pinned_at, used_at DESC, p.activity_at DESC, p.path`, maxProjects)
+		ORDER BY used_at DESC, p.activity_at DESC, p.path`, maxProjects)
 	if err != nil {
 		return nil, err
 	}

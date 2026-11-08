@@ -15,7 +15,7 @@ one small relay is the point; keep it that way.
 - Do not rename or retype a `state.db` column: `openState` refuses to start on a column whose
   shape differs from `state.sql`, and a rename leaves the old rows in a column nothing reads.
   Add only nullable columns (it adds them on start); fix a misleading name in code and its
-  `state.sql` comment instead, as `project_marks.pinned_at` is `PinOrder` in code. A column or
+  `state.sql` comment instead, as `project_marks.pinned_at` is read only as "pinned". A column or
   table `state.sql` no longer names is kept and logged, never dropped, so a host an update
   rolled back to still starts with a newer host's rows intact. When a real reshape can't be
   done that way, add a `user_version` migration runner then, append-only, not before.
@@ -73,7 +73,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `clientprompt`, `catalog`, `toollabel`, `turnsummary` | What a chat shows: the system prompt for the client's renderer, what an environment or project offers to call as text, tool-call labels, the turn recap for chat lists, voice and alerts | a transport type |
 | `session` | Shared transcript reading, tailing, and caching; provider interfaces | provider-specific parsing or kind dispatch |
 | `store` | `cache.db`, the disposable SQLite cache of what `session` parsed (drop and reparse, never migrate), and `state.db`, what the user made (added to, never wiped; one writer per table) | a version ledger; state in the cache |
-| `store` (projects) | The project list's order: pins first by `pin_order` (a move writes its neighbours' midpoint, one row; no room renumbers in one transaction), then by `used_at` (last prompt or pick), then never-used by `activity_at`. Clients sort on those fields only | ordering from device-local times |
+| `store` (projects) | The project list's order: by `used_at` (last prompt or pick), then never-used by `activity_at`; pinned projects are always listed, and devices order the pins themselves. A name or pin carries the time the device set it (`name_updated_at`, `pinned_updated_at`); an older write is ignored, and devices show the newest across a project's checkouts | ordering pins on the host; a name or pin without its time |
 | `schedule` | The user's schedules: validates them, computes each next run, and on a minute ticker starts every due one as a new chat; rows in `state.db` through `store` | writing SQL itself |
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
 | `git`, `github` | Git reporting and shipping, `gh` wrapper and PRs. One git runner in `git` | a second `exec.Command("git"` |

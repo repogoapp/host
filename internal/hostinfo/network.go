@@ -2,6 +2,7 @@ package hostinfo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -223,6 +224,44 @@ func (s *Service) network(n Network) Network {
 		n.Tailscale.Port = s.tailnetPort
 	}
 	return n
+}
+
+// containerCLIs are where Apple's container CLI may be; a service's PATH may
+// lack /usr/local/bin.
+var containerCLIs = []string{"container", "/usr/local/bin/container"}
+
+// ContainerNetworks are this machine's Apple container networks it is on: each
+// network's gateway, which a local interface holds only while a container runs
+// there, with the network's prefix length. Empty without the container CLI.
+func ContainerNetworks(ctx context.Context) []netip.Prefix {
+	for _, cli := range containerCLIs {
+		path, err := exec.LookPath(cli)
+		if err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		out, err := exec.CommandContext(ctx, path, "network", "list", "--format", "json").Output()
+		cancel()
+		var networks []struct {
+			Status struct {
+				Gateway string `json:"ipv4Gateway"`
+				Subnet  string `json:"ipv4Subnet"`
+			} `json:"status"`
+		}
+		if err != nil || json.Unmarshal(out, &networks) != nil {
+			return nil
+		}
+		var found []netip.Prefix
+		for _, n := range networks {
+			ip, err := netip.ParseAddr(n.Status.Gateway)
+			subnet, serr := netip.ParsePrefix(n.Status.Subnet)
+			if err == nil && serr == nil && ip.IsPrivate() && subnet.Contains(ip) && interfaceOf(ip) != nil {
+				found = append(found, netip.PrefixFrom(ip, subnet.Bits()))
+			}
+		}
+		return found
+	}
+	return nil
 }
 
 // LANIP is the address the default route leaves by, when that is the local

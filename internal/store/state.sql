@@ -16,11 +16,19 @@ CREATE TABLE IF NOT EXISTS chat_marks (
 
 -- What the user set on a project. NULL is not set; an all-NULL row is deleted.
 -- One writer: updateProjectMarks (projectmarks.go).
+--
+-- The name and the pin each carry the time they were set, in ms, stamped by
+-- the device that set them. Every device writes a change to each checkout of
+-- the project and shows the newest, so a host that missed one is outvoted; a
+-- write older than the stored time is ignored. A cleared name ('') or an
+-- unpin keeps its time, so an older value can't come back.
 CREATE TABLE IF NOT EXISTS project_marks (
-  path      TEXT PRIMARY KEY,
-  picked_at INTEGER,  -- picked or made in the folder picker
-  pinned_at INTEGER,  -- the pin's place, lowest on top (Project.PinOrder): an order, not a time; may hold a fraction
-  name      TEXT      -- the user's name for it; never ''
+  path              TEXT PRIMARY KEY,
+  picked_at         INTEGER,  -- picked or made in the folder picker
+  pinned_at         INTEGER,  -- set while pinned; only being set is read
+  name              TEXT,     -- the user's name for it; '' is cleared
+  name_updated_at   INTEGER,  -- when name was set; NULL never
+  pinned_updated_at INTEGER   -- when pinned_at was set or cleared; NULL never
 ) WITHOUT ROWID;
 
 -- Each chat's number for the voice agent: a number the user has heard must
@@ -115,3 +123,11 @@ CREATE TABLE IF NOT EXISTS reminders (
   created_at INTEGER NOT NULL
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(due_at);
+
+-- Each environment plugin's key for its HTTP methods that take one, kept
+-- readable so the phone can show it again. One writer: pluginkeys.go.
+CREATE TABLE IF NOT EXISTS plugin_keys (
+  plugin     TEXT    PRIMARY KEY,
+  key        TEXT    NOT NULL,  -- rgk_ and 43 base64url characters
+  created_at INTEGER NOT NULL   -- ms; when it was made or last replaced
+) WITHOUT ROWID;

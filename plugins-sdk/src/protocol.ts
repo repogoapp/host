@@ -27,6 +27,8 @@ export type Request =
    *  knows it; subscribing again under an id replaces it. */
   | { id: number; method: "subscribe"; params: Target & { subscription: string; name: string; input?: unknown } }
   | { id: number; method: "unsubscribe"; params: { subscription: string } }
+  /** Aborts the `ctx.signal` of the `call` sent under id `call`, whose caller left; that call still gets its one reply. */
+  | { id: number; method: "cancel"; params: { call: number } }
   | { id: number; method: "reload"; params: Target }
   /**
    * The folder's whole set of schedules, replacing the last. `plugins` are the
@@ -79,6 +81,8 @@ export type ToWorker =
   | { type: "call"; id: number; name: string; input: unknown; files?: UploadedFile[]; confirmed: boolean; caller: Caller; root?: string; chat?: string }
   | { type: "subscribe"; id: number; subscription: string; name: string; input: unknown; root?: string }
   | { type: "unsubscribe"; subscription: string }
+  /** Aborts the signal of the call sent under `id`. */
+  | { type: "cancel"; id: number }
   /** Another Worker wrote these tags. */
   | { type: "invalidate"; tags: string[] }
   /** The host's answer to a `host` the Worker sent. */

@@ -1,0 +1,16 @@
+{
+  "methods": [
+    {
+      "plugin": "plugin",
+      "method": "method",
+      "effect": "effect",
+      "urls": [
+        {
+          "address": "address",
+          "url": "url",
+          "key": true
+        }
+      ]
+    }
+  ]
+}

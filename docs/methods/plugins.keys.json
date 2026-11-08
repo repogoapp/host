@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    {
+      "plugin": "plugin",
+      "methods": [
+        "methods"
+      ],
+      "key": "key",
+      "created_at": 1
+    }
+  ]
+}

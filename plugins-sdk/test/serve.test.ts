@@ -557,3 +557,23 @@ export default definePlugin({
   ]);
   expect(records[0]!.callId).toBe(records[1]!.callId);
 });
+
+test("a cancel aborts a call's ctx.signal, and the call still answers once", async () => {
+  const { client } = await start();
+  const { dir } = await checkout({
+    slow: `import { definePlugin, method, z } from "@repogo/plugins";
+export default definePlugin({
+  methods: {
+    waits: method(z.object({}), async (_, ctx) => {
+      await new Promise((resolve) => ctx.signal.addEventListener("abort", resolve, { once: true }));
+      return "aborted";
+    }),
+  },
+});
+`,
+  });
+  // This client's first request, so the server knows it as id 1.
+  const answer = client.request("call", { dir, name: "slow.waits" });
+  expect(result(await client.request("cancel", { call: 1 }))).toEqual({});
+  expect(result(await answer)).toBe("aborted");
+});

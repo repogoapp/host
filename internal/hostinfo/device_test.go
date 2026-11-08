@@ -85,3 +85,17 @@ func TestBatteryInstalled(t *testing.T) {
 		t.Fatal("batteryInstalled misreads ioreg")
 	}
 }
+
+// host.status names the TLS key phones pin, for repogo tls; a host without a
+// relay has none and leaves it out.
+func TestStatusCarriesTheTLSKey(t *testing.T) {
+	key := &TLSKey{SPKI: "ab12", Counter: 7}
+	s := New(Deps{Power: reading{}, Relay: func() bool { return true }, ReadDevice: func() Device { return studio },
+		TLSKey: func() *TLSKey { return key }})
+	if got := s.Status().TLS; got == nil || *got != *key {
+		t.Fatalf("tls %+v, want %+v", got, key)
+	}
+	if got := newService(reading{}).Status().TLS; got != nil {
+		t.Fatalf("a host without a relay reported %+v", got)
+	}
+}

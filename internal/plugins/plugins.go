@@ -68,6 +68,12 @@ type Config struct {
 	Emit func(device.ID, emit.Event) error
 	// Notify pushes a plugin's alert to the phones; nil drops it.
 	Notify func(Notice)
+	// Keys keeps each plugin's key for its HTTP methods that take one.
+	Keys KeyStore
+	// HostID names the public address, h-<host id>; DevicePort is the device
+	// address's port, zero when it isn't served.
+	HostID     func() string
+	DevicePort int
 	// Host runs a host method for a plugin's ctx.host; nil refuses them.
 	Host func(ctx context.Context, plugin, method string, params json.RawMessage) (json.RawMessage, error)
 	Log  *slog.Logger
@@ -371,11 +377,20 @@ type subscribeParams struct {
 }
 
 func (s *Service) ask(ctx context.Context, t Target, method string, params any) (outcome.Answer, error) {
+	return s.answer(ctx, t, func(srv *server) (json.RawMessage, *wireError, error) { return srv.request(ctx, method, params) })
+}
+
+// askHeld runs a call for an HTTP caller, who may leave: see server.callHeld.
+func (s *Service) askHeld(ctx context.Context, t Target, params callParams) (outcome.Answer, error) {
+	return s.answer(ctx, t, func(srv *server) (json.RawMessage, *wireError, error) { return srv.callHeld(ctx, params) })
+}
+
+func (s *Service) answer(ctx context.Context, t Target, send func(*server) (json.RawMessage, *wireError, error)) (outcome.Answer, error) {
 	srv, err := s.ready(ctx, t)
 	if err != nil {
 		return outcome.Answer{}, err
 	}
-	result, pluginErr, err := srv.request(ctx, method, params)
+	result, pluginErr, err := send(srv)
 	if err != nil {
 		return outcome.Answer{}, err
 	}

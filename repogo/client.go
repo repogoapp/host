@@ -118,7 +118,7 @@ func printStatus(ctx context.Context) error {
 func noteOlderHost(ctx context.Context) {
 	var status hostinfo.Status
 	if err := call(ctx, "host.status", nil, &status); release.Version != "dev" && err == nil && status.Version != release.Version {
-		fmt.Printf("The running host is %s and this is %s. Run npx @repogo/host restart to switch.\n", status.Version, release.Version)
+		fmt.Printf("The running host is %s and this is %s. Run repogo restart to switch.\n", status.Version, release.Version)
 	}
 }
 

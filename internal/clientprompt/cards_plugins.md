@@ -48,7 +48,10 @@ Methods are named <plugin>.<method>; a collection adds
 <plugin>.<collection>.list/get/create/update/delete. A plugin's `namespace`
 names its data, and one that keeps data must set it: a bare name to share
 it across projects, `<project>.<name>` for data about one project. Its pages
-are linked as `page:~/.repogo/plugins/<name>/pages/<page>.ui`.
+are linked as `page:~/.repogo/plugins/<name>/pages/<page>.ui`, in a
+`page:` action, a `<Page path>` or a Preview's `page=`; .ui and .html
+pages load only from ~/.repogo/plugins, and a project's .md page may be
+project-relative.
 Check a method with the plugins tool before a card names it. Plugins send data as it is
 (dates as ISO or milliseconds); cards format it with filters.
 The plugins tool's `pages` say where a page already shows a method: link

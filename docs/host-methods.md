@@ -1065,6 +1065,7 @@ Result:
 - `storage` object{Storage} (omitted when empty) (nullable)
 - `device` object{Device} (omitted when empty) (nullable)
 - `network` object{Network}
+- `tls` object{TLSKey} (omitted when empty) (nullable)
 - `capabilities` [string] (omitted when empty) (nullable)
 
 ## `host.setup`
@@ -1337,6 +1338,28 @@ Result:
 
 - `lines` [object{LogLine}] (nullable)
 
+## `plugins.keys`
+
+Params:
+
+- none
+
+Result:
+
+- `plugins` [object{KeyedPlugin}] (nullable)
+
+## `plugins.urls`
+
+Tool (read): The environment's plugin methods that answer plain HTTP: each URL, device (this machine and its containers) or public (the internet), and whether it needs the plugin's key, which the user prints with repogo keys <plugin>.
+
+Params:
+
+- `plugin` string: Only this plugin's methods; empty is every plugin's
+
+Result:
+
+- `methods` [object{ServedMethod}] (nullable)
+
 ## `plugins.call`
 
 Params:
@@ -1374,6 +1397,29 @@ Result:
 Params:
 
 - `subscription` string
+
+Result:
+
+- `ok` bool
+
+## `plugins.create_key`
+
+Params:
+
+- `plugin` string
+
+Result:
+
+- `plugin` string
+- `methods` [string] (nullable)
+- `key` string
+- `created_at` int
+
+## `plugins.delete_key`
+
+Params:
+
+- `plugin` string
 
 Result:
 
@@ -1438,6 +1484,7 @@ Params:
 
 - `path` string
 - `name` string
+- `updated_at` int (omitted when empty)
 
 Result:
 
@@ -1456,18 +1503,22 @@ Result:
 - `last_message_at` int
 - `used_at` int
 - `display_name` string
-- `pin_order` number (omitted when empty) (nullable)
+- `default_name` string (omitted when empty)
+- `name` string (omitted when empty)
+- `name_updated_at` int (omitted when empty)
+- `pinned` bool (omitted when empty)
+- `pinned_updated_at` int (omitted when empty)
 - `host_id` string
 
 ## `projects.pin`
 
-Tool (write): Pin a project to the top of the project list, or unpin it. With after, the pinned project it goes just below, which moves a pinned one.
+Tool (write): Pin a project, or unpin it, by its folder as projects.list gives it.
 
 Params:
 
 - `path` string
 - `pinned` bool
-- `after` string (omitted when empty)
+- `updated_at` int (omitted when empty)
 
 Result:
 
@@ -1486,7 +1537,11 @@ Result:
 - `last_message_at` int
 - `used_at` int
 - `display_name` string
-- `pin_order` number (omitted when empty) (nullable)
+- `default_name` string (omitted when empty)
+- `name` string (omitted when empty)
+- `name_updated_at` int (omitted when empty)
+- `pinned` bool (omitted when empty)
+- `pinned_updated_at` int (omitted when empty)
 - `host_id` string
 
 ## `projects.add`
@@ -1512,7 +1567,11 @@ Result:
 - `last_message_at` int
 - `used_at` int
 - `display_name` string
-- `pin_order` number (omitted when empty) (nullable)
+- `default_name` string (omitted when empty)
+- `name` string (omitted when empty)
+- `name_updated_at` int (omitted when empty)
+- `pinned` bool (omitted when empty)
+- `pinned_updated_at` int (omitted when empty)
 - `host_id` string
 
 ## `projects.create`
@@ -1539,7 +1598,11 @@ Result:
 - `last_message_at` int
 - `used_at` int
 - `display_name` string
-- `pin_order` number (omitted when empty) (nullable)
+- `default_name` string (omitted when empty)
+- `name` string (omitted when empty)
+- `name_updated_at` int (omitted when empty)
+- `pinned` bool (omitted when empty)
+- `pinned_updated_at` int (omitted when empty)
 - `host_id` string
 
 ## `projects.delete`

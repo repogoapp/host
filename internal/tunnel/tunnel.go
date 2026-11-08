@@ -20,6 +20,7 @@ import (
 	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/tunnelwire"
 )
 
 var (
@@ -28,7 +29,7 @@ var (
 )
 
 // Domain is where the gateway serves tunnels.
-const Domain = "tunnels.repogo.dev"
+const Domain = "repogo.dev"
 
 // DefaultGateway is where the host opens its gateway socket; its host name is
 // signed into every proof, so a proof made for it is useless anywhere else.
@@ -89,6 +90,8 @@ type Service struct {
 	now  func() time.Time
 	wake chan struct{}
 
+	httpSlots, pluginSlots, wsSlots slots
+
 	mu        sync.Mutex
 	tunnels   map[string]entry
 	connected bool
@@ -98,7 +101,10 @@ type Service struct {
 }
 
 func Open(cfg Config) (*Service, error) {
-	s := &Service{cfg: cfg, now: time.Now, wake: make(chan struct{}, 1), attempt: make(chan struct{}), tunnels: map[string]entry{}}
+	s := &Service{
+		cfg: cfg, now: time.Now, wake: make(chan struct{}, 1), attempt: make(chan struct{}), tunnels: map[string]entry{},
+		httpSlots: make(slots, tunnelwire.MaxHTTP), pluginSlots: make(slots, tunnelwire.MaxPlugins), wsSlots: make(slots, tunnelwire.MaxWS),
+	}
 	var f file
 	if _, err := apphome.ReadJSON(cfg.Path, &f); err != nil {
 		return nil, err

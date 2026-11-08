@@ -10,36 +10,42 @@ forwards bytes it cannot read and never stores chat or code content.
 ## Get started
 
 ```sh
-npx @repogo/host
+curl -fsSL https://repogo.app/install.sh | sh
 ```
 
 This installs the host as a background service and shows a pairing code. Scan
-it with your iPhone camera. If RepoGo isn't installed, an App Clip opens so you
+it with your iPhone camera. With Node.js 22 or later, `npx @repogo/host` does
+the same. Either way `repogo` is linked into `~/.local/bin`, so later commands
+are `repogo <command>`; `repogo help` lists them. If RepoGo isn't installed, an App Clip opens so you
 can pair and start chatting right away.
 
 ### Requirements
 
 - macOS or Linux (Ubuntu 22.04 or newer), on Apple silicon/arm64 or x64
-- Node.js 22 or later, only to run the `npx` command
+- Node.js 22 or later only for the `npx` install
 - Claude Code or Codex on the same computer; RepoGo can install either and sign you in from your phone
 
 ### Commands
 
 | Command | What it does |
 | --- | --- |
-| `npx @repogo/host` | Install and start the host, then show a pairing code (or, once a device is paired, the status) |
-| `npx @repogo/host pair` | Show a pairing code for another device |
-| `npx @repogo/host status` | Show whether the host is running |
-| `npx @repogo/host devices` / `devices revoke <id>` | List the paired devices, or remove one: its connections close and it can no longer reach the host |
-| `npx @repogo/host start` / `stop` / `restart` | Start, stop or restart the background host |
-| `npx @repogo/host start --lan` | Also let phones on the same Wi-Fi connect straight to this machine, skipping the relay. It stays on for whatever network the machine joins, a café's included, so anyone there can reach the port (but can't connect without pairing). `--lan=false` turns it off |
-| `npx @repogo/host start --tailscale=false` | Stop serving phones on this machine's Tailscale address. On by default: phones on your tailnet connect straight to it. Turn it off on a shared or work tailnet, where every member can reach the port |
-| `npx @repogo/host logs` | Show the host's logs |
-| `npx @repogo/host update` | Update to the latest version; refuses while chats, terminals or actions are running (`--now` stops them) |
-| `npx @repogo/host keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
-| `npx @repogo/host tls rotate` | Replace the host's TLS key, for one that may have leaked; every paired device pairs again |
-| `npx @repogo/host tunnels` / `tunnels close <slug>` | List the public URLs open to your local servers, or close one |
-| `npx @repogo/host uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
+| `repogo` | Install and start the host, then show a pairing code (or, once a device is paired, the status) |
+| `repogo pair` | Show a pairing code for another device |
+| `repogo status` | Show whether the host is running |
+| `repogo devices` / `devices revoke <id>` | List the paired devices, or remove one: its connections close and it can no longer reach the host |
+| `repogo devices revoke --all` | Remove every paired device and end any reusable invite (asks first; `--yes` skips) |
+| `repogo start` / `stop` / `restart` | Start, stop or restart the background host |
+| `repogo start --lan` | Also let phones on the same Wi-Fi connect straight to this machine, skipping the relay. It stays on for whatever network the machine joins, a café's included, so anyone there can reach the port (but can't connect without pairing). `--lan=false` turns it off |
+| `repogo start --tailscale=false` | Stop serving phones on this machine's Tailscale address. On by default: phones on your tailnet connect straight to it. Turn it off on a shared or work tailnet, where every member can reach the port |
+| `repogo logs` | Show the host's logs |
+| `repogo update` | Update to the latest version; refuses while chats, terminals or actions are running (`--now` stops them) |
+| `repogo keep-awake enable` | Keep a Mac awake with its lid closed while a device is paired (one `sudo` prompt) |
+| `repogo tls` | Show the TLS key phones pin, and its counter |
+| `repogo tls rotate` | Replace the host's TLS key, for one that may have leaked; every paired device pairs again |
+| `repogo tunnels` / `tunnels close <slug>` | List the public URLs open to your local servers, or close one |
+| `repogo urls [<plugin>]` | List the plugin methods that answer plain HTTP: each URL, this machine's or the public one, and whether it needs a key |
+| `repogo keys <plugin>` | Print a plugin's key for its HTTP methods that take one, making it the first time; `--new` replaces it, `--delete` removes it, and `repogo keys` lists every plugin's |
+| `repogo uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |
 
 ## How it works
 
@@ -47,7 +53,8 @@ The host has three parts.
 
 ### Connections
 
-The host dials out, and on its own listens only on `127.0.0.1`. Phones reach
+The host dials out, and on its own listens only on `127.0.0.1` (and, for
+plugin methods that opt in, its Apple container networks; see below). Phones reach
 it through RepoGo's relay, `h.repogo.app`, over TLS 1.3 that runs
 straight from the phone to the host: the relay only pipes the bytes.
 
@@ -114,6 +121,22 @@ From 0.1.44 (with RepoGo 1.0.4), the host also serves phones without the relay:
 Each listener serves the same pinned TLS and session-bound hello as the relay
 route, and caps how many connections may wait before their hello.
 
+#### Plugin methods over HTTP
+
+From 0.1.44, a plugin method may opt into plain HTTP, at two addresses, which
+answer 404 to everything until one does:
+
+- **This machine and its containers**, port 47444: `127.0.0.1`, and the gateway
+  of each Apple container network while a container runs on it. Each listener
+  takes calls only from its own network, and never listens on the LAN.
+- **The public address**, `h-<host id>.repogo.dev`, through RepoGo's tunnel
+  gateway, over the link the host keeps to it while a tunnel or such a method
+  is open. The gateway ends TLS, so it sees these requests, as it does a tunnel's.
+
+`repogo urls` lists each method's URLs. Each plugin has one key for its methods
+that take one, kept in `state.db` and shown by `repogo keys <plugin>`. The plugins SDK's README covers who may call
+each method and what it answers.
+
 #### Push notifications
 
 The relay holds the APNs key, so the host sends each push on its link to it.
@@ -174,7 +197,7 @@ in a terminal or your editor, so their history shows up on your phone.
 ## Uninstall
 
 ```sh
-npx @repogo/host uninstall
+repogo uninstall
 rm -rf ~/.repogo
 ```
 

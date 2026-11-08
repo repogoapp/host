@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 
 	"github.com/repogoapp/host/internal/power"
 )
 
-func keepAwakeCommand(ctx context.Context, args []string) error {
+func keepAwakeCommand(ctx context.Context, _ *flag.FlagSet, args []string) error {
 	sub := "status"
 	if len(args) > 0 {
 		sub = args[0]

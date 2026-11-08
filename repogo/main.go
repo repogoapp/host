@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -14,9 +15,6 @@ import (
 	"github.com/repogoapp/host/internal/agents"
 	"github.com/repogoapp/host/internal/devlog"
 	"github.com/repogoapp/host/internal/notify"
-	"github.com/repogoapp/host/internal/power"
-	"github.com/repogoapp/host/internal/release"
-	"github.com/repogoapp/host/internal/service"
 )
 
 // defaultRelay is RepoGo's relay: phones reach the host through it over the
@@ -27,207 +25,54 @@ const defaultPairHost = "https://repogo.app"
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := command(ctx, os.Args[1:]); err != nil {
+	if err := dispatch(ctx, os.Args[1:]); err != nil {
+		if errors.Is(err, errDeclined) {
+			fmt.Println("Left as it was.")
+			return
+		}
 		fmt.Fprintln(os.Stderr, "repogo:", err)
 		os.Exit(1)
 	}
 }
 
-func command(ctx context.Context, args []string) error {
-	verb := ""
-	if len(args) > 0 {
-		verb, args = args[0], args[1:]
-	}
-	if verb == "version" || verb == "--version" {
-		fmt.Println(release.Version)
-		return nil
-	}
-	if verb == "help" || verb == "--help" || verb == "-h" {
-		fmt.Println("repogo [install|pair|status|start|stop|restart|logs|uninstall|update [--now]|version]\nrepogo keep-awake [status|enable|disable]\nrepogo devices [revoke <id>]\nrepogo tls rotate\nrepogo tunnels [close <slug>]\nrepogo serve [-port N] [-relay host:port] [-v]\nrepogo invite")
-		return nil
-	}
-	if verb == "keep-awake" {
-		return keepAwakeCommand(ctx, args)
-	}
-	if verb == "devices" {
-		return devicesCommand(ctx, args)
-	}
-	if verb == "tls" {
-		return tlsCommand(ctx, args)
-	}
-	if verb == "tunnels" {
-		return tunnelsCommand(ctx, args)
-	}
-	if verb == "invite" {
-		if len(args) != 0 {
-			return fmt.Errorf("unexpected arguments: %v", args)
-		}
-		return printInvite(ctx, os.Stdout)
-	}
-	flags := flag.NewFlagSet("repogo "+verb, flag.ContinueOnError)
-	if verb == "serve" {
-		port := flags.Int("port", 0, "loopback port (0 uses the saved port)")
-		relay := flags.String("relay", "", "relay address, host:port (default: RepoGo's; empty disables)")
-		lan := flags.Bool("lan", false, "also serve the local network for this run; repogo start --lan saves it")
-		verbose := flags.Bool("v", false, "debug logging")
-		if err := flags.Parse(args); err != nil {
-			return err
-		}
-		if flags.NArg() != 0 {
-			return fmt.Errorf("unexpected arguments: %v", flags.Args())
-		}
-		level := slog.LevelInfo
-		if *verbose {
-			level = slog.LevelDebug
-		}
-		var handler slog.Handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
-		// Dev only: restart.sh names the log server. A release host leaves it
-		// unset and logs to stderr alone.
-		if base := os.Getenv(devlog.EnvVar); base != "" {
-			handler = devlog.Tee(ctx, handler, base)
-		}
-		log := slog.New(handler)
-		if addr := os.Getenv(pprofEnvVar); addr != "" {
-			if err := servePprof(log, addr); err != nil {
-				return err
-			}
-		}
-		// Unset, the relay is REPOGO_HRELAY's, else RepoGo's.
-		var relayFlag *string
-		flags.Visit(func(f *flag.Flag) {
-			if f.Name == "relay" {
-				relayFlag = relay
-			}
-		})
-		return serve(ctx, log, *port, *lan, relayFlag)
-	}
-	now := flags.Bool("now", false, "stop running chats, terminals and actions before updating")
-	pairHost := flags.String("pair-host", defaultPairHost, "pairing link origin")
-	reusable := flags.String("reusable", "", "pair: an invite many devices may join with, for days or hours (14d, 36h), or off")
-	lan := flags.Bool("lan", false, "start: also serve phones on this machine's local network (--lan=false turns it off)")
-	tailscale := flags.Bool("tailscale", true, "start: serve phones on this machine's Tailscale address (--tailscale=false turns it off)")
-	// --reusable is for App Review's pairing only, so -h leaves it out.
-	flags.Usage = func() {
-		fmt.Fprintf(flags.Output(), "Usage of %s:\n", flags.Name())
-		flags.VisitAll(func(f *flag.Flag) {
-			if f.Name != "reusable" {
-				fmt.Fprintf(flags.Output(), "  -%s\n    \t%s\n", f.Name, f.Usage)
-			}
-		})
-	}
-	if err := flags.Parse(args); err != nil {
+func serveFlags(fs *flag.FlagSet) {
+	fs.Int("port", 0, "loopback port (0 uses the saved port)")
+	fs.String("relay", "", "relay address, host:port (default: RepoGo's; empty disables)")
+	fs.Bool("lan", false, "also serve the local network for this run; repogo start --lan saves it")
+	fs.Bool("v", false, "debug logging")
+}
+
+// runServe is the host in the foreground: what the background service runs,
+// and what development runs by hand.
+func runServe(ctx context.Context, fs *flag.FlagSet, args []string) error {
+	if err := noArgs("serve", args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("unexpected arguments: %v", flags.Args())
+	level := slog.LevelInfo
+	if flagBool(fs, "v") {
+		level = slog.LevelDebug
 	}
-	// --lan and --tailscale are saved, so the background host keeps them
-	// across restarts; a running host restarts only when one changed.
-	var lanSet, tailscaleSet *bool
-	flags.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "lan":
-			lanSet = lan
-		case "tailscale":
-			tailscaleSet = tailscale
-		}
-	})
-	directChanged := false
-	if lanSet != nil || tailscaleSet != nil {
-		if verb != "" && verb != "start" && verb != "install" {
-			return fmt.Errorf("--lan and --tailscale go with repogo start")
-		}
-		var err error
-		if directChanged, err = saveDirect(lanSet, tailscaleSet); err != nil {
+	var handler slog.Handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	// Dev only: restart.sh names the log server. A release host leaves it
+	// unset and logs to stderr alone.
+	if base := os.Getenv(devlog.EnvVar); base != "" {
+		handler = devlog.Tee(ctx, handler, base)
+	}
+	log := slog.New(handler)
+	if addr := os.Getenv(pprofEnvVar); addr != "" {
+		if err := servePprof(log, addr); err != nil {
 			return err
 		}
 	}
-	if *reusable != "" {
-		if verb != "pair" {
-			return fmt.Errorf("--reusable goes with repogo pair")
-		}
-		return pairReusable(ctx, *reusable, *pairHost)
+	// Unset, the relay is REPOGO_HRELAY's, else RepoGo's.
+	var relayFlag *string
+	if setFlags(fs)["relay"] {
+		relay := flagString(fs, "relay")
+		relayFlag = &relay
 	}
-	s, err := service.New()
-	if err != nil {
-		return err
-	}
-	switch verb {
-	case "pair":
-		if err := call(ctx, "host.status", nil, nil); err == nil {
-			return pairOrStatus(ctx, true, *pairHost)
-		}
-		fallthrough
-	case "", "install", "start":
-		installed, err := s.Installed()
-		if err != nil {
-			return err
-		}
-		binary, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		current, err := s.Runs(binary)
-		if err != nil {
-			return err
-		}
-		if !current || verb == "install" {
-			if installed {
-				if err := s.Stop(ctx); err != nil {
-					return err
-				}
-			}
-			if err := s.Install(ctx, binary); err != nil {
-				return err
-			}
-			if err := service.Linger(ctx); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-			}
-		}
-		start := s.Start
-		if directChanged && current && verb != "install" {
-			start = s.Restart
-		}
-		if err := start(ctx); err != nil {
-			return err
-		}
-		if err := waitReady(ctx, ""); err != nil {
-			return fmt.Errorf("%w; run repogo logs", err)
-		}
-		if verb == "start" {
-			noteOlderHost(ctx)
-			fmt.Println("Host is running in the background.")
-			return nil
-		}
-		return pairOrStatus(ctx, verb == "pair", *pairHost)
-	case "status":
-		return printStatus(ctx)
-	case "stop":
-		return s.Stop(ctx)
-	case "restart":
-		if err := s.Restart(ctx); err != nil {
-			return err
-		}
-		return waitReady(ctx, "")
-	case "logs":
-		return s.Logs()
-	case "uninstall":
-		if err := s.Uninstall(ctx); err != nil {
-			return err
-		}
-		if err := removeHooks(); err != nil {
-			return err
-		}
-		fmt.Println("Background service and agent hooks removed. Pairings and chat data are kept.")
-		if power.Enabled() {
-			fmt.Println("The lid-hold sudoers rule stays; remove it with repogo keep-awake disable.")
-		}
-		return nil
-	case "update":
-		return update(ctx, *now)
-	default:
-		return fmt.Errorf("unknown command %q; run repogo help", verb)
-	}
+	port := 0
+	fmt.Sscan(flagString(fs, "port"), &port)
+	return serve(ctx, log, port, flagBool(fs, "lan"), relayFlag)
 }
 
 // removeHooks takes the hook helper out of every agent's config, leaving the

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -19,6 +20,26 @@ const nonceLen = 32
 
 // pingEvery keeps the socket alive through idle NATs and notices a dead gateway.
 const pingEvery = 30 * time.Second
+
+// writeTimeout bounds one frame to the gateway; a socket that can't take one
+// in this long is dead, and the write closes it.
+const writeTimeout = 60 * time.Second
+
+// slots is a fixed number of places, tunnelwire's limits. One past them is
+// refused at once, so the socket's reader never waits for room; the Service
+// holds them, so work an old socket left running still counts after a reconnect.
+type slots chan struct{}
+
+func (s slots) take() bool {
+	select {
+	case s <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s slots) give() { <-s }
 
 func (s *Service) dialLoop(ctx context.Context) {
 	redial.Run(ctx, func(ctx context.Context) error {
@@ -38,6 +59,9 @@ type link struct {
 	sendMu sync.Mutex
 	mu     sync.Mutex
 	ws     map[string]*wsSession
+
+	reqMu    sync.Mutex
+	requests map[string]context.CancelFunc // HTTP and plugin requests in flight, by session
 }
 
 func (l *link) send(m tunnelwire.Message) error {
@@ -47,7 +71,9 @@ func (l *link) send(m tunnelwire.Message) error {
 	}
 	l.sendMu.Lock()
 	defer l.sendMu.Unlock()
-	return l.conn.Write(l.ctx, websocket.MessageBinary, b)
+	ctx, cancel := context.WithTimeout(l.ctx, writeTimeout)
+	defer cancel()
+	return l.conn.Write(ctx, websocket.MessageBinary, b)
 }
 
 func (l *link) recv() (tunnelwire.Message, error) {
@@ -81,7 +107,7 @@ func (s *Service) connect(ctx context.Context) error {
 	}
 	defer conn.CloseNow()
 	conn.SetReadLimit(tunnelwire.MaxMessage)
-	l := &link{s: s, ctx: ctx, conn: conn, ws: map[string]*wsSession{}}
+	l := &link{s: s, ctx: ctx, conn: conn, ws: map[string]*wsSession{}, requests: map[string]context.CancelFunc{}}
 	defer l.closeAll()
 
 	if err := l.prove(gatewayID); err != nil {
@@ -106,24 +132,84 @@ func (s *Service) connect(ctx context.Context) error {
 		}
 		switch m := m.(type) {
 		case *tunnelwire.Request:
-			go l.serveHTTP(ctx, m)
+			l.admit(ctx, m.SessionID, s.httpSlots, func(ctx context.Context) { l.serveHTTP(ctx, m) })
 		case *tunnelwire.PluginRequest:
-			go l.servePlugin(ctx, m)
+			l.admit(ctx, m.SessionID, s.pluginSlots, func(ctx context.Context) { l.servePlugin(ctx, m) })
+		case *tunnelwire.HTTPCancel:
+			l.cancel(m.SessionID)
 		case *tunnelwire.WSOpen:
-			go l.openWS(ctx, m)
+			l.admitWS(ctx, m)
 		case *tunnelwire.WSFrame:
-			l.frameWS(ctx, m)
+			l.frameWS(m)
 		case *tunnelwire.WSClose:
 			l.closeWS(m)
 		}
 	}
 }
 
+// admit runs one request under its own context, registered before it starts
+// so an HTTPCancel right behind it finds it. Its slot is given back only once
+// serve returns, which for a plugin is once Bun has answered.
+func (l *link) admit(ctx context.Context, id string, pool slots, serve func(context.Context)) {
+	if id == "" {
+		return
+	}
+	if !pool.take() {
+		go l.sendError(id, http.StatusServiceUnavailable, "This computer is answering as many requests as it can. Try again in a moment.", "Computer busy")
+		return
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	l.reqMu.Lock()
+	if _, taken := l.requests[id]; taken {
+		l.reqMu.Unlock()
+		cancel()
+		pool.give()
+		return
+	}
+	l.requests[id] = cancel
+	l.reqMu.Unlock()
+	go func() {
+		defer pool.give()
+		defer func() {
+			l.reqMu.Lock()
+			delete(l.requests, id)
+			l.reqMu.Unlock()
+			cancel()
+		}()
+		serve(ctx)
+	}()
+}
+
+// cancel ends a request the gateway gave up on; one already done is a no-op.
+func (l *link) cancel(id string) {
+	l.reqMu.Lock()
+	cancel := l.requests[id]
+	l.reqMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// admitWS opens a visitor's WebSocket while there is room for one.
+func (l *link) admitWS(ctx context.Context, open *tunnelwire.WSOpen) {
+	if open.SessionID == "" {
+		return
+	}
+	if !l.s.wsSlots.take() {
+		go l.send(&tunnelwire.WSOpenAck{SessionID: open.SessionID, CloseCode: int(websocket.StatusTryAgainLater), CloseReason: "computer busy"})
+		return
+	}
+	go func() {
+		defer l.s.wsSlots.give()
+		l.openWS(ctx, open)
+	}()
+}
+
 // prove answers the gateway's challenge with the device key, so only this
 // host can take the traffic of the tunnels it opened.
 func (l *link) prove(gatewayID string) error {
 	id := l.s.cfg.Identity
-	if err := l.send(&tunnelwire.Hello{PublicKey: id.Public}); err != nil {
+	if err := l.send(&tunnelwire.Hello{PublicKey: id.Public, CancelsHTTP: true}); err != nil {
 		return err
 	}
 	m, err := l.recv()

@@ -126,11 +126,14 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     endStream(message.subscription);
     return;
   }
+  // Ahead of the load check: a cancel is no request and gets no reply.
+  if (message.type === "cancel") return calls.get(message.id)?.abort();
   if (message.type === "stop") {
     if (cronTicker) clearTimeout(cronTicker);
     if (storageTicker) clearInterval(storageTicker);
     cronTicker = null;
     storageTicker = null;
+    for (const abort of calls.values()) abort.abort();
     const ending = [...streams.values()].map((stream) => stream.ended);
     for (const key of [...streams.keys()]) endStream(key);
     // The plugins' code gets to see its children exit, so none is left unreaped.
@@ -199,12 +202,19 @@ async function open(dir: string, dataDir: string, root: string, only: string[] |
   }
 }
 
+/** The calls running, by request id, for a `cancel` to abort. */
+const calls = new Map<number, AbortController>();
+
 async function call(id: number, name: string, input: unknown, files: UploadedFile[] | undefined, confirmed: boolean, caller: Caller, root?: string, chat?: string) {
+  const abort = new AbortController();
+  calls.set(id, abort);
   try {
-    const { result } = await runtime!.call(name, input, { files, confirmed, caller, root, chat });
+    const { result } = await runtime!.call(name, input, { files, confirmed, caller, root, chat, signal: abort.signal });
     post({ type: "reply", id, result });
   } catch (error) {
     post({ type: "reply", id, error: toCallError(error) });
+  } finally {
+    calls.delete(id);
   }
 }
 

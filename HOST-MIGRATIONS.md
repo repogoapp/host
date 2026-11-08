@@ -49,7 +49,7 @@ So, in practice:
 
 - **Adding a field:** add a nullable column to `state.sql`. Done.
 - **A misleading name:** keep the column, rename it in Go, and say so in the `state.sql` comment
-  (`project_marks.pinned_at` is `PinOrder` in code).
+  (`project_marks.pinned_at` held a pin's place and is now read only as "pinned").
 - **Removing a field:** stop using it and delete it from `state.sql`. The column stays in old files,
   unread. That's fine.
 - **A real reshape** (a rename that must happen, a type change, splitting a table): add a

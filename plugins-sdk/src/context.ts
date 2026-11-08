@@ -2,14 +2,14 @@ import type { Bucket } from "./buckets";
 import type { Collection } from "./collections";
 import type { Kv } from "./kv";
 import type { Stream } from "./streams";
-import type { Effect, HTTPAccess } from "./define";
+import type { Effect, HTTPAddresses } from "./define";
 import type { Duration } from "./duration";
 
 /** An alert for the user's phones: what it says, and the page a tap opens. */
 export type Notice = {
   title: string;
   body: string;
-  /** A page target, `.repogo/tabs/vercel.md?project=a`; a tap opens it. */
+  /** A page target, `~/.repogo/plugins/vercel/pages/index.ui?project=a`; a tap opens it. */
   page?: string;
   /** An `https` or `itms-services` link a tap opens instead of the page, such as a build's install. */
   url?: string;
@@ -63,7 +63,7 @@ export type Activity = {
   title: string;
   /** At most 120 characters, as a notice's body. */
   body?: string;
-  /** A page target of the calling project, `.repogo/tabs/deploys.ui?project=web`; a tap opens it. */
+  /** A page target, `~/.repogo/plugins/deploys/pages/index.ui?project=web`; a tap opens it. */
   page?: string;
   /** An SF Symbol name, `shippingbox`; `circle.dotted`, or a check or a cross once ended, unless said. */
   symbol?: string;
@@ -91,8 +91,8 @@ export type ManifestMethod = {
   description: string | null;
   /** What a card asks before running it; null runs on tap. */
   confirm: string | null;
-  /** Who may call it at the environment's own address; null, no one. */
-  http: HTTPAccess | null;
+  /** Who may call it over HTTP, at each address; null, no one anywhere. */
+  http: HTTPAddresses | null;
   /** JSON Schema of the input, and of the output when the method declares one. */
   input: unknown;
   output: unknown;
@@ -141,8 +141,8 @@ export type Manifest = {
 
 // What every method and handler receives. Kept small on purpose: it is the
 // whole surface an agent has to learn.
-/** Who started a call: a tap or a card's query, an agent's `plugin_call`, a cron, or plugin code with none of those behind it. */
-export type Caller = "card" | "agent" | "cron" | "code" | "http";
+/** Who started a call: a tap or a card's query, an agent's `plugin_call`, a cron, plugin code with none of those behind it, or a request at the public (`http`) or device address. */
+export type Caller = "card" | "agent" | "cron" | "code" | "http" | "device";
 
 /** How `ctx.agent` runs a chat: which agent, in which project, and how long to wait for its answer. */
 export type AgentOptions = {
@@ -183,11 +183,11 @@ export type Context = {
    */
   mcp: (server: string, tool: string, input?: unknown) => Promise<unknown>;
   /**
-   * The plugins beside this one, in the same folder (the project's, or the
-   * environment's), with their methods: what `call` can reach.
+   * The plugins beside this one in the environment's plugins folder, with
+   * their methods: what `call` can reach.
    */
   plugins: () => Manifest["plugins"];
-  /** Aborts when a stream's last watcher leaves; a read or write's never does. */
+  /** Aborts when a stream's last watcher leaves, or when an HTTP caller of a read or write goes away first. */
   signal: AbortSignal;
   /** Sends an alert to every phone paired with this environment. */
   notify: (notice: Notice) => void;

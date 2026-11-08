@@ -67,25 +67,45 @@ returns only what a card or the voice agent shows of each item: ids,
 titles, status. A get method returns one in full; long text (a body,
 a log) is cut short in a list.
 For a service the user connected in RepoGo as an MCP server, ctx.mcp(server,
-tool, input) runs its tools with the user's own sign-in: no key or CLI.
+tool, input) runs its tools with the user's own sign-in: no key or CLI. A
+read may run only read-only tools; a destructive one only from a method
+with a confirm.
 For what keeps coming (log tails, build output, progress), write
 stream(input, async function* (input, ctx) { … yield item }): it runs
 while a card shows it, sends each yield as it happens, and ctx.signal
 aborts when the card goes, so pass it on (Bun.spawn(cmd, { signal:
 ctx.signal })). Give items an id. Like any read it may not write;
-plugin_call on one returns what arrives within 5 s, at most 200 items.
+plugin_call on one returns { items, done }: what arrives within 5 s, at
+most 200 items, done false when cut off.
 For what should happen with no one looking (a check every 5 minutes, a
 morning summary), and only when the user asks for it, add a line to
 ~/.repogo/crons.json, a JSON array the user owns: { "plugin": "watch",
 "method": "check", "schedule": "*/5 * * * *" }, with "project": "<path>"
 to run it with that project as ctx.root. The host calls the method with {} on time; it
-may write and ctx.notify the phones. A schedule is a cron, five fields or
-six with seconds first; "timezone" defaults to the environment's. Then
+may write and ctx.notify the phones; it must take {}, and can't be a stream,
+ask a confirm or be generated (no dots in method). A schedule is a cron,
+five or six fields (seconds first) in numbers only, no names or @daily;
+"timezone" defaults to the environment's, "enabled": false pauses a line,
+any other field pauses the whole file, and a missed run is skipped. Then
 call `plugins`: each line shows its error or its next run. A cron without
 a project runs with ctx.root at the home folder, and plugins share one
 thread, so never block it.
+A method also answers plain HTTP when it opts in, per address: http: {
+device: "none" } on this machine at http://127.0.0.1:47444/<plugin>/<method>
+(Apple containers use their network's gateway, Docker host.docker.internal)
+and public at https://h-<host id>.repogo.dev/<plugin>/<method>; each takes
+"key" (the plugin's key as Authorization: Bearer) or "none", and http: true
+is { public: "key" }. `plugins_urls` gives each method's real URLs, as the
+user's `repogo urls` does. `repogo keys <plugin>` prints the key, making it
+the first time (--new replaces it): run it only when the user asks, and
+never put a key in a file, commit or reply they didn't ask for. HTTP calls
+run with ctx.root at the home folder; a GET's query arrives as strings
+(z.coerce for numbers) and runs only reads; streams and confirm methods are
+never served; and an open method runs with all of ctx, so open only reads
+anyone who reaches the address may run.
 A plugin with collections, kv, streams, buckets, cached methods or
-workflows requires a namespace. Other plugins may omit it. Data lives in ~/.repogo/plugin-data/<namespace>/, shared by plugins
+workflows requires a namespace (lowercase letters, digits, dots and
+hyphens). Other plugins may omit it. Data lives in ~/.repogo/plugin-data/<namespace>/, shared by plugins
 naming that namespace, in four kinds:
 collections of records (ctx.collections.tasks), kv with optional ttl
 (ctx.kv.state), streams of append-only JSONL per key for a run's or job's
@@ -115,8 +135,9 @@ draw a Button calling it, whose tap asks the user.
 Write console.log in a plugin; every line is kept with the method and call
 that wrote it, and so is an error it threw: read them with plugins_logs (or
 repogo:plugins.logs on a card) when a plugin or a card showing one misbehaves.
-ctx.agent(prompt, { agent }) starts a chat and answers with the agent's whole
-reply, for a cron that investigates before it notifies.
+ctx.agent(prompt, { agent }) starts a chat and answers { chatId, text }, the
+agent's whole reply, for a cron that investigates before it notifies; like
+ctx.notify, it can't run from a read.
 
 When the user asks for the same kind of thing again and again (a status,
 a list, numbers you look up the same way each time), offer to build it: a

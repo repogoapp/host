@@ -32,7 +32,7 @@ type Fetcher struct {
 }
 
 func NewFetcher(log *slog.Logger) *Fetcher {
-	return &Fetcher{client: Loopback(fetchTimeout), log: log}
+	return &Fetcher{client: Loopback(fetchTimeout, 0), log: log}
 }
 
 // Fetch sends one request, logging the outcome.

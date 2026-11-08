@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -46,30 +45,6 @@ func printPairingQR(ctx context.Context, payload, pairHost string, reusable bool
 	fmt.Printf("  Code    %s\n", pairingCode)
 	fmt.Printf("  Link    %s\n\n", link)
 	return nil
-}
-
-// printInvite is pairing for a host nobody can look at, such as a cloud
-// sandbox: it waits for the running host and writes one invite as a JSON line
-// for the program that provisioned it, with no QR and nothing sent to a pair host.
-func printInvite(ctx context.Context, w io.Writer) error {
-	if err := waitReady(ctx, ""); err != nil {
-		return err
-	}
-	var result struct {
-		QR string `json:"qr"`
-	}
-	if err := call(ctx, "pair.begin", nil, &result); err != nil {
-		return err
-	}
-	invite, err := device.DecodeInvite(result.QR)
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(w).Encode(map[string]any{
-		"invite":     result.QR,
-		"host_id":    invite.InviterID,
-		"expires_at": invite.ExpiresAt,
-	})
 }
 
 // registerInvite parks the invite on the pair host for its own lifetime and

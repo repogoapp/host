@@ -376,6 +376,7 @@ func TestStateTablesHaveOneWriter(t *testing.T) {
 		"schedules":     {"schedules.go"},
 		"action_runs":   {"actionruns.go"},
 		"reminders":     {"reminders.go"},
+		"plugin_keys":   {"pluginkeys.go"},
 	}
 	shape, err := stateShape()
 	if err != nil {

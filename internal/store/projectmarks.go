@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 )
@@ -14,17 +13,22 @@ import (
 // state.project_marks. Nil is not set.
 type ProjectMarks struct {
 	PickedAt *int64
-	// The column pinned_at: Project.PinOrder.
-	PinOrder *float64
-	Name     *string
+	// Set while pinned. Only being set is read: a pin from before marks had
+	// times holds its old place in the order, which may be a fraction.
+	PinnedAt *float64
+	// "" is a cleared name, kept with its time.
+	Name            *string
+	NameUpdatedAt   *int64
+	PinnedUpdatedAt *int64
 }
 
 func (m ProjectMarks) empty() bool {
-	return m.PickedAt == nil && m.PinOrder == nil && m.Name == nil
+	return m.PickedAt == nil && m.PinnedAt == nil && m.Name == nil &&
+		m.NameUpdatedAt == nil && m.PinnedUpdatedAt == nil
 }
 
 // updateProjectMarks writes a project's state.project_marks row whole, or
-// deletes it when nothing is set; Pin writes pinned_at alone. Devices read a project's marks on their
+// deletes it when nothing is set. Devices read a project's marks on their
 // next projects.list, so nothing fans out.
 func (s *Store) updateProjectMarks(path string, change func(*ProjectMarks) bool) (bool, error) {
 	tx, err := s.db.Begin()
@@ -34,8 +38,9 @@ func (s *Store) updateProjectMarks(path string, change func(*ProjectMarks) bool)
 	defer tx.Rollback()
 
 	var marks ProjectMarks
-	err = tx.QueryRow(`SELECT picked_at, pinned_at, name FROM state.project_marks WHERE path = ?`,
-		path).Scan(&marks.PickedAt, &marks.PinOrder, &marks.Name)
+	err = tx.QueryRow(`SELECT picked_at, pinned_at, name, name_updated_at, pinned_updated_at
+		FROM state.project_marks WHERE path = ?`, path).
+		Scan(&marks.PickedAt, &marks.PinnedAt, &marks.Name, &marks.NameUpdatedAt, &marks.PinnedUpdatedAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("store: read project marks: %w", err)
 	}
@@ -46,12 +51,15 @@ func (s *Store) updateProjectMarks(path string, change func(*ProjectMarks) bool)
 	if marks.empty() {
 		_, err = tx.Exec(`DELETE FROM state.project_marks WHERE path = ?`, path)
 	} else {
-		_, err = tx.Exec(`INSERT INTO state.project_marks (path, picked_at, pinned_at, name) VALUES (?, ?, ?, ?)
+		_, err = tx.Exec(`INSERT INTO state.project_marks
+			  (path, picked_at, pinned_at, name, name_updated_at, pinned_updated_at) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT (path) DO UPDATE SET
-			  picked_at = excluded.picked_at,
-			  pinned_at = excluded.pinned_at,
-			  name      = excluded.name`,
-			path, marks.PickedAt, marks.PinOrder, marks.Name)
+			  picked_at         = excluded.picked_at,
+			  pinned_at         = excluded.pinned_at,
+			  name              = excluded.name,
+			  name_updated_at   = excluded.name_updated_at,
+			  pinned_updated_at = excluded.pinned_updated_at`,
+			path, marks.PickedAt, marks.PinnedAt, marks.Name, marks.NameUpdatedAt, marks.PinnedUpdatedAt)
 	}
 	if err != nil {
 		return false, fmt.Errorf("store: write project marks: %w", err)
@@ -69,166 +77,60 @@ func (s *Store) Pick(path string, at time.Time) error {
 	return err
 }
 
-// Rename sets the user's name for a project, or clears it when blank, and
-// returns the project's row. Only a listed project can be named.
-func (s *Store) Rename(path, name string) (Project, error) {
+// Rename sets the user's name for a project as of updatedAt (ms), or clears it
+// when blank, and returns the project's row and whether it was written. A
+// rename older than the stored one is ignored: the device that sent it shows
+// the newest name anyway. Only a listed project can be named.
+func (s *Store) Rename(path, name string, updatedAt int64) (Project, bool, error) {
 	if _, err := s.Project(path); err != nil {
-		return Project{}, err
+		return Project{}, false, err
 	}
 	name = collapseSpace(name)
-	if _, err := s.updateProjectMarks(path, func(m *ProjectMarks) bool {
-		if name == "" {
-			m.Name = nil
+	written, err := s.updateProjectMarks(path, func(m *ProjectMarks) bool {
+		if !newer(updatedAt, m.NameUpdatedAt) {
+			return false
+		}
+		m.Name = &name
+		m.NameUpdatedAt = &updatedAt
+		return true
+	})
+	if err != nil {
+		return Project{}, false, err
+	}
+	row, err := s.Project(path)
+	return row, written, err
+}
+
+// SetPinned pins or unpins a project as of updatedAt (ms) and returns its row
+// and whether it was written. A change older than the stored one is ignored.
+// Only a listed project can be pinned.
+func (s *Store) SetPinned(path string, pinned bool, updatedAt int64) (Project, bool, error) {
+	if _, err := s.Project(path); err != nil {
+		return Project{}, false, err
+	}
+	written, err := s.updateProjectMarks(path, func(m *ProjectMarks) bool {
+		if !newer(updatedAt, m.PinnedUpdatedAt) {
+			return false
+		}
+		if pinned {
+			m.PinnedAt = ptr(float64(updatedAt))
 		} else {
-			m.Name = &name
+			m.PinnedAt = nil
 		}
+		m.PinnedUpdatedAt = &updatedAt
 		return true
-	}); err != nil {
-		return Project{}, err
-	}
-	return s.Project(path)
-}
-
-// Pin pins a listed project, or moves a pinned one, just below the pin `after`
-// ("" or unpinned: the top), at its neighbours' midpoint; with no room left it
-// renumbers every pin 0, 1, 2…. Returns the rows it moved, path's first.
-func (s *Store) Pin(path, after string) ([]Project, error) {
-	if _, err := s.Project(path); err != nil {
-		return nil, err
-	}
-	tx, err := s.db.Begin()
+	})
 	if err != nil {
-		return nil, err
+		return Project{}, false, err
 	}
-	defer tx.Rollback()
-
-	pins, err := readPins(tx)
-	if err != nil {
-		return nil, err
-	}
-	pins = slices.DeleteFunc(pins, func(p pin) bool { return p.path == path })
-	at := 0
-	if i := slices.IndexFunc(pins, func(p pin) bool { return p.path == after }); after != "" && i >= 0 {
-		at = i + 1
-	}
-
-	var above, below *float64
-	if at > 0 {
-		above = &pins[at-1].order
-	}
-	if at < len(pins) {
-		below = &pins[at].order
-	}
-	moved := []string{path}
-	if order, ok := pinBetween(above, below); ok {
-		err = writePin(tx, path, order)
-	} else {
-		var others []string
-		others, err = renumberPins(tx, slices.Insert(pins, at, pin{path: path}), path)
-		moved = append(moved, others...)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	rows := make([]Project, 0, len(moved))
-	for _, p := range moved {
-		row, err := s.Project(p)
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
+	row, err := s.Project(path)
+	return row, written, err
 }
 
-// Unpin takes a project off the pinned list and returns its row.
-func (s *Store) Unpin(path string) (Project, error) {
-	if _, err := s.Project(path); err != nil {
-		return Project{}, err
-	}
-	if _, err := s.updateProjectMarks(path, func(m *ProjectMarks) bool {
-		m.PinOrder = nil
-		return true
-	}); err != nil {
-		return Project{}, err
-	}
-	return s.Project(path)
-}
-
-// pin is one pinned project's place.
-type pin struct {
-	path  string
-	order float64
-}
-
-// readPins is every pin, top first.
-func readPins(tx *sql.Tx) ([]pin, error) {
-	rows, err := tx.Query(`SELECT path, pinned_at FROM state.project_marks
-		WHERE pinned_at IS NOT NULL ORDER BY pinned_at, path`)
-	if err != nil {
-		return nil, fmt.Errorf("store: read pins: %w", err)
-	}
-	defer rows.Close()
-	var pins []pin
-	for rows.Next() {
-		var p pin
-		if err := rows.Scan(&p.path, &p.order); err != nil {
-			return nil, err
-		}
-		pins = append(pins, p)
-	}
-	return pins, rows.Err()
-}
-
-// writePin sets one project's pin order, keeping its other marks.
-func writePin(tx *sql.Tx, path string, order float64) error {
-	_, err := tx.Exec(`INSERT INTO state.project_marks (path, pinned_at) VALUES (?, ?)
-		ON CONFLICT (path) DO UPDATE SET pinned_at = excluded.pinned_at`, path, order)
-	if err != nil {
-		return fmt.Errorf("store: write pin: %w", err)
-	}
-	return nil
-}
-
-// renumberPins writes 0, 1, 2… down pins, top first, skipping one already at
-// its number; path, just placed, is always written. Returns the others written.
-func renumberPins(tx *sql.Tx, pins []pin, path string) ([]string, error) {
-	var others []string
-	for i, p := range pins {
-		if p.path == path {
-			if err := writePin(tx, path, float64(i)); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		if p.order == float64(i) {
-			continue
-		}
-		if err := writePin(tx, p.path, float64(i)); err != nil {
-			return nil, err
-		}
-		others = append(others, p.path)
-	}
-	return others, nil
-}
-
-// pinBetween is a pin order between above and below (nil at either end of the
-// list), or false when there is no number left between them.
-func pinBetween(above, below *float64) (float64, bool) {
-	switch {
-	case above == nil && below == nil:
-		return 0, true
-	case above == nil:
-		return *below - 1, *below-1 < *below
-	case below == nil:
-		return *above + 1, *above+1 > *above
-	}
-	mid := *above + (*below-*above)/2
-	return mid, *above < mid && mid < *below
+// newer is whether a change made at updatedAt beats the stored one. A mark
+// set before marks had times (nil) loses to any change.
+func newer(updatedAt int64, stored *int64) bool {
+	return stored == nil || updatedAt > *stored
 }
 
 // ForgetMarks drops everything the user set on a project, for one deleted:
@@ -253,11 +155,11 @@ func (s *Store) Project(path string) (Project, error) {
 	return rows[0], nil
 }
 
-// projectName is the one rule for what a project is called: the user's name;
-// else the repository, spelled as the folder spells it when they match
+// projectName is the one rule for what a project is called: the user's name
+// (not cleared); else the repository, spelled as the folder spells it when they match
 // ignoring case (the host lowercases repo_name); else the folder.
 func projectName(path, repoName string, name *string) string {
-	if name != nil {
+	if name != nil && *name != "" {
 		return *name
 	}
 	folder := filepath.Base(path)

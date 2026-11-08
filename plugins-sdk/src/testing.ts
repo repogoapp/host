@@ -48,7 +48,7 @@ export type TestMCP = (call: TestMCPCall) => unknown;
 export type TestHost = (method: string, params: unknown) => unknown;
 
 /**
- * `const app = await testRuntime({ notes })`, then `await app.call("notes.add", { text: "hi" })`.
+ * `const app = await testRuntime({ notes })`, then `await app.call("notes.notes.create", { text: "hi" })`.
  * `ctx.root` is an empty temporary folder unless `root` names a fixture project;
  * `mcp` answers `ctx.mcp`, `host` the other host methods. Console lines still print.
  */

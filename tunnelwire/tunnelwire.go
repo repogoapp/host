@@ -16,6 +16,14 @@ const ConnectPath = "/connect"
 // MaxMessage bounds one frame either way: a buffered body plus its header.
 const MaxMessage = 64 << 20
 
+// What one host carries at once. The gateway refuses more before they cross,
+// and the host refuses more of its own work, which can outlast a session.
+const (
+	MaxHTTP    = 256 // Requests to tunnels' ports
+	MaxPlugins = 32  // PluginRequests, each counted until its plugin answers
+	MaxWS      = 128 // WebSockets
+)
+
 // ProofMessage is what the host signs to answer a challenge: plain bytes, so
 // no encoding has to be canonical.
 func ProofMessage(nonce []byte, gatewayID string, timeMS uint64) []byte {
@@ -42,13 +50,17 @@ const (
 	KindWSFrame       Kind = 10
 	KindWSClose       Kind = 11
 	KindPluginRequest Kind = 12 // gateway → host
+	KindHTTPCancel    Kind = 13 // gateway → host, only to a host whose Hello set CancelsHTTP
 )
 
 // Message is any frame's body.
 type Message interface{ Kind() Kind }
 
+// Hello opens a host's socket. CancelsHTTP says the host reads HTTPCancel; a
+// host that doesn't fails on a kind it can't decode, so it is never sent one.
 type Hello struct {
-	PublicKey []byte `json:"public_key"`
+	PublicKey   []byte `json:"public_key"`
+	CancelsHTTP bool   `json:"cancels_http,omitempty"`
 }
 
 type Challenge struct {
@@ -114,6 +126,12 @@ type WSOpenAck struct {
 	CloseReason string `json:"close_reason,omitempty"`
 }
 
+// HTTPCancel ends a Request or PluginRequest whose visitor left, timed out or
+// fell behind; the host stops its work and sends nothing more for it.
+type HTTPCancel struct {
+	SessionID string `json:"session_id"`
+}
+
 type WSFrame struct {
 	SessionID string `json:"session_id"`
 	Binary    bool   `json:"binary,omitempty"`
@@ -138,6 +156,7 @@ func (*WSOpenAck) Kind() Kind     { return KindWSOpenAck }
 func (*WSFrame) Kind() Kind       { return KindWSFrame }
 func (*WSClose) Kind() Kind       { return KindWSClose }
 func (*PluginRequest) Kind() Kind { return KindPluginRequest }
+func (*HTTPCancel) Kind() Kind    { return KindHTTPCancel }
 
 // raw is the part of a message that travels unencoded after the header.
 func raw(m Message) []byte {
@@ -205,6 +224,8 @@ func Decode(b []byte) (Message, error) {
 		m = &WSFrame{Data: body}
 	case KindWSClose:
 		m = &WSClose{}
+	case KindHTTPCancel:
+		m = &HTTPCancel{}
 	default:
 		return nil, fmt.Errorf("tunnelwire: unknown kind %d", b[0])
 	}

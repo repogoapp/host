@@ -3,8 +3,8 @@
 Cards read and write live data, from the sources below:
 
 Data: name, method="<source>:<name>" (a read or a stream). Children read
-  the answer as {{name}}, and its fields as {{name.field}} (objects to any
-  depth; an array gives {{name.count}}, its elements only through
+  the answer as {{name}}, and its fields as {{name.field}} (objects six
+  levels deep, the first 256 fields; an array gives {{name.count}}, its elements only through
   Each: no {{name.0}}). Optional debug="true" prints the
   answer; when="stateName" waits until that state is non-empty (any text,
   "false" and "0" too); debounce="300" waits that many ms after its

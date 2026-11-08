@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 )
 
 // tunnelsCommand lists the public URLs this host serves, or closes one.
-func tunnelsCommand(ctx context.Context, args []string) error {
+func tunnelsCommand(ctx context.Context, _ *flag.FlagSet, args []string) error {
 	switch {
 	case len(args) == 0:
 		var status tunnel.Changed

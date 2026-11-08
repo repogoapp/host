@@ -59,13 +59,40 @@ type LogsResult struct {
 	Lines []pluginscore.LogLine `json:"lines"`
 }
 
+// KeysResult is every environment plugin with a method that takes a key over HTTP.
+type KeysResult struct {
+	Plugins []pluginscore.KeyedPlugin `json:"plugins"`
+}
+
+// URLsParams narrows the list to one environment plugin; empty is every one.
+type URLsParams struct {
+	Plugin string `json:"plugin" doc:"Only this plugin's methods; empty is every plugin's"`
+}
+
+// URLsResult is every environment plugin method that answers HTTP.
+type URLsResult struct {
+	Methods []pluginscore.ServedMethod `json:"methods"`
+}
+
+// KeyParams names an environment plugin.
+type KeyParams struct {
+	Plugin string `json:"plugin"`
+}
+
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "plugins.logs", d.logs, rpc.Tool("The console lines plugins wrote, newest first, each with the plugin, "+
 		"the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves."),
 		rpc.Read, rpc.LiveOn("plugins.logged"))
+	// Not offered to agents or plugins: a key opens a plugin to the internet.
+	rpc.Add(r, "plugins.keys", d.keys)
+	rpc.Add(r, "plugins.urls", d.urls, rpc.Tool("The environment's plugin methods that answer plain HTTP: each URL, "+
+		"device (this machine and its containers) or public (the internet), and whether it needs the plugin's key, "+
+		"which the user prints with repogo keys <plugin>."), rpc.Read)
 	rpc.Add(r, "plugins.call", d.call)
 	rpc.Add(r, "plugins.subscribe", d.subscribe)
 	rpc.Add(r, "plugins.unsubscribe", d.unsubscribe)
+	rpc.Add(r, "plugins.create_key", d.createKey)
+	rpc.Add(r, "plugins.delete_key", d.deleteKey)
 }
 
 func (d Deps) logs(ctx context.Context, _ rpc.Caller, p LogsParams) (LogsResult, error) {
@@ -73,6 +100,16 @@ func (d Deps) logs(ctx context.Context, _ rpc.Caller, p LogsParams) (LogsResult,
 		Plugin: p.Plugin, Level: p.Level, Method: p.Method, Since: p.Since, Until: p.Until, Query: p.Query, Limit: p.Limit,
 	})
 	return LogsResult{Lines: lines}, err
+}
+
+func (d Deps) keys(ctx context.Context, _ rpc.Caller, _ rpc.None) (KeysResult, error) {
+	keyed, err := d.Plugins.Keys(ctx)
+	return KeysResult{Plugins: keyed}, err
+}
+
+func (d Deps) urls(ctx context.Context, _ rpc.Caller, p URLsParams) (URLsResult, error) {
+	served, err := d.Plugins.Served(ctx, p.Plugin)
+	return URLsResult{Methods: served}, err
 }
 
 func (d Deps) call(ctx context.Context, c rpc.Caller, p CallParams) (outcome.Answer, error) {
@@ -102,4 +139,18 @@ func (d Deps) subscribe(ctx context.Context, c rpc.Caller, p SubscribeParams) (p
 
 func (d Deps) unsubscribe(ctx context.Context, c rpc.Caller, p UnsubscribeParams) (rpc.Ack, error) {
 	return rpc.OK, d.Plugins.Unsubscribe(ctx, c.Device, p.Subscription)
+}
+
+func (d Deps) createKey(ctx context.Context, _ rpc.Caller, p KeyParams) (pluginscore.KeyedPlugin, error) {
+	if p.Plugin == "" {
+		return pluginscore.KeyedPlugin{}, rpc.ErrInvalidParams
+	}
+	return d.Plugins.CreateKey(ctx, p.Plugin)
+}
+
+func (d Deps) deleteKey(_ context.Context, _ rpc.Caller, p KeyParams) (rpc.Ack, error) {
+	if p.Plugin == "" {
+		return rpc.Ack{}, rpc.ErrInvalidParams
+	}
+	return rpc.OK, d.Plugins.DeleteKey(p.Plugin)
 }

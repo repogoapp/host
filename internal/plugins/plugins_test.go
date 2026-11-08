@@ -147,7 +147,7 @@ func newService(t *testing.T, sdkDir string) (*Service, *pushes) {
 	p := &pushes{more: make(chan struct{}, 1)}
 	s := New(t.Context(), Config{
 		Runtime: sdkRuntime(sdkDir), Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
-		Emit: p.emit, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Emit: p.emit, Keys: memKeys{}, HostID: func() string { return "0123456789abcdef0123456789abcdef" }, DevicePort: 47444, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	return s, p
 }

@@ -12,9 +12,9 @@ import (
 	"github.com/repogoapp/host/internal/testhost"
 )
 
-var update = flag.Bool("update", false, "rewrite cards.md from the phone's CardInstructions, and testdata/app.md")
+var update = flag.Bool("update", false, "rewrite cards.md from the cards package's prompt.md, and testdata/app.md")
 
-const cardInstructions = "../../../swift/Packages/RepoGoCards/Sources/RepoGoCards/CardInstructions.swift"
+const cardsPrompt = "../../../swift/Packages/RepoGoCards/Tests/RepoGoCardsTests/Fixtures/prompt.md"
 
 func TestForPicksByRenderingFeature(t *testing.T) {
 	cases := []struct {
@@ -119,38 +119,17 @@ func TestSectionsDescribeTheAssembledPrompt(t *testing.T) {
 	}
 }
 
-// The card prompts are the phone's: the phone renders the cards, so its
-// CardInstructions is the source and cards.md and cards_plugins.md copies.
-func TestCardsMatchThePhone(t *testing.T) {
+// The card grammar is the cards package's (`Fixtures/prompt.md`), which every
+// renderer is tested against; cards.md is its copy. The other card sections,
+// RepoGo's own sources, are this package's.
+func TestCardsMatchThePackage(t *testing.T) {
 	testhost.SkipWithoutClient(t, "../../../swift")
-	src, err := os.ReadFile(cardInstructions)
+	src, err := os.ReadFile(cardsPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for file, start := range map[string]string{
-		"cards.md":         "public static let prompt = #\"\"\"\n",
-		"cards_connect.md": "public static let connect = #\"\"\"\n",
-		"cards_data.md":    "public static let data = #\"\"\"\n",
-		"cards_plugins.md": "public static let plugins = #\"\"\"\n",
-		"cards_mcp.md":     "public static let mcp = #\"\"\"\n",
-		"cards_repogo.md":  "public static let repogo = #\"\"\"\n",
-		"apps.md":          "public static let apps = #\"\"\"\n",
-	} {
-		_, body, ok := strings.Cut(string(src), start)
-		body, _, closed := strings.Cut(body, "\n    \"\"\"#")
-		if !ok || !closed {
-			t.Fatalf("no %q … \"\"\"# string in %s", start, cardInstructions)
-		}
-		lines := strings.Split(body, "\n")
-		for i, line := range lines {
-			lines[i] = strings.TrimPrefix(line, "    ")
-			if strings.TrimSpace(lines[i]) == "" {
-				lines[i] = ""
-			}
-		}
-		testhost.Golden(t, file, []byte(strings.Join(lines, "\n")+"\n"), *update,
-			"run: go test ./internal/clientprompt -update")
-	}
+	testhost.Golden(t, "cards.md", []byte(strings.TrimRight(string(src), "\n")+"\n"), *update,
+		"run: go test ./internal/clientprompt -update")
 }
 
 // Only the app opens a Connect's sheet, so only it is told to draw one,
@@ -167,8 +146,8 @@ func TestConnectComesToTheAppFirst(t *testing.T) {
 	}
 }
 
-// Building plugins comes to a client whose cards reach them, on an
-// environment that runs them; drawing them, only once the environment has some.
+// Building plugins, and drawing them, comes to a client whose cards reach them
+// on an environment that runs them: the first plugin's page needs plugin cards.
 func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
 	both := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "plugins": 1}}
 	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
@@ -180,7 +159,7 @@ func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
 		build, draw bool
 	}{
 		{"an environment with plugins", both, clientprompt.HasPlugins, true, true},
-		{"an environment without plugins", both, clientprompt.CanAddPlugins, true, false},
+		{"an environment without plugins", both, clientprompt.CanAddPlugins, true, true},
 		{"an environment without the runtime", both, clientprompt.NoPlugins, false, false},
 		{"a client without plugin cards", clip, clientprompt.HasPlugins, false, false},
 	} {

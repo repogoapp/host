@@ -53,7 +53,7 @@ func Sections(c device.Client, plugins Plugins, servers []string) []Section {
 		{"cards.md", "Cards", []requirement{cards}},
 		{"apps.md", "Building plugins and pages", []requirement{cards, feature("plugins"), runtime}},
 		{"cards_data.md", "Card data", []requirement{cards, data}},
-		{"cards_plugins.md", "Plugin cards", []requirement{cards, feature("plugins"), runtime, installed}},
+		{"cards_plugins.md", "Plugin cards", []requirement{cards, feature("plugins"), runtime}},
 		{"cards_repogo.md", "RepoGo cards", []requirement{cards, feature("repogo")}},
 		{"cards_mcp.md", "MCP cards", []requirement{cards, feature("mcp"), connected}},
 	}

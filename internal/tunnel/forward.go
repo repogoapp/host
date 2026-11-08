@@ -27,6 +27,12 @@ const (
 	sseChunkSize        = 4 << 10
 	streamFlushInterval = 20 * time.Millisecond
 	wsReadLimit         = 32 << 20
+	// wsQueue is how many visitor frames wait for a local socket slow to read
+	// before the socket is dropped; the gateway's reader never waits on one.
+	wsQueue = 64
+	// headerTimeout matches the gateway's wait for an answer; a stream's body
+	// may then run for as long as its visitor stays.
+	headerTimeout = 60 * time.Second
 )
 
 // Dropped in both directions along with forward.HopByHop. Accept-Encoding
@@ -56,9 +62,9 @@ var finiteAssets = map[string]bool{
 	"woff": true, "woff2": true,
 }
 
-// loopback is the only way a tunnel reaches a socket; no timeout, since
+// loopback is the only way a tunnel reaches a socket; no total timeout, since
 // responses may stream for as long as the visitor stays.
-var loopback = forward.Loopback(0)
+var loopback = forward.Loopback(0, headerTimeout)
 
 func headerValue(lines []string, name string) string {
 	for _, line := range lines {
@@ -143,18 +149,25 @@ func (l *link) serveHTTP(ctx context.Context, req *tunnelwire.Request) {
 	forwarded(httpReq.Header, public)
 
 	resp, err := loopback.Do(httpReq)
+	if ctx.Err() != nil {
+		// Canceled: the gateway expects nothing more for this session.
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		return
+	}
 	if err != nil {
 		l.sendError(id, http.StatusBadGateway,
 			"Couldn't reach the local server on port "+req.Target+". Make sure it's running and listening.",
 			"Local server unreachable")
 		return
 	}
-	l.relay(id, method, resp, isFiniteAsset(req, method))
+	l.relay(ctx, id, method, resp, isFiniteAsset(req, method))
 }
 
 // relay sends resp back as one Response, or streamed when it is large,
-// open-ended or asset says so.
-func (l *link) relay(id, method string, resp *http.Response, asset bool) {
+// open-ended or asset says so. It stops, sending nothing, once ctx ends.
+func (l *link) relay(ctx context.Context, id, method string, resp *http.Response, asset bool) {
 	defer resp.Body.Close()
 	lines := make([]string, 0, len(resp.Header))
 	for k, vs := range resp.Header {
@@ -168,10 +181,13 @@ func (l *link) relay(id, method string, resp *http.Response, asset bool) {
 	status := resp.StatusCode
 	empty := method == http.MethodHead || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotModified
 	if !empty && (shouldStream(resp) || asset) {
-		l.streamBody(id, status, lines, resp)
+		l.streamBody(ctx, id, status, lines, resp)
 		return
 	}
 	buf, err := io.ReadAll(resp.Body)
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		l.sendError(id, http.StatusBadGateway, "The local server closed the connection before the response completed.", "Local server disconnected")
 		return
@@ -181,7 +197,7 @@ func (l *link) relay(id, method string, resp *http.Response, asset bool) {
 
 // streamBody reads on its own goroutine so a paused upstream cannot hold back a
 // partial flush.
-func (l *link) streamBody(id string, status int, lines []string, resp *http.Response) {
+func (l *link) streamBody(ctx context.Context, id string, status int, lines []string, resp *http.Response) {
 	if err := l.send(&tunnelwire.Response{SessionID: id, Status: status, HeaderLines: lines, Streaming: true}); err != nil {
 		return
 	}
@@ -221,7 +237,12 @@ func (l *link) streamBody(id string, status int, lines []string, resp *http.Resp
 	}
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case r := <-reads:
+			if ctx.Err() != nil {
+				return
+			}
 			pending = append(pending, r.data...)
 			boundary := sse && bytes.HasSuffix(pending, []byte("\n\n"))
 			if len(pending) >= flushAt || boundary {
@@ -289,11 +310,42 @@ func (l *link) sendError(id string, status int, message, title string) {
 type wsSession struct {
 	conn *websocket.Conn
 	slug string
+	out  chan *tunnelwire.WSFrame // the visitor's frames, for write
+	done chan struct{}
 	once sync.Once
 }
 
+// close may wait seconds for the close handshake, so readers call it on
+// their own goroutine.
 func (w *wsSession) close(code websocket.StatusCode, reason string) {
-	w.once.Do(func() { _ = w.conn.Close(code, reason) })
+	w.once.Do(func() {
+		close(w.done)
+		_ = w.conn.Close(code, reason)
+	})
+}
+
+// write hands the visitor's frames to the local socket off the gateway's
+// reader, so a local app slow to read holds up only its own socket.
+func (w *wsSession) write(ctx context.Context, log func(error)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.done:
+			return
+		case f := <-w.out:
+			typ := websocket.MessageText
+			if f.Binary {
+				typ = websocket.MessageBinary
+			}
+			if err := w.conn.Write(ctx, typ, f.Data); err != nil {
+				if !errors.Is(err, context.Canceled) {
+					log(err)
+				}
+				return
+			}
+		}
+	}
 }
 
 func (l *link) openWS(ctx context.Context, open *tunnelwire.WSOpen) {
@@ -335,7 +387,8 @@ func (l *link) openWS(ctx context.Context, open *tunnelwire.WSOpen) {
 	}
 	conn.SetReadLimit(wsReadLimit)
 	slug, _, _ := strings.Cut(public, ".")
-	w := &wsSession{conn: conn, slug: slug}
+	w := &wsSession{conn: conn, slug: slug, out: make(chan *tunnelwire.WSFrame, wsQueue), done: make(chan struct{})}
+	go w.write(ctx, func(err error) { l.s.cfg.Log.Debug("tunnel: websocket write failed", "err", err) })
 	l.mu.Lock()
 	l.ws[id] = w
 	l.mu.Unlock()
@@ -369,17 +422,25 @@ func (l *link) session(id string) *wsSession {
 	return l.ws[id]
 }
 
-func (l *link) frameWS(ctx context.Context, f *tunnelwire.WSFrame) {
+// frameWS queues a visitor's frame without waiting. A local socket that has
+// fallen a queue behind is dropped at once, so the frames still coming find
+// nothing, and both ends are told.
+func (l *link) frameWS(f *tunnelwire.WSFrame) {
 	w := l.session(f.SessionID)
 	if w == nil {
 		return
 	}
-	typ := websocket.MessageText
-	if f.Binary {
-		typ = websocket.MessageBinary
-	}
-	if err := w.conn.Write(ctx, typ, f.Data); err != nil && !errors.Is(err, context.Canceled) {
-		l.s.cfg.Log.Debug("tunnel: websocket write failed", "err", err)
+	select {
+	case w.out <- f:
+	default:
+		l.s.cfg.Log.Warn("tunnel: local socket fell behind; closing it", "session", f.SessionID)
+		l.mu.Lock()
+		delete(l.ws, f.SessionID)
+		l.mu.Unlock()
+		go func() {
+			_ = l.send(&tunnelwire.WSClose{SessionID: f.SessionID, Code: int(websocket.StatusTryAgainLater), Reason: "fell behind"})
+			w.close(websocket.StatusTryAgainLater, "fell behind")
+		}()
 	}
 }
 
@@ -395,7 +456,7 @@ func (l *link) closeWS(c *tunnelwire.WSClose) {
 	if code < 1000 {
 		code = websocket.StatusNormalClosure
 	}
-	w.close(code, c.Reason)
+	go w.close(code, c.Reason)
 }
 
 // closeSlug ends the WebSockets a closed tunnel still carries.
@@ -410,7 +471,7 @@ func (l *link) closeSlug(slug string) {
 	}
 	l.mu.Unlock()
 	for _, w := range closing {
-		w.close(websocket.StatusGoingAway, "tunnel closed")
+		go w.close(websocket.StatusGoingAway, "tunnel closed")
 	}
 }
 
@@ -420,6 +481,6 @@ func (l *link) closeAll() {
 	l.ws = map[string]*wsSession{}
 	l.mu.Unlock()
 	for _, w := range sessions {
-		w.close(websocket.StatusGoingAway, "tunnel closed")
+		go w.close(websocket.StatusGoingAway, "tunnel closed")
 	}
 }
