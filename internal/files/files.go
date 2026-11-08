@@ -407,7 +407,8 @@ func resolveIn(roots []string, path string, allowMissing bool) (string, string, 
 }
 
 // containRead is contain widened by the ReadOnly directories, checked first so
-// a host with no projects still shows what it was sent. Symlinks resolve before
+// a host with no projects still shows what it was sent, and then by one file
+// under home (homeFile). Symlinks resolve before
 // the check, so a link in there to `~/.ssh` falls through and is refused.
 func (s *Service) containRead(path string) (string, string, int64, error) {
 	path = s.expand(path)
@@ -425,11 +426,52 @@ func (s *Service) containRead(path string) (string, string, int64, error) {
 		}
 	}
 	roots, err := s.resolvedRoots()
-	if err != nil {
+	if err == nil {
+		var full, base string
+		full, base, err = resolveIn(roots, path, false)
+		if err == nil {
+			return full, base, MaxFileBytes, nil
+		}
+	}
+	if !errors.Is(err, ErrOutsideRoots) && !errors.Is(err, ErrNoRoots) {
 		return "", "", 0, err
 	}
-	full, base, err := resolveIn(roots, path, false)
-	return full, base, MaxFileBytes, err
+	if full, home, ok := s.homeFile(path); ok {
+		return full, home, MaxFileBytes, nil
+	}
+	return "", "", 0, err
+}
+
+// homeFile lets a device read one file under home outside every project, such
+// as an image an agent made in a scratch folder and linked from a card. Only a
+// regular file, and none under a hidden folder (`~/.ssh`, `~/.aws`): keys and
+// settings live there. Listing and writing stay inside the projects.
+func (s *Service) homeFile(path string) (string, string, bool) {
+	if s.cfg.Home == "" || path == "" || !filepath.IsAbs(filepath.Clean(path)) {
+		return "", "", false
+	}
+	home, err := filepath.EvalSymlinks(s.cfg.Home)
+	if err != nil {
+		return "", "", false
+	}
+	// Symlinks resolve first, so a visible link into `~/.ssh` is refused too.
+	full, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil || full == home || !Within(home, full) {
+		return "", "", false
+	}
+	rel, err := filepath.Rel(home, full)
+	if err != nil {
+		return "", "", false
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if strings.HasPrefix(part, ".") {
+			return "", "", false
+		}
+	}
+	if info, err := os.Stat(full); err != nil || !info.Mode().IsRegular() {
+		return "", "", false
+	}
+	return full, home, true
 }
 
 // resolveDeepest follows symlinks on the deepest part of the path that exists

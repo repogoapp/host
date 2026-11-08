@@ -295,6 +295,8 @@ page:<path> — open a plugin's page, from chat or another page
 file:<path> — open a file of the environment in the app's viewer
   (images, PDF, video, CSV, SQLite, code): relative to the project's
   folder, absolute, or under ~/; it may read {{…}} (file:{{f.path}}).
+  Outside a project only a file under ~/ opens, read-only, and none
+  in a hidden folder (~/.config, ~/.ssh).
   line="42" on the Button or Item opens a text file at that line. Pair
   it with file="{{f.path}}" on an Item for the file's icon.
 back — return to the previous route, page or sheet.
