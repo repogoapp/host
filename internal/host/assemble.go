@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/repogoapp/host/internal/actions"
@@ -74,7 +75,7 @@ func (h *Host) openAgents() error {
 		Root:    h.cfg.ProviderRoot,
 		Env:     []string{notify.OriginEnv + "=" + string(notify.OriginApp)},
 		// h.mcps is opened below; a turn cannot start before New returns.
-		MCP:   func(ctx context.Context, cwd string) []agent.MCPServer { return h.mcps.ForTurn(ctx, cwd) },
+		MCP:   h.mcpForTurn,
 		Tools: h.tools,
 		// Read when a session starts, so a phone's latest devices.hello counts.
 		// With RepoGo's tools off on this environment, the agent runs as it would
@@ -120,6 +121,18 @@ func (h *Host) openAgents() error {
 	return nil
 }
 
+// mcpForTurn is the MCP servers a turn gets, their credentials remembered so
+// a plugin or agent that prints one leaves no copy in a log.
+func (h *Host) mcpForTurn(ctx context.Context, cwd string) []agent.MCPServer {
+	servers := h.mcps.ForTurn(ctx, cwd)
+	for _, s := range servers {
+		for _, hd := range s.Headers {
+			h.redact.Add(hd.Value, strings.TrimPrefix(hd.Value, "Bearer "))
+		}
+	}
+	return servers
+}
+
 // openTools builds RepoGo's own MCP server. What it reaches (the switch, the
 // phones, the address) is opened after it and read only when a turn calls it.
 func (h *Host) openTools() error {
@@ -134,7 +147,7 @@ func (h *Host) openTools() error {
 	})
 	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
-		Global: h.state("plugins"), Crons: h.state("crons.json"), LogsPath: h.state("plugin-logs.db"),
+		Global: h.state("plugins"), Crons: h.state("crons.json"), LogsPath: h.state("plugin-logs.db"), Redact: h.redact,
 		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
 		Logged: func(ev pluginscore.Logged) { h.toEveryDevice(ev) },
 		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
@@ -218,7 +231,7 @@ func (h *Host) openDevices() error {
 	h.tunnels, err = tunnel.Open(tunnel.Config{
 		Path: h.state("tunnels.json"), Identity: h.devices.Identity(), Peers: h.devices,
 		Gateway: h.cfg.Gateway, Plaintext: h.cfg.GatewayPlaintext,
-		Changed: func(ev tunnel.Changed) { h.toEveryDevice(ev) }, OwnPort: h.info.Port,
+		Changed: func(ev tunnel.Changed) { h.toEveryDevice(ev) }, OwnPort: h.info.Port, DevicePort: h.cfg.DevicePort,
 		Plugins: h.Services.Plugins, Log: h.log,
 	})
 	if err != nil {
@@ -350,7 +363,7 @@ func (h *Host) openProjects() error {
 	acts, err := actions.New(actions.Deps{
 		Paths: projectFiles, Store: h.db, Terminals: terminals, EnvSources: envSources,
 		Changed: func(snap actions.Snapshot) { h.toEveryDevice(snap) },
-		Logs:    h.state("action-runs"), Log: h.log,
+		Logs:    h.state("action-runs"), Redact: h.redact, Log: h.log,
 	})
 	if err != nil {
 		return err
@@ -433,7 +446,7 @@ func (h *Host) openProjects() error {
 	s.Connect = connect.New(connect.Deps{
 		Sources: envSources, PluginDir: s.Plugins.Dir, SharedEnv: filepath.Join(h.state("plugins"), ".env"),
 		Contain: projectFiles.Contain, Home: h.cfg.Home, Ignored: gitService.Ignored, MCP: h.mcps, CLIs: s.Tools,
-		Changed: func(c connect.Changed) { h.toEveryDevice(c) }, Now: time.Now,
+		Changed: func(c connect.Changed) { h.toEveryDevice(c) }, Now: time.Now, Redact: h.redact,
 	})
 	s.Tools.OnLoginEnd(s.Connect.CLIEnded)
 	s.Home = h.cfg.Home

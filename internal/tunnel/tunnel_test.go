@@ -201,7 +201,7 @@ func newService(t *testing.T, gatewayAddr string, ps peers) (*Service, *device.I
 	}
 	s, err := Open(Config{
 		Path: filepath.Join(t.TempDir(), "tunnels.json"), Identity: id, Peers: ps,
-		Gateway: gatewayAddr, Plaintext: true, Changed: func(Changed) {}, OwnPort: func() int { return ownPort }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Gateway: gatewayAddr, Plaintext: true, Changed: func(Changed) {}, OwnPort: func() int { return ownPort }, DevicePort: 47444, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -448,10 +448,12 @@ func TestClosePortClosesOnlyThatPort(t *testing.T) {
 const ownPort = 51999
 
 // A tunnel to the host's own port would put its RPC on the internet.
-func TestOpenRefusesTheHostsOwnPort(t *testing.T) {
+func TestOpenRefusesTheHostsOwnPorts(t *testing.T) {
 	s, _ := newService(t, "127.0.0.1:1", peers{phone: {ID: phone}})
-	if _, err := s.Open(phone, "abcdefghij12", ownPort, inAnHour()); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("Open(own port) = %v, want ErrInvalid", err)
+	for _, port := range []int{ownPort, 47444} {
+		if _, err := s.Open(phone, "abcdefghij12", port, inAnHour()); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("Open(%d) = %v, want ErrInvalid", port, err)
+		}
 	}
 }
 

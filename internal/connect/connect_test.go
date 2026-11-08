@@ -13,6 +13,7 @@ import (
 	"github.com/repogoapp/host/internal/clitool"
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/redact"
 )
 
 var ctx = context.Background()
@@ -55,6 +56,7 @@ func newFixture(t *testing.T) *fixture {
 	f.clis = &fakeCLIs{installs: map[string]clitool.Install{}}
 	f.s = New(Deps{
 		Sources: sources,
+		Redact:  redact.New(),
 		MCP:     f.mcp,
 		CLIs:    f.clis,
 		PluginDir: func(plugin string) (string, error) {

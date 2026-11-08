@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/testwait"
 )
 
@@ -21,7 +22,7 @@ func openLogs(t *testing.T, limits LogLimits) (*Logs, func() [][]string) {
 	t.Helper()
 	var mu sync.Mutex
 	var wrote [][]string
-	l, err := OpenLogs(t.Context(), filepath.Join(t.TempDir(), "logs.db"), limits, slog.New(slog.NewTextHandler(io.Discard, nil)), func(plugins []string) {
+	l, err := OpenLogs(t.Context(), filepath.Join(t.TempDir(), "logs.db"), limits, redact.New(), slog.New(slog.NewTextHandler(io.Discard, nil)), func(plugins []string) {
 		mu.Lock()
 		wrote = append(wrote, plugins)
 		mu.Unlock()
@@ -114,6 +115,63 @@ func TestLinesAreKeptWithTheirCallAndQueried(t *testing.T) {
 	testwait.For(t, "the batch reported", func() bool { return len(wrote()) > 0 })
 	if got := wrote(); strings.Join(got[0], ",") != "notes,digest" {
 		t.Fatalf("wrote = %v, want the batch's plugins once each", got)
+	}
+}
+
+func TestSecretsAreMaskedBeforeALineIsKept(t *testing.T) {
+	l, _ := openLogs(t, defaultLogLimits)
+	l.redact.Add("rgk_thisIsThePluginsOwnKey_0123456789")
+	l.Add("/e/plugins", []logRecord{
+		{At: 1000, Plugin: "stripe", Level: "info", Method: "stripe.charge", Caller: "card", CallID: "c1",
+			Text: "using sk_live_51Hx9AbCdEfGhIjKlMnOpQrSt and rgk_thisIsThePluginsOwnKey_0123456789",
+			Data: json.RawMessage(`["using",{"key":"rgk_thisIsThePluginsOwnKey_0123456789","api_key":"plain-looking-value-1"}]`)},
+	})
+	line := written(t, l, 1)[0]
+	if line.Text != "using "+redact.Mask+" and "+redact.Mask {
+		t.Fatalf("text = %q", line.Text)
+	}
+	if want := `["using",{"key":"` + redact.Mask + `","api_key":"` + redact.Mask + `"}]`; string(line.Data) != want {
+		t.Fatalf("data = %s", line.Data)
+	}
+	var data []any
+	if err := json.Unmarshal(line.Data, &data); err != nil {
+		t.Fatalf("data is still JSON: %v", err)
+	}
+}
+
+func TestAnAgentReadsOnlyItsOwnChatsText(t *testing.T) {
+	l, _ := openLogs(t, defaultLogLimits)
+	l.Add("/e/plugins", []logRecord{
+		{At: 1000, Plugin: "notes", Level: "info", Method: "notes.add", Caller: "agent", CallID: "c1", ChatID: "A-7", Text: "mine"},
+		{At: 2000, Plugin: "notes", Level: "error", Method: "notes.add", Caller: "agent", CallID: "c2", ChatID: "B-2", Text: "another chat's", Data: json.RawMessage(`["x"]`)},
+		{At: 3000, Plugin: "digest", Level: "warn", Method: "digest.sum", Caller: "cron", CallID: "c3", Text: "a cron's"},
+	})
+	written(t, l, 3)
+	lines, err := l.Query(t.Context(), LogQuery{Chat: "A-7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 3 || lines[2].Text != "mine" {
+		t.Fatalf("every line comes, its own whole: %+v", lines)
+	}
+	for _, other := range lines[:2] {
+		if other.Text != hiddenText || string(other.Data) != "[]" || other.Method == "" || other.Level == "" || other.Caller == "" {
+			t.Fatalf("another caller's line keeps its shape, not its text: %+v", other)
+		}
+	}
+	// A text search can't probe lines the agent may not read.
+	found, err := l.Query(t.Context(), LogQuery{Chat: "A-7", Query: "cron"})
+	if err != nil || len(found) != 0 {
+		t.Fatalf("found = %+v %v", found, err)
+	}
+	found, err = l.Query(t.Context(), LogQuery{Chat: "A-7", Query: "min"})
+	if err != nil || len(found) != 1 {
+		t.Fatalf("found = %+v %v", found, err)
+	}
+	// A device reads everything.
+	all, err := l.Query(t.Context(), LogQuery{})
+	if err != nil || all[1].Text != "another chat's" {
+		t.Fatalf("all = %+v %v", all, err)
 	}
 }
 

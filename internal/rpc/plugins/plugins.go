@@ -81,7 +81,9 @@ type KeyParams struct {
 
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "plugins.logs", d.logs, rpc.Tool("The console lines plugins wrote, newest first, each with the plugin, "+
-		"the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves."),
+		"the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves. "+
+		"An agent reads the text of lines its own chat's calls wrote; a line from another caller (a card, a cron, another chat) "+
+		"keeps its plugin, method, level and time but not its text. Secrets are masked."),
 		rpc.Read, rpc.LiveOn("plugins.logged"))
 	// Not offered to agents or plugins: a key opens a plugin to the internet.
 	rpc.Add(r, "plugins.keys", d.keys)
@@ -95,10 +97,16 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "plugins.delete_key", d.deleteKey)
 }
 
-func (d Deps) logs(ctx context.Context, _ rpc.Caller, p LogsParams) (LogsResult, error) {
-	lines, err := d.Plugins.Logs(ctx, pluginscore.LogQuery{
+// logs answers a device every line; an agent gets the text of its own chat's
+// calls only, so a chat in one project never reads what another's plugins printed.
+func (d Deps) logs(ctx context.Context, c rpc.Caller, p LogsParams) (LogsResult, error) {
+	q := pluginscore.LogQuery{
 		Plugin: p.Plugin, Level: p.Level, Method: p.Method, Since: p.Since, Until: p.Until, Query: p.Query, Limit: p.Limit,
-	})
+	}
+	if c.Agent != nil {
+		q.Chat = c.Agent.ChatID
+	}
+	lines, err := d.Plugins.Logs(ctx, q)
 	return LogsResult{Lines: lines}, err
 }
 

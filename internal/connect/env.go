@@ -74,6 +74,7 @@ func (s *Service) submitEnv(f flow, value string) error {
 	if err := s.samePath(f); err != nil {
 		return err
 	}
+	s.d.Redact.Add(value)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return writeKey(f.envPath, f.target.Env.Name, line)

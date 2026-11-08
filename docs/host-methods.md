@@ -1320,7 +1320,7 @@ Result:
 
 ## `plugins.logs`
 
-Tool (read): The console lines plugins wrote, newest first, each with the plugin, the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves.
+Tool (read): The console lines plugins wrote, newest first, each with the plugin, the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves. An agent reads the text of lines its own chat's calls wrote; a line from another caller (a card, a cron, another chat) keeps its plugin, method, level and time but not its text. Secrets are masked.
 
 Live on: `plugins.logged`
 

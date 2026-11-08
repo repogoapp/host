@@ -52,6 +52,7 @@ func (s *Service) Keys(ctx context.Context) ([]KeyedPlugin, error) {
 			if err != nil {
 				return nil, err
 			}
+			s.cfg.Redact.Add(key)
 			out = append(out, KeyedPlugin{Plugin: m.Plugin, Key: key, CreatedAt: createdAt})
 		}
 		out[len(out)-1].Methods = append(out[len(out)-1].Methods, m.Method)
@@ -77,6 +78,7 @@ func (s *Service) CreateKey(ctx context.Context, plugin string) (KeyedPlugin, er
 	if err := s.cfg.Keys.SetPluginKey(plugin, k.Key, k.CreatedAt); err != nil {
 		return KeyedPlugin{}, err
 	}
+	s.cfg.Redact.Add(k.Key)
 	return k, nil
 }
 
@@ -95,5 +97,6 @@ func (s *Service) keyAccepted(plugin string, req *http.Request) (bool, error) {
 	if err != nil || key == "" {
 		return false, err
 	}
+	s.cfg.Redact.Add(key)
 	return subtle.ConstantTimeCompare([]byte(sent), []byte(key)) == 1, nil
 }

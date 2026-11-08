@@ -76,6 +76,10 @@ type Config struct {
 	// OwnPort is the host's own loopback port, read at each open since the
 	// listener binds after this service is built. A tunnel to it is refused.
 	OwnPort func() int
+	// DevicePort is the plugins' no-key address for this machine and its
+	// containers; zero when unserved. A tunnel to it would publish every
+	// device method with no key, so it is refused: webhooks use the public address.
+	DevicePort int
 	// Plugins serves the environment's own address; nil serves nothing there.
 	Plugins Plugins
 	Log     *slog.Logger
@@ -124,7 +128,7 @@ func (s *Service) Open(by device.ID, slug string, port int, expiresAt int64) (Tu
 		return Tunnel{}, fmt.Errorf("%w: slug must be 10 to 32 lowercase letters and digits", ErrInvalid)
 	case port < 1024 || port > 65535:
 		return Tunnel{}, fmt.Errorf("%w: port must be from 1024 to 65535", ErrInvalid)
-	case port == s.cfg.OwnPort():
+	case port == s.cfg.OwnPort() || (s.cfg.DevicePort != 0 && port == s.cfg.DevicePort):
 		return Tunnel{}, fmt.Errorf("%w: port %d is the host's own", ErrInvalid, port)
 	case expiresAt <= now.UnixMilli() || expiresAt > now.Add(MaxDuration).UnixMilli():
 		return Tunnel{}, fmt.Errorf("%w: expires_at must be within seven days from now", ErrInvalid)

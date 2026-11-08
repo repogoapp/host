@@ -30,6 +30,7 @@ import (
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/git"
 	"github.com/repogoapp/host/internal/outcome"
+	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/uploads"
 )
 
@@ -62,6 +63,8 @@ type Config struct {
 	Crons string
 	// LogsPath is the SQLite file keeping the plugins' console lines; empty keeps none.
 	LogsPath string
+	// Redact masks the host's secrets in those lines, and learns the plugin keys.
+	Redact *redact.Vault
 	// Logged tells every phone that plugins wrote lines, so cards showing them reload; nil drops it.
 	Logged func(Logged)
 	// Emit sends a subscription's new answer to the device that made it.
@@ -127,7 +130,7 @@ func New(ctx context.Context, cfg Config) *Service {
 		subs: map[string]*subscription{}, prints: map[string]string{},
 	}
 	if cfg.LogsPath != "" {
-		logs, err := OpenLogs(ctx, cfg.LogsPath, defaultLogLimits, cfg.Log, s.logged)
+		logs, err := OpenLogs(ctx, cfg.LogsPath, defaultLogLimits, cfg.Redact, cfg.Log, s.logged)
 		if err != nil {
 			// Plugins run without their log sooner than not at all.
 			cfg.Log.Warn("plugins: the log is off", "err", err)

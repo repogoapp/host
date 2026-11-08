@@ -44,6 +44,7 @@ import (
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/projectwatch"
 	"github.com/repogoapp/host/internal/push"
+	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/reminder"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
@@ -140,6 +141,9 @@ type Host struct {
 	closers []func()
 	closing sync.Once
 
+	// redact is every secret the host handled, masked in what it keeps or shows.
+	redact *redact.Vault
+
 	agents   *agents.Registry
 	mcps     *mcp.Service
 	mgr      *agent.Manager
@@ -186,7 +190,8 @@ func New(parent context.Context, cfg Config) (*Host, error) {
 	if err := apphome.Secure(cfg.State); err != nil {
 		cfg.Log.Warn("host: couldn't close the state folder to other accounts", "dir", cfg.State, "err", err)
 	}
-	h := &Host{cfg: cfg, log: cfg.Log}
+	h := &Host{cfg: cfg, log: cfg.Log, redact: redact.New()}
+	h.redact.Add(cfg.Token)
 	h.ctx, h.cancel = context.WithCancel(parent)
 	for _, open := range []func() error{h.openAgents, h.openDevices, h.openChats, h.openProjects, h.openTransports} {
 		if err := open(); err != nil {

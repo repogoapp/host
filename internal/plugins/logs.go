@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/sqlitedb"
 )
 
@@ -69,7 +70,13 @@ type LogQuery struct {
 	Query string
 	// Limit is at most logsLimitMax; zero is logsLimitDefault.
 	Limit int
+	// Chat is the agent asking: lines its own calls wrote come whole, every
+	// other caller's keeps its plugin, method and level but not its text.
+	Chat string
 }
+
+// hiddenText stands in for a line another caller wrote, when an agent reads the log.
+const hiddenText = "(written by another caller; only its chat reads the text)"
 
 // LogLimits is how much the host keeps: lines newer than Keep, in a file
 // under MaxBytes, checked every Every and at start.
@@ -115,6 +122,7 @@ type Logs struct {
 	db     *sql.DB
 	log    *slog.Logger
 	limits LogLimits
+	redact *redact.Vault
 	// wrote runs after each batch lands, naming the plugins in it.
 	wrote func(plugins []string)
 
@@ -126,31 +134,32 @@ type Logs struct {
 }
 
 // OpenLogs opens the log at path and starts its writer and purge under ctx;
-// wrote may be nil. Lines are written in the order they arrive.
-func OpenLogs(ctx context.Context, path string, limits LogLimits, log *slog.Logger, wrote func(plugins []string)) (*Logs, error) {
+// wrote may be nil. Lines are written in the order they arrive, with vault's
+// secrets masked before anything keeps them.
+func OpenLogs(ctx context.Context, path string, limits LogLimits, vault *redact.Vault, log *slog.Logger, wrote func(plugins []string)) (*Logs, error) {
 	// Incremental vacuum lets a purge give pages back without rewriting the file.
 	db := sqlitedb.Open(path, "PRAGMA auto_vacuum=INCREMENTAL", "PRAGMA busy_timeout=5000", "PRAGMA synchronous=NORMAL")
 	if _, err := db.Exec(logsSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("plugins: open the log at %s: %w", path, err)
 	}
-	l := &Logs{db: db, log: log, limits: limits, wrote: wrote, wake: make(chan struct{}, 1), done: make(chan struct{})}
+	l := &Logs{db: db, log: log, limits: limits, redact: vault, wrote: wrote, wake: make(chan struct{}, 1), done: make(chan struct{})}
 	go l.run(ctx)
 	return l, nil
 }
 
-// Add queues a folder's lines. A full queue loses its oldest, and the next
-// batch says how many.
+// Add queues a folder's lines, secrets masked. A full queue loses its oldest,
+// and the next batch says how many.
 func (l *Logs) Add(dir string, records []logRecord) {
 	l.mu.Lock()
 	for _, r := range records {
-		data := r.Data
-		if len(data) == 0 {
-			data = json.RawMessage("[]")
+		data := json.RawMessage("[]")
+		if len(r.Data) > 0 {
+			data = json.RawMessage(l.redact.Text(string(r.Data)))
 		}
 		l.queue = append(l.queue, LogLine{
 			At: r.At, Plugin: r.Plugin, Dir: dir, Level: r.Level, Method: r.Method, Caller: r.Caller,
-			CallID: r.CallID, ChatID: r.ChatID, Text: r.Text, Data: data,
+			CallID: r.CallID, ChatID: r.ChatID, Text: l.redact.Text(r.Text), Data: data,
 		})
 	}
 	if over := len(l.queue) - logQueueMax; over > 0 {
@@ -198,6 +207,11 @@ func (l *Logs) Query(ctx context.Context, q LogQuery) ([]LogLine, error) {
 		args = append(args, q.Until)
 	}
 	if q.Query != "" {
+		// An agent searches only the text it may read.
+		if q.Chat != "" {
+			where = append(where, "chat_id = ?")
+			args = append(args, q.Chat)
+		}
 		where = append(where, "instr(text, ?) > 0")
 		args = append(args, q.Query)
 	}
@@ -221,6 +235,9 @@ func (l *Logs) Query(ctx context.Context, q LogQuery) ([]LogLine, error) {
 			return nil, err
 		}
 		line.Data = json.RawMessage(data)
+		if q.Chat != "" && line.ChatID != q.Chat {
+			line.Text, line.Data = hiddenText, json.RawMessage("[]")
+		}
 		lines = append(lines, line)
 	}
 	return lines, rows.Err()

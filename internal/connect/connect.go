@@ -19,6 +19,7 @@ import (
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/mcp"
+	"github.com/repogoapp/host/internal/redact"
 )
 
 var (
@@ -74,6 +75,8 @@ type Deps struct {
 	// Changed is told each flow as it starts, moves and ends.
 	Changed func(Changed)
 	Now     func() time.Time
+	// Redact learns each value a flow writes, so no log keeps it.
+	Redact *redact.Vault
 }
 
 type Service struct {

@@ -15,6 +15,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/envsource"
+	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
 	"github.com/repogoapp/host/internal/testwait"
@@ -96,7 +97,8 @@ func (h *harness) open(t *testing.T) *Service {
 			h.snaps = append(h.snaps, snap)
 			h.mu.Unlock()
 		},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Redact: redact.New(),
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,6 +28,7 @@ import (
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/files"
 	"github.com/repogoapp/host/internal/procscan"
+	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
 )
@@ -153,7 +155,9 @@ type Deps struct {
 	Changed func(Snapshot)
 	// Logs is the folder detached runs write their output to.
 	Logs string
-	Log  *slog.Logger
+	// Redact learns each env source's values, so no log keeps them.
+	Redact *redact.Vault
+	Log    *slog.Logger
 }
 
 // live is a run this host holds: its row and how to stop it.
@@ -187,7 +191,7 @@ func New(d Deps) (*Service, error) {
 		unset bool
 	}{
 		{"Paths", d.Paths == nil}, {"Store", d.Store == nil}, {"Terminals", d.Terminals == nil},
-		{"EnvSources", d.EnvSources == nil}, {"Changed", d.Changed == nil}, {"Logs", d.Logs == ""}, {"Log", d.Log == nil},
+		{"EnvSources", d.EnvSources == nil}, {"Changed", d.Changed == nil}, {"Logs", d.Logs == ""}, {"Redact", d.Redact == nil}, {"Log", d.Log == nil},
 	} {
 		if f.unset {
 			missing = append(missing, f.name)
@@ -663,8 +667,10 @@ func (s *Service) environment(a declared, sent map[string]map[string]string) map
 	for _, handle := range a.EnvFrom {
 		if here := bound[handle]; here.OK {
 			maps.Copy(env, here.Vars)
+			s.d.Redact.Add(slices.Collect(maps.Values(here.Vars))...)
 		} else if vars, ok := sent[handle]; ok {
 			maps.Copy(env, vars)
+			s.d.Redact.Add(slices.Collect(maps.Values(vars))...)
 		} else {
 			s.d.Log.Info("action starts without an env source", "action", a.Name, "handle", handle, "here", here.Error)
 		}
