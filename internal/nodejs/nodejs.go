@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -38,6 +39,9 @@ func Ensure(ctx context.Context) (string, error) {
 	if major(ctx, filepath.Join(bin, "node")) >= minMajor {
 		return bin, nil
 	}
+	if libraryMissing(ctx, filepath.Join(bin, "node")) {
+		return ensureRuns(ctx, bin, "")
+	}
 
 	version, err := latestLTS(ctx)
 	if err != nil {
@@ -54,10 +58,85 @@ func Ensure(ctx context.Context) (string, error) {
 	if err := binfetch.InstallTree(ctx, Dist+"/"+version+"/"+name, sum, dir); err != nil {
 		return "", err
 	}
-	if major(ctx, filepath.Join(bin, "node")) < minMajor {
-		return "", fmt.Errorf("nodejs: installed %s but it does not run here", version)
+	return ensureRuns(ctx, bin, version)
+}
+
+// ensureRuns is bin once its node runs. Node's Linux builds link libatomic,
+// which a bare server image leaves out: it is installed with the system's
+// package manager, as root or through passwordless sudo, as cloud images allow.
+func ensureRuns(ctx context.Context, bin, version string) (string, error) {
+	node := filepath.Join(bin, "node")
+	if major(ctx, node) >= minMajor {
+		return bin, nil
 	}
-	return bin, nil
+	if libraryMissing(ctx, node) {
+		if err := installLibatomic(ctx); err != nil {
+			return "", fmt.Errorf("nodejs: node %s needs libatomic, and it couldn't be installed (%v): install libatomic1 with apt, or libatomic with dnf", version, err)
+		}
+		if major(ctx, node) >= minMajor {
+			return bin, nil
+		}
+	}
+	return "", fmt.Errorf("nodejs: installed %s but it does not run here", version)
+}
+
+// libraryMissing is whether node fails to start for want of libatomic.
+func libraryMissing(ctx context.Context, node string) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, "-v").CombinedOutput()
+	return err != nil && strings.Contains(string(out), "libatomic")
+}
+
+// installLibatomic tries apt, then dnf and yum, refreshing apt's lists when
+// the first try fails. Never prompts: sudo -n fails rather than asks.
+func installLibatomic(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	var asRoot []string
+	if os.Geteuid() != 0 {
+		if _, err := exec.LookPath("sudo"); err != nil {
+			return fmt.Errorf("not root and no sudo")
+		}
+		asRoot = []string{"sudo", "-n"}
+	}
+	run := func(args ...string) error {
+		cmd := exec.CommandContext(ctx, append(asRoot, args...)[0], append(asRoot, args...)[1:]...)
+		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %w: %s", strings.Join(args, " "), err, lastLine(out))
+		}
+		return nil
+	}
+	switch {
+	case has("apt-get"):
+		if run("apt-get", "install", "-y", "-q", "libatomic1") == nil {
+			return nil
+		}
+		if err := run("apt-get", "update", "-q"); err != nil {
+			return err
+		}
+		return run("apt-get", "install", "-y", "-q", "libatomic1")
+	case has("dnf"):
+		return run("dnf", "install", "-y", "-q", "libatomic")
+	case has("yum"):
+		return run("yum", "install", "-y", "-q", "libatomic")
+	}
+	return fmt.Errorf("no apt-get, dnf or yum")
+}
+
+func has(command string) bool {
+	_, err := exec.LookPath(command)
+	return err == nil
+}
+
+func lastLine(out []byte) string {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return lines[len(lines)-1]
 }
 
 // major is `node -v`'s major version, 0 when it is missing or will not run.
