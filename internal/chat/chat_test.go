@@ -30,6 +30,10 @@ func (r *recorder) Send(req agent.TurnRequest) (agent.TurnStatus, error) {
 	return agent.TurnStatus{TurnID: "turn-1", State: agent.StateQueued}, nil
 }
 
+func (r *recorder) AnswerOnce(context.Context, agent.Kind, string, string) (string, error) {
+	return "", agent.ErrNotFound
+}
+
 func (r *recorder) Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error) {
 	status, err := r.Send(req)
 	return status, false, err

@@ -301,7 +301,7 @@
           "type": "string"
         },
         "title": {
-          "description": "The chat's name; empty takes the message's opening words",
+          "description": "The chat's name; empty has its agent name it after the start",
           "type": "string"
         },
         "turn": {

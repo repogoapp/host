@@ -26,6 +26,8 @@ type Sender interface {
 	StopChat(chatID string) error
 	List() []agent.TurnStatus
 	Wait(ctx context.Context, turnID string) (agent.TurnStatus, string, error)
+	// AnswerOnce is an agent's answer off any chat, as a new chat's title is named.
+	AnswerOnce(ctx context.Context, kind agent.Kind, model, prompt string) (string, error)
 }
 
 // Transcripts is the provider-file side of a chat: its session files.
@@ -317,7 +319,8 @@ func (s *Service) send(id store.ChatID, t Turn, steer bool) (agent.TurnStatus, b
 type Start struct {
 	Path  string
 	Agent string
-	// Title names the chat; empty leaves it to the prompt's opening words.
+	// Title names the chat. Empty has its agent name it after the start, on
+	// the turn's model (see nameLater); until then it shows the prompt's opening words.
 	Title string
 	// ProjectAgent is the project's own agent an acp chat runs.
 	ProjectAgent string
@@ -347,6 +350,9 @@ func (s *Service) Start(where Start, t Turn) (agent.TurnStatus, error) {
 	status, _, err := s.enqueue(t, agent.TurnRequest{
 		Cwd: path, Agent: agent.Kind(where.Agent), Title: title, ProjectAgent: where.ProjectAgent, Parent: where.Parent,
 	}, false)
+	if err == nil && title == "" && strings.TrimSpace(t.Prompt) != "" {
+		go s.nameLater(status.TurnID, agent.Kind(where.Agent), t.Config.Model, t.Prompt)
+	}
 	return status, err
 }
 

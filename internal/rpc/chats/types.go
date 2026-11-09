@@ -142,13 +142,13 @@ type SendResult struct {
 }
 
 // StartParams starts a chat in the folder at Cwd, as chats.list filters by it. Title is the
-// chat's name, written on the phone from the prompt; empty leaves the
-// prompt's opening words.
+// chat's name; empty has the chat's agent name it once it opens, showing the
+// prompt's opening words until then.
 type StartParams struct {
 	Turn  chat.Turn `json:"turn" doc:"The first message"`
 	Cwd   string    `json:"cwd" doc:"The project's folder"`
 	Agent string    `json:"agent" doc:"claude or codex"`
-	Title string    `json:"title" doc:"The chat's name; empty takes the message's opening words"`
+	Title string    `json:"title" doc:"The chat's name; empty has its agent name it after the start"`
 	// ProjectAgent names one of the project's own agents when Agent is acp.
 	ProjectAgent string `json:"project_agent,omitempty"`
 	// Child is for an agent starting a chat: unset or true starts one under

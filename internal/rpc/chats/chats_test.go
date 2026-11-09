@@ -186,6 +186,10 @@ func (s *sender) Send(req agent.TurnRequest) (agent.TurnStatus, error) {
 	return agent.TurnStatus{TurnID: "turn-1", State: agent.StateRunning}, nil
 }
 
+func (s *sender) AnswerOnce(context.Context, agent.Kind, string, string) (string, error) {
+	return "", agent.ErrNotFound
+}
+
 func (s *sender) Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error) {
 	st, err := s.Send(req)
 	return st, false, err

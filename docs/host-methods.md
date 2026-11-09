@@ -330,7 +330,7 @@ Params:
 - `turn` object{Turn}: The first message
 - `cwd` string: The project's folder
 - `agent` string: claude or codex
-- `title` string: The chat's name; empty takes the message's opening words
+- `title` string: The chat's name; empty has its agent name it after the start
 - `project_agent` string (omitted when empty)
 - `child` bool (omitted when empty) (nullable): For an agent: false opens a normal chat for the user; omit to start one under this chat
 

@@ -44,6 +44,10 @@ func titleFor(meta session.Meta, events []agent.Event) string {
 // promptTitle is a prompt's title: its words, without attachment links.
 func promptTitle(text string) string { return openingWords(promptWords(text)) }
 
+// PromptTitle is the title a chat started untitled shows: its prompt's opening
+// words. A row still showing it has not been named by anyone.
+func PromptTitle(text string) string { return promptTitle(text) }
+
 // openingWords reduces a prompt to its first few words on one line.
 func openingWords(text string) string {
 	// Fields, not Split: it collapses runs of whitespace and drops newlines, so
