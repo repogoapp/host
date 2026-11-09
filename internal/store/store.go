@@ -151,6 +151,10 @@ func (s *Store) Close() error { return s.db.Close() }
 type Entry struct {
 	Meta   session.Meta
 	Events []agent.Event
+
+	// DeferSearch leaves the chat's search row to the next sweep's
+	// IndexStale: a live flush writes too often to rebuild it each time.
+	DeferSearch bool
 }
 
 // Fingerprint is what a session looked like at its last sync.
@@ -183,6 +187,18 @@ func (s *Store) Fingerprints() (map[string]Fingerprint, error) {
 // Unchanged reports whether a session on disk matches what was last synced.
 func Unchanged(fp Fingerprint, meta session.Meta) bool {
 	return fp.SizeBytes == meta.SizeBytes && fp.UpdatedAt == meta.UpdatedAt.UnixMilli()
+}
+
+// FingerprintOf is meta's session as it was at its last sync; false when the
+// cache has not synced it.
+func (s *Store) FingerprintOf(meta session.Meta) (Fingerprint, bool, error) {
+	var fp Fingerprint
+	err := s.db.QueryRow(`SELECT updated_at, size_bytes FROM sessions WHERE agent = ? AND session_id = ? AND synced_at > 0`,
+		string(meta.Agent), meta.ID).Scan(&fp.UpdatedAt, &fp.SizeBytes)
+	if err == sql.ErrNoRows {
+		return Fingerprint{}, false, nil
+	}
+	return fp, err == nil, err
 }
 
 // Key names a session in Fingerprints and Prune.

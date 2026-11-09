@@ -134,7 +134,7 @@ func (s *Store) SyncSubagents(parent session.Meta, children []session.Child, eve
 			if _, err := tx.Exec(`DELETE FROM subagent_events WHERE subagent = ?`, id); err != nil {
 				return nil, err
 			}
-			if err := insertRows(tx, `INSERT INTO subagent_events (subagent, idx, kind, turn, text, tool, at) VALUES `, id, fresh); err != nil {
+			if err := insertRows(tx, `INSERT INTO subagent_events (subagent, idx, kind, turn, text, tool, at) VALUES `, id, eventRows(fresh), 0, false); err != nil {
 				return nil, err
 			}
 		}

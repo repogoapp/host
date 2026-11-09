@@ -94,7 +94,7 @@ func (s *Store) SetStatus(id ChatID, cwd string, status agent.ChatStatus, at tim
 		return fmt.Errorf("store: update chat status: %w", err)
 	}
 	if syncedAt == 0 {
-		if err := indexChat(tx, sid, title, nil, searchHash); err != nil {
+		if err := indexChat(tx, sid, title, "", searchHash); err != nil {
 			return err
 		}
 	}

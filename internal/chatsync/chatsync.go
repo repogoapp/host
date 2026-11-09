@@ -102,13 +102,13 @@ func (s *Syncer) Once(ctx context.Context) int {
 	}
 	s.log.Log(ctx, level, "chatsync: sweep completed",
 		"sessions", stats.synced, "total", stats.total, "events", stats.events,
-		"errors", stats.errors, "pruned", stats.pruned, "children", stats.children, "duration", stats.duration, "list_duration", stats.list,
+		"errors", stats.errors, "pruned", stats.pruned, "indexed", stats.indexed, "children", stats.children, "duration", stats.duration, "list_duration", stats.list,
 		"parse_duration", stats.parse, "write_duration", stats.write, "children_duration", stats.kids)
 	return stats.synced
 }
 
 type syncStats struct {
-	synced, total, events, errors, pruned, children int
+	synced, total, events, errors, pruned, children, indexed int
 	duration, list, parse, write, kids              time.Duration
 }
 
@@ -179,6 +179,13 @@ func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
 		}
 	}
 	flush()
+	// Search rows live flushes left behind; what this sweep wrote is indexed.
+	if n, err := s.db.IndexStale(); err != nil {
+		stats.errors++
+		s.log.Warn("chatsync: could not index chats", "err", err)
+	} else {
+		stats.indexed = n
+	}
 	childStart := time.Now()
 	stats.children = s.sweepChildren(ctx, metas, changed)
 	stats.kids = time.Since(childStart)

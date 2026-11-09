@@ -64,6 +64,9 @@ CREATE TABLE sessions (
   -- Hash of what the chat's chat_search row holds, so a sync that changed
   -- neither title nor text skips rewriting it. See search.go.
   search_hash INTEGER NOT NULL DEFAULT 0,
+  -- 1 when a live flush wrote rows without reindexing them; the next sweep
+  -- rebuilds the chat's search row from its events (IndexStale).
+  search_stale INTEGER NOT NULL DEFAULT 0,
   -- When the user last sent this chat a prompt, 0 unknown: the transcript's
   -- newest user message, or a turn seen starting live. Only ever moves
   -- forward, so a delayed or partial reading cannot pull it back.
@@ -101,6 +104,9 @@ CREATE TABLE events (
   -- Unix milliseconds from the provider's own line, so a settled turn can be
   -- timed ("Worked for 1m 04s") without the host having watched it run.
   at   INTEGER,
+  -- The hash of every row up to and including this one, so a resync finds the
+  -- first row that changed with a few lookups and rewrites only from there.
+  chain INTEGER NOT NULL,
   PRIMARY KEY (sid, idx)
 ) WITHOUT ROWID;
 

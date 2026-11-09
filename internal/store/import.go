@@ -11,14 +11,32 @@ import (
 	"github.com/repogoapp/host/internal/session"
 )
 
-// hashEvents folds the event stream into one value, and separately the value
-// after the first `prefixLen` events, which tells an append from a rewrite.
-// FNV-1a because a collision only costs a missed reload the next sweep fixes.
-func hashEvents(events []agent.Event, prefixLen int) (full, prefix uint64) {
-	const (
-		offset64 = 14695981039346656037
-		prime64  = 1099511628211
-	)
+// row is one event as its events row stores it. chain is the hash of every
+// row up to and including this one, so two transcripts agree on their first
+// n rows exactly when their chains agree at row n-1.
+type row struct {
+	kind  string
+	turn  any
+	text  any
+	tool  any
+	at    any
+	chain int64
+}
+
+// emptyChain is the chain before any row: what a transcript with no events
+// stores as its content_hash.
+const emptyChain = -3750763034362895579 // offset64 as an int64
+
+// FNV-1a, 64-bit.
+const (
+	offset64 = 14695981039346656037
+	prime64  = 1099511628211
+)
+
+// eventRows is events as rows, chained. The hash covers each column as
+// stored, so a row changed in any column it keeps breaks the chain there.
+// FNV-1a because a collision only costs a row left stale until it changes.
+func eventRows(events []agent.Event) []row {
 	h := uint64(offset64)
 	mix := func(s string) {
 		for i := 0; i < len(s); i++ {
@@ -28,26 +46,45 @@ func hashEvents(events []agent.Event, prefixLen int) (full, prefix uint64) {
 		h ^= 0xff
 		h *= prime64
 	}
+	// nil and "" are different columns, NULL and empty text.
+	mixCol := func(v any) {
+		switch v := v.(type) {
+		case string:
+			mix("s" + v)
+		case int64:
+			mix("i" + strconv.FormatInt(v, 10))
+		default:
+			mix("n")
+		}
+	}
 
-	prefix = offset64
+	rows := make([]row, len(events))
 	for i, e := range events {
-		if i == prefixLen {
-			prefix = h
+		r := row{kind: string(e.Kind)}
+		r.tool, r.text = eventCols(e)
+		if e.TurnID != "" {
+			r.turn = e.TurnID
 		}
-		mix(string(e.Kind))
-		mix(e.TurnID)
-		mix(e.Text)
-		if e.Tool != nil {
-			mix(e.Tool.CallID)
-			mix(e.Tool.Name)
-			mix(string(e.Tool.Input))
-			mix(e.Tool.Output)
+		if e.At != 0 {
+			r.at = e.At
 		}
+		mix(r.kind)
+		mixCol(r.turn)
+		mixCol(r.text)
+		mixCol(r.tool)
+		mixCol(r.at)
+		r.chain = int64(h)
+		rows[i] = r
 	}
-	if prefixLen >= len(events) {
-		prefix = h
+	return rows
+}
+
+// chainOf is the chain through the first n rows.
+func chainOf(rows []row, n int) int64 {
+	if n == 0 {
+		return emptyChain
 	}
-	return h, prefix
+	return rows[n-1].chain
 }
 
 // SyncBatch writes many sessions in one all-or-nothing transaction; a failed
@@ -91,8 +128,8 @@ type batch struct {
 	tx  *sql.Tx
 	now int64
 
-	upsert, clear, prior, setTurn, setStatus, unresolve, dropEmptyMarks *sql.Stmt
-	releaseModel, resetModel                                            *sql.Stmt
+	upsert, truncate, chainAt, prior, setTurn, setStatus, unresolve, dropEmptyMarks *sql.Stmt
+	releaseModel, resetModel, markStale                                             *sql.Stmt
 }
 
 func (s *Store) newBatch() (*batch, error) {
@@ -106,8 +143,10 @@ func (s *Store) newBatch() (*batch, error) {
 		query string
 	}{
 		{&b.upsert, sessionUpsert},
-		{&b.clear, `DELETE FROM events WHERE sid = ?`},
-		{&b.prior, `SELECT event_count, content_hash, synced_at, updated_at, size_bytes, last_turn_key, last_turn_started_at, last_turn_finished_at,
+		{&b.truncate, `DELETE FROM events WHERE sid = ? AND idx >= ?`},
+		{&b.chainAt, `SELECT chain FROM events WHERE sid = ? AND idx = ?`},
+		{&b.markStale, `UPDATE sessions SET search_stale = 1 WHERE sid = ?`},
+		{&b.prior, `SELECT sid, event_count, content_hash, synced_at, updated_at, size_bytes, last_turn_key, last_turn_started_at, last_turn_finished_at,
 			model_turn_key FROM sessions WHERE agent = ? AND session_id = ?`},
 		{&b.setTurn, `UPDATE sessions SET last_turn_key = ?, last_turn_started_at = ?, last_turn_finished_at = ? WHERE sid = ?`},
 		{&b.releaseModel, `UPDATE sessions SET model_turn_key = '' WHERE sid = ?`},
@@ -130,7 +169,8 @@ func (s *Store) newBatch() (*batch, error) {
 
 // Close releases the statements and rolls back an uncommitted transaction.
 func (b *batch) Close() {
-	for _, st := range []*sql.Stmt{b.upsert, b.clear, b.prior, b.setTurn, b.setStatus, b.unresolve, b.dropEmptyMarks, b.releaseModel, b.resetModel} {
+	for _, st := range []*sql.Stmt{b.upsert, b.truncate, b.chainAt, b.markStale, b.prior, b.setTurn, b.setStatus,
+		b.unresolve, b.dropEmptyMarks, b.releaseModel, b.resetModel} {
 		if st != nil {
 			st.Close()
 		}
@@ -138,18 +178,20 @@ func (b *batch) Close() {
 	b.tx.Rollback()
 }
 
-// syncEntry replaces one session's rows. listed is whether the chat was
-// already cached; moved is whether its row reads differently: its first
-// transcript, or a changed status or last turn.
+// syncEntry brings one session's rows up to date, rewriting them only from
+// the first that changed. listed is whether the chat was already cached;
+// moved is whether its row reads differently: its first transcript, or a
+// changed status or last turn.
 func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	kind, id := string(e.Meta.Agent), e.Meta.ID
 	// What we already had, so an append can be told from a rewrite.
+	var priorSID int64
 	var oldCount int
 	// SQLite integers are signed; a uint64 hash round-trips through int64.
 	var storedHash, syncedAt, storedUpdated, storedSize int64
 	var turnKey, modelTurnKey string
 	var turnStarted, turnFinished sql.NullInt64
-	switch err := b.prior.QueryRow(kind, id).Scan(&oldCount, &storedHash, &syncedAt, &storedUpdated, &storedSize,
+	switch err := b.prior.QueryRow(kind, id).Scan(&priorSID, &oldCount, &storedHash, &syncedAt, &storedUpdated, &storedSize,
 		&turnKey, &turnStarted, &turnFinished, &modelTurnKey); err {
 	case nil:
 		listed = true
@@ -166,11 +208,18 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	// at most the title and model write 1 took from the request.
 	moved = syncedAt == 0
 
-	full, prefix := hashEvents(e.Events, oldCount)
-	// Growth over an unchanged prefix is an append the client keeps. A row
-	// with no events yet has no history to invalidate.
+	rows := eventRows(e.Events)
+	keep := 0
+	if listed && oldCount > 0 {
+		if keep, err = b.kept(priorSID, rows, oldCount, storedHash); err != nil {
+			return false, false, err
+		}
+	}
+	// Growth over unchanged rows is an append the client keeps; a changed or
+	// dropped row it holds is a rewrite it must reload. A row with no events
+	// yet has no history to invalidate.
 	bump := 0
-	if oldCount > len(e.Events) || (oldCount > 0 && prefix != uint64(storedHash)) {
+	if keep < oldCount {
 		bump = 1
 		// A rewind can legitimately restore a model from an older row.
 		if _, err := b.resetModel.Exec(kind, id); err != nil {
@@ -200,7 +249,7 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 	var title string
 	agentTitled := collapseSpace(e.Meta.Title) != ""
 	if err := b.upsert.QueryRow(kind, id, e.Meta.Cwd, titleFor(e.Meta, e.Events), summaryOf(e.Events), e.Meta.Path,
-		createdAt(e.Meta, e.Events), e.Meta.UpdatedAt.UnixMilli(), e.Meta.SizeBytes, len(e.Events), int64(full), b.now,
+		createdAt(e.Meta, e.Events), e.Meta.UpdatedAt.UnixMilli(), e.Meta.SizeBytes, len(e.Events), chainOf(rows, len(rows)), b.now,
 		e.Meta.ContextUsed, e.Meta.ContextSize, model, modelLabel, modelAt, e.Meta.ProjectAgent,
 		string(e.Meta.Settings.PermissionMode), e.Meta.Settings.Mode, e.Meta.Settings.ReasoningLevel, e.Meta.Settings.FastMode,
 		lastMessageAt(e.Events), b.s.rev.Add(1), agentTitled, bump).Scan(&sid, &title, &searchHash); err != nil {
@@ -212,13 +261,19 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 		}
 		moved = true
 	}
-	if _, err := b.clear.Exec(sid); err != nil {
+	if _, err := b.truncate.Exec(sid, keep); err != nil {
 		return false, false, err
 	}
-	if err := insertEvents(b.tx, sid, e.Events); err != nil {
+	if err := insertEvents(b.tx, sid, rows, keep); err != nil {
 		return false, false, err
 	}
-	if err := indexChat(b.tx, sid, title, e.Events, searchHash); err != nil {
+	// Search is rebuilt from the whole chat. A live flush leaves that to the
+	// next sweep rather than paying it every few hundred milliseconds.
+	if e.DeferSearch {
+		if _, err := b.markStale.Exec(sid); err != nil {
+			return false, false, err
+		}
+	} else if err := indexChat(b.tx, sid, title, searchBody(e.Events), searchHash); err != nil {
 		return false, false, err
 	}
 	if key != turnKey || started != turnStarted || finished != turnFinished {
@@ -249,6 +304,35 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 		}
 	}
 	return listed, moved, nil
+}
+
+// kept is how many of the oldCount stored rows rows leaves unchanged. Chains
+// agree up to the first changed row and differ after it, so the answer is a
+// binary search, and an append (the usual case) needs no lookup at all.
+func (b *batch) kept(sid int64, rows []row, oldCount int, storedHash int64) (int, error) {
+	n := min(oldCount, len(rows))
+	if n == oldCount && chainOf(rows, n) == storedHash {
+		return n, nil
+	}
+	// Invariant: the first lo rows match; past hi they do not.
+	lo, hi := 0, n
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		var stored int64
+		switch err := b.chainAt.QueryRow(sid, mid-1).Scan(&stored); {
+		case err == sql.ErrNoRows:
+			hi = mid - 1
+			continue
+		case err != nil:
+			return 0, err
+		}
+		if stored == rows[mid-1].chain {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo, nil
 }
 
 // readBefore reports whether e is an older read of the file than the stored
@@ -308,19 +392,21 @@ func transcriptStatus(events []agent.Event) (agent.ChatStatus, int64) {
 // cgo crossing and one VM entry, the dominant per-row cost.
 const eventsPerStatement = 128
 
-func insertEvents(tx *sql.Tx, sid int64, events []agent.Event) error {
-	return insertRows(tx, `INSERT INTO events (sid, idx, kind, turn, text, tool, at) VALUES `, sid, events)
+// insertEvents writes a chat's rows from index from on.
+func insertEvents(tx *sql.Tx, sid int64, rows []row, from int) error {
+	return insertRows(tx, `INSERT INTO events (sid, idx, kind, turn, text, tool, at, chain) VALUES `, sid, rows, from, true)
 }
 
-// insertRows writes events under owner with insert, the statement's head up
-// to VALUES: a chat's into events, a subagent's into subagent_events.
-func insertRows(tx *sql.Tx, insert string, owner int64, events []agent.Event) error {
-	const cols = 7
-	for start := 0; start < len(events); start += eventsPerStatement {
-		end := start + eventsPerStatement
-		if end > len(events) {
-			end = len(events)
-		}
+// insertRows writes rows[from:] under owner with insert, the statement's head
+// up to VALUES: a chat's into events, with its chain, and a subagent's into
+// subagent_events, without.
+func insertRows(tx *sql.Tx, insert string, owner int64, rows []row, from int, chained bool) error {
+	cols, tuple := 7, `(?,?,?,?,?,?,?)`
+	if chained {
+		cols, tuple = 8, `(?,?,?,?,?,?,?,?)`
+	}
+	for start := from; start < len(rows); start += eventsPerStatement {
+		end := min(start+eventsPerStatement, len(rows))
 		n := end - start
 
 		var b strings.Builder
@@ -329,21 +415,16 @@ func insertRows(tx *sql.Tx, insert string, owner int64, events []agent.Event) er
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			b.WriteString(`(?,?,?,?,?,?,?)`)
+			b.WriteString(tuple)
 		}
 
 		args := make([]any, 0, n*cols)
 		for i := start; i < end; i++ {
-			tool, text := eventCols(events[i])
-			var turn any
-			if events[i].TurnID != "" {
-				turn = events[i].TurnID
+			r := rows[i]
+			args = append(args, owner, i, r.kind, r.turn, r.text, r.tool, r.at)
+			if chained {
+				args = append(args, r.chain)
 			}
-			var at any
-			if events[i].At != 0 {
-				at = events[i].At
-			}
-			args = append(args, owner, i, string(events[i].Kind), turn, text, tool, at)
 		}
 		if _, err := tx.Exec(b.String(), args...); err != nil {
 			return err
@@ -388,7 +469,7 @@ func MessagesOf(events []agent.Event) []Message {
 
 // Sync replaces one session's rows.
 func (s *Store) Sync(meta session.Meta, events []agent.Event) error {
-	return s.SyncBatch([]Entry{{meta, events}})
+	return s.SyncBatch([]Entry{{Meta: meta, Events: events}})
 }
 
 // Bulk trades durability away for a first full sync; a crash costs a reparse.

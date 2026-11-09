@@ -70,24 +70,91 @@ func indexText(text string) string {
 }
 
 // indexChat replaces the chat's chat_search row inside the sync transaction,
-// so the index and the chat cannot disagree. A sync that changed neither the
-// title nor the text leaves the row alone.
-func indexChat(tx *sql.Tx, sid int64, title string, events []agent.Event, storedHash int64) error {
-	title, body := indexText(title), indexText(searchBody(events))
+// so the index and the chat cannot disagree. body is searchBody's. A sync that
+// changed neither the title nor the text leaves the row alone.
+func indexChat(tx *sql.Tx, sid int64, title, body string, storedHash int64) error {
+	title, body = indexText(title), indexText(body)
 	hash := searchHash(title, body)
-	if hash == storedHash {
-		return nil
+	if hash != storedHash {
+		if _, err := tx.Exec(`DELETE FROM chat_search WHERE rowid = ?`, sid); err != nil {
+			return fmt.Errorf("store: index chat: %w", err)
+		}
+		if _, err := tx.Exec(`INSERT INTO chat_search (rowid, title, body) VALUES (?, ?, ?)`, sid, title, body); err != nil {
+			return fmt.Errorf("store: index chat: %w", err)
+		}
 	}
-	if _, err := tx.Exec(`DELETE FROM chat_search WHERE rowid = ?`, sid); err != nil {
-		return fmt.Errorf("store: index chat: %w", err)
-	}
-	if _, err := tx.Exec(`INSERT INTO chat_search (rowid, title, body) VALUES (?, ?, ?)`, sid, title, body); err != nil {
-		return fmt.Errorf("store: index chat: %w", err)
-	}
-	if _, err := tx.Exec(`UPDATE sessions SET search_hash = ? WHERE sid = ?`, hash, sid); err != nil {
+	if _, err := tx.Exec(`UPDATE sessions SET search_hash = ?, search_stale = 0
+		WHERE sid = ? AND (search_hash != ? OR search_stale != 0)`, hash, sid, hash); err != nil {
 		return fmt.Errorf("store: index chat: %w", err)
 	}
 	return nil
+}
+
+// IndexStale rebuilds the search rows live flushes left behind (DeferSearch),
+// from the rows they wrote, and reports how many it rebuilt.
+func (s *Store) IndexStale() (int, error) {
+	type stale struct {
+		sid, hash int64
+		title     string
+	}
+	rows, err := s.db.Query(`SELECT sid, title, search_hash FROM sessions WHERE search_stale = 1`)
+	if err != nil {
+		return 0, fmt.Errorf("store: index stale chats: %w", err)
+	}
+	var chats []stale
+	for rows.Next() {
+		var c stale
+		if err := rows.Scan(&c.sid, &c.title, &c.hash); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("store: index stale chats: %w", err)
+		}
+		chats = append(chats, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("store: index stale chats: %w", err)
+	}
+
+	for _, c := range chats {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return 0, err
+		}
+		body, err := storedSearchBody(tx, c.sid)
+		if err == nil {
+			err = indexChat(tx, c.sid, c.title, body, c.hash)
+		}
+		if err == nil {
+			err = tx.Commit()
+		}
+		if err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+	}
+	return len(chats), nil
+}
+
+// storedSearchBody is searchBody read back from a chat's stored rows.
+func storedSearchBody(tx *sql.Tx, sid int64) (string, error) {
+	rows, err := tx.Query(`SELECT text FROM events WHERE sid = ? AND kind IN (?, ?) AND text != '' ORDER BY idx`,
+		sid, string(agent.EventUserMessage), string(agent.EventText))
+	if err != nil {
+		return "", fmt.Errorf("store: read search body: %w", err)
+	}
+	defer rows.Close()
+	var b strings.Builder
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			return "", fmt.Errorf("store: read search body: %w", err)
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(text)
+	}
+	return b.String(), rows.Err()
 }
 
 // deleteSearchRow drops a chat's chat_search row by chat id. It must run
