@@ -97,9 +97,13 @@ type Manager struct {
 	// Held from reading a chat's subagent calls to sending them; sendSubagents.
 	subagentsMu sync.Mutex
 
-	// The file tail each device has open. One per device: a tailer is not
-	// left running for every chat ever opened.
-	tails map[device.ID]*tail
+	// The chat each device watches: one at a time, so opening another lets
+	// the first go.
+	subs map[device.ID]store.ChatID
+
+	// One watch per chat with any device on it: one tail and one sync of its
+	// files, whatever the number of devices.
+	watches map[store.ChatID]*watch
 
 	// The calls each device's open tool sheets show, by chat (WatchTools).
 	// Apart from tails, so a sheet re-watching after a reconnect need not
@@ -124,13 +128,28 @@ type Manager struct {
 	hookPending map[store.ChatID]string
 }
 
-type tail struct {
+// watch follows one chat's files for every device on it, each from its own
+// position. Positions are read and written under Manager.mu.
+type watch struct {
 	chatID store.ChatID
 	cancel context.CancelFunc
 
-	// Nudge asks the tailer to flush now rather than on its next poll: a hook
-	// has just said the transcript changed.
+	// Nudge asks the watch to flush now rather than on its next poll: a hook
+	// has said the transcript changed, or a device needs its backlog.
 	nudge chan struct{}
+
+	at map[device.ID]position
+
+	// childrenSynced is set once the watch's first subagent sync is done: a
+	// device joining before then hears them from that sync, after it from attach.
+	childrenSynced bool
+}
+
+// position is where one device stands in a chat: the next row it lacks, and
+// the generation it holds, 0 before its first page says.
+type position struct {
+	next       int
+	generation int64
 }
 
 // New serves d until ctx ends.
@@ -140,7 +159,8 @@ func New(ctx context.Context, d Deps) *Manager {
 		children:    d.Children,
 		onAttention: d.Attention,
 
-		tails:       map[device.ID]*tail{},
+		subs:        map[device.ID]store.ChatID{},
+		watches:     map[store.ChatID]*watch{},
 		toolWatches: map[device.ID]map[store.ChatID]map[string]bool{},
 		streamSent:  map[store.ChatID]streamSent{},
 		now:         time.Now,
@@ -153,42 +173,47 @@ func New(ctx context.Context, d Deps) *Manager {
 
 var ErrNoSuchChat = errors.New("chatlive: no such chat")
 
-// Subscribe starts pushing a chat's tail to one device, replacing any previous
-// subscription so a tailer is not left running for every chat ever opened,
-// and returns the chat's live state as of joining its room.
+// Subscribe starts pushing a chat's rows from sinceIdx to one device, which
+// lets go of any chat it watched before, and returns the chat's live state as
+// of joining its room. What a phone without subscribe_cursor sends.
 func (m *Manager) Subscribe(caller device.ID, chatID store.ChatID, sinceIdx int) (Live, error) {
-	return m.subscribe(caller, chatID, sinceIdx, 0)
+	return m.open(caller, chatID, func(*Live) (position, error) {
+		return position{next: sinceIdx}, nil
+	})
 }
 
-// SubscribeTail is Subscribe for a chat being opened: the reply also carries
-// its newest limit rows, a chats.messages tail page, and pushes start where
-// that page ends. One round trip where a messages read and a subscribe took two.
-func (m *Manager) SubscribeTail(caller device.ID, chatID store.ChatID, limit int) (Live, error) {
-	return m.subscribe(caller, chatID, 0, max(limit, 1))
+// Open is Subscribe for a device opening or resuming a chat, in one call: the
+// reply carries the rows after have (or the newest limit, when have is nil or
+// no longer holds, with Reset), the chat's row, and the live state; pushes
+// start where the page ends.
+func (m *Manager) Open(caller device.ID, chatID store.ChatID, have *store.ChatCursor, limit int) (Live, error) {
+	return m.open(caller, chatID, func(live *Live) (position, error) {
+		page, chat, reset, err := m.db.Open(chatID, have, max(limit, 1))
+		if err != nil {
+			return position{}, err
+		}
+		out := m.wire.Page(page)
+		out.TurnLive = chat.Status.Active()
+		live.Page, live.Chat, live.Reset = &out, &chat, reset
+		return position{next: page.NextIndex, generation: page.Generation}, nil
+	})
 }
 
-// subscribe is Subscribe from sinceIdx, or with tailRows > 0 SubscribeTail.
-func (m *Manager) subscribe(caller device.ID, chatID store.ChatID, sinceIdx, tailRows int) (Live, error) {
-	m.mu.Lock()
-	expected := m.streaming[chatID] > 0
-	m.mu.Unlock()
-	if !expected {
-		_, err := m.db.Info(chatID)
-		expected = err == nil
-	}
-	if _, _, err := m.sessions.Find(chatID.SessionID()); err != nil && !expected {
+// open joins the device to the chat's room, then reads (the page, if any),
+// then places it on the chat's watch where the read ended. Joining first means
+// a row written in between is in the page or pushed after it; a row both in
+// a page and pushed is dropped by the device, which applies rows by index.
+func (m *Manager) open(caller device.ID, chatID store.ChatID, read func(*Live) (position, error)) (Live, error) {
+	if !m.known(chatID) {
 		return Live{}, fmt.Errorf("%w: %s", ErrNoSuchChat, chatID)
 	}
-
-	ctx, cancel := context.WithCancel(m.ctx)
-
 	m.mu.Lock()
-	if old, ok := m.tails[caller]; ok {
-		old.cancel()
-		m.emit.Leave(caller, chatRoom(old.chatID))
+	// Re-opening the chat it watches (a resume) keeps the watch running and
+	// only moves this device's position: a new watch would replay the file.
+	if m.subs[caller] != chatID {
+		m.detachLocked(caller)
+		m.subs[caller] = chatID
 	}
-	held := &tail{chatID: chatID, cancel: cancel, nudge: make(chan struct{}, 1)}
-	m.tails[caller] = held
 	m.mu.Unlock()
 
 	// Pushes after joining carry later revisions than the snapshot, so the
@@ -201,56 +226,100 @@ func (m *Manager) subscribe(caller device.ID, chatID store.ChatID, sinceIdx, tai
 	if a, ok := snap.State[Approval{}.StateKey()].(Approval); ok {
 		live.Approval = &a
 	}
-	// The page is read after joining and the tailer starts at its end: a row
-	// written in between is in the page or pushed after it, never neither.
-	if tailRows > 0 {
-		page, err := m.tailPage(chatID, tailRows)
-		if err != nil {
-			// Given back as a failed chats.messages leaves it: not held. A
-			// subscribe that has replaced this one since keeps its own.
-			m.mu.Lock()
-			if m.tails[caller] == held {
-				delete(m.tails, caller)
-				m.emit.Leave(caller, chatRoom(chatID))
-			}
-			m.mu.Unlock()
-			cancel()
-			return Live{}, err
+	at, err := read(&live)
+	if err != nil {
+		// Given back as a failed chats.messages leaves it: not held. An open
+		// that has replaced this one since keeps its own.
+		m.mu.Lock()
+		if m.subs[caller] == chatID {
+			m.detachLocked(caller)
 		}
-		live.Page, sinceIdx = &page, page.NextIndex
+		m.mu.Unlock()
+		return Live{}, err
 	}
-	go m.run(ctx, caller, chatID, sinceIdx)
+	m.attach(caller, chatID, at)
 	return live, nil
 }
 
-// tailPage is the chats.messages tail page: the newest limit rows, and
-// whether a turn runs.
-func (m *Manager) tailPage(chatID store.ChatID, limit int) (chatwire.Page, error) {
-	page, err := m.db.Tail(chatID, limit)
-	if err != nil {
-		return chatwire.Page{}, err
+// known is whether chatID is a chat to subscribe to: one the cache or a
+// running turn knows, else one whose transcript is on disk.
+func (m *Manager) known(chatID store.ChatID) bool {
+	m.mu.Lock()
+	streaming := m.streaming[chatID] > 0
+	m.mu.Unlock()
+	if streaming {
+		return true
 	}
-	out := m.wire.Page(page)
-	if c, err := m.db.Info(chatID); err == nil {
-		out.TurnLive = c.Status.Active()
+	if _, err := m.db.Info(chatID); err == nil {
+		return true
 	}
-	return out, nil
+	_, _, err := m.sessions.Find(chatID.SessionID())
+	return err == nil
 }
 
-// Nudge flushes every subscription on chatID without waiting for the tail's
-// next poll. Called when a hook reports the provider wrote something, so the
-// rows it saved reach the devices watching as soon as they are on disk.
+// attach places caller on chatID's watch at at, starting the watch for its
+// first device, and nudges it so a backlog reaches the device now rather
+// than when the file next changes.
+func (m *Manager) attach(caller device.ID, chatID store.ChatID, at position) {
+	m.mu.Lock()
+	if m.subs[caller] != chatID {
+		// Another open from this device took over while this one read.
+		m.mu.Unlock()
+		return
+	}
+	w, running := m.watches[chatID]
+	if !running {
+		ctx, cancel := context.WithCancel(m.ctx)
+		w = &watch{chatID: chatID, cancel: cancel, nudge: make(chan struct{}, 1), at: map[device.ID]position{}}
+		m.watches[chatID] = w
+		go m.run(ctx, w)
+	}
+	w.at[caller] = at
+	synced := w.childrenSynced
+	m.mu.Unlock()
+
+	nudge(w)
+	if synced {
+		go m.sendSubagents(chatID, []device.ID{caller})
+	}
+}
+
+// detachLocked takes caller off the chat it watches, stopping that chat's
+// watch when it was the last device. Holds m.mu.
+func (m *Manager) detachLocked(caller device.ID) {
+	chatID, ok := m.subs[caller]
+	if !ok {
+		return
+	}
+	delete(m.subs, caller)
+	m.emit.Leave(caller, chatRoom(chatID))
+	w := m.watches[chatID]
+	if w == nil {
+		return
+	}
+	delete(w.at, caller)
+	if len(w.at) == 0 {
+		w.cancel()
+		delete(m.watches, chatID)
+	}
+}
+
+func nudge(w *watch) {
+	select {
+	case w.nudge <- struct{}{}:
+	default:
+	}
+}
+
+// Nudge flushes chatID's watch without waiting for its next poll. Called when
+// a hook reports the provider wrote something, so the rows it saved reach the
+// devices watching as soon as they are on disk.
 func (m *Manager) Nudge(chatID store.ChatID) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, t := range m.tails {
-		if t.chatID != chatID {
-			continue
-		}
-		select {
-		case t.nudge <- struct{}{}:
-		default:
-		}
+	w := m.watches[chatID]
+	m.mu.Unlock()
+	if w != nil {
+		nudge(w)
 	}
 }
 
@@ -284,48 +353,36 @@ func (m *Manager) UnwatchTools(caller device.ID, chatID store.ChatID, callIDs []
 
 func (m *Manager) Unsubscribe(caller device.ID) {
 	m.mu.Lock()
-	t, ok := m.tails[caller]
-	delete(m.tails, caller)
+	defer m.mu.Unlock()
+	m.detachLocked(caller)
 	delete(m.toolWatches, caller)
-	m.mu.Unlock()
-	if ok {
-		t.cancel()
-		m.emit.Leave(caller, chatRoom(t.chatID))
-	}
 }
 
-func (m *Manager) run(ctx context.Context, caller device.ID, chatID store.ChatID, sinceIdx int) {
-	if !m.awaitSession(ctx, chatID) {
-		return
-	}
-	meta, events, err := m.sessions.Watch(ctx, chatID.SessionID())
-	if err != nil {
-		m.log.Warn("chatlive: cannot watch", "chat", chatID, "err", err)
-		return
-	}
-	m.log.Info("chatlive: watching", "chat", chatID, "device", caller, "from", sinceIdx)
-	defer m.log.Info("chatlive: stopped watching", "chat", chatID, "device", caller)
-
+// devicesOf is who w serves now.
+func (m *Manager) devicesOf(w *watch) []device.ID {
 	m.mu.Lock()
-	var nudge <-chan struct{}
-	if t, ok := m.tails[caller]; ok && t.chatID == chatID {
-		nudge = t.nudge
-	}
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	return slices.Collect(maps.Keys(w.at))
+}
 
-	cursor := sinceIdx
-	go m.watchChildren(ctx, caller, chatID, meta)
+func (m *Manager) run(ctx context.Context, w *watch) {
+	if !m.awaitSession(ctx, w.chatID) {
+		return
+	}
+	meta, events, err := m.sessions.Watch(ctx, w.chatID.SessionID())
+	if err != nil {
+		m.log.Warn("chatlive: cannot watch", "chat", w.chatID, "err", err)
+		return
+	}
+	m.log.Info("chatlive: watching", "chat", w.chatID, "devices", len(m.devicesOf(w)))
+	defer m.log.Info("chatlive: stopped watching", "chat", w.chatID)
+
+	go m.watchChildren(ctx, w, meta)
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-nudge:
-			next, err := m.flush(ctx, caller, chatID, cursor)
-			if err != nil {
-				m.log.Warn("chatlive: flush failed", "chat", chatID, "err", err)
-				continue
-			}
-			cursor = next
+		case <-w.nudge:
 		case _, ok := <-events:
 			if !ok {
 				return
@@ -334,12 +391,9 @@ func (m *Manager) run(ctx context.Context, caller device.ID, chatID store.ChatID
 			if !drain(ctx, events) {
 				return
 			}
-			next, err := m.flush(ctx, caller, chatID, cursor)
-			if err != nil {
-				m.log.Warn("chatlive: flush failed", "chat", chatID, "err", err)
-				continue
-			}
-			cursor = next
+		}
+		if err := m.flush(ctx, w); err != nil {
+			m.log.Warn("chatlive: flush failed", "chat", w.chatID, "err", err)
 		}
 	}
 }
@@ -388,11 +442,16 @@ func drain(ctx context.Context, events <-chan agent.Event) bool {
 // watchChildren keeps a watched chat's subagents synced, apart from its rows
 // so a slow pass never holds them up. The device hears where they stand now;
 // every later change reaches all watchers through ChildrenChanged.
-func (m *Manager) watchChildren(ctx context.Context, caller device.ID, chatID store.ChatID, meta session.Meta) {
+func (m *Manager) watchChildren(ctx context.Context, w *watch, meta session.Meta) {
+	chatID := w.chatID
 	if _, err := m.children.SyncChildren(meta.Restat()); err != nil {
 		m.log.Debug("chatlive: could not sync subagents", "chat", chatID, "err", err)
 	}
-	m.sendSubagents(chatID, []device.ID{caller})
+	m.mu.Lock()
+	w.childrenSynced = true
+	devices := slices.Collect(maps.Keys(w.at))
+	m.mu.Unlock()
+	m.sendSubagents(chatID, devices)
 
 	wait := childPoll
 	timer := time.NewTimer(wait)
@@ -496,36 +555,69 @@ func (m *Manager) resync(meta session.Meta) error {
 	return m.db.SyncBatch([]store.Entry{{Meta: meta, Events: fresh, DeferSearch: true}})
 }
 
-// flush re-syncs the session and sends whatever is new, every page of it: a
-// backlog left behind would wait for the provider to write again. Returns the
-// cursor to resume from.
-func (m *Manager) flush(ctx context.Context, caller device.ID, chatID store.ChatID, cursor int) (int, error) {
-	meta, _, err := m.sessions.Find(chatID.SessionID())
+// flush re-syncs the chat's files once, then brings every device on the
+// watch up to date from its own position. One device failing to receive does
+// not hold up the others; it is retried on the next flush.
+func (m *Manager) flush(ctx context.Context, w *watch) error {
+	meta, _, err := m.sessions.Find(w.chatID.SessionID())
 	if err != nil {
-		return cursor, err
+		return err
 	}
 	if err := m.resync(meta); err != nil {
-		return cursor, err
+		return err
 	}
-
-	for ctx.Err() == nil {
-		page, err := m.db.Messages(chatID, cursor, flushPage)
+	m.mu.Lock()
+	at := maps.Clone(w.at)
+	m.mu.Unlock()
+	for d, from := range at {
+		to, err := m.deliver(ctx, d, w.chatID, from)
 		if err != nil {
-			return cursor, err
+			m.log.Debug("chatlive: could not push rows", "chat", w.chatID, "device", d, "err", err)
 		}
+		m.mu.Lock()
+		// A device that opened again meanwhile has a newer position: keep it.
+		if cur, ok := w.at[d]; ok && cur == from {
+			w.at[d] = to
+		}
+		m.mu.Unlock()
+	}
+	return nil
+}
+
+// deliver sends one device every row past from, page by page: a backlog left
+// behind would wait for the provider to write again. A device on another
+// generation is sent one empty page of the new one, so it reloads, even when
+// the rewrite left fewer rows than it holds. Returns where the device stands.
+func (m *Manager) deliver(ctx context.Context, d device.ID, chatID store.ChatID, from position) (position, error) {
+	for ctx.Err() == nil {
+		page, err := m.db.Messages(chatID, from.next, flushPage)
+		if err != nil {
+			return from, err
+		}
+		if from.generation != 0 && page.Generation != from.generation {
+			notice := page
+			notice.Events = nil
+			notice.FirstIndex, notice.NextIndex = page.EventCount, page.EventCount
+			notice.HasBefore = page.EventCount > 0
+			if err := m.emit.To(d, Appended{Page: m.wire.Page(notice)}); err != nil {
+				return from, err
+			}
+			return position{next: page.EventCount, generation: page.Generation}, nil
+		}
+		from.generation = page.Generation
 		if len(page.Events) == 0 {
-			return cursor, nil
+			return from, nil
 		}
-		if err := m.emit.To(caller, Appended{Page: m.wire.Page(page)}); err != nil {
-			return cursor, err
+		if err := m.emit.To(d, Appended{Page: m.wire.Page(page)}); err != nil {
+			return from, err
 		}
-		if err := m.pushTools(caller, chatID, page.Events); err != nil {
-			return cursor, err
+		if err := m.pushTools(d, chatID, page.Events); err != nil {
+			return from, err
 		}
-		cursor = page.NextIndex
-		if cursor >= page.EventCount {
-			return cursor, nil
+		from.next = page.NextIndex
+		if from.next >= page.EventCount {
+			return from, nil
 		}
 	}
-	return cursor, nil
+	return from, ctx.Err()
 }

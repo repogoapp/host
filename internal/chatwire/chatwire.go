@@ -32,6 +32,9 @@ type Page struct {
 
 	// Generation the rows came from; a client holding another refetches from 0.
 	Generation int64 `json:"generation"`
+	// CacheEpoch names the cache the rows came from, on a subscribe's page
+	// only: with Generation and NextIndex it is the cursor a device resumes from.
+	CacheEpoch string `json:"cache_epoch,omitempty"`
 
 	// EventCount is the transcript's total; NextIndex is the next `since_index`,
 	// FirstIndex the next `before_index`, and HasBefore false once index 0 is here.
@@ -162,7 +165,7 @@ func New(labelers []Labeler) *Builder {
 func (b *Builder) Page(p store.Page) Page {
 	return Page{
 		ChatID: p.ChatID, Events: b.Messages(agent.Kind(p.Agent), p.Events),
-		Cwd: p.Cwd, Agent: p.Agent, ProjectAgent: p.ProjectAgent, Generation: p.Generation,
+		Cwd: p.Cwd, Agent: p.Agent, ProjectAgent: p.ProjectAgent, Generation: p.Generation, CacheEpoch: p.CacheEpoch,
 		EventCount: p.EventCount, NextIndex: p.NextIndex, FirstIndex: p.FirstIndex, HasBefore: p.HasBefore,
 	}
 }

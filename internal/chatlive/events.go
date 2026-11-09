@@ -128,10 +128,13 @@ type Live struct {
 	Streaming *Streaming `json:"streaming"`
 	Approval  *Approval  `json:"approval"`
 
-	// Page is the chat's newest rows when the subscribe asked for its tail,
-	// read after joining, so no row lands between it and the first push.
-	// Absent otherwise, and from a host older than CapabilitySubscribeTail.
-	Page *chatwire.Page `json:"page,omitempty"`
+	// What an Open adds, absent otherwise and from a host older than
+	// subscribe_cursor: Page, the rows the device lacks, read after joining;
+	// Reset, that its cursor no longer held (another cache or generation, or
+	// past the end), so Page is the newest rows; Chat, its chats.info row.
+	Page  *chatwire.Page `json:"page,omitempty"`
+	Reset bool           `json:"reset,omitempty"`
+	Chat  *store.Chat    `json:"chat,omitempty"`
 }
 
 // Changed is one chat's list row after it moved: a sweep found new activity,

@@ -31,6 +31,7 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `agent` string
 - `project_agent` string (omitted when empty)
 - `generation` int
+- `cache_epoch` string (omitted when empty)
 - `event_count` int
 - `next_index` int
 - `first_index` int

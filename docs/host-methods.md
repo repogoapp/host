@@ -249,6 +249,7 @@ Result:
 - `agent` string
 - `project_agent` string (omitted when empty)
 - `generation` int
+- `cache_epoch` string (omitted when empty)
 - `event_count` int
 - `next_index` int
 - `first_index` int
@@ -424,7 +425,8 @@ Params:
 - `chat_id` string
 - `since_index` int
 - `tail` bool (omitted when empty): Answer with the newest messages too, and push from there
-- `limit` int (omitted when empty): Messages in the tail page
+- `have` object{ChatCursor} (omitted when empty) (nullable): What the device holds: answer with the rows after it
+- `limit` int (omitted when empty): Messages in the page
 
 Result:
 
@@ -433,6 +435,8 @@ Result:
 - `streaming` object{Streaming} (nullable)
 - `approval` object{Approval} (nullable)
 - `page` object{Page} (omitted when empty) (nullable)
+- `reset` bool (omitted when empty)
+- `chat` object{Chat} (omitted when empty) (nullable)
 
 ## `chats.unsubscribe`
 

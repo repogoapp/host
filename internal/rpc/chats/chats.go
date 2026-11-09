@@ -224,10 +224,14 @@ func (d Deps) stop(_ context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, erro
 }
 
 func (d Deps) subscribe(_ context.Context, c rpc.Caller, a SubscribeParams) (chatlive.Live, error) {
-	if a.Tail {
-		return d.Live.SubscribeTail(c.Device, a.ChatID, a.Limit)
+	if !a.Tail && a.Have == nil {
+		return d.Live.Subscribe(c.Device, a.ChatID, a.SinceIndex)
 	}
-	return d.Live.Subscribe(c.Device, a.ChatID, a.SinceIndex)
+	live, err := d.Live.Open(c.Device, a.ChatID, a.Have, a.Limit)
+	if live.Chat != nil {
+		d.Chats.Stamp(live.Chat)
+	}
+	return live, err
 }
 
 func (d Deps) unsubscribe(_ context.Context, c rpc.Caller, _ rpc.None) (rpc.Ack, error) {

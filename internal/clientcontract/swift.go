@@ -471,7 +471,7 @@ func (g *swiftGen) assignNames() {
 		}
 		if t.PkgPath() == "github.com/repogoapp/host/internal/store" {
 			switch t.Name() {
-			case "Chat", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
+			case "Chat", "ChatCursor", "Queue", "QueuedTurn", "SyncParams", "SyncResult":
 				family = "chats"
 			case "Schedule":
 				family = "schedules"

@@ -24,6 +24,7 @@ import (
 type capture struct {
 	mu        sync.Mutex
 	pages     []chatwire.Page
+	pagesTo   []device.ID
 	tools     []Tool
 	subagents []subagentsPush
 }
@@ -65,7 +66,21 @@ func (c *capture) Send(d device.ID, method string, payload []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pages = append(c.pages, page)
+	c.pagesTo = append(c.pagesTo, d)
 	return nil
+}
+
+// receivedBy is the chats.appended pages sent to d.
+func (c *capture) receivedBy(d device.ID) []chatwire.Page {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []chatwire.Page
+	for i, to := range c.pagesTo {
+		if to == d {
+			out = append(out, c.pages[i])
+		}
+	}
+	return out
 }
 
 func (c *capture) received() []chatwire.Page {
@@ -212,7 +227,7 @@ func TestAppendProducesAPush(t *testing.T) {
 
 // Opening a chat is one call: the subscribe answers with the newest page,
 // read after joining, and pushes carry only what lands after it.
-func TestSubscribeTailAnswersWithThePageAndPushesPastIt(t *testing.T) {
+func TestOpenAnswersWithThePageAndPushesPastIt(t *testing.T) {
 	home, sessions := liveHome(t, userLine("first"))
 	db, err := store.Open(t.TempDir())
 	if err != nil {
@@ -237,13 +252,17 @@ func TestSubscribeTailAnswersWithThePageAndPushesPastIt(t *testing.T) {
 	logs := &messages{seen: map[string]bool{}}
 	m.log = slog.New(logs)
 	caller := device.ID("00112233445566778899aabbccddeeff")
-	live, err := m.SubscribeTail(caller, "claude:live-1", 100)
+	live, err := m.Open(caller, "claude:live-1", nil, 100)
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 	defer m.Unsubscribe(caller)
 	if live.Page == nil || len(live.Page.Events) != len(want.Events) || live.Page.NextIndex != want.NextIndex {
 		t.Fatalf("subscribe page = %+v, want the tail %d rows to %d", live.Page, len(want.Events), want.NextIndex)
+	}
+	if live.Chat == nil || live.Chat.ID != "claude:live-1" || live.Reset || live.Page.CacheEpoch != db.Epoch() {
+		t.Fatalf("open = chat %+v, reset %v, epoch %q; want the chat's row, no reset, the cache's epoch",
+			live.Chat, live.Reset, live.Page.CacheEpoch)
 	}
 
 	writeClaudeSession(t, home, "live-1", []string{userLine("second")})
@@ -255,9 +274,9 @@ func TestSubscribeTailAnswersWithThePageAndPushesPastIt(t *testing.T) {
 	}
 }
 
-// A tail subscribe to a chat the cache doesn't hold fails as chats.messages
-// does, and leaves no subscription behind.
-func TestSubscribeTailToAnUnknownChatHoldsNothing(t *testing.T) {
+// An open of a chat the cache doesn't hold fails as chats.messages does, and
+// leaves no subscription behind.
+func TestOpenOfAnUnknownChatHoldsNothing(t *testing.T) {
 	_, sessions := liveHome(t, userLine("first"))
 	db, err := store.Open(t.TempDir())
 	if err != nil {
@@ -266,11 +285,14 @@ func TestSubscribeTailToAnUnknownChatHoldsNothing(t *testing.T) {
 	defer db.Close()
 	m := newManager(t, sessions, db, &capture{}, &fakeTurns{})
 	caller := device.ID("00112233445566778899aabbccddeeff")
-	if _, err := m.SubscribeTail(caller, "claude:live-1", 100); err == nil {
+	if _, err := m.Open(caller, "claude:live-1", nil, 100); err == nil {
 		t.Fatal("subscribed to a chat with no cached rows")
 	}
 	m.mu.Lock()
-	_, held := m.tails[caller]
+	_, held := m.subs[caller]
+	if len(m.watches) > 0 {
+		held = true
+	}
 	m.mu.Unlock()
 	if held {
 		t.Error("a failed tail subscribe kept the device's subscription")
@@ -414,10 +436,11 @@ func TestFlushSendsEveryPageOfABacklog(t *testing.T) {
 	pub := &capture{}
 	m := newManager(t, sessions, db, pub, &fakeTurns{})
 	caller := device.ID("00112233445566778899aabbccddeeff")
-	next, err := m.flush(context.Background(), caller, "claude:live-1", 0)
-	if err != nil {
+	w := &watch{chatID: "claude:live-1", nudge: make(chan struct{}, 1), at: map[device.ID]position{caller: {}}}
+	if err := m.flush(context.Background(), w); err != nil {
 		t.Fatal(err)
 	}
+	next := w.at[caller].next
 	pages := pub.received()
 	if len(pages) < 2 {
 		t.Fatalf("pushed %d pages, want the backlog split across several", len(pages))

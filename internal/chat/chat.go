@@ -123,7 +123,10 @@ func (s *Service) Sync(ctx context.Context, req store.SyncParams) (store.SyncRes
 	return result, err
 }
 
-func (s *Service) stamp(c *store.Chat) { c.Stamp(string(s.d.Self), s.d.ModelLabel, s.d.AgentIcon) }
+func (s *Service) stamp(c *store.Chat) { s.Stamp(c) }
+
+// Stamp fills in what a chat row carries beyond the cache, as chats.info sends it.
+func (s *Service) Stamp(c *store.Chat) { c.Stamp(string(s.d.Self), s.d.ModelLabel, s.d.AgentIcon) }
 
 // Queue is one chat's queued turns, read from state.db, where the Manager
 // saves every change to them.

@@ -211,8 +211,11 @@ type SubscribeParams struct {
 	SinceIndex int          `json:"since_index"`
 
 	// Tail opens the chat: the reply carries its newest Limit rows, as a
-	// chats.messages tail read would, and since_index is ignored. Sent only to
-	// a host listing the subscribe_tail capability; an older one ignores it.
-	Tail  bool `json:"tail,omitempty" doc:"Answer with the newest messages too, and push from there"`
-	Limit int  `json:"limit,omitempty" doc:"Messages in the tail page"`
+	// chats.messages tail read would. Have resumes it: the rows after what the
+	// device holds, or the newest Limit with reset when that no longer holds.
+	// Either ignores since_index. Sent only to a host listing subscribe_cursor;
+	// an older one would ignore them and push every row from since_index.
+	Tail  bool              `json:"tail,omitempty" doc:"Answer with the newest messages too, and push from there"`
+	Have  *store.ChatCursor `json:"have,omitempty" doc:"What the device holds: answer with the rows after it"`
+	Limit int               `json:"limit,omitempty" doc:"Messages in the page"`
 }

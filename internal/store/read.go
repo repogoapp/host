@@ -179,6 +179,10 @@ type Page struct {
 	// must drop everything it has for this chat and refetch from index 0.
 	Generation int64 `json:"generation"`
 
+	// CacheEpoch names the cache the rows came from; set on an Open page only.
+	// A rebuilt cache numbers generations again, so a Cursor carries both.
+	CacheEpoch string `json:"cache_epoch,omitempty"`
+
 	// Total in the transcript, so a client can show progress and know whether
 	// it has reached the end without a second round trip.
 	EventCount int `json:"event_count"`
@@ -486,30 +490,108 @@ func (s *Store) Info(id ChatID) (Chat, error) {
 
 // Tail returns the last `limit` events, where a transcript opens; paging
 // forward from 0 would need a dozen round trips to reach the end.
-func (s *Store) Tail(id ChatID, limit int) (Page, error) {
-	return s.backward(id, -1, limit)
+func (s *Store) Tail(id ChatID, limit int) (page Page, err error) {
+	err = s.inRead(func(r reader) error {
+		page, err = backward(r, id, -1, limit)
+		return err
+	})
+	return page, err
 }
 
 // Before returns the `limit` events immediately preceding beforeIdx — what
 // scrolling up asks for.
-func (s *Store) Before(id ChatID, beforeIdx, limit int) (Page, error) {
-	if beforeIdx <= 0 {
-		// Nothing precedes index 0. Answering with the tail instead would
-		// silently jump the user back to the bottom.
-		page, _, err := s.header(id)
-		return page, err
-	}
-	return s.backward(id, beforeIdx, limit)
+func (s *Store) Before(id ChatID, beforeIdx, limit int) (page Page, err error) {
+	err = s.inRead(func(r reader) error {
+		if beforeIdx <= 0 {
+			// Nothing precedes index 0. Answering with the tail instead would
+			// silently jump the user back to the bottom.
+			page, _, err = header(r, id)
+			return err
+		}
+		page, err = backward(r, id, beforeIdx, limit)
+		return err
+	})
+	return page, err
 }
 
 // Messages returns one chat's events from sinceIdx forward.
-func (s *Store) Messages(id ChatID, sinceIdx, limit int) (Page, error) {
-	page, sid, err := s.header(id)
+func (s *Store) Messages(id ChatID, sinceIdx, limit int) (page Page, err error) {
+	err = s.inRead(func(r reader) error {
+		page, err = forward(r, id, sinceIdx, limit)
+		return err
+	})
+	return page, err
+}
+
+// ChatCursor is what a device holds of one chat: every saved row before
+// NextIndex, of Generation, from the cache CacheEpoch names. A rebuilt cache
+// numbers generations again, so the epoch tells two of them apart.
+type ChatCursor struct {
+	CacheEpoch string `json:"cache_epoch" doc:"The page's cache_epoch"`
+	Generation int64  `json:"generation" doc:"The page's generation"`
+	NextIndex  int    `json:"next_index" doc:"The index after the last row held"`
+}
+
+// Open is what a device opening or resuming a chat reads, all in one
+// transaction so a sync between the reads cannot pair one generation's
+// header with another's rows: the rows after have, or the newest limit when
+// have is nil or no longer holds (reset), and the chat's row.
+func (s *Store) Open(id ChatID, have *ChatCursor, limit int) (page Page, chat Chat, reset bool, err error) {
+	err = s.inRead(func(r reader) error {
+		head, _, err := header(r, id)
+		if err != nil {
+			return err
+		}
+		if have != nil && have.CacheEpoch == s.epoch && have.Generation == head.Generation &&
+			have.NextIndex >= 0 && have.NextIndex <= head.EventCount {
+			page, err = forward(r, id, have.NextIndex, limit)
+		} else {
+			reset = have != nil
+			page, err = backward(r, id, -1, limit)
+		}
+		if err != nil {
+			return err
+		}
+		page.CacheEpoch = s.epoch
+		agent, sessionID, _ := id.parts()
+		chats, err := readChats(r, chatSelect+` WHERE s.agent = ? AND s.session_id = ?`, agent, sessionID)
+		if err != nil {
+			return err
+		}
+		if len(chats) == 0 {
+			return fmt.Errorf("%w: chat %q", ErrNotFound, id)
+		}
+		chat = chats[0]
+		return nil
+	})
+	return page, chat, reset, err
+}
+
+// reader is the database or one transaction on it.
+type reader interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// inRead runs f in one read transaction. f must read only through r: the
+// cache has one connection, which the transaction holds.
+func (s *Store) inRead(f func(r reader) error) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: begin read: %w", err)
+	}
+	defer tx.Rollback()
+	return f(tx)
+}
+
+// forward reads one chat's events from sinceIdx on.
+func forward(r reader, id ChatID, sinceIdx, limit int) (Page, error) {
+	page, sid, err := header(r, id)
 	if err != nil {
 		return Page{}, err
 	}
 	sinceIdx = max(sinceIdx, 0)
-	page.Events, err = s.events(eventSelect+` AND idx >= ? ORDER BY idx LIMIT ?`, sid, sinceIdx, pageLimit(limit))
+	page.Events, err = readEvents(r, eventSelect+` AND idx >= ? ORDER BY idx LIMIT ?`, sid, sinceIdx, pageLimit(limit))
 	if err != nil {
 		return Page{}, err
 	}
@@ -538,14 +620,16 @@ func (s *Store) ToolCalls(id ChatID, callIDs []string) ([]Message, error) {
 }
 
 // header loads a chat's counters and surrogate key without any events.
-func (s *Store) header(id ChatID) (Page, int64, error) {
+func (s *Store) header(id ChatID) (Page, int64, error) { return header(s.db, id) }
+
+func header(r reader, id ChatID) (Page, int64, error) {
 	agent, sessionID, err := id.parts()
 	if err != nil {
 		return Page{}, 0, err
 	}
 	page := Page{ChatID: id, Agent: agent}
 	var sid int64
-	err = s.db.QueryRow(
+	err = r.QueryRow(
 		`SELECT sid, generation, event_count, cwd, project_agent FROM sessions WHERE agent = ? AND session_id = ?`,
 		agent, sessionID).Scan(&sid, &page.Generation, &page.EventCount, &page.Cwd, &page.ProjectAgent)
 	if err == sql.ErrNoRows {
@@ -560,8 +644,8 @@ func (s *Store) header(id ChatID) (Page, int64, error) {
 
 // backward selects the last `limit` events below beforeIdx, or of the whole
 // transcript when negative. Selected DESC so SQLite stops early, then reversed.
-func (s *Store) backward(id ChatID, beforeIdx, limit int) (Page, error) {
-	page, sid, err := s.header(id)
+func backward(r reader, id ChatID, beforeIdx, limit int) (Page, error) {
+	page, sid, err := header(r, id)
 	if err != nil {
 		return Page{}, err
 	}
@@ -573,11 +657,11 @@ func (s *Store) backward(id ChatID, beforeIdx, limit int) (Page, error) {
 	}
 	query += ` ORDER BY idx DESC LIMIT ?`
 	args = append(args, pageLimit(limit))
-	if page.Events, err = s.events(query, args...); err != nil {
+	if page.Events, err = readEvents(r, query, args...); err != nil {
 		return Page{}, err
 	}
 	slices.Reverse(page.Events)
-	if page.Events, err = s.toTurnStart(sid, page.Events); err != nil {
+	if page.Events, err = toTurnStart(r, sid, page.Events); err != nil {
 		return Page{}, err
 	}
 
@@ -598,7 +682,7 @@ const maxTurnReach = 1000
 // toTurnStart widens a backward page so it opens on its first reply's prompt
 // or turn_started row. Cut mid-reply, the client holds a reply it cannot time
 // ("Worked for …") until the next page up brings the rows that start it.
-func (s *Store) toTurnStart(sid int64, events []Message) ([]Message, error) {
+func toTurnStart(r reader, sid int64, events []Message) ([]Message, error) {
 	if len(events) == 0 {
 		return events, nil
 	}
@@ -607,7 +691,7 @@ func (s *Store) toTurnStart(sid int64, events []Message) ([]Message, error) {
 		return events, nil
 	}
 	var start int
-	err := s.db.QueryRow(
+	err := r.QueryRow(
 		`SELECT idx FROM events WHERE sid = ? AND idx < ? AND idx >= ? AND kind IN (?, ?)
 		 ORDER BY idx DESC LIMIT 1`,
 		sid, first, first-maxTurnReach, string(agent.EventUserMessage), string(agent.EventTurnStarted)).Scan(&start)
@@ -617,7 +701,7 @@ func (s *Store) toTurnStart(sid int64, events []Message) ([]Message, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: find turn start: %w", err)
 	}
-	head, err := s.events(eventSelect+` AND idx >= ? AND idx < ? ORDER BY idx`, sid, start, first)
+	head, err := readEvents(r, eventSelect+` AND idx >= ? AND idx < ? ORDER BY idx`, sid, start, first)
 	if err != nil {
 		return nil, err
 	}
@@ -646,7 +730,11 @@ const eventSelect = `SELECT idx, kind, COALESCE(turn,''), COALESCE(text,''), COA
 	FROM events WHERE sid = ?`
 
 func (s *Store) events(query string, args ...any) ([]Message, error) {
-	rows, err := s.db.Query(query, args...)
+	return readEvents(s.db, query, args...)
+}
+
+func readEvents(r reader, query string, args ...any) ([]Message, error) {
+	rows, err := r.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: read events: %w", err)
 	}

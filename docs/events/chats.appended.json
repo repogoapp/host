@@ -41,6 +41,7 @@
   "agent": "agent",
   "project_agent": "project_agent",
   "generation": 1,
+  "cache_epoch": "cache_epoch",
   "event_count": 1,
   "next_index": 1,
   "first_index": 1,
