@@ -33,7 +33,7 @@ const (
 // Claude trusts, or in one whose settings change nothing that runs; else
 // the user's own, once the user has been asked and hasn't said yes.
 func (r *runner) settingSources(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) []string {
-	if req.Cwd == "" || trustedFolder(r.configFile(), req.Cwd) {
+	if req.Cwd == "" || trustedFolder(r.configFile(), req.Cwd) || sameDir(filepath.Join(req.Cwd, ".claude"), r.home) {
 		return allSources
 	}
 	found := projectSettings(req.Cwd)
@@ -63,6 +63,21 @@ func (r *runner) settingSources(ctx context.Context, req agent.TurnRequest, io a
 		r.deps.Log.Warn("couldn't save Claude's trust for the folder", "cwd", req.Cwd, "err", err)
 	}
 	return allSources
+}
+
+// sameDir reports whether a and b are one folder, through symlinks. A chat in
+// the home folder finds Claude's own ~/.claude there: the user's settings,
+// which every turn loads anyway, not a project's to be trusted.
+func sameDir(a, b string) bool {
+	if b == "" {
+		return false
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return ra == rb
 }
 
 // pickedLabel is the option chosen in the trust form's one question.

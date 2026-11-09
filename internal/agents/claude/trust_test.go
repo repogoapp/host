@@ -209,3 +209,13 @@ func TestTrustedOrPlainReposAreNotAsked(t *testing.T) {
 		t.Fatalf("dismissed: sources %q", got)
 	}
 }
+
+// A chat in the home folder finds Claude's own ~/.claude, whose hooks are the
+// user's settings, loaded on every turn: nothing to trust, nothing to ask.
+func TestTheHomeFoldersOwnClaudeSettingsAreNotAsked(t *testing.T) {
+	home := newTrustRun(t, true)
+	home.r.home = filepath.Join(home.cwd, ".claude")
+	if got := home.send(t, "new-1", ""); got != "user,project,local" || home.asked != 0 {
+		t.Fatalf("home: sources %q, asked %d", got, home.asked)
+	}
+}
