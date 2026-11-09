@@ -383,7 +383,7 @@ func (h *Host) openProjects() error {
 
 	h.ChatDeps = chat.Deps{
 		Self: h.devices.Identity().ID, ModelLabel: h.Services.AgentCatalog.ModelLabel, AgentIcon: h.agents.ProjectAgentIcon, Cache: h.db, Sender: h.mgr, Sync: h.syncer,
-		Transcripts: h.sessions, Files: projectFiles,
+		Transcripts: h.sessions, Files: projectFiles, Log: h.log,
 	}
 	chats, err := chat.New(h.ChatDeps)
 	if err != nil {

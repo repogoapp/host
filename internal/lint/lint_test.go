@@ -32,6 +32,7 @@ var backgrounds = map[string]string{
 	"internal/hostinfo/device_darwin.go:macHasBattery":         "read once at startup, before any request; its timeout ends it",
 	"internal/hostinfo/network.go:magicDNSName":                "Status takes no context; a local lookup its timeout ends",
 	"internal/hostinfo/network.go:cliTailnetIP":                "Status takes no context; a local command its timeout ends",
+	"internal/chat/title.go:Service.nameLater":                 "naming a new chat runs after chats.start answers; titleDeadline ends it",
 }
 
 // history catches comments that narrate what the code once was. Words such as

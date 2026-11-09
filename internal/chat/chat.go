@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -55,6 +56,9 @@ type Deps struct {
 
 	// Files contains a path before a chat starts in it.
 	Files files.Container
+
+	// Log is where naming a new chat reports why it failed; nil logs nothing.
+	Log *slog.Logger
 }
 
 // Service is every chat workflow over its Deps.

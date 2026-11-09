@@ -29,7 +29,11 @@ const titlePoll = 500 * time.Millisecond
 func (s *Service) nameLater(turnID string, kind agent.Kind, model, prompt string) {
 	ctx, cancel := context.WithTimeout(context.Background(), titleDeadline)
 	defer cancel()
-	log := slog.Default().With("turn", turnID, "agent", kind)
+	log := s.d.Log
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	log = log.With("turn", turnID, "agent", kind)
 
 	answer, err := s.d.Sender.AnswerOnce(ctx, kind, model, titleRequest(prompt))
 	if err != nil {
