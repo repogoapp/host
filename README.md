@@ -178,6 +178,21 @@ run at the same time.
 The host also reads the Claude Code and Codex sessions you started yourself,
 in a terminal or your editor, so their history shows up on your phone.
 
+### Plugins
+
+RepoGo supports plugins: small apps in `~/.repogo/plugins`, written with
+[`@repogo/plugins`](plugins-sdk/README.md), that run on this machine. They're
+meant for custom developer tooling that helps your own workflow (a deploy
+button, a status page, a webhook that starts an agent), not for production
+applications.
+
+The host provides the building blocks: collections, key-value storage, streams
+and files, methods that cards, agents, crons and HTTP can call, and access to
+the host's own methods and your agents. You build the plugins, alone or with an
+agent, and they run with your account's access, so it's your responsibility to
+make sure they're secure: check what an agent wrote, require a key on methods
+served over HTTP, and choose the permission mode of any agent a plugin starts.
+
 ## What it changes on your computer
 
 - `~/.repogo/` holds the binary, your pairings, the host's identity and TLS
