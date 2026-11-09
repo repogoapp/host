@@ -224,6 +224,9 @@ func (d Deps) stop(_ context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, erro
 }
 
 func (d Deps) subscribe(_ context.Context, c rpc.Caller, a SubscribeParams) (chatlive.Live, error) {
+	if a.Tail {
+		return d.Live.SubscribeTail(c.Device, a.ChatID, a.Limit)
+	}
 	return d.Live.Subscribe(c.Device, a.ChatID, a.SinceIndex)
 }
 

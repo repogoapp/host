@@ -50,5 +50,54 @@
     },
     "epoch": "epoch",
     "revision": 1
+  },
+  "page": {
+    "chat_id": "chat_id",
+    "events": [
+      {
+        "index": 1,
+        "kind": "kind",
+        "turn": "turn",
+        "text": "text",
+        "tool": {
+          "call_id": "call_id",
+          "name": "name",
+          "state": "state",
+          "calls": [
+            "calls"
+          ],
+          "icon": "icon",
+          "labels": {
+            "active": "active",
+            "completed": "completed",
+            "error": "error"
+          },
+          "todos": [
+            {
+              "id": "id",
+              "content": "content",
+              "status": "status"
+            }
+          ],
+          "questions": {
+            "questions": "questions"
+          },
+          "recording_id": "recording_id",
+          "subagent_type": "subagent_type",
+          "background": true,
+          "file": "file"
+        },
+        "at": 1
+      }
+    ],
+    "cwd": "cwd",
+    "agent": "agent",
+    "project_agent": "project_agent",
+    "generation": 1,
+    "event_count": 1,
+    "next_index": 1,
+    "first_index": 1,
+    "has_before": true,
+    "turn_live": true
   }
 }

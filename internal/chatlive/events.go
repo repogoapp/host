@@ -127,6 +127,11 @@ type Live struct {
 	emit.Stamp
 	Streaming *Streaming `json:"streaming"`
 	Approval  *Approval  `json:"approval"`
+
+	// Page is the chat's newest rows when the subscribe asked for its tail,
+	// read after joining, so no row lands between it and the first push.
+	// Absent otherwise, and from a host older than CapabilitySubscribeTail.
+	Page *chatwire.Page `json:"page,omitempty"`
 }
 
 // Changed is one chat's list row after it moved: a sweep found new activity,

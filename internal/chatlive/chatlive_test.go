@@ -210,6 +210,73 @@ func TestAppendProducesAPush(t *testing.T) {
 	}
 }
 
+// Opening a chat is one call: the subscribe answers with the newest page,
+// read after joining, and pushes carry only what lands after it.
+func TestSubscribeTailAnswersWithThePageAndPushesPastIt(t *testing.T) {
+	home, sessions := liveHome(t, userLine("first"))
+	db, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	metas, _ := sessions.List()
+	if len(metas) == 0 {
+		t.Fatal("session discovery found nothing in the temporary home")
+	}
+	events, _ := sessions.Events(metas[0])
+	if err := db.Sync(metas[0], events); err != nil {
+		t.Fatal(err)
+	}
+	want, err := db.Tail("claude:live-1", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pub := &capture{}
+	m := newManager(t, sessions, db, pub, &fakeTurns{})
+	logs := &messages{seen: map[string]bool{}}
+	m.log = slog.New(logs)
+	caller := device.ID("00112233445566778899aabbccddeeff")
+	live, err := m.SubscribeTail(caller, "claude:live-1", 100)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer m.Unsubscribe(caller)
+	if live.Page == nil || len(live.Page.Events) != len(want.Events) || live.Page.NextIndex != want.NextIndex {
+		t.Fatalf("subscribe page = %+v, want the tail %d rows to %d", live.Page, len(want.Events), want.NextIndex)
+	}
+
+	writeClaudeSession(t, home, "live-1", []string{userLine("second")})
+	testwait.For(t, "a push", func() bool { return len(pub.received()) > 0 })
+	for _, page := range pub.received() {
+		if len(page.Events) > 0 && page.Events[0].Index < live.Page.NextIndex {
+			t.Errorf("push resent row %d, the subscribe page ended at %d", page.Events[0].Index, live.Page.NextIndex)
+		}
+	}
+}
+
+// A tail subscribe to a chat the cache doesn't hold fails as chats.messages
+// does, and leaves no subscription behind.
+func TestSubscribeTailToAnUnknownChatHoldsNothing(t *testing.T) {
+	_, sessions := liveHome(t, userLine("first"))
+	db, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	m := newManager(t, sessions, db, &capture{}, &fakeTurns{})
+	caller := device.ID("00112233445566778899aabbccddeeff")
+	if _, err := m.SubscribeTail(caller, "claude:live-1", 100); err == nil {
+		t.Fatal("subscribed to a chat with no cached rows")
+	}
+	m.mu.Lock()
+	_, held := m.tails[caller]
+	m.mu.Unlock()
+	if held {
+		t.Error("a failed tail subscribe kept the device's subscription")
+	}
+}
+
 func TestUnsubscribeStopsPushes(t *testing.T) {
 	home, sessions := liveHome(t, userLine("first"))
 	db, err := store.Open(t.TempDir())

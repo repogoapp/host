@@ -157,6 +157,18 @@ var ErrNoSuchChat = errors.New("chatlive: no such chat")
 // subscription so a tailer is not left running for every chat ever opened,
 // and returns the chat's live state as of joining its room.
 func (m *Manager) Subscribe(caller device.ID, chatID store.ChatID, sinceIdx int) (Live, error) {
+	return m.subscribe(caller, chatID, sinceIdx, 0)
+}
+
+// SubscribeTail is Subscribe for a chat being opened: the reply also carries
+// its newest limit rows, a chats.messages tail page, and pushes start where
+// that page ends. One round trip where a messages read and a subscribe took two.
+func (m *Manager) SubscribeTail(caller device.ID, chatID store.ChatID, limit int) (Live, error) {
+	return m.subscribe(caller, chatID, 0, max(limit, 1))
+}
+
+// subscribe is Subscribe from sinceIdx, or with tailRows > 0 SubscribeTail.
+func (m *Manager) subscribe(caller device.ID, chatID store.ChatID, sinceIdx, tailRows int) (Live, error) {
 	m.mu.Lock()
 	expected := m.streaming[chatID] > 0
 	m.mu.Unlock()
@@ -175,10 +187,9 @@ func (m *Manager) Subscribe(caller device.ID, chatID store.ChatID, sinceIdx int)
 		old.cancel()
 		m.emit.Leave(caller, chatRoom(old.chatID))
 	}
-	m.tails[caller] = &tail{chatID: chatID, cancel: cancel, nudge: make(chan struct{}, 1)}
+	held := &tail{chatID: chatID, cancel: cancel, nudge: make(chan struct{}, 1)}
+	m.tails[caller] = held
 	m.mu.Unlock()
-
-	go m.run(ctx, caller, chatID, sinceIdx)
 
 	// Pushes after joining carry later revisions than the snapshot, so the
 	// client can tell which of the two is newer whatever order they arrive in.
@@ -190,7 +201,40 @@ func (m *Manager) Subscribe(caller device.ID, chatID store.ChatID, sinceIdx int)
 	if a, ok := snap.State[Approval{}.StateKey()].(Approval); ok {
 		live.Approval = &a
 	}
+	// The page is read after joining and the tailer starts at its end: a row
+	// written in between is in the page or pushed after it, never neither.
+	if tailRows > 0 {
+		page, err := m.tailPage(chatID, tailRows)
+		if err != nil {
+			// Given back as a failed chats.messages leaves it: not held. A
+			// subscribe that has replaced this one since keeps its own.
+			m.mu.Lock()
+			if m.tails[caller] == held {
+				delete(m.tails, caller)
+				m.emit.Leave(caller, chatRoom(chatID))
+			}
+			m.mu.Unlock()
+			cancel()
+			return Live{}, err
+		}
+		live.Page, sinceIdx = &page, page.NextIndex
+	}
+	go m.run(ctx, caller, chatID, sinceIdx)
 	return live, nil
+}
+
+// tailPage is the chats.messages tail page: the newest limit rows, and
+// whether a turn runs.
+func (m *Manager) tailPage(chatID store.ChatID, limit int) (chatwire.Page, error) {
+	page, err := m.db.Tail(chatID, limit)
+	if err != nil {
+		return chatwire.Page{}, err
+	}
+	out := m.wire.Page(page)
+	if c, err := m.db.Info(chatID); err == nil {
+		out.TurnLive = c.Status.Active()
+	}
+	return out, nil
 }
 
 // Nudge flushes every subscription on chatID without waiting for the tail's
@@ -436,6 +480,22 @@ func (m *Manager) pushTools(caller device.ID, chatID store.ChatID, rows []store.
 	return nil
 }
 
+// resync brings the cache up to date with meta's file, skipping one unchanged
+// since its last sync (usually the replay a subscribe starts with). The file is
+// re-read whole, not appended from the tail: Codex rewrites and re-segments its
+// rollouts. The store writes only from the first changed row; search waits for
+// the next sweep.
+func (m *Manager) resync(meta session.Meta) error {
+	if fp, ok, err := m.db.FingerprintOf(meta); err == nil && ok && store.Unchanged(fp, meta) {
+		return nil
+	}
+	fresh, err := m.sessions.Events(meta)
+	if err != nil {
+		return err
+	}
+	return m.db.SyncBatch([]store.Entry{{Meta: meta, Events: fresh, DeferSearch: true}})
+}
+
 // flush re-syncs the session and sends whatever is new, every page of it: a
 // backlog left behind would wait for the provider to write again. Returns the
 // cursor to resume from.
@@ -444,14 +504,7 @@ func (m *Manager) flush(ctx context.Context, caller device.ID, chatID store.Chat
 	if err != nil {
 		return cursor, err
 	}
-	// Re-read in full rather than appending the tailed events: Codex rewrites
-	// and re-segments its rollouts, so a transcript is the concatenation of its
-	// files, not a stream we can safely accumulate.
-	fresh, err := m.sessions.Events(meta)
-	if err != nil {
-		return cursor, err
-	}
-	if err := m.db.SyncBatch([]store.Entry{{Meta: meta, Events: fresh}}); err != nil {
+	if err := m.resync(meta); err != nil {
 		return cursor, err
 	}
 

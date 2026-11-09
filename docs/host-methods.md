@@ -423,6 +423,8 @@ Params:
 
 - `chat_id` string
 - `since_index` int
+- `tail` bool (omitted when empty): Answer with the newest messages too, and push from there
+- `limit` int (omitted when empty): Messages in the tail page
 
 Result:
 
@@ -430,6 +432,7 @@ Result:
 - `revision` int
 - `streaming` object{Streaming} (nullable)
 - `approval` object{Approval} (nullable)
+- `page` object{Page} (omitted when empty) (nullable)
 
 ## `chats.unsubscribe`
 

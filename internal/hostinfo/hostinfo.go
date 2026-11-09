@@ -61,6 +61,10 @@ const (
 	// CapabilityTrash is a host that moves deleted files and projects to the
 	// Trash rather than deleting them for good.
 	CapabilityTrash = "trash"
+	// CapabilitySubscribeTail is a host whose chats.subscribe takes tail and
+	// answers with the chat's newest page. An older one would ignore it and
+	// push every row from since_index, so the phone sends it only here.
+	CapabilitySubscribeTail = "subscribe_tail"
 )
 
 // Battery is the machine's last power reading.
@@ -223,7 +227,7 @@ func (s *Service) Status() Status {
 		out.Device = &device
 	}
 	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos,
-		CapabilityUsageTime, CapabilityAgentTime}
+		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeTail}
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}

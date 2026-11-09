@@ -209,4 +209,10 @@ type UpdateResult struct {
 type SubscribeParams struct {
 	ChatID     store.ChatID `json:"chat_id"`
 	SinceIndex int          `json:"since_index"`
+
+	// Tail opens the chat: the reply carries its newest Limit rows, as a
+	// chats.messages tail read would, and since_index is ignored. Sent only to
+	// a host listing the subscribe_tail capability; an older one ignores it.
+	Tail  bool `json:"tail,omitempty" doc:"Answer with the newest messages too, and push from there"`
+	Limit int  `json:"limit,omitempty" doc:"Messages in the tail page"`
 }
