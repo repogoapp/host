@@ -143,7 +143,9 @@ func growth(t *testing.T, p session.Provider, meta session.Meta) []store.Entry {
 	}
 	var stages []store.Entry
 	for i, cut := range cuts {
-		path := filepath.Join(dir, fmt.Sprintf("stage-%02d-%s", i, filepath.Base(files[len(files)-1])))
+		// One file, rewritten per stage: each is parsed before the next is
+		// written, and a large rollout copied a dozen times fills a small disk.
+		path := filepath.Join(dir, "stage-"+filepath.Base(files[len(files)-1]))
 		if err := os.WriteFile(path, newest[:cut], 0o600); err != nil {
 			t.Fatal(err)
 		}

@@ -109,7 +109,7 @@ func (s *Syncer) Once(ctx context.Context) int {
 
 type syncStats struct {
 	synced, total, events, errors, pruned, children, indexed int
-	duration, list, parse, write, kids              time.Duration
+	duration, list, parse, write, kids                       time.Duration
 }
 
 func (s *Syncer) once(ctx context.Context, batchSize int) (stats syncStats) {
