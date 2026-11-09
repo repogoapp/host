@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
@@ -135,18 +136,35 @@ type Provider interface {
 	ParseLine(line []byte) ([]agent.Event, string)
 }
 
+// Refresher is a Provider that can re-read one session from its own files,
+// without listing the rest. ok is false when it can't (a file is gone): the
+// caller lists instead.
+type Refresher interface {
+	Refresh(Meta) (Meta, bool)
+}
+
 // Store fans out across providers; the map is fixed after NewStore.
 type Store struct {
 	providers map[agent.Kind]Provider
+
+	// known is every session the last List saw, by id, so Find reaches one
+	// without listing them all; listedAt is when that List ran.
+	mu       sync.Mutex
+	known    map[string]Meta
+	listedAt time.Time
 }
 
 func NewStore(providers ...Provider) *Store {
-	s := &Store{providers: make(map[agent.Kind]Provider, len(providers))}
+	s := &Store{providers: make(map[agent.Kind]Provider, len(providers)), known: map[string]Meta{}}
 	for _, p := range providers {
 		s.providers[p.Kind()] = p
 	}
 	return s
 }
+
+// relist is how soon after one List a Find that misses may list again: a
+// chat that has not written its first line yet is asked for every 500 ms.
+const relist = 500 * time.Millisecond
 
 // List returns every session across every provider, most recently updated
 // first. Errors from one provider do not hide another's results: a user with
@@ -171,10 +189,60 @@ func (s *Store) List() ([]Meta, []error) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	s.remember(out, errs)
 	return out, errs
 }
 
+// remember replaces what Find knows with a List's result. A provider that
+// failed to list keeps its sessions from before, rather than seeming empty.
+func (s *Store) remember(listed []Meta, errs []error) {
+	known := make(map[string]Meta, len(listed))
+	if len(errs) > 0 {
+		s.mu.Lock()
+		failed := map[agent.Kind]bool{}
+		for kind := range s.providers {
+			failed[kind] = true
+		}
+		for _, m := range listed {
+			failed[m.Agent] = false
+		}
+		for id, m := range s.known {
+			if failed[m.Agent] {
+				known[id] = m
+			}
+		}
+		s.mu.Unlock()
+	}
+	for _, m := range listed {
+		known[m.ID] = m
+	}
+	s.mu.Lock()
+	s.known, s.listedAt = known, time.Now()
+	s.mu.Unlock()
+}
+
+// Find is one session by id. A session the last List saw is re-read from its
+// own files when its agent can (Refresher); anything else lists them all,
+// at most once per relist for ids it still can't find.
 func (s *Store) Find(id string) (Meta, Provider, error) {
+	s.mu.Lock()
+	m, ok := s.known[id]
+	recent := time.Since(s.listedAt) < relist
+	s.mu.Unlock()
+	if ok {
+		p := s.providers[m.Agent]
+		if r, can := p.(Refresher); can {
+			if fresh, ok := r.Refresh(m); ok && !isExcluded(fresh.Cwd) {
+				s.mu.Lock()
+				s.known[id] = fresh
+				s.mu.Unlock()
+				return fresh, p, nil
+			}
+		}
+	}
+	if !ok && recent {
+		return Meta{}, nil, ErrNotFound
+	}
 	all, _ := s.List()
 	for _, m := range all {
 		if m.ID == id {

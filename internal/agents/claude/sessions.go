@@ -81,27 +81,42 @@ func (c *Sessions) List() ([]session.Meta, error) {
 
 	out := make([]session.Meta, len(files))
 	for i, peeked := range session.PeekEach(files, c.peek) {
-		f := files[i]
-		cwd := peeked.cwd
-		if cwd == "" {
-			cwd = decodeProjectDir(projectDirs[i])
-		}
-		out[i] = session.Meta{
-			ID:          strings.TrimSuffix(f.Info.Name(), ".jsonl"),
-			Agent:       agent.KindClaude,
-			Cwd:         cwd,
-			Title:       peeked.title,
-			Path:        f.Path,
-			UpdatedAt:   f.Info.ModTime(),
-			SizeBytes:   f.Info.Size(),
-			ContextUsed: peeked.contextUsed,
-			ContextSize: peeked.contextSize,
-			Model:       peeked.model,
-			ModelAt:     peeked.modelAt,
-			Settings:    peeked.settings,
-		}
+		out[i] = metaOf(files[i].Path, files[i].Info, projectDirs[i], peeked)
 	}
 	return out, nil
+}
+
+// Refresh re-reads one session from its own file, as List would: a stat and
+// a peek, which the cache skips for an unchanged file. False once the file
+// is gone, so the caller lists again.
+func (c *Sessions) Refresh(m session.Meta) (session.Meta, bool) {
+	info, err := os.Stat(m.Path)
+	if err != nil || info.IsDir() {
+		return session.Meta{}, false
+	}
+	return metaOf(m.Path, info, filepath.Base(filepath.Dir(m.Path)), c.peek(m.Path, info)), true
+}
+
+// metaOf is one transcript's Meta from its file and its peek.
+func metaOf(path string, info os.FileInfo, projectDir string, peeked peekResult) session.Meta {
+	cwd := peeked.cwd
+	if cwd == "" {
+		cwd = decodeProjectDir(projectDir)
+	}
+	return session.Meta{
+		ID:          strings.TrimSuffix(info.Name(), ".jsonl"),
+		Agent:       agent.KindClaude,
+		Cwd:         cwd,
+		Title:       peeked.title,
+		Path:        path,
+		UpdatedAt:   info.ModTime(),
+		SizeBytes:   info.Size(),
+		ContextUsed: peeked.contextUsed,
+		ContextSize: peeked.contextSize,
+		Model:       peeked.model,
+		ModelAt:     peeked.modelAt,
+		Settings:    peeked.settings,
+	}
 }
 
 // peek pulls cwd from a bounded head window and the newest title and context
