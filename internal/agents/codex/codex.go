@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -36,6 +37,7 @@ func definition() agent.Provider {
 				// Where codexRelease puts it; that build updates by fetching again.
 				NativePaths: []string{".local/bin/codex"},
 				Release:     codexRelease,
+				Package:     codexPackage,
 				// ChatGPT's device code, which Codex polls for like gh does.
 				LoginArgs:  []string{"login", "--device-auth"},
 				LoginEnv:   []string{"NO_COLOR=1"},
@@ -70,6 +72,37 @@ func codexRelease(_ context.Context, goos, goarch string) (string, string, error
 	}
 	name := "codex-" + arch + "-" + system
 	return binfetch.Base + "/openai/codex/releases/latest/download/" + name + ".tar.gz", name, nil
+}
+
+// codexPackage is Codex's whole build for a system, codex-package-<target>:
+// bin/codex with the helpers it runs beside it (bin/codex-code-mode-host,
+// codex-resources/bwrap, codex-path/rg), which the lone binary lacks.
+// Unpacked under ~/.local/share/codex/<tag>, as Claude keeps its versions.
+func codexPackage(ctx context.Context, goos, goarch string) (clitool.Package, error) {
+	_, target, err := codexRelease(ctx, goos, goarch)
+	if err != nil {
+		return clitool.Package{}, err
+	}
+	const repo = "openai/codex"
+	tag, err := binfetch.Latest(ctx, repo)
+	if err != nil {
+		return clitool.Package{}, err
+	}
+	asset := "codex-package-" + strings.TrimPrefix(target, "codex-") + ".tar.gz"
+	url := binfetch.Base + "/" + repo + "/releases/download/" + tag + "/" + asset
+	sum, err := binfetch.Digest(ctx, repo, tag, asset)
+	if err != nil {
+		return clitool.Package{URL: url}, err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return clitool.Package{URL: url}, err
+	}
+	return clitool.Package{
+		URL: url, SHA256: sum,
+		Dir:   filepath.Join(home, ".local", "share", "codex", tag),
+		Entry: filepath.Join("bin", "codex"),
+	}, nil
 }
 
 // codexAccount reads the email and account claims of the ChatGPT id_token in auth.json.

@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,9 @@ import (
 
 // Base is GitHub; tests point it at a local server.
 var Base = "https://github.com"
+
+// API is GitHub's REST API, for an asset's checksum; tests point it at a local server.
+var API = "https://api.github.com"
 
 const (
 	// A CLI is tens of megabytes; this bounds a wrong URL, not a real one.
@@ -85,6 +89,42 @@ func Latest(ctx context.Context, repo string) (string, error) {
 	return tag, nil
 }
 
+// Digest is the sha256 (hex) GitHub records for one asset of a release, from
+// its API: one call per install, well under the unauthenticated limit.
+func Digest(ctx context.Context, repo, tag, asset string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, API+"/repos/"+repo+"/releases/tags/"+tag, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("binfetch: release %s of %s: %s", tag, repo, resp.Status)
+	}
+	var release struct {
+		Assets []struct {
+			Name   string `json:"name"`
+			Digest string `json:"digest"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&release); err != nil {
+		return "", err
+	}
+	for _, a := range release.Assets {
+		if a.Name == asset {
+			if sum, ok := strings.CutPrefix(a.Digest, "sha256:"); ok && sum != "" {
+				return sum, nil
+			}
+			return "", fmt.Errorf("binfetch: %s has no sha256 on release %s", asset, tag)
+		}
+	}
+	return "", fmt.Errorf("binfetch: no %s on release %s of %s", asset, tag, repo)
+}
+
 // Install downloads a .tar.gz or .zip, takes the one file whose path ends in
 // member, and puts it at Dir/name. It returns the installed path.
 func Install(ctx context.Context, url, member, name string) (string, error) {
@@ -134,6 +174,16 @@ func Install(ctx context.Context, url, member, name string) (string, error) {
 // it at dest, without its top-level folder, replacing what was there only once
 // the whole tree is out.
 func InstallTree(ctx context.Context, url, sum, dest string) error {
+	return installTree(ctx, url, sum, dest, true)
+}
+
+// InstallPackage is InstallTree for an archive with no top-level folder, its
+// entries at the root (bin/codex, codex-resources/bwrap), kept as they are.
+func InstallPackage(ctx context.Context, url, sum, dest string) error {
+	return installTree(ctx, url, sum, dest, false)
+}
+
+func installTree(ctx context.Context, url, sum, dest string, strip bool) error {
 	archive, err := Fetch(ctx, url)
 	if err != nil {
 		return err
@@ -149,7 +199,7 @@ func InstallTree(ctx context.Context, url, sum, dest string) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	if err := Untar(archive, tmp); err != nil {
+	if err := untar(archive, tmp, strip); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(dest); err != nil {
@@ -161,6 +211,10 @@ func InstallTree(ctx context.Context, url, sum, dest string) error {
 // Untar writes every entry below its first path component into dir. An entry
 // or link that would land outside dir is refused rather than cleaned.
 func Untar(archive []byte, dir string) error {
+	return untar(archive, dir, true)
+}
+
+func untar(archive []byte, dir string, strip bool) error {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
@@ -187,8 +241,11 @@ func Untar(archive []byte, dir string) error {
 		if err != nil {
 			return err
 		}
-		_, rel, ok := strings.Cut(strings.TrimPrefix(h.Name, "./"), "/")
-		if !ok || rel == "" {
+		rel, ok := strings.TrimPrefix(h.Name, "./"), true
+		if strip {
+			_, rel, ok = strings.Cut(rel, "/")
+		}
+		if !ok || rel == "" || rel == "." {
 			continue
 		}
 		// os.Root refuses a trailing slash, which tar gives every directory.

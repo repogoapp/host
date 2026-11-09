@@ -232,3 +232,53 @@ func TestInstallTreeRefusesAChecksumMismatch(t *testing.T) {
 		t.Fatal("left the tree behind")
 	}
 }
+
+func TestInstallPackageKeepsTheRootLayout(t *testing.T) {
+	archive := tree(t,
+		&tar.Header{Name: "bin/", Typeflag: tar.TypeDir, Mode: 0o755},
+		&tar.Header{Name: "bin/codex", Typeflag: tar.TypeReg, Mode: 0o755},
+		&tar.Header{Name: "bin/codex-code-mode-host", Typeflag: tar.TypeReg, Mode: 0o755},
+		&tar.Header{Name: "codex-resources/bwrap", Typeflag: tar.TypeReg, Mode: 0o755},
+		&tar.Header{Name: "codex-package.json", Typeflag: tar.TypeReg, Mode: 0o644},
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(archive) }))
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "rust-v1")
+
+	if err := InstallPackage(context.Background(), srv.URL+"/p.tar.gz", sum(archive), dest); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"bin/codex", "bin/codex-code-mode-host", "codex-resources/bwrap", "codex-package.json"} {
+		if b, _ := os.ReadFile(filepath.Join(dest, f)); string(b) != f {
+			t.Fatalf("%s reads %q", f, b)
+		}
+	}
+}
+
+func TestDigestReadsTheAssetsSHA256(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/openai/codex/releases/tags/rust-v1" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"assets":[{"name":"other.tar.gz","digest":"sha256:00"},{"name":"pkg.tar.gz","digest":"sha256:abc123"},{"name":"bare.tar.gz"}]}`))
+	}))
+	defer srv.Close()
+	old := API
+	API = srv.URL
+	t.Cleanup(func() { API = old })
+	ctx := context.Background()
+
+	if got, err := Digest(ctx, "openai/codex", "rust-v1", "pkg.tar.gz"); err != nil || got != "abc123" {
+		t.Fatalf("digest %q, %v", got, err)
+	}
+	if _, err := Digest(ctx, "openai/codex", "rust-v1", "bare.tar.gz"); err == nil {
+		t.Fatal("an asset with no digest was accepted")
+	}
+	if _, err := Digest(ctx, "openai/codex", "rust-v1", "missing.tar.gz"); err == nil {
+		t.Fatal("a missing asset was accepted")
+	}
+	if _, err := Digest(ctx, "openai/codex", "rust-v2", "pkg.tar.gz"); err == nil {
+		t.Fatal("a missing release was accepted")
+	}
+}

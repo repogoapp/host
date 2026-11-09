@@ -54,6 +54,17 @@ type Tool struct {
 	Spec Spec
 }
 
+// Package is one release of a CLI shipped as a whole tree.
+type Package struct {
+	URL    string
+	SHA256 string // hex, checked before anything is unpacked
+	// Dir is where the tree goes, one per version so a running copy keeps its
+	// helpers while the next is unpacked: ~/.local/share/codex/rust-v0.167.0.
+	Dir string
+	// Entry is the binary within it that ~/.local/bin/Command links: bin/codex.
+	Entry string
+}
+
 // Spec is everything tool-specific about finding and maintaining one CLI.
 type Spec struct {
 	// AuthProbe delegates credential checks to a CLI that exposes status.
@@ -94,6 +105,11 @@ type Spec struct {
 	// The tool's release build for a system, fetched into ~/.local/bin when
 	// there is no installer, npm or brew; it updates the same way.
 	Release func(ctx context.Context, goos, goarch string) (url, member string, err error)
+
+	// The tool's whole release package for a system, preferred over Release:
+	// a CLI whose binary needs helpers beside it (Codex's code-mode host,
+	// bwrap, rg) is unpacked whole and ~/.local/bin/Command links its entry.
+	Package func(ctx context.Context, goos, goarch string) (Package, error)
 
 	// Reads the account out of the file Tool.AccountPath names, and the key
 	// of its seat (see AccountKey), "" when the file names no ids.

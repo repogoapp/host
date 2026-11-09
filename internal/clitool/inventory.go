@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/apphome"
-	"github.com/repogoapp/host/internal/binfetch"
 	"github.com/repogoapp/host/internal/clilogin"
 	"github.com/repogoapp/host/internal/par"
 )
@@ -247,7 +246,7 @@ func (in *Inventory) probe(ctx context.Context, t Tool) found {
 
 	f.manager = managerOf(path, s, home)
 	f.updateCommand = updateCommandOf(f.manager, s)
-	i.CanUpdate = f.updateCommand != "" || (f.manager == "native" && s.Release != nil)
+	i.CanUpdate = f.updateCommand != "" || (f.manager == "native" && s.fetchable())
 	if i.Authed && s.LogoutArgs != nil {
 		i.Capabilities = append(i.Capabilities, CapabilityLogout)
 	}
@@ -433,7 +432,7 @@ func (in *Inventory) Install(ctx context.Context, kind string) (UpdateResult, er
 	defer in.changed()
 	t, _ := in.Lookup(kind)
 	command := InstallCommandOf(t.Spec, lookPath)
-	if command == "" && t.Spec.Release != nil {
+	if command == "" && t.Spec.fetchable() {
 		return in.fetchRelease(ctx, t, res), nil
 	}
 	if command == "" {
@@ -516,14 +515,9 @@ func writable(dir string) bool {
 // fetchRelease installs or updates from the tool's release build, under the
 // same lock as the package managers.
 func (in *Inventory) fetchRelease(ctx context.Context, t Tool, res UpdateResult) UpdateResult {
-	url, member, err := t.Spec.Release(ctx, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		res.Error = err.Error()
-		return res
-	}
 	in.updateMu.Lock()
 	defer in.updateMu.Unlock()
-	if _, err := binfetch.Install(ctx, url, member, t.Spec.Command); err != nil {
+	if url, err := fetchBuild(ctx, t.Spec); err != nil {
 		res.Error = err.Error()
 		in.log.Warn("clitool: download failed", "kind", t.Kind, "url", url, "err", err)
 		return res
