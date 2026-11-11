@@ -242,7 +242,7 @@ func randomSlug() string {
 func runLocalGateway(ctx context.Context, bin, slug string, hostID device.ID, port int, expiresAt int64) string {
 	row, _ := json.Marshal(map[string]any{"hostId": hostID, "target": strconv.Itoa(port), "enabled": true, "expiresAt": expiresAt})
 	upstash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/get/preview:hostname:"+slug {
+		if r.URL.Path != "/get/tunnel:"+slug {
 			_, _ = io.WriteString(w, `{"result":null}`)
 			return
 		}
@@ -258,7 +258,7 @@ func runLocalGateway(ctx context.Context, bin, slug string, hostID device.ID, po
 	_ = lis.Close()
 	cmd := exec.CommandContext(ctx, bin)
 	cmd.Env = append(os.Environ(), "PORT="+gwPort, "TUNNEL_DOMAIN="+tunnel.Domain, "GATEWAY_ID=127.0.0.1",
-		"UPSTASH_PREVIEW_REST_URL="+upstash.URL, "UPSTASH_PREVIEW_REST_TOKEN=local")
+		"UPSTASH_TUNNEL_REST_URL="+upstash.URL, "UPSTASH_TUNNEL_REST_TOKEN=local")
 	if err := cmd.Start(); err != nil {
 		fail(err)
 	}
