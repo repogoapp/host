@@ -18,6 +18,8 @@ import (
 
 type Deps struct {
 	Chats *chat.Service
+	// sent holds recent send ids, so a resent send runs once.
+	sent *sentTurns
 	// Live pushes a chat's new messages to a device that asked for them.
 	Live *chatlive.Manager
 	// Agents knows each CLI's resume command, for handoff.
@@ -27,6 +29,7 @@ type Deps struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
+	d.sent = newSentTurns()
 	rpc.Add(r, "chats.list", d.list, rpc.Tool("List the chats on this environment, newest activity first, "+
 		"filtered and sorted like the chat drawer. Empty cwd is every project."),
 		rpc.Read, rpc.LiveOn("chats.changed", "chats.removed"))
@@ -146,12 +149,14 @@ func (d Deps) toolsUnsubscribe(_ context.Context, c rpc.Caller, a ToolsUnsubscri
 
 func (d Deps) send(_ context.Context, c rpc.Caller, a SendParams) (SendResult, error) {
 	a.Turn.Device, a.Turn.From = c.Device, from(c)
-	if a.Steer {
-		status, steered, err := d.Chats.Steer(a.ChatID, a.Turn)
-		return SendResult{TurnID: status.TurnID, State: status.State, Steered: steered}, err
-	}
-	status, err := d.Chats.Send(a.ChatID, a.Turn)
-	return SendResult{TurnID: status.TurnID, State: status.State}, err
+	return once(d.sent, c.Device, a.SendID, func() (SendResult, error) {
+		if a.Steer {
+			status, steered, err := d.Chats.Steer(a.ChatID, a.Turn)
+			return SendResult{TurnID: status.TurnID, State: status.State, Steered: steered}, err
+		}
+		status, err := d.Chats.Send(a.ChatID, a.Turn)
+		return SendResult{TurnID: status.TurnID, State: status.State}, err
+	})
 }
 
 func (d Deps) start(_ context.Context, c rpc.Caller, a StartParams) (StartResult, error) {
@@ -160,8 +165,10 @@ func (d Deps) start(_ context.Context, c rpc.Caller, a StartParams) (StartResult
 	if c.Agent != nil && (a.Child == nil || *a.Child) {
 		where.Parent = c.Agent.ChatID
 	}
-	status, err := d.Chats.Start(where, a.Turn)
-	return StartResult{TurnID: status.TurnID, State: status.State}, err
+	return once(d.sent, c.Device, a.SendID, func() (StartResult, error) {
+		status, err := d.Chats.Start(where, a.Turn)
+		return StartResult{TurnID: status.TurnID, State: status.State}, err
+	})
 }
 
 // from is the chat an agent calls from, whose settings cap what it sends;
