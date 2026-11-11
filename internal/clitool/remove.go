@@ -44,6 +44,9 @@ func (in *Inventory) Logout(ctx context.Context, kind string) (UpdateResult, err
 		in.ranFailed(kind, append([]string{current.Command}, t.Spec.LogoutArgs...), out, err)
 		return res, nil
 	}
+	if t.Spec.AfterSignOut != nil {
+		t.Spec.AfterSignOut()
+	}
 
 	after, _ := in.find(ctx, kind)
 	if after.Authed {

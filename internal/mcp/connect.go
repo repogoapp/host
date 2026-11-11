@@ -134,10 +134,39 @@ func (s *Service) Connect(probeID, apiKey string) (Server, error) {
 		return Server{}, ErrInvalid.Errorf("this server connects through sign-in")
 	case p.auth == AuthAPIKey && apiKey == "":
 		return Server{}, ErrInvalid.Errorf("this server needs an API key")
+	case p.auth == AuthNone && p.id == "":
+		if srv, ok, err := s.reuseNone(p); ok {
+			return srv, err
+		}
 	}
 	r := s.newRecord(p)
 	r.Secret = apiKey
 	return s.put(r, p.id != "")
+}
+
+// reuseNone is a server with no sign-in already connected at p's URL,
+// switched on for p's project: with no credential, a second account would
+// be the first again. ok is false when there is none.
+func (s *Service) reuseNone(p *pending) (srv Server, ok bool, err error) {
+	same := func(r record) bool { return r.URL == p.url && r.Auth == AuthNone }
+	s.mu.Lock()
+	ok = slices.ContainsFunc(s.servers, same)
+	s.mu.Unlock()
+	if !ok {
+		return Server{}, false, nil
+	}
+	err = s.commit(func() error {
+		i := slices.IndexFunc(s.servers, same)
+		if i < 0 {
+			return ErrNotFound
+		}
+		if strings.TrimSpace(p.project) != "" {
+			s.servers[i].Projects = switched(s.servers[i].Projects, Root(p.project), true)
+		}
+		srv = s.servers[i].Server
+		return nil
+	})
+	return srv, true, err
 }
 
 // OAuthStart builds the authorize URL. clientID is the user's own, for an
@@ -263,8 +292,7 @@ func (s *Service) newRecord(p *pending) record {
 		id = newServerID()
 	}
 	return record{
-		Server: Server{ID: id, Label: label, URL: p.url, Projects: projects},
-		Auth:   p.auth,
+		Server: Server{ID: id, Label: label, URL: p.url, Auth: p.auth, Projects: projects},
 	}
 }
 

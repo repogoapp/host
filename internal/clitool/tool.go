@@ -132,6 +132,12 @@ type Spec struct {
 
 	// The CLI's own sign-out, run with LoginEnv; nil when it has none.
 	LogoutArgs []string
+	// AfterSignOut runs once its sign-out succeeds, before it is checked.
+	AfterSignOut func()
+
+	// Accounts lists a CLI's several accounts and picks one per project;
+	// nil for a CLI with one sign-in.
+	Accounts AccountsProvider
 }
 
 // PreferredExecutable is the binary a one-shot runs: the native install when

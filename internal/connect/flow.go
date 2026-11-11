@@ -24,6 +24,9 @@ const (
 	StepPaste = "paste"
 	// StepBrowser is a page to open; Redirect says how it ends.
 	StepBrowser = "browser"
+	// StepConfirm asks only for a yes: an MCP server with no sign-in, for a
+	// caller that sent Confirm. Its submit's value is ignored.
+	StepConfirm = "confirm"
 )
 
 // How a browser step ends, as Step.Redirect.
@@ -59,10 +62,14 @@ type StartParams struct {
 	// Loopback is the phone's own knowledge of a server that only accepts
 	// localhost redirects, from its presets.
 	Loopback bool `json:"loopback,omitempty" doc:"The MCP server only accepts a localhost redirect"`
-	// Account is, for an MCP server already connected, "again" to sign it in
-	// afresh (a credential revoked or expired) or "another" to add a second
-	// account beside it; empty opens the connection there.
-	Account string `json:"account,omitempty" doc:"For an MCP server already connected: again or another"`
+	// Account is, for an MCP server or a CLI with accounts, "again:<id>" to
+	// sign that account in afresh (a credential revoked or expired) or
+	// "another" to add one beside them; for an MCP server, "again" signs its
+	// one account in again. Empty opens the connection there.
+	Account string `json:"account,omitempty" doc:"For an MCP server or a CLI with accounts: again, again:<id> or another"`
+	// Confirm has an MCP server with no sign-in wait on a confirm step
+	// rather than connect at once; a caller that can't draw one leaves it out.
+	Confirm bool `json:"confirm,omitempty" doc:"Ask before connecting an MCP server that needs no sign-in"`
 }
 
 // Flow is one attempt to connect a target, as the phone draws it.
@@ -99,6 +106,8 @@ type Step struct {
 	// Warning is the host's caution about where a value goes, such as a file
 	// git would commit.
 	Warning string `json:"warning,omitempty"`
+	// Value starts a field filled in: a suggested name the user can change.
+	Value string `json:"value,omitempty"`
 }
 
 // flow is a Flow with what only the host keeps.
@@ -113,6 +122,13 @@ type flow struct {
 	probeID  string
 	loopback bool
 	state    string
+	// account is a CLI account being added, under a name of its own until it
+	// is signed in and named, which its project then uses.
+	account string
+	adding  bool
+	// signedIn is an added account that got as far as its name: one closed
+	// then keeps its account, one closed before is discarded.
+	signedIn bool
 	// working is set while a submit or callback acts on the step, so a second
 	// one, or a cancel, can't run alongside it.
 	working bool

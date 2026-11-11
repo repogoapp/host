@@ -10,8 +10,10 @@ package mcp
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -44,6 +46,9 @@ type Server struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	URL   string `json:"url"`
+	// Auth is how it signs in: none, api_key or oauth. One with none has
+	// nothing to tell two accounts apart, so it has only one.
+	Auth AuthKind `json:"auth,omitempty"`
 	// Project roots this server is switched on for. Opt-in: a server costs
 	// context in every turn it rides, so it is on only where the user said.
 	Projects []string `json:"projects" wire:"array"`
@@ -52,7 +57,6 @@ type Server struct {
 // record is a Server as stored, with what it takes to call it.
 type record struct {
 	Server
-	Auth AuthKind `json:"auth"`
 	// Set when an API key goes in a header other than Authorization.
 	HeaderName string       `json:"header_name,omitempty"`
 	OAuth      *oauthClient `json:"oauth,omitempty"`
@@ -267,11 +271,36 @@ func (s *Service) put(r record, reconnect bool) (Server, error) {
 		} else if reconnect {
 			return ErrNotFound
 		} else {
+			r.Label = s.freeLabelLocked(r.Label)
 			s.servers = append(s.servers, r)
 		}
 		return nil
 	})
 	return r.Server, err
+}
+
+// numbered splits "Context7 (2)" into its name and number.
+var numbered = regexp.MustCompile(`^(.*) \((\d+)\)$`)
+
+// freeLabelLocked is label, or its name with the first number from 2 no
+// connection has, so two accounts never share a name: a second "Context7"
+// or "Context7 (2)" is "Context7 (2)", then "Context7 (3)".
+func (s *Service) freeLabelLocked(label string) string {
+	taken := func(l string) bool {
+		return slices.ContainsFunc(s.servers, func(r record) bool { return strings.EqualFold(r.Label, l) })
+	}
+	if !taken(label) {
+		return label
+	}
+	name := label
+	if m := numbered.FindStringSubmatch(label); m != nil {
+		name = m[1]
+	}
+	for n := 2; ; n++ {
+		if l := fmt.Sprintf("%s (%d)", name, n); !taken(l) {
+			return l
+		}
+	}
 }
 
 func (s *Service) indexLocked(id string) int {

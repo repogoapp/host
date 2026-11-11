@@ -23,15 +23,26 @@ func hasKey(path, name string) bool {
 }
 
 // envLine is name=value as a dotenv file holds it, quoted when the value
-// needs it. A value one line can't hold is refused, never escaped.
+// needs it. A value of several lines (a .p8 or PEM key) is double-quoted with
+// \n for each break, which dotenv readers (Next.js, Wrangler, Bun) turn back
+// into lines; one that quoting can't hold is refused.
 func envLine(name, value string) (string, error) {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	if strings.Contains(value, "\n") {
+		value = strings.Trim(value, "\n")
+	}
 	switch {
 	case value == "":
 		return "", ErrInvalid.Errorf("a value is required")
 	case len(value) > maxValue:
 		return "", ErrInvalid.Errorf("the value is too long")
-	case strings.ContainsAny(value, "\n\r\x00"):
-		return "", ErrInvalid.Errorf("the value must be one line")
+	case strings.ContainsAny(value, "\r\x00"):
+		return "", ErrInvalid.Errorf("the value can't hold a carriage return")
+	case strings.Contains(value, "\n"):
+		if strings.ContainsAny(value, `"$`+"`\\") {
+			return "", ErrInvalid.Errorf("a value of several lines can't hold quotes, $ or backslashes")
+		}
+		return name + `="` + strings.ReplaceAll(value, "\n", `\n`) + `"`, nil
 	case !strings.ContainsAny(value, " \t#'\"=$`\\"):
 		return name + "=" + value, nil
 	case !strings.ContainsAny(value, "'"):

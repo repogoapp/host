@@ -14,6 +14,10 @@ import (
 
 // mcpStatus is connected when an account on url is on for the project; one
 // connected but off here is missing, and starting switches it on.
+
+// stepConfirm asks before connecting a server that needs no sign-in.
+const stepConfirm = "confirm"
+
 func (s *Service) mcpStatus(project, url string, c *Connection) {
 	c.Status, c.Destination = Missing, "MCP servers for this project"
 	all, on := s.accounts(url, project)
@@ -26,13 +30,22 @@ func (s *Service) mcpStatus(project, url string, c *Connection) {
 }
 
 // startMCP connects a server. One already connected opens as connected,
-// unless account asks to sign it in again or to add another account.
-func (s *Service) startMCP(ctx context.Context, f *flow, label, note, help, account string) error {
+// unless account asks to sign one in again or to add another account.
+func (s *Service) startMCP(ctx context.Context, f *flow, label, note, help, account string, confirm bool) error {
 	f.Destination = "MCP servers for this project"
 	all, on := s.accounts(f.target.URL, f.project)
 	var p mcp.Probe
 	var err error
 	switch {
+	case strings.HasPrefix(account, "again:"):
+		// One account by its id, as the app's accounts list picks it.
+		id := strings.TrimPrefix(account, "again:")
+		i := slices.IndexFunc(all, func(srv mcp.Server) bool { return srv.ID == id })
+		if i < 0 {
+			return ErrInvalid.Errorf("that account isn't connected to this server")
+		}
+		f.Destination = all[i].Label
+		p, err = s.d.MCP.ProbeAgain(ctx, id, f.project)
 	case account == "again":
 		// The one connection this project uses, or the only one there is.
 		mine := on
@@ -47,7 +60,7 @@ func (s *Service) startMCP(ctx context.Context, f *flow, label, note, help, acco
 	case account == "another":
 		p, err = s.d.MCP.ProbeAnother(ctx, f.target.URL, label, f.project)
 	case account != "":
-		return ErrInvalid.Errorf("account must be again or another")
+		return ErrInvalid.Errorf("account must be again, again:<id> or another")
 	case len(on) > 0:
 		f.Destination = labels(on)
 		f.end(Succeeded, "", s.d.Now())
@@ -81,6 +94,8 @@ func (s *Service) startMCP(ctx context.Context, f *flow, label, note, help, acco
 			f.Step, err = clientIDStep(p.RegistrationError, help, f.loopback), nil
 		}
 		return err
+	case confirm:
+		f.Step = &Step{ID: stepConfirm, Kind: StepConfirm, Note: note, HelpURL: help}
 	default:
 		if _, err := s.d.MCP.Connect(p.ProbeID, ""); err != nil {
 			return err
@@ -101,6 +116,9 @@ func (s *Service) submitMCP(ctx context.Context, f flow, value string) (*Step, e
 		return nil, err
 	case "client_id":
 		return s.signIn(ctx, &f, strings.TrimSpace(value))
+	case stepConfirm:
+		_, err := s.d.MCP.Connect(f.probeID, "")
+		return nil, err
 	}
 	return nil, ErrInvalid.Errorf("step %q takes no value", f.Step.ID)
 }

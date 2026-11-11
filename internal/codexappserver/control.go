@@ -20,9 +20,12 @@ func (c *Client) Initialize(ctx context.Context) error {
 // ThreadParams open a thread. Config is Codex's config.toml as an object,
 // layered over the user's own; it carries the MCP servers a turn gets.
 type ThreadParams struct {
-	ThreadID string         `json:"threadId,omitempty"`
-	Cwd      string         `json:"cwd,omitempty"`
-	Config   map[string]any `json:"config,omitempty"`
+	ThreadID string `json:"threadId,omitempty"`
+	Cwd      string `json:"cwd,omitempty"`
+	// Model opens the thread on the model its first turn asks for, so the
+	// thread and that turn don't start on different settings.
+	Model  string         `json:"model,omitempty"`
+	Config map[string]any `json:"config,omitempty"`
 	// DeveloperInstructions is added to Codex's own, never replacing them.
 	DeveloperInstructions string `json:"developerInstructions,omitempty"`
 }

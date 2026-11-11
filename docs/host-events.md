@@ -255,6 +255,12 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `session_id` string
 - `data` base64 (nullable)
 
+## `tools.accounts_changed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `kind` string
+
 ## `tunnels.changed`
 
 Signal: not replayed; a missed one is recovered by refetching.

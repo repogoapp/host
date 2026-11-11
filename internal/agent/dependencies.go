@@ -25,6 +25,11 @@ type Dependencies struct {
 	// Env is added to every agent process the host spawns.
 	Env []string
 
+	// ProjectEnv is added to an agent process started in cwd's project: the
+	// CLI accounts it picked (AWS_PROFILE). Read as the process starts, so a
+	// change reaches the next chat, not one already running; nil adds none.
+	ProjectEnv func(cwd string) []string
+
 	// MCP is the servers a turn in cwd gets; called only while a turn starts,
 	// so a host that never runs one may leave it nil.
 	MCP func(context.Context, string) []MCPServer
@@ -63,4 +68,13 @@ func ConfigHome(env, dir string) string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, dir)
+}
+
+// ProjectEnvFor is what an agent process started in cwd adds for its
+// project, after Env.
+func (d Dependencies) ProjectEnvFor(cwd string) []string {
+	if d.ProjectEnv == nil {
+		return nil
+	}
+	return d.ProjectEnv(cwd)
 }

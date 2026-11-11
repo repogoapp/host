@@ -313,6 +313,7 @@ Params:
 - `chat_id` string: The chat's id, as chats.list gives it
 - `turn` object{Turn}: The message
 - `steer` bool: Add it to the running turn instead of queueing it
+- `send_id` string (omitted when empty): The sender's id for this send; a repeat with it within ten minutes gets the first answer
 
 Result:
 
@@ -334,6 +335,7 @@ Params:
 - `title` string: The chat's name; empty has its agent name it after the start
 - `project_agent` string (omitted when empty)
 - `child` bool (omitted when empty) (nullable): For an agent: false opens a normal chat for the user; omit to start one under this chat
+- `send_id` string (omitted when empty): The sender's id for this start; a repeat with it within ten minutes gets the first answer
 
 Result:
 
@@ -473,7 +475,7 @@ Result:
 
 Tool (read): Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:<url>) or a CLI's sign-in (cli:<tool>); never with what. When you need a key, token, password or sign-in, draw a Connect card, even when the user says "ask me" or "send it here": never ask for one in chat or to paste it there.
 
-Live on: `connect.changed`
+Live on: `connect.changed`, `mcp.changed`, `tools.accounts_changed`
 
 Params:
 
@@ -509,7 +511,8 @@ Params:
 - `note` string (omitted when empty): A line on where to find the value
 - `help_url` string (omitted when empty): An https page where the value is found
 - `loopback` bool (omitted when empty): The MCP server only accepts a localhost redirect
-- `account` string (omitted when empty): For an MCP server already connected: again or another
+- `account` string (omitted when empty): For an MCP server or a CLI with accounts: again, again:<id> or another
+- `confirm` bool (omitted when empty): Ask before connecting an MCP server that needs no sign-in
 
 Result:
 
@@ -620,20 +623,6 @@ Params:
 Result:
 
 - `ok` bool
-
-## `devices.rotate`
-
-Paired devices only: refused at the machine.
-
-Params:
-
-- `public_key` base64 (nullable)
-- `signature_old` base64 (nullable)
-- `signature_new` base64 (nullable)
-
-Result:
-
-- `device_id` string
 
 ## `env.read`
 
@@ -1152,60 +1141,6 @@ Result:
 - `servers` [object{Server}]
 - `builtins` [object{Builtin}]
 - `root` string (omitted when empty)
-
-## `mcp.probe`
-
-Params:
-
-- `url` string
-- `label` string (omitted when empty)
-- `project` string
-
-Result:
-
-- `probe_id` string
-- `url` string
-- `auth` string
-- `needs_manual_client` bool
-- `registration_error` string (omitted when empty)
-
-## `mcp.connect`
-
-Params:
-
-- `probe_id` string
-- `api_key` string (omitted when empty)
-
-Result:
-
-- `ok` bool
-
-## `mcp.oauth_start`
-
-Params:
-
-- `probe_id` string
-- `client_id` string (omitted when empty)
-- `loopback` bool
-
-Result:
-
-- `authorize_url` string
-- `state` string
-
-## `mcp.oauth_finish`
-
-Detached: runs to completion if the caller disconnects.
-
-Params:
-
-- `probe_id` string
-- `code` string
-- `state` string
-
-Result:
-
-- `ok` bool
 
 ## `mcp.rename`
 
@@ -1862,42 +1797,6 @@ Result:
 - `ok` bool
 - `error` string (omitted when empty)
 
-## `tools.login_start`
-
-Params:
-
-- `kind` string
-
-Result:
-
-- `url` string
-- `style` string
-- `user_code` string (omitted when empty)
-- `expires_at_ms` int
-
-## `tools.login_complete`
-
-Detached: runs to completion if the caller disconnects.
-
-Params:
-
-- `kind` string
-- `code` string
-
-Result:
-
-- `ok` bool
-
-## `tools.login_cancel`
-
-Params:
-
-- `kind` string
-
-Result:
-
-- `ok` bool
-
 ## `tools.logout`
 
 Detached: runs to completion if the caller disconnects.
@@ -1912,15 +1811,54 @@ Result:
 - `ok` bool
 - `error` string (omitted when empty)
 
-## `tools.logins`
+## `tools.accounts`
 
 Params:
 
-- none
+- `kind` string
+- `project` string
 
 Result:
 
-- `waiting` [string]
+- `supported` bool
+- `accounts` [object{CLIAccount}]
+
+## `tools.select_account`
+
+Params:
+
+- `kind` string
+- `project` string
+- `id` string
+
+Result:
+
+- `ok` bool
+
+## `tools.rename_account`
+
+Params:
+
+- `kind` string
+- `id` string
+- `name` string
+
+Result:
+
+- `ok` bool
+
+## `tools.remove_account`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `kind` string
+- `id` string
+
+Result:
+
+- `ok` bool
 
 ## `tunnels.open`
 
@@ -2118,15 +2056,3 @@ Params:
 Result:
 
 - `skipped` int
-
-## `usage.clear_time`
-
-Paired devices only: refused at the machine.
-
-Params:
-
-- `cwd` string (omitted when empty)
-
-Result:
-
-- `ok` bool

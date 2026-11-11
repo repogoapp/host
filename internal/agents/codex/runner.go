@@ -145,7 +145,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 		servers = append(slices.Clone(servers), entry)
 	}
 	client, err := codexappserver.Start(r.deps.Context, codexappserver.Options{
-		Executable: r.executable(), Cwd: req.Cwd, Env: r.environment(),
+		Executable: r.executable(), Cwd: req.Cwd, Env: append(r.environment(), r.deps.ProjectEnvFor(req.Cwd)...),
 	}, codexappserver.Handlers{Request: s.respond})
 	if err != nil {
 		if s.release != nil {
@@ -161,7 +161,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 		s.close()
 		return nil, fmt.Errorf("initialize Codex: %w", withStderr(err, client))
 	}
-	params := codexappserver.ThreadParams{Cwd: req.Cwd, Config: mcpConfig(servers), DeveloperInstructions: instructions}
+	params := threadParams(req, servers, instructions)
 	var thread codexappserver.ThreadResponse
 	if req.SessionID == "" {
 		thread, err = client.ThreadStart(open, params)
@@ -200,6 +200,20 @@ func (r *runner) environment() []string {
 		env = append(env, "CODEX_HOME="+r.home)
 	}
 	return env
+}
+
+// threadParams open the thread on the chat's model and effort, the ones its
+// first turn sends: Codex would otherwise start on its defaults and switch
+// once the turn arrives.
+func threadParams(req agent.TurnRequest, servers []agent.MCPServer, instructions string) codexappserver.ThreadParams {
+	config := mcpConfig(servers)
+	if effort := req.Config.ReasoningLevel; effort != "" {
+		if config == nil {
+			config = map[string]any{}
+		}
+		config["model_reasoning_effort"] = effort
+	}
+	return codexappserver.ThreadParams{Cwd: req.Cwd, Model: req.Config.Model, Config: config, DeveloperInstructions: instructions}
 }
 
 // mcpConfig is the servers as config.toml's mcp_servers table, layered over

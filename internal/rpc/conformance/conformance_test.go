@@ -41,8 +41,6 @@ type check struct {
 func vocabulary(root string) []check {
 	file, missing := filepath.Join(root, "readme.txt"), filepath.Join(root, "missing")
 	return []check{
-		{method: "tools.logins", key: "waiting"},
-		{method: "tools.login_cancel", params: map[string]any{"kind": "gh"}, key: "ok"},
 		{method: "chats.list", params: map[string]any{"limit": 5}, key: "chats"},
 		{method: "chats.info", params: map[string]any{"chat_id": "claude:missing"}, key: "id"},
 		{method: "chats.messages", params: map[string]any{"chat_id": "claude:missing", "tail": true}, key: "events"},
@@ -111,7 +109,6 @@ var unchecked = map[string]string{
 	"host.setup":      "shells out to gh and every agent CLI and asks the npm registry for versions; composition covered in internal/hostsetup",
 	"host.update":     "downloads a release and restarts the host; covered in internal/hostupdate",
 	"host.tls_rotate": "replaces the host's TLS key and drops passthrough sockets; covered in internal/hosttls and internal/wsserver remote_test",
-	"devices.rotate":  "replaces the caller's own key and closes its sockets; covered in internal/device rotate_test and internal/wsserver remote_test",
 	"catalog.read":    "probes every agent CLI as host.setup does; covered with fakes in the catalog family suite",
 
 	"devices.register_push": "paired-device token storage; loopback callers are denied",
@@ -123,10 +120,12 @@ var unchecked = map[string]string{
 	"limits.reset":         "spends a Codex reset credit; outcome parsing is in agentusage",
 	"tools.update":         "runs the user's package manager",
 	"tools.install":        "same, or the tool's installer",
-	"tools.login_start":    "runs a CLI's sign-in against its provider; covered with a fake gh in internal/github and in internal/clilogin",
-	"tools.login_complete": "same",
 	"tools.logout":         "runs a CLI's sign-out on this machine; covered with a fake CLI in internal/clitool",
 	"tools.uninstall":      "removes a CLI from this machine; covered with a fake CLI in internal/clitool",
+	"tools.accounts":       "runs the CLI's own account checks against its provider; covered with a fake provider in internal/clitool",
+	"tools.select_account": "same",
+	"tools.rename_account": "edits the CLI's own config files; covered with temporary files in internal/clitool",
+	"tools.remove_account": "same, and runs the CLI's sign-out",
 	"turns.get":            "needs a running turn",
 	"turns.stop":           "needs a running turn",
 	"turns.edit_queued":    "needs a queued turn; covered in internal/agent",
@@ -177,7 +176,6 @@ var unchecked = map[string]string{
 	"usage.history":     "scans the user's agent transcripts; covered with temporary homes in internal/agents (shipping_test.go)",
 	"usage.time":        "reads the usage ledger's activity; covered in internal/shipping (activity_test.go)",
 	"usage.record_time": "writes a device's screen time to the usage ledger; covered in internal/shipping (activity_test.go)",
-	"usage.clear_time":  "deletes devices' screen time from the usage ledger; covered in internal/shipping (activity_test.go)",
 
 	"forward.fetch":        "driven against a real dev server by TestForwardFetchOverEveryTransport",
 	"forward.pipe_open":    "the pipe lane pushes, and pushes only reach a phone-side client; covered in internal/forward",
@@ -210,11 +208,7 @@ var unchecked = map[string]string{
 	"terminals.resize":      "same",
 	"terminals.close":       "same",
 
-	"mcp.probe":        "reaches the pasted URL; covered against httptest servers in internal/mcp",
-	"mcp.connect":      "needs a live probe; covered in internal/mcp",
-	"mcp.oauth_start":  "same",
-	"mcp.oauth_finish": "same, and it calls the server's token endpoint",
-	"mcp.call":         "calls a connected server's tools; covered against httptest servers in internal/mcp",
+	"mcp.call": "calls a connected server's tools; covered against httptest servers in internal/mcp",
 
 	"tunnels.open":  "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
 	"tunnels.close": "same",

@@ -75,8 +75,10 @@ func (h *Host) openAgents() error {
 		Root:    h.cfg.ProviderRoot,
 		Env:     []string{notify.OriginEnv + "=" + string(notify.OriginApp)},
 		// h.mcps is opened below; a turn cannot start before New returns.
-		MCP:   h.mcpForTurn,
-		Tools: h.tools,
+		MCP: h.mcpForTurn,
+		// The CLI accounts the project picked; the inventory opens later too.
+		ProjectEnv: h.projectEnv,
+		Tools:      h.tools,
 		// Read when a session starts, so a phone's latest devices.hello counts.
 		// With RepoGo's tools off on this environment, the agent runs as it would
 		// in a terminal: nothing added to its system prompt.
@@ -180,7 +182,7 @@ func (k pluginKeys) SetPluginKey(plugin, key string, at int64) error {
 func (k pluginKeys) DeletePluginKey(plugin string) error { return k.h.db.DeletePluginKey(plugin) }
 
 // pluginHost runs a plugin's ctx.host as the host's own device; the router
-// keeps a plugin caller to the methods agents and cards can call.
+// keeps a plugin caller to the methods marked rpc.Tool or rpc.Plugins.
 func (h *Host) pluginHost(ctx context.Context, plugin, method string, params json.RawMessage) (json.RawMessage, error) {
 	if h.Router == nil {
 		return nil, rpc.ErrUnavailable
@@ -355,6 +357,8 @@ func (h *Host) openProjects() error {
 	})
 	gitService := gitcore.New(projectFiles, h.log)
 	terminals := terminal.New(projectFiles, h.emitter, h.log)
+	// The same CLI accounts the project's agents get; the inventory opens below.
+	terminals.ProjectEnv = h.projectEnv
 	h.onClose(terminals.Shutdown)
 	envSources, err := envsource.Open(h.state("env-sources.json"), h.cfg.Home)
 	if err != nil {
@@ -425,7 +429,17 @@ func (h *Host) openProjects() error {
 	// an install outlives its call.
 	s.Tools = clitool.NewInventory(h.setupChanged, h.log)
 	h.onClose(s.Tools.Close)
+	if err := s.Tools.OpenAccounts(h.state("cli-accounts.json")); err != nil {
+		return fmt.Errorf("open CLI accounts: %w", err)
+	}
+	s.Tools.OnAccountsChanged(func(ev clitool.AccountsChanged) { h.toEveryDevice(ev) })
 	s.Tools.Tools = append([]clitool.Tool{gh.Tool()}, h.agents.Tools()...)
+	// After the Go tools, so a declared CLI never takes one's kind.
+	for _, d := range clitool.DeclaredCLIs {
+		if _, taken := s.Tools.Lookup(d.Kind); !taken {
+			s.Tools.Tools = append(s.Tools.Tools, d.Tool())
+		}
+	}
 	s.Projects = project.New(projectFiles, h.db)
 	s.ProjectSync = projectsync.New(projectFiles, h.db, s.Projects, h.cfg.Home, h.projectsChanged, h.log)
 	// Every commit that moves a chat row reaches the devices, and may move its
@@ -446,7 +460,7 @@ func (h *Host) openProjects() error {
 	s.Connect = connect.New(connect.Deps{
 		Sources: envSources, PluginDir: s.Plugins.Dir, SharedEnv: filepath.Join(h.state("plugins"), ".env"),
 		Contain: projectFiles.Contain, Home: h.cfg.Home, Ignored: gitService.Ignored, MCP: h.mcps, CLIs: s.Tools,
-		Changed: func(c connect.Changed) { h.toEveryDevice(c) }, Now: time.Now, Redact: h.redact,
+		Changed: func(c connect.Changed) { h.toEveryDevice(c) }, Now: time.Now, Redact: h.redact, Log: h.log,
 	})
 	s.Tools.OnLoginEnd(s.Connect.CLIEnded)
 	s.Home = h.cfg.Home
@@ -557,4 +571,13 @@ func (h *Host) pluginsRuntime() string {
 		h.log.Warn("plugins: could not unpack the runtime", "err", err)
 	}
 	return runtime
+}
+
+// projectEnv is what a process started in dir gets for its project: the
+// variables picking each CLI account it chose (AWS_PROFILE, FLY_CONFIG_DIR).
+func (h *Host) projectEnv(dir string) []string {
+	if h.Services.Tools == nil {
+		return nil
+	}
+	return h.Services.Tools.AccountEnv(mcp.Root(dir))
 }

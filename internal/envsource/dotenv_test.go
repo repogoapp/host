@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-// The cases v1's Swift and TypeScript parsers agree on; the phone may still
-// hold a copy of either, so this one must too.
+// The cases v1's Swift and TypeScript parsers agree on, but one: \n in double
+// quotes is a line break here, as every dotenv reader the projects use reads
+// it, where v1 kept it as written.
 func TestParseMatchesV1(t *testing.T) {
 	text := "# comment\n" +
 		"\n" +
@@ -18,6 +19,7 @@ func TestParseMatchesV1(t *testing.T) {
 		`MISMATCHED="open'` + "\n" +
 		`LONE="` + "\n" +
 		`ESCAPED="a\nb"` + "\n" +
+		`KEPT='a\nb'` + "\n" +
 		"EQUALS=a=b=c\n" +
 		"EMPTY=\n" +
 		"CRLF=windows\r\n" +
@@ -32,7 +34,8 @@ func TestParseMatchesV1(t *testing.T) {
 		"SINGLE":     "single",
 		"MISMATCHED": `"open'`,
 		"LONE":       `"`,
-		"ESCAPED":    `a\nb`,
+		"ESCAPED":    "a\nb",
+		"KEPT":       `a\nb`,
 		"EQUALS":     "a=b=c",
 		"EMPTY":      "",
 		"CRLF":       "windows",

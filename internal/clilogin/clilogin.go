@@ -5,7 +5,7 @@
 package clilogin
 
 import (
-	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
@@ -44,6 +44,7 @@ var (
 	ErrNotWaiting = errkind.New(errkind.Invalid, "sign-in: no sign-in is waiting")
 	ErrNoPaste    = errkind.New(errkind.Invalid, "sign-in: this sign-in finishes on the web page, not with a pasted code")
 	ErrPortInUse  = errkind.New(errkind.Unavailable, "sign-in: the CLI's callback port is in use on this environment")
+	ErrBusy       = errkind.New(errkind.Unavailable, "Another sign-in of this CLI is still open. Finish or close it first.")
 )
 
 // ansi is the colour a CLI prints even into a pipe.
@@ -80,6 +81,10 @@ type Spec struct {
 	Command string
 	Args    []string
 	Env     []string
+
+	// Owner is the account signing in, "" for the CLI's own: a second Start
+	// shares a sign-in only with the same owner.
+	Owner string
 
 	// How long the CLI may wait on the user before it is killed.
 	Timeout time.Duration
@@ -127,9 +132,14 @@ type login struct {
 	stdin io.WriteCloser
 	stop  context.CancelFunc
 
+	owner string
+
 	// cancelling ends a cancelled sign-in after the grace; while it runs
 	// the sign-in is not reported as pending.
 	cancelling *time.Timer
+	// superseded is a cancelled sign-in stopped early for another account's:
+	// its end is not reported, so it can't end the flow that replaced it.
+	superseded bool
 
 	// done closes when the CLI exits; err and last are set before.
 	done chan struct{}
@@ -138,24 +148,42 @@ type login struct {
 }
 
 // Start runs the CLI and returns once it has printed its code. A second call
-// while one is starting, waiting, or cancelling returns the same code. The
-// lock is not held while the CLI starts, so Pending answers meanwhile.
+// for the same owner while one is starting, waiting, or cancelling returns
+// the same code. Another owner's waiting sign-in refuses it (ErrBusy); one
+// cancelled and in its grace is stopped first. The lock is not held while
+// the CLI starts, so Pending answers meanwhile.
 func (l *Logins) Start(key string, s Spec) (Code, error) {
 	l.mu.Lock()
 	if lg := l.pending[key]; lg != nil {
-		if lg.cancelling != nil {
-			lg.cancelling.Stop()
-			lg.cancelling = nil
+		switch {
+		case lg.owner == s.Owner:
+			if lg.cancelling != nil {
+				lg.cancelling.Stop()
+				lg.cancelling = nil
+			}
+			l.mu.Unlock()
+			<-lg.ready
+			return lg.code, lg.startErr
+		case lg.cancelling == nil:
+			l.mu.Unlock()
+			return Code{}, ErrBusy
 		}
+		lg.cancelling.Stop()
+		lg.superseded = true
+		lg.stop()
 		l.mu.Unlock()
-		<-lg.ready
-		return lg.code, lg.startErr
+		select {
+		case <-lg.done:
+		case <-time.After(5 * time.Second):
+			return Code{}, ErrBusy
+		}
+		return l.Start(key, s)
 	}
 	if err := portFree(s.Port); err != nil {
 		l.mu.Unlock()
 		return Code{}, err
 	}
-	lg := &login{ready: make(chan struct{}), done: make(chan struct{})}
+	lg := &login{ready: make(chan struct{}), done: make(chan struct{}), owner: s.Owner}
 	if l.pending == nil {
 		l.pending = map[string]*login{}
 	}
@@ -246,28 +274,86 @@ func start(cmd *exec.Cmd, tty bool) (*os.File, io.WriteCloser, error) {
 	return out, stdin, nil
 }
 
+// quietLine is how long output pauses before a line with no newline yet is
+// read as it stands: Stripe prints its link and then waits on that line.
+const quietLine = 300 * time.Millisecond
+
 // read scans the CLI's output to the end: up to the code for Start, then for
 // the last line, which says why it exited. Drained, because a CLI blocks on a
 // full pipe.
 func read(out io.Reader, s Spec, expires time.Time, found chan<- Code, last chan<- string) {
 	code := Code{Style: cmp.Or(s.Style, StyleDevice), ExpiresAtMS: expires.UnixMilli()}
 	sent, line := false, ""
-	scanner := bufio.NewScanner(out)
-	for scanner.Scan() {
-		t := strings.TrimSpace(ansi.ReplaceAllString(scanner.Text(), ""))
+	scan := func(raw string, partial bool) {
+		t := strings.TrimSpace(ansi.ReplaceAllString(raw, ""))
 		if t == "" {
-			continue
+			return
 		}
-		line = t
-		if !sent && s.Read(t, &code) {
+		if !partial {
+			line = t
+		}
+		if sent {
+			return
+		}
+		// An unfinished line may still grow: it is tried on a copy, kept only
+		// once it completes the code.
+		next := code
+		done := s.Read(t, &next)
+		if done || !partial {
+			code = next
+		}
+		if done {
 			found <- code
 			sent = true
 		}
 	}
-	if !sent {
-		found <- Code{}
+
+	chunks := make(chan []byte)
+	go func() {
+		defer close(chunks)
+		for {
+			buf := make([]byte, 4096)
+			n, err := out.Read(buf)
+			if n > 0 {
+				chunks <- buf[:n]
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var pending []byte
+	quiet := time.NewTimer(quietLine)
+	defer quiet.Stop()
+	for {
+		select {
+		case chunk, ok := <-chunks:
+			if !ok {
+				if len(pending) > 0 {
+					scan(string(pending), false)
+				}
+				if !sent {
+					found <- Code{}
+				}
+				last <- line
+				return
+			}
+			pending = append(pending, chunk...)
+			for {
+				i := bytes.IndexByte(pending, '\n')
+				if i < 0 {
+					break
+				}
+				scan(string(pending[:i]), false)
+				pending = pending[i+1:]
+			}
+			quiet.Reset(quietLine)
+		case <-quiet.C:
+			if len(pending) > 0 {
+				scan(string(pending), true)
+			}
+		}
 	}
-	last <- line
 }
 
 func (l *Logins) finish(key string, lg *login, cmd *exec.Cmd, out *os.File, last <-chan string, onEnd func(bool)) {
@@ -290,9 +376,14 @@ func (l *Logins) finish(key string, lg *login, cmd *exec.Cmd, out *os.File, last
 	if l.pending[key] == lg {
 		delete(l.pending, key)
 	}
+	superseded := lg.superseded
 	l.mu.Unlock()
 	lg.err, lg.last = err, line
 	close(lg.done)
+	if superseded {
+		l.Log.Info("sign-in: stopped for another account's", "key", key)
+		return
+	}
 
 	if err != nil {
 		l.Log.Warn("sign-in: ended without signing in", "key", key, "err", err, "out", line)

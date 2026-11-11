@@ -4,6 +4,7 @@
       "id": "id",
       "label": "label",
       "url": "url",
+      "auth": "auth",
       "projects": [
         "projects"
       ]

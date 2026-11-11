@@ -213,7 +213,8 @@ link previews and crawlers fetch any URL they're shown, so a write answers
 other error, such as a failed `fetch`, answers 500 `Internal server error`,
 since its text may hold a token or a path; the host logs the real one. The
 device address takes calls only from this machine and its containers'
-networks, and refuses a browser's, since any web page can reach loopback.
+networks, and refuses a browser's, since any web page can reach loopback:
+call it by an address, `localhost` or `host.docker.internal`, not another name.
 
 A body that isn't JSON answers 400, as does one over 1 MB at the device
 address (413 at the public one), and the public address answers 429 to a
@@ -634,8 +635,8 @@ Write `console.log` (or `warn`, `error`, `debug`); nothing else is needed. The
 host keeps every line with the plugin, the method and the call that wrote it,
 who called (`card`, `agent`, `cron`, `code`, or `http` and `device` for HTTP), and the chat for an agent's call, plus
 the arguments as JSON. An error a method throws, or one nothing caught, is
-kept too, with its stack. Read them with the agent's `plugins_logs` tool, or on
-a card with `<Data method="repogo:plugins.logs">`, which reloads as lines land:
+kept too, with its stack. Read them with the agent's `plugins_logs` tool, or
+from a plugin with `ctx.host("plugins.logs", …)` for a card to show:
 `plugin`, `level` (that level and worse), `method`, `since`, `until`, `query`
 (a substring) and `limit` narrow it. The `plugins` tool shows each plugin's
 `errors` in the last hour. Lines older than 7 days go, and the oldest hours of
@@ -654,7 +655,7 @@ Every method, handler and cron gets `ctx`:
 | `collections`, `kv`, `streams`, `buckets` | The plugin's data |
 | `call(method, input)` | Runs a method of a plugin in the same folder; `"open"` is this plugin's own |
 | `plugins()` | The plugins in the same folder, with their methods |
-| `host(method, params)` | Runs one of the host's methods that agents and cards may call (`git.status`, `chats.list`, `actions.run`, …); others fail with `FORBIDDEN`, and one that doesn't exist with `INTERNAL` |
+| `host(method, params)` | Runs one of the host's methods that agents may call, and `actions.*` (`git.status`, `chats.list`, `actions.run`, …); others fail with `FORBIDDEN`, and one that doesn't exist with `INTERNAL`. It's how a host read reaches a card, which can't call the host's methods itself |
 | `mcp(server, tool, input)` | Runs a tool of an MCP server the user connected in RepoGo and switched on for the calling project; see below |
 | `notify({ title, body, page?, url?, collapse? })` | Alerts every paired phone; a tap opens `url` (an `https` or `itms-services` link) if set, else `page`, and alerts sharing `collapse` replace each other |
 | `activity({ id, title, body?, page?, symbol?, tint?, label?, compactLabel?, progress?, timer?, status? })` | Shows or updates a Live Activity on every paired phone; see below |

@@ -151,7 +151,7 @@ var (
 	Write Option = func(s *Spec) { s.Effect = Writes }
 )
 
-// Tool offers a method to agents (the repogo MCP) and cards (`repogo:`).
+// Tool offers a method to agents (the repogo MCP) and to plugins (ctx.host).
 func Tool(description string) Option { return func(s *Spec) { s.Tool = description } }
 
 // LiveOn names the events that change a Read's answer.

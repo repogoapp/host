@@ -3,6 +3,7 @@ package clilogin
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -320,5 +321,68 @@ func TestCloseStopsWaitingSignIns(t *testing.T) {
 	}
 	if l.Pending("cli") != nil {
 		t.Fatal("still pending after Close")
+	}
+}
+
+// Stripe prints its link with no newline after it and waits there: the link
+// is read once the output goes quiet, not when the line ends.
+func TestReadsALinkWithNoNewline(t *testing.T) {
+	r, w := io.Pipe()
+	defer w.Close()
+	s := Spec{Read: func(line string, c *Code) bool {
+		if strings.HasPrefix(line, "code: ") {
+			c.UserCode = strings.TrimPrefix(line, "code: ")
+		}
+		if i := strings.Index(line, "https://"); i >= 0 {
+			c.URL = strings.Fields(line[i:])[0]
+		}
+		return c.URL != "" && c.UserCode != ""
+	}}
+	found, last := make(chan Code, 1), make(chan string, 1)
+	go read(r, s, time.Now().Add(time.Minute), found, last)
+	go func() {
+		_, _ = io.WriteString(w, "code: woo-sharp\n")
+		_, _ = io.WriteString(w, "visit https://example.com/confirm?t=abc (^C to quit)")
+	}()
+	select {
+	case c := <-found:
+		if c.URL != "https://example.com/confirm?t=abc" || c.UserCode != "woo-sharp" {
+			t.Fatalf("code = %+v", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no code read from a line without a newline")
+	}
+}
+
+// A sign-in belongs to its account: another account's waits its turn, and
+// one cancelled is stopped for it at once, its end unreported so it can't
+// end the flow that replaced it.
+func TestASignInBelongsToItsAccount(t *testing.T) {
+	l := Logins{Log: quiet(), Grace: time.Minute}
+	endedA, endedB := make(chan bool, 1), make(chan bool, 1)
+	a, _ := spec(t, "device", endedA)
+	a.Owner = "client-a"
+	b, dirB := spec(t, "device", endedB)
+	b.Owner = "client-b"
+	if _, err := l.Start("aws", a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Start("aws", b); !errors.Is(err, ErrBusy) {
+		t.Fatalf("another account's start while one waits = %v", err)
+	}
+	l.Cancel("aws")
+	if _, err := l.Start("aws", b); err != nil {
+		t.Fatalf("after the cancel: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirB, "approve"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !waitEnd(t, endedB) {
+		t.Fatal("the new account's sign-in failed")
+	}
+	select {
+	case ok := <-endedA:
+		t.Fatalf("the replaced sign-in reported its end (%v)", ok)
+	case <-time.After(200 * time.Millisecond):
 	}
 }

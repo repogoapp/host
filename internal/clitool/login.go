@@ -64,15 +64,3 @@ func (in *Inventory) Close() { in.logins.Close() }
 
 // LoginCancel stops a waiting sign-in; nothing waiting is not an error.
 func (in *Inventory) LoginCancel(kind string) { in.logins.Cancel(kind) }
-
-// Logins is which CLIs have a sign-in waiting: no subprocess, so a phone can
-// ask it every second while its sheet is up.
-func (in *Inventory) Logins() []string {
-	out := []string{}
-	for _, t := range in.Tools {
-		if in.logins.Pending(t.Kind) != nil {
-			out = append(out, t.Kind)
-		}
-	}
-	return out
-}

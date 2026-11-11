@@ -64,6 +64,11 @@ type Manager struct {
 	paths files.Container
 	log   *slog.Logger
 
+	// ProjectEnv is added to a shell started in a project folder: the CLI
+	// accounts the project picked, as its agents get them. Read as the shell
+	// starts, so one already open keeps what it had; nil adds none.
+	ProjectEnv func(dir string) []string
+
 	// emit is how a session reports output and exit to its watchers.
 	emit *emit.Emitter
 
@@ -149,6 +154,9 @@ func (m *Manager) Create(caller device.ID, cwd string, cols, rows int) (Info, er
 	cmd := exec.Command(shell, "-l")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	if m.ProjectEnv != nil {
+		cmd.Env = append(cmd.Env, m.ProjectEnv(dir)...)
+	}
 
 	s := newSession(dir, shell, cmd, cols, rows)
 	s.watchers[caller] = struct{}{}

@@ -55,7 +55,7 @@ const askInApp = "When you need a key, token, password or sign-in, draw a Connec
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "connect.list", d.list, rpc.Tool("Whether each target is connected on this environment: an env key "+
 		"(env:NAME with its scope), an MCP server (mcp:<url>) or a CLI's sign-in (cli:<tool>); never with what. "+
-		askInApp), rpc.Read, rpc.LiveOn("connect.changed"))
+		askInApp), rpc.Read, rpc.LiveOn("connect.changed", "mcp.changed", "tools.accounts_changed"))
 	rpc.Add(r, "connect.get", d.get, rpc.Tool("A connect flow the user was shown: waiting, or how it ended. "+askInApp),
 		rpc.Read, rpc.LiveOn("connect.changed"))
 	rpc.Add(r, "connect.start", d.start)

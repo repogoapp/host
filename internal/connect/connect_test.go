@@ -231,10 +231,29 @@ func TestListSaysWhyATargetIsUnavailable(t *testing.T) {
 	}
 }
 
+// A key of several lines (an Apple .p8) is kept as one quoted line with \n,
+// as dotenv readers expect.
+func TestSeveralLinesAreQuoted(t *testing.T) {
+	f := newFixture(t)
+	flow := f.start(t, "env:KEY", "plugins")
+	pem := "-----BEGIN PRIVATE KEY-----\r\nMIGT+a/b=\r\n-----END PRIVATE KEY-----\n"
+	if _, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, pem); err != nil {
+		t.Fatal(err)
+	}
+	want := `KEY="-----BEGIN PRIVATE KEY-----\nMIGT+a/b=\n-----END PRIVATE KEY-----"` + "\n"
+	if got := read(t, f.shared); got != want {
+		t.Fatalf("file = %q", got)
+	}
+	// The host's own reader (an action's env sources) reads it back whole.
+	if got := envsource.Parse(read(t, f.shared))["KEY"]; got != "-----BEGIN PRIVATE KEY-----\nMIGT+a/b=\n-----END PRIVATE KEY-----" {
+		t.Fatalf("read back = %q", got)
+	}
+}
+
 func TestValuesALineCantHold(t *testing.T) {
 	f := newFixture(t)
 	flow := f.start(t, "env:KEY", "plugins")
-	for _, bad := range []string{"", "a\nb", "a\rb", `it's "both"`, strings.Repeat("x", maxValue+1)} {
+	for _, bad := range []string{"", "a\nb$", "a\rb", `it's "both"`, strings.Repeat("x", maxValue+1)} {
 		if _, err := f.s.Submit(ctx, flow.ID, flow.Step.ID, bad); err == nil {
 			t.Errorf("%q: accepted", bad)
 		}

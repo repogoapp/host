@@ -458,6 +458,18 @@ func TestMCPServersBecomeCodexConfig(t *testing.T) {
 	}
 }
 
+func TestThreadOpensOnTheTurnsModelAndEffort(t *testing.T) {
+	req := agent.TurnRequest{Cwd: "/w", Config: agent.TurnConfig{Model: "gpt-5.5", ReasoningLevel: "high"}}
+	got, _ := json.Marshal(threadParams(req, nil, ""))
+	if string(got) != `{"cwd":"/w","model":"gpt-5.5","config":{"model_reasoning_effort":"high"}}` {
+		t.Fatalf("params %s", got)
+	}
+	got, _ = json.Marshal(threadParams(agent.TurnRequest{Cwd: "/w"}, nil, ""))
+	if string(got) != `{"cwd":"/w"}` {
+		t.Fatalf("defaults still overrode Codex's own: %s", got)
+	}
+}
+
 func TestRunningNamesTheTurnAndItsDevice(t *testing.T) {
 	s := &liveSession{key: "codex:t", cwd: "/w"}
 	if _, ok := s.Running(); ok {

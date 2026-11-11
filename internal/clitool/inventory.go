@@ -35,8 +35,13 @@ type Inventory struct {
 	updateMu sync.Mutex
 
 	// Sign-ins waiting on a person at the provider's page, by kind.
-	logins   clilogin.Logins
-	onChange func()
+	logins clilogin.Logins
+	// Which account each project uses, for CLIs with accounts; nil until
+	// OpenAccounts.
+	accounts *accountState
+	// accountsChanged hears each change to a CLI's accounts; nil in tests.
+	accountsChanged func(AccountsChanged)
+	onChange        func()
 	// loginEnded hears which sign-in ended and how, set once at assembly.
 	loginEnded func(kind string, ok bool)
 	log        *slog.Logger

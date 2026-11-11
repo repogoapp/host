@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -95,6 +96,14 @@ type fakeCLIs struct {
 	refuse error
 	// loggedOut is each CLI Logout was asked to sign out.
 	loggedOut []string
+	// accountLogins, selected, renamed and discarded are each account
+	// sign-in, pick, rename and removal.
+	accountLogins, selected, renamed, discarded []string
+	// picks has PickedAccount answer, for a project with an account picked;
+	// pickedOut has that account signed out, pickGone the CLI no longer have it.
+	picks, pickedOut, pickGone bool
+	// selectErr is what SelectAccount answers.
+	selectErr error
 }
 
 func (c *fakeCLIs) Logout(_ context.Context, kind string) (clitool.UpdateResult, error) {
@@ -120,6 +129,51 @@ func (c *fakeCLIs) LoginComplete(_ context.Context, kind, code string) error {
 }
 
 func (c *fakeCLIs) LoginCancel(kind string) { c.cancelled = append(c.cancelled, kind) }
+
+// AccountLoginStart signs in an account as LoginStart does, keeping which.
+func (c *fakeCLIs) AccountLoginStart(_ context.Context, kind, id string, add bool) (clilogin.Code, error) {
+	if id == "bad name" {
+		return clilogin.Code{}, errkind.ErrInvalid.Errorf("name it with letters")
+	}
+	c.accountLogins = append(c.accountLogins, fmt.Sprintf("%s %s %t", kind, id, add))
+	return c.code, nil
+}
+
+func (c *fakeCLIs) SelectAccount(_ context.Context, kind, root, id string) error {
+	if c.selectErr != nil {
+		return c.selectErr
+	}
+	c.selected = append(c.selected, kind+" "+id)
+	return nil
+}
+
+func (c *fakeCLIs) AccountWho(context.Context, string, string) (string, string) {
+	return "976193265892 · root", "fileie"
+}
+
+func (c *fakeCLIs) RenameAccount(_ context.Context, kind, from, to string) error {
+	if to == "bad name" {
+		return errkind.ErrInvalid.Errorf("name it with letters")
+	}
+	c.renamed = append(c.renamed, from+" "+to)
+	return nil
+}
+
+// PickedAccount: "client-a" is picked everywhere.
+func (c *fakeCLIs) PickedAccount(_ context.Context, kind, root string) (string, clitool.CLIAccount, bool) {
+	switch {
+	case !c.picks:
+		return "", clitool.CLIAccount{}, false
+	case c.pickGone:
+		return "client-a", clitool.CLIAccount{}, false
+	}
+	return "client-a", clitool.CLIAccount{ID: "client-a", Detail: "client-a@example.com", SignedIn: !c.pickedOut, On: true}, true
+}
+
+func (c *fakeCLIs) DiscardAccount(_ context.Context, kind, id string) error {
+	c.discarded = append(c.discarded, id)
+	return nil
+}
 
 const linear = "mcp:https://mcp.linear.app/mcp"
 
@@ -242,6 +296,24 @@ func TestMCPWithNothingToAsk(t *testing.T) {
 	}
 }
 
+// A caller that asks to confirm gets a confirm step for a server with no
+// sign-in, and it connects on the submit; one that doesn't connects at once.
+func TestMCPWithNothingToAskWaitsWhenAskedTo(t *testing.T) {
+	f := newFixture(t)
+	f.mcp.auth = mcp.AuthNone
+	flow := f.begin(t, StartParams{Target: linear, Confirm: true})
+	if flow.State != Waiting || flow.Step == nil || flow.Step.Kind != StepConfirm || f.mcp.connects != 0 {
+		t.Fatalf("confirm = %+v after %d connects", flow, f.mcp.connects)
+	}
+	done, err := f.s.Submit(ctx, flow.ID, "confirm", "")
+	if err != nil || done.State != Succeeded || f.mcp.connects != 1 {
+		t.Fatalf("submit = %+v, %v after %d connects", done, err, f.mcp.connects)
+	}
+	if flow := f.begin(t, StartParams{Target: linear}); flow.State != Succeeded || f.mcp.connects != 2 {
+		t.Fatalf("without confirm = %+v", flow)
+	}
+}
+
 func TestCLIDeviceSignInEndsWithTheCLI(t *testing.T) {
 	f := newFixture(t)
 	f.clis.installs["gh"] = clitool.Install{Name: "GitHub CLI", Installed: true}
@@ -257,6 +329,131 @@ func TestCLIDeviceSignInEndsWithTheCLI(t *testing.T) {
 	f.s.CLIEnded("gh", true)
 	if got, _ := f.s.Get(flow.ID); got.State != Succeeded {
 		t.Fatalf("after = %+v", got)
+	}
+}
+
+// A plain Connect in a project with an account picked signs that account in,
+// not the CLI's own; a pick the CLI no longer has says so, and signs nothing.
+func TestAPlainConnectSignsInThePick(t *testing.T) {
+	f := newFixture(t)
+	f.clis.installs["aws"] = clitool.Install{Name: "AWS", Installed: true, Authed: true}
+	f.clis.code = clilogin.Code{URL: "https://us-east-1.signin.aws.amazon.com/v1/authorize", Style: clilogin.StylePaste}
+	f.clis.picks, f.clis.pickedOut = true, true
+	flow := f.begin(t, StartParams{Target: "cli:aws"})
+	if flow.State != Waiting || !slices.Equal(f.clis.accountLogins, []string{"aws client-a false"}) {
+		t.Fatalf("plain connect = %+v, account sign-ins %v", flow, f.clis.accountLogins)
+	}
+
+	f.clis.pickGone = true
+	got := f.s.List(ctx, f.project, []Want{{Target: "cli:aws"}})
+	if got[0].Status != Missing || !strings.Contains(got[0].Reason, "client-a") {
+		t.Fatalf("gone pick = %+v", got[0])
+	}
+	if _, err := f.s.Start(ctx, StartParams{Target: "cli:aws", Project: f.project}); err == nil {
+		t.Fatal("a gone pick started a sign-in")
+	}
+}
+
+// A new account the project couldn't switch to is an error on its name
+// step, not a success; trying again picks it without renaming it twice.
+func TestAFailedPickIsAnError(t *testing.T) {
+	f := newFixture(t)
+	f.clis.installs["aws"] = clitool.Install{Name: "AWS", Installed: true, Authed: true}
+	f.clis.code = clilogin.Code{URL: "https://us-east-1.signin.aws.amazon.com/v1/authorize", Style: clilogin.StylePaste}
+	add := f.begin(t, StartParams{Target: "cli:aws", Account: "another"})
+	if _, err := f.s.Submit(ctx, add.ID, "code", "the-code"); err != nil {
+		t.Fatal(err)
+	}
+	f.clis.selectErr = errkind.ErrInvalid.Errorf("there's no account called fileie")
+	if _, err := f.s.Submit(ctx, add.ID, stepAccountName, "fileie"); err == nil || !strings.Contains(err.Error(), "couldn't switch") {
+		t.Fatalf("failed pick = %v", err)
+	}
+	if got, _ := f.s.Get(add.ID); got.State != Waiting {
+		t.Fatalf("after a failed pick = %+v", got)
+	}
+	f.clis.selectErr = nil
+	done, err := f.s.Submit(ctx, add.ID, stepAccountName, "fileie")
+	if err != nil || done.State != Succeeded || len(f.clis.renamed) != 1 || !slices.Equal(f.clis.selected, []string{"aws fileie"}) {
+		t.Fatalf("retry = %+v, %v, renamed %v, selected %v", done, err, f.clis.renamed, f.clis.selected)
+	}
+}
+
+// A project with an account picked shows that account; one without, the
+// CLI's own login on this environment.
+func TestACLIShowsTheProjectsPickedAccount(t *testing.T) {
+	f := newFixture(t)
+	f.clis.installs["fly"] = clitool.Install{Name: "Fly", Installed: true, Authed: true,
+		Account: &clitool.Account{Email: "own@example.com"}}
+	got := f.s.List(ctx, f.project, []Want{{Target: "cli:fly"}})
+	if got[0].Status != Connected || got[0].Account != "own@example.com" {
+		t.Fatalf("no pick = %+v", got[0])
+	}
+	f.clis.picks = true
+	got = f.s.List(ctx, f.project, []Want{{Target: "cli:fly"}})
+	if got[0].Status != Connected || got[0].Account != "client-a@example.com" {
+		t.Fatalf("picked = %+v", got[0])
+	}
+}
+
+// A CLI with several accounts signs one in again by id, or adds one: signed
+// in first under a name of its own, then named once it's clear which account
+// it is, and its project uses it. One whose sign-in fails is discarded.
+func TestCLIAccountsSignInAndAdd(t *testing.T) {
+	f := newFixture(t)
+	f.clis.installs["aws"] = clitool.Install{Name: "AWS", Installed: true, Authed: true}
+	f.clis.code = clilogin.Code{URL: "https://us-east-1.signin.aws.amazon.com/v1/authorize", Style: clilogin.StylePaste}
+
+	again := f.begin(t, StartParams{Target: "cli:aws", Account: "again:client-a"})
+	if again.State != Waiting || again.Step == nil || again.Step.ID != "code" {
+		t.Fatalf("again = %+v", again)
+	}
+	f.s.CLIEnded("aws", true)
+
+	add := f.begin(t, StartParams{Target: "cli:aws", Account: "another"})
+	if add.Step == nil || add.Step.ID != "code" || len(f.clis.accountLogins) != 2 {
+		t.Fatalf("add = %+v, %v", add.Step, f.clis.accountLogins)
+	}
+	temp := strings.Fields(f.clis.accountLogins[1])[1]
+	if !strings.HasPrefix(temp, "new-") || !strings.HasSuffix(f.clis.accountLogins[1], " true") {
+		t.Fatalf("add signed in as %q", f.clis.accountLogins[1])
+	}
+	named, err := f.s.Submit(ctx, add.ID, "code", "the-code")
+	if err != nil || named.Step == nil || named.Step.ID != stepAccountName || named.Step.Value != "fileie" ||
+		!strings.Contains(named.Step.Note, "976193265892") {
+		t.Fatalf("after the code = %+v, %v", named.Step, err)
+	}
+	if _, err := f.s.Submit(ctx, add.ID, stepAccountName, "bad name"); errkind.Of(err) != errkind.Invalid {
+		t.Fatalf("bad name = %v", err)
+	}
+	done, err := f.s.Submit(ctx, add.ID, stepAccountName, " fileie ")
+	if err != nil || done.State != Succeeded {
+		t.Fatalf("named = %+v, %v", done, err)
+	}
+	if want := []string{temp + " fileie"}; !slices.Equal(f.clis.renamed, want) {
+		t.Fatalf("renamed = %v", f.clis.renamed)
+	}
+	if want := []string{"aws fileie"}; !slices.Equal(f.clis.selected, want) {
+		t.Fatalf("selected = %v", f.clis.selected)
+	}
+
+	failed := f.begin(t, StartParams{Target: "cli:aws", Account: "another"})
+	f.s.CLIEnded("aws", false)
+	if got, _ := f.s.Get(failed.ID); got.State != Failed || len(f.clis.discarded) != 1 {
+		t.Fatalf("failed add = %+v, discarded %v", got, f.clis.discarded)
+	}
+
+	// Closed before it signed in: its account goes too.
+	closed := f.begin(t, StartParams{Target: "cli:aws", Account: "another"})
+	if err := f.s.Cancel(closed.ID); err != nil || len(f.clis.discarded) != 2 {
+		t.Fatalf("closed add: %v, discarded %v", err, f.clis.discarded)
+	}
+	// Closed at its name, once signed in: its account stays, to rename.
+	atName := f.begin(t, StartParams{Target: "cli:aws", Account: "another"})
+	if _, err := f.s.Submit(ctx, atName.ID, "code", "the-code"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.Cancel(atName.ID); err != nil || len(f.clis.discarded) != 2 {
+		t.Fatalf("closed at its name: %v, discarded %v", err, f.clis.discarded)
 	}
 }
 
@@ -475,5 +672,15 @@ func TestSigningInAgainPicksTheAccountOnHere(t *testing.T) {
 	}
 	if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: linear}); err == nil || len(f.mcp.enabled) != 0 {
 		t.Fatalf("switched on one of two accounts: %v, %v", err, f.mcp.enabled)
+	}
+
+	// Either account signs in again by its id, on here or not; another
+	// server's is refused.
+	if flow := f.begin(t, StartParams{Target: linear, Account: "again:lin"}); flow.State != Waiting || flow.Destination != "Linear" ||
+		f.mcp.again[len(f.mcp.again)-1] != "lin" {
+		t.Fatalf("again:lin = %+v, %v", flow, f.mcp.again)
+	}
+	if _, err := f.s.Start(ctx, StartParams{Project: f.project, Target: linear, Account: "again:gh"}); errkind.Of(err) != errkind.Invalid {
+		t.Fatalf("again:gh = %v", err)
 	}
 }

@@ -1,12 +1,14 @@
-// Package tools is the `tools.*` methods: install, update, sign in, sign out
-// and uninstall any CLI the host knows (agents, gh, cloud CLIs) by its kind.
+// Package tools is the `tools.*` methods: install, update, sign out
+// and uninstall any CLI the host knows (agents, gh, cloud CLIs) by its kind,
+// and for a CLI with several accounts, list them and pick one per project.
 package tools
 
 import (
 	"context"
+	"errors"
 
-	"github.com/repogoapp/host/internal/clilogin"
 	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/rpc"
 )
 
@@ -20,15 +22,29 @@ type KindParams struct {
 	Kind string `json:"kind"`
 }
 
-// LoginCompleteParams' code is what the tool's sign-in page showed.
-type LoginCompleteParams struct {
-	Kind string `json:"kind"`
-	Code string `json:"code"`
+// AccountsParams name a CLI with several accounts and the project they're for.
+type AccountsParams struct {
+	Kind    string `json:"kind"`
+	Project string `json:"project"`
 }
 
-// LoginsResult names the tools with a sign-in still waiting on the user.
-type LoginsResult struct {
-	Waiting []string `json:"waiting" wire:"array"`
+// SelectAccountParams' id is the account the project uses; "" is the CLI's
+// own default.
+type SelectAccountParams struct {
+	AccountsParams
+	ID string `json:"id"`
+}
+
+// AccountParams name one of a CLI's accounts.
+type AccountParams struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+// RenameAccountParams' name is the account's new one.
+type RenameAccountParams struct {
+	AccountParams
+	Name string `json:"name"`
 }
 
 type UpdateResponse struct {
@@ -41,15 +57,38 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "tools.install", d.install, rpc.Detached)
 	rpc.Add(r, "tools.update", d.update, rpc.Detached)
 	rpc.Add(r, "tools.uninstall", d.uninstall, rpc.Detached)
-	// The CLI signs in on the host; the phone opens its page and, for Claude,
-	// sends back the code the page shows. The end arrives as host.setup_changed.
-	rpc.Add(r, "tools.login_start", d.loginStart)
-	rpc.Add(r, "tools.login_complete", d.loginComplete, rpc.Detached)
-	rpc.Add(r, "tools.login_cancel", d.loginCancel)
 	// The CLI's own sign-out; the phone hears the result as host.setup_changed too.
 	rpc.Add(r, "tools.logout", d.logout, rpc.Detached)
-	// logins is which sign-ins still wait; cheap, for a sheet to poll.
-	rpc.Add(r, "tools.logins", d.logins)
+	// A CLI's several accounts (AWS profiles), and which one a project's
+	// agents use; signing one in goes through connect.start.
+	rpc.Add(r, "tools.accounts", d.accounts)
+	rpc.Add(r, "tools.select_account", d.selectAccount)
+	// Rename moves every project's pick with it; remove signs the account
+	// out and deletes it from the CLI's config, stored keys too.
+	rpc.Add(r, "tools.rename_account", d.renameAccount)
+	rpc.Add(r, "tools.remove_account", d.removeAccount, rpc.Detached)
+}
+
+func (d Deps) renameAccount(ctx context.Context, _ rpc.Caller, p RenameAccountParams) (rpc.Ack, error) {
+	return rpc.OK, d.Tools.RenameAccount(ctx, p.Kind, p.ID, p.Name)
+}
+
+func (d Deps) removeAccount(ctx context.Context, _ rpc.Caller, p AccountParams) (rpc.Ack, error) {
+	return rpc.OK, d.Tools.RemoveAccount(ctx, p.Kind, p.ID)
+}
+
+// accounts answers a CLI with one sign-in as unsupported rather than an
+// error, so a Connect asks once and opens its sign-in instead.
+func (d Deps) accounts(ctx context.Context, _ rpc.Caller, p AccountsParams) (clitool.AccountListing, error) {
+	listing, err := d.Tools.Accounts(ctx, p.Kind, mcp.Root(p.Project))
+	if errors.Is(err, clitool.ErrNoAccounts) {
+		return clitool.AccountListing{Accounts: []clitool.CLIAccount{}}, nil
+	}
+	return listing, err
+}
+
+func (d Deps) selectAccount(ctx context.Context, _ rpc.Caller, p SelectAccountParams) (rpc.Ack, error) {
+	return rpc.OK, d.Tools.SelectAccount(ctx, p.Kind, mcp.Root(p.Project), p.ID)
 }
 
 func (d Deps) install(ctx context.Context, _ rpc.Caller, p KindParams) (clitool.UpdateResult, error) {
@@ -67,26 +106,6 @@ func (d Deps) uninstall(ctx context.Context, _ rpc.Caller, p KindParams) (clitoo
 	return d.Tools.Uninstall(ctx, p.Kind)
 }
 
-func (d Deps) loginStart(ctx context.Context, _ rpc.Caller, p KindParams) (clilogin.Code, error) {
-	return d.Tools.LoginStart(ctx, p.Kind)
-}
-
-func (d Deps) loginComplete(ctx context.Context, _ rpc.Caller, p LoginCompleteParams) (rpc.Ack, error) {
-	if err := d.Tools.LoginComplete(ctx, p.Kind, p.Code); err != nil {
-		return rpc.Ack{}, err
-	}
-	return rpc.OK, nil
-}
-
-func (d Deps) loginCancel(_ context.Context, _ rpc.Caller, p KindParams) (rpc.Ack, error) {
-	d.Tools.LoginCancel(p.Kind)
-	return rpc.OK, nil
-}
-
 func (d Deps) logout(ctx context.Context, _ rpc.Caller, p KindParams) (clitool.UpdateResult, error) {
 	return d.Tools.Logout(ctx, p.Kind)
-}
-
-func (d Deps) logins(context.Context, rpc.Caller, rpc.None) (LoginsResult, error) {
-	return LoginsResult{Waiting: d.Tools.Logins()}, nil
 }

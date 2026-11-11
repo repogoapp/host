@@ -15,7 +15,8 @@
       "url": "url",
       "user_code": "user_code",
       "redirect": "redirect",
-      "warning": "warning"
+      "warning": "warning",
+      "value": "value"
     },
     "reason": "reason"
   }

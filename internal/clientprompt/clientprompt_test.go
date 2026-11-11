@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/repogoapp/host/internal/clientprompt"
+	"github.com/repogoapp/host/internal/clitool"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/testhost"
@@ -146,6 +147,19 @@ func TestConnectComesToTheAppFirst(t *testing.T) {
 	}
 }
 
+// The app's prompt names every CLI the host signs in from data, so a CLI
+// added there isn't one agents never draw a card for.
+func TestConnectNamesEveryDeclaredCLI(t *testing.T) {
+	app := clientprompt.For(device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "repogo": 1}}, clientprompt.NoPlugins, nil)
+	_, entry, _ := strings.Cut(app, "- cli:<tool>")
+	entry, _, _ = strings.Cut(entry, "- mcp:")
+	for _, d := range clitool.DeclaredCLIs {
+		if !strings.Contains(entry, d.Kind) {
+			t.Errorf("the Connect rule doesn't name cli:%s", d.Kind)
+		}
+	}
+}
+
 // Building plugins, and drawing them, comes to a client whose cards reach them
 // on an environment that runs them: the first plugin's page needs plugin cards.
 func TestPluginsPromptsFollowTheProjectAndTheClient(t *testing.T) {
@@ -212,12 +226,12 @@ func TestMCPPromptFollowsTheProjectAndTheClient(t *testing.T) {
 	}
 }
 
-// The chats come to a client whose cards reach the host's methods, with the
-// data elements, in any project; the MCP servers' line still ends the prompt.
+// A client that opens chats from a card is taught chat:, with the data
+// elements, in any project; the MCP servers' line still ends the prompt.
 func TestRepoGoPromptFollowsTheClient(t *testing.T) {
 	app := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1, "cards": 1, "plugins": 1, "mcp": 1, "repogo": 1}}
 	clip := device.Client{Platform: "ios", Features: map[string]int{"markdown": 1}}
-	const data, draw = "Data: name, method=", `method="repogo:<method>"`
+	const data, draw = "Data: name, method=", "chat:<id>"
 	prompt := clientprompt.For(app, clientprompt.NoPlugins, []string{"neon"})
 	if !strings.Contains(prompt, data) || !strings.Contains(prompt, draw) {
 		t.Errorf("the app's prompt lacks the chats")
@@ -226,7 +240,7 @@ func TestRepoGoPromptFollowsTheClient(t *testing.T) {
 		t.Errorf("the prompt doesn't end naming the servers")
 	}
 	if strings.Contains(clientprompt.For(clip, clientprompt.NoPlugins, nil), draw) {
-		t.Errorf("the Clip is taught repogo: cards")
+		t.Errorf("the Clip is taught chat: cards")
 	}
 }
 

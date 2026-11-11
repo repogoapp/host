@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -34,6 +35,16 @@ func openServer(t *testing.T) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// openKeyServer is an MCP server that takes an API key: one where each
+// account is its own credential, so there can be several.
+func openKeyServer(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
 func TestNoAuthServerConnectsAndIsOnWhereItWasAdded(t *testing.T) {
@@ -408,11 +419,56 @@ func TestBuiltinIsOnUntilSwitchedOffForTheEnvironment(t *testing.T) {
 	}
 }
 
+// A new account never takes a name another already has: it gets the next
+// free number, whatever number the phone asked for.
+func TestANewAccountTakesTheNextFreeName(t *testing.T) {
+	s := open(t)
+	url := openKeyServer(t)
+	var labels []string
+	for _, label := range []string{"Stripe", "Stripe", "Stripe (2)", "stripe (2)", "Other"} {
+		p, err := s.ProbeAnother(context.Background(), url, label, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv, err := s.Connect(p.ProbeID, "sk-"+label)
+		if err != nil {
+			t.Fatal(err)
+		}
+		labels = append(labels, srv.Label)
+	}
+	if want := []string{"Stripe", "Stripe (2)", "Stripe (3)", "stripe (4)", "Other"}; !slices.Equal(labels, want) {
+		t.Fatalf("labels = %v, want %v", labels, want)
+	}
+}
+
+// A server with no sign-in has one account: adding another switches the one
+// there on for the project instead, and the list says it signs in with none.
+func TestANoAuthServerKeepsOneAccount(t *testing.T) {
+	s := open(t)
+	up := openServer(t)
+	first, second := t.TempDir(), t.TempDir()
+	p, _ := s.Probe(context.Background(), up.URL+"/mcp", "Context7", first)
+	made, err := s.Connect(p.ProbeID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ = s.ProbeAnother(context.Background(), up.URL+"/mcp", "Context7", second)
+	again, err := s.Connect(p.ProbeID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.List("").Servers
+	if len(got) != 1 || again.ID != made.ID || got[0].Auth != AuthNone ||
+		!slices.Equal(got[0].Projects, []string{Root(first), Root(second)}) {
+		t.Fatalf("servers = %+v, again = %+v", got, again)
+	}
+}
+
 // A connected server labelled RepoGo cannot take the built-in's name in a turn.
 func TestAConnectedServerDoesNotTakeTheBuiltinsName(t *testing.T) {
 	s := open(t)
 	project := t.TempDir()
-	s.servers = []record{{Server: Server{ID: "x", Label: "RepoGo", URL: "https://example.com/mcp", Projects: []string{Root(project)}}, Auth: AuthNone}}
+	s.servers = []record{{Server: Server{ID: "x", Label: "RepoGo", URL: "https://example.com/mcp", Projects: []string{Root(project)}, Auth: AuthNone}}}
 	got := s.ForTurn(context.Background(), project)
 	if len(got) != 1 || got[0].Name == BuiltinID {
 		t.Fatalf("servers %+v", got)
@@ -430,7 +486,7 @@ func TestEmptyListingUsesArrays(t *testing.T) {
 // with an id and a key of its own.
 func TestAnotherAccountIsItsOwnConnection(t *testing.T) {
 	s := open(t)
-	url := openServer(t).URL
+	url := openKeyServer(t)
 	ctx := context.Background()
 	connect := func(probe func(context.Context, string, string, string) (Probe, error), label string) Server {
 		t.Helper()
@@ -438,7 +494,7 @@ func TestAnotherAccountIsItsOwnConnection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		srv, err := s.Connect(p.ProbeID, "")
+		srv, err := s.Connect(p.ProbeID, "sk")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -466,12 +522,12 @@ func TestAnotherAccountIsItsOwnConnection(t *testing.T) {
 // the other account alone.
 func TestSigningInAgainKeepsTheConnection(t *testing.T) {
 	s := open(t)
-	url := openServer(t).URL
+	url := openKeyServer(t)
 	ctx := context.Background()
 	p, _ := s.Probe(ctx, url, "Docs", "")
-	first, _ := s.Connect(p.ProbeID, "")
+	first, _ := s.Connect(p.ProbeID, "sk")
 	p, _ = s.ProbeAnother(ctx, url, "Docs (2)", "")
-	second, _ := s.Connect(p.ProbeID, "")
+	second, _ := s.Connect(p.ProbeID, "sk")
 	a, b := t.TempDir(), t.TempDir()
 	for _, project := range []string{a, b} {
 		if err := s.SetEnabled(second.ID, project, true); err != nil {
@@ -486,7 +542,7 @@ func TestSigningInAgainKeepsTheConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := s.Connect(p.ProbeID, "")
+	again, err := s.Connect(p.ProbeID, "sk")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,12 +561,12 @@ func TestSigningInAgainKeepsTheConnection(t *testing.T) {
 // is refused, and a reconnect whose account was removed meanwhile fails.
 func TestAProbeNamesItsAccountAtTheStart(t *testing.T) {
 	s := open(t)
-	url := openServer(t).URL
+	url := openKeyServer(t)
 	ctx := context.Background()
 	p, _ := s.Probe(ctx, url, "Docs", "")
-	first, _ := s.Connect(p.ProbeID, "")
+	first, _ := s.Connect(p.ProbeID, "sk")
 	p, _ = s.ProbeAnother(ctx, url, "Docs (2)", "")
-	if _, err := s.Connect(p.ProbeID, ""); err != nil {
+	if _, err := s.Connect(p.ProbeID, "sk"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Probe(ctx, url, "Docs", ""); !errors.Is(err, ErrInvalid) {
@@ -524,7 +580,7 @@ func TestAProbeNamesItsAccountAtTheStart(t *testing.T) {
 	if err := s.Remove(first.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Connect(p.ProbeID, ""); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Connect(p.ProbeID, "sk"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a removed account came back: %v", err)
 	}
 	if len(s.List("").Servers) != 1 {

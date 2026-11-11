@@ -84,9 +84,6 @@ func TestSignInPointsGitAtGHsToken(t *testing.T) {
 	if err != nil || code.UserCode != "ABCD-1234" || code.URL != deviceURL {
 		t.Fatalf("LoginStart = %+v, %v", code, err)
 	}
-	if waiting := in.Logins(); len(waiting) != 1 || waiting[0] != "github" {
-		t.Fatalf("waiting = %v", waiting)
-	}
 
 	if err := os.WriteFile(filepath.Join(dir, "approve"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -98,9 +95,6 @@ func TestSignInPointsGitAtGHsToken(t *testing.T) {
 	}
 	if log, _ := os.ReadFile(filepath.Join(dir, "log")); !strings.Contains(string(log), "setup-git") {
 		t.Fatal("git was not pointed at gh's token")
-	}
-	if waiting := in.Logins(); len(waiting) != 0 {
-		t.Fatalf("still waiting: %v", waiting)
 	}
 }
 

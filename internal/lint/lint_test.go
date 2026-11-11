@@ -28,6 +28,8 @@ var backgrounds = map[string]string{
 	"internal/wsserver/conn.go:conn.Send":                      "a push belongs to no request; wsconn bounds the write",
 	"internal/projectwatch/projectwatch.go:Manager.joinLocked": "a watch room lives until its last subscriber leaves and its linger ends",
 	"internal/hostclient/hostclient.go:Client.read":            "the Go test client's read loop; Close ends the socket",
+	"internal/connect/cli.go:Service.CLIEnded":                 "a CLI's sign-in ends after the call that started it; naming its new account belongs to no request",
+	"internal/connect/cli.go:Service.discardAdded":             "an added account is discarded once its flow has ended, after its request has gone",
 	"internal/hostinfo/device_darwin.go:macModelName":          "read once at startup, before any request; its timeout ends it",
 	"internal/hostinfo/device_darwin.go:macHasBattery":         "read once at startup, before any request; its timeout ends it",
 	"internal/hostinfo/network.go:magicDNSName":                "Status takes no context; a local lookup its timeout ends",

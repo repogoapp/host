@@ -1,0 +1,13 @@
+{
+  "supported": true,
+  "accounts": [
+    {
+      "id": "id",
+      "detail": "detail",
+      "signed_in": true,
+      "can_sign_in": true,
+      "on": true,
+      "default": true
+    }
+  ]
+}

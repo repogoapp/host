@@ -1,40 +1,9 @@
 # RepoGo cards
 
-Cards also read and change what the app shows, on this environment,
-through the host's own methods: chats in every project, projects, git,
-actions, schedules, tunnels, reminders, agents and their limits. Your
-tools of the same names (chats_list for chats.list) take the same
-params: call one first to see its answer.
+chat:<id> — a Button or Item action that opens a chat by its id, as your
+  chats_list tool gives it (chat:{{c.id}}).
 
-Data method="repogo:<method>" runs a read: chats.list (filtered as the
-  chat drawer is), chats.info, chats.messages, projects.list,
-  git.status, git.changes, git.diff, actions.list, schedules.list,
-  tunnels.list, agents.list, reminders.list, plugins.logs,
-  limits.read (each agent's plan and use of its limits).
-  It reloads when what it reads changes. Its Params are the method's
-  params.
-repogo:<method> — a Button, Item, Swipe or Toggle action that runs one:
-  chats.update (rename, title), chats.pin, chats.resolve, chats.send
-  (turn={"prompt":…}), chats.start, chats.stop, actions.run,
-  actions.start, actions.stop, reminders.create, reminders.delete.
-chat:<id> — opens a chat by the id chats.list gives (chat:{{c.id}}).
-
-Example:
-```ui
-<List>
-  <Section label="Open chats">
-    <Data name="open" method="repogo:chats.list">
-      <Param name="resolved" value="false" type="boolean"/>
-      <Param name="limit" value="20" type="number"/>
-      <Each in="open.chats" as="c">
-        <Item icon="bubble.left" label="{{c.title}}" subtitle="{{c.activity_at | relative}}" action="chat:{{c.id}}">
-          <Swipe label="Resolve" icon="checkmark" action="repogo:chats.resolve">
-            <Param name="chat_id" value="{{c.id}}"/>
-            <Param name="resolved" value="true" type="boolean"/>
-          </Swipe>
-        </Item>
-      </Each>
-    </Data>
-  </Section>
-</List>
-```
+Cards can't call the host's own methods: there is no repogo: source, in
+a Data or on a Button, in chat or on a page. To show chats, git or
+anything else of the host's on a card, call a plugin method that reads it
+with ctx.host (plugin:<plugin>.<method>).

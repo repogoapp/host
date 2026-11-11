@@ -159,7 +159,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 		}
 		configured[server.Name] = claudecode.MCPServer{Type: server.Type, URL: server.URL, Headers: headers}
 	}
-	env := r.environment()
+	env := append(r.environment(), r.deps.ProjectEnvFor(req.Cwd)...)
 	options := claudecode.Options{Executable: r.executable(), Cwd: req.Cwd, Env: env,
 		SettingSources: sources, AllowBypass: os.Geteuid() != 0 || os.Getenv("IS_SANDBOX") != "", MCPServers: configured,
 		AppendSystemPrompt: instructions}

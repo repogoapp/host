@@ -58,8 +58,7 @@ var methodExports = map[string]bool{
 
 	"limits.read": true, "limits.reset": true,
 
-	"mcp.list": true, "mcp.probe": true, "mcp.connect": true, "mcp.oauth_start": true,
-	"mcp.oauth_finish": true, "mcp.rename": true, "mcp.set_enabled": true, "mcp.remove": true,
+	"mcp.list": true, "mcp.rename": true, "mcp.set_enabled": true, "mcp.remove": true,
 	"mcp.call": true,
 
 	"plugins.logs": true, "plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
@@ -75,9 +74,9 @@ var methodExports = map[string]bool{
 	"terminals.unsubscribe": true, "terminals.attach": true, "terminals.detach": true,
 	"terminals.input": true, "terminals.resize": true, "terminals.close": true,
 
-	"tools.install": true, "tools.update": true, "tools.uninstall": true, "tools.login_start": true,
-	"tools.login_complete": true, "tools.login_cancel": true, "tools.logout": true,
-	"tools.logins": true,
+	"tools.install": true, "tools.update": true, "tools.uninstall": true, "tools.logout": true,
+	"tools.accounts": true, "tools.select_account": true,
+	"tools.rename_account": true, "tools.remove_account": true,
 
 	"tunnels.open": true, "tunnels.close": true, "tunnels.list": true,
 
@@ -86,7 +85,7 @@ var methodExports = map[string]bool{
 
 	"uploads.write": true, "uploads.remove": true,
 
-	"usage.history": true, "usage.time": true, "usage.record_time": true, "usage.clear_time": true,
+	"usage.history": true, "usage.time": true, "usage.record_time": true,
 }
 
 // methodsGen generates the client's method types: the bodies of types the event
@@ -772,29 +771,30 @@ func cleanName(n string) string {
 var EventExports = map[string]string{
 	"chats.appended": "Chats.Appended", "chats.streaming": "Chats.Streaming",
 	"chats.approval": "Chats.Approval", "chats.tool": "Chats.ToolChanged",
-	"chats.subagents":     "Chats.Subagents",
-	"fs.changed":          "FS.Changed",
-	"git.changed":         "Git.Changed",
-	"chats.changed":       "Chats.Chat",
-	"chats.removed":       "Chats.Removed",
-	"chats.attention":     "Chats.Attention",
-	"terminals.changed":   "Terminals.Changed",
-	"terminals.output":    "Terminals.Output",
-	"terminals.exit":      "Terminals.Exit",
-	"forward.pipe_data":   "Forward.PipeData",
-	"forward.pipe_closed": "Forward.PipeClosed",
-	"host.battery":        "Host.Battery",
-	"host.setup_changed":  "Host.SetupChanged",
-	"browser.request":     "Browser.Request",
-	"connect.changed":     "Connect.Changed",
-	"mcp.changed":         "MCP.Changed",
-	"tunnels.changed":     "Tunnels.Changed",
-	"devices.changed":     "Devices.Changed",
-	"projects.changed":    "Projects.Changed",
-	"schedules.changed":   "Schedules.Changed",
-	"actions.changed":     "Actions.Changed",
-	"plugins.data":        "Plugins.Data",
-	"plugins.logged":      "Plugins.Logged",
+	"chats.subagents":        "Chats.Subagents",
+	"fs.changed":             "FS.Changed",
+	"git.changed":            "Git.Changed",
+	"chats.changed":          "Chats.Chat",
+	"chats.removed":          "Chats.Removed",
+	"chats.attention":        "Chats.Attention",
+	"terminals.changed":      "Terminals.Changed",
+	"terminals.output":       "Terminals.Output",
+	"terminals.exit":         "Terminals.Exit",
+	"forward.pipe_data":      "Forward.PipeData",
+	"forward.pipe_closed":    "Forward.PipeClosed",
+	"host.battery":           "Host.Battery",
+	"host.setup_changed":     "Host.SetupChanged",
+	"browser.request":        "Browser.Request",
+	"connect.changed":        "Connect.Changed",
+	"mcp.changed":            "MCP.Changed",
+	"tools.accounts_changed": "Tools.AccountsChanged",
+	"tunnels.changed":        "Tunnels.Changed",
+	"devices.changed":        "Devices.Changed",
+	"projects.changed":       "Projects.Changed",
+	"schedules.changed":      "Schedules.Changed",
+	"actions.changed":        "Actions.Changed",
+	"plugins.data":           "Plugins.Data",
+	"plugins.logged":         "Plugins.Logged",
 }
 
 func eventGenerator(catalog []hostemit.Event) *swiftGen {

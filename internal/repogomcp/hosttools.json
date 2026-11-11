@@ -217,6 +217,10 @@
           "description": "The chat's id, as chats.list gives it",
           "type": "string"
         },
+        "send_id": {
+          "description": "The sender's id for this send; a repeat with it within ten minutes gets the first answer",
+          "type": "string"
+        },
         "steer": {
           "description": "Add it to the running turn instead of queueing it",
           "type": "boolean"
@@ -298,6 +302,10 @@
           "type": "string"
         },
         "project_agent": {
+          "type": "string"
+        },
+        "send_id": {
+          "description": "The sender's id for this start; a repeat with it within ten minutes gets the first answer",
           "type": "string"
         },
         "title": {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -54,6 +55,18 @@ type CLIs interface {
 	LoginComplete(ctx context.Context, kind, code string) error
 	LoginCancel(kind string)
 	Logout(ctx context.Context, kind string) (clitool.UpdateResult, error)
+	// For a CLI with several accounts: sign one in, or add it when add, and
+	// pick the one a project root uses.
+	AccountLoginStart(ctx context.Context, kind, id string, add bool) (clilogin.Code, error)
+	SelectAccount(ctx context.Context, kind, root, id string) error
+	// For adding one: who it signed in as, its rename to the name the user
+	// gives, and its removal when its sign-in fails.
+	AccountWho(ctx context.Context, kind, id string) (detail, suggestion string)
+	RenameAccount(ctx context.Context, kind, from, to string) error
+	DiscardAccount(ctx context.Context, kind, id string) error
+	// PickedAccount is the account id project root picked, "" for none, and
+	// that account; found is false for a pick the CLI no longer has.
+	PickedAccount(ctx context.Context, kind, root string) (id string, account clitool.CLIAccount, found bool)
 }
 
 type Deps struct {
@@ -77,6 +90,8 @@ type Deps struct {
 	Now     func() time.Time
 	// Redact learns each value a flow writes, so no log keeps it.
 	Redact *redact.Vault
+	// Log hears what a flow couldn't tidy up after it ended; nil drops it.
+	Log *slog.Logger
 }
 
 type Service struct {
@@ -144,7 +159,7 @@ func (s *Service) List(ctx context.Context, project string, wants []Want) []Conn
 			case KindMCP:
 				s.mcpStatus(project, t.URL, &c)
 			case KindCLI:
-				err = s.cliStatus(ctx, t.CLI, &c)
+				err = s.cliStatus(ctx, t.CLI, project, &c)
 			}
 		}
 		if err != nil {
@@ -178,9 +193,9 @@ func (s *Service) Start(ctx context.Context, p StartParams) (Flow, error) {
 	case KindEnv:
 		err = s.startEnv(ctx, f, p.Note, help)
 	case KindMCP:
-		err = s.startMCP(ctx, f, p.Label, p.Note, help, p.Account)
+		err = s.startMCP(ctx, f, p.Label, p.Note, help, p.Account, p.Confirm)
 	case KindCLI:
-		err = s.startCLI(ctx, f)
+		err = s.startCLI(ctx, f, p.Account)
 	}
 	if err != nil {
 		return Flow{}, err
@@ -210,6 +225,10 @@ func (s *Service) Submit(ctx context.Context, flowID, stepID, value string) (Flo
 	case KindMCP:
 		next, err = s.submitMCP(ctx, snapshot, value)
 	case KindCLI:
+		if stepID == stepAccountName {
+			err = s.nameCLIAccount(ctx, snapshot, value)
+			break
+		}
 		if strings.TrimSpace(value) == "" {
 			err = ErrInvalid.Errorf("paste the code the page shows")
 			break
@@ -218,8 +237,14 @@ func (s *Service) Submit(ctx context.Context, flowID, stepID, value string) (Flo
 		// is never the reason, as it can echo what was typed.
 		if s.d.CLIs.LoginComplete(ctx, snapshot.target.CLI, value) != nil {
 			err = errSignIn
+		} else if snapshot.adding {
+			// Signed in: now the account is named, seeing which it is.
+			next = s.nameStep(ctx, snapshot)
+			s.mu.Lock()
+			f.signedIn = true
+			s.mu.Unlock()
 		}
-		return s.advance(f, stepID, nil, err), nil
+		return s.advance(f, stepID, next, err), nil
 	}
 	if errkind.Of(err) == errkind.Invalid {
 		s.release(f)
@@ -424,6 +449,10 @@ func (s *Service) ended(flows []*flow) {
 		if f.target.Kind == KindCLI && !s.loginShared(f.target.CLI) {
 			s.d.CLIs.LoginCancel(f.target.CLI)
 		}
+		// An account added but closed before it signed in leaves nothing behind.
+		if f.adding && !f.signedIn && f.account != "" {
+			s.discardAdded(*f)
+		}
 		s.changed(f.Flow)
 	}
 }
@@ -485,4 +514,11 @@ func reason(err error) string {
 
 func (s *Service) changed(f Flow) {
 	s.d.Changed(Changed{Flow: f})
+}
+
+// warn logs what went wrong after a flow's reply had gone.
+func (s *Service) warn(msg string, args ...any) {
+	if s.d.Log != nil {
+		s.d.Log.Warn(msg, args...)
+	}
 }

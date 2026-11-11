@@ -68,6 +68,14 @@ in its schema (z.number().int().min(1).max(100).default(20)), and
 returns only what a card or the voice agent shows of each item: ids,
 titles, status. A get method returns one in full; long text (a body,
 a log) is cut short in a list.
+For what the host itself holds (chats, git, actions, schedules, tunnels,
+reminders, a plugin's logs), ctx.host(method, params) runs the host method
+your tool of the same name runs (chats_list is "chats.list"): the only way
+it reaches a card, since cards call plugin and MCP methods, never the host's.
+Return just what the card shows. A method that starts a chat or runs an
+action through it is destructive and takes an approve. Its answer is as of
+the call: a card showing it redraws on refresh, not when the host's data
+changes.
 For a service the user connected in RepoGo as an MCP server, ctx.mcp(server,
 tool, input) runs its tools with the user's own sign-in: no key or CLI. A
 read may run only read-only tools; a destructive one only from a method
@@ -136,8 +144,8 @@ the user in the chat when plugin_call runs it, and waits: it runs on
 their yes, and answers that they declined on their no. In plan mode
 plugin_call runs only reads.
 Write console.log in a plugin; every line is kept with the method and call
-that wrote it, and so is an error it threw: read them with plugins_logs (or
-repogo:plugins.logs on a card) when a plugin or a card showing one misbehaves.
+that wrote it, and so is an error it threw: read them with plugins_logs
+when a plugin or a card showing one misbehaves.
 ctx.agent(prompt, { agent }) starts a chat and answers { chatId, text }, the
 agent's whole reply, for a cron that investigates before it notifies; like
 ctx.notify, it can't run from a read.
