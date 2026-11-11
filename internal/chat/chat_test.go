@@ -19,7 +19,9 @@ import (
 type recorder struct {
 	last agent.TurnRequest
 	n    int
-	live []agent.TurnStatus
+	// steers counts the turns asked to join the running one.
+	steers int
+	live   []agent.TurnStatus
 }
 
 func (r *recorder) List() []agent.TurnStatus { return r.live }
@@ -35,6 +37,7 @@ func (r *recorder) AnswerOnce(context.Context, agent.Kind, string, string) (stri
 }
 
 func (r *recorder) Steer(req agent.TurnRequest) (agent.TurnStatus, bool, error) {
+	r.steers++
 	status, err := r.Send(req)
 	return status, false, err
 }
@@ -400,6 +403,28 @@ func TestAnAgentsStartIsAChildCappedAtItsCaller(t *testing.T) {
 	}
 	if rec.n != 1 {
 		t.Fatalf("%d turns queued, want only the first", rec.n)
+	}
+}
+
+// A steer lands in a turn that is already running, under that turn's own
+// permission: an agent's would run its words with more than it was given.
+func TestOnlyADeviceSteers(t *testing.T) {
+	svc, rec, _ := newService(t, agent.KindCodex)
+	from := &chat.Caller{ChatID: "claude:other", Config: agent.TurnConfig{PermissionMode: agent.PermissionApprovalRequired}}
+
+	if _, steered, err := svc.Steer("codex:sess-1", chat.Turn{Prompt: "also do this", From: from}); err != nil || steered {
+		t.Fatalf("an agent's steer: steered %v, err %v; want it sent, not steered", steered, err)
+	}
+	if rec.steers != 0 || rec.n != 1 || rec.last.Config.PermissionMode != agent.PermissionApprovalRequired {
+		t.Fatalf("an agent's steer: %d steers, %d sends, permission %q; want one send capped at its own",
+			rec.steers, rec.n, rec.last.Config.PermissionMode)
+	}
+
+	if _, _, err := svc.Steer("codex:sess-1", chat.Turn{Prompt: "my answer"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec.steers != 1 {
+		t.Fatalf("a device's steer: %d steers, want 1", rec.steers)
 	}
 }
 

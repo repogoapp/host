@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -78,7 +80,9 @@ func (s *Service) ServeHTTP(ctx context.Context, route tunnelwire.PluginRoute, r
 // stand in for it.
 func (s *Service) ServeDevice(w http.ResponseWriter, req *http.Request) {
 	// A web page in a browser here can reach loopback; only programs may call.
-	if req.Header.Get("Origin") != "" || req.Header.Get("Sec-Fetch-Site") != "" {
+	// One whose own name was rebound to this address sends neither header, so
+	// the name it called is checked too.
+	if req.Header.Get("Origin") != "" || req.Header.Get("Sec-Fetch-Site") != "" || !deviceHost(req.Host) {
 		writeResponse(w, jsonResponse(http.StatusForbidden, map[string]string{"error": "A browser can't call this address."}))
 		return
 	}
@@ -100,6 +104,21 @@ func (s *Service) ServeDevice(w http.ResponseWriter, req *http.Request) {
 		resp = jsonResponse(http.StatusBadGateway, map[string]string{"error": "The plugin couldn't answer this request."})
 	}
 	writeResponse(w, resp)
+}
+
+// deviceHost is whether host is a name for this machine a program would call:
+// an address, localhost, or Docker's name for the machine. Any other name is a
+// web page's, pointed here by its own DNS.
+func deviceHost(host string) bool {
+	name, _, err := net.SplitHostPort(host)
+	if err != nil {
+		name = host
+	}
+	name = strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(name, "["), "]"))
+	if _, err := netip.ParseAddr(name); err == nil {
+		return true
+	}
+	return name == "localhost" || name == "host.docker.internal"
 }
 
 // serve runs the method route names with the request's JSON body, or its

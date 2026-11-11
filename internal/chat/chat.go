@@ -269,8 +269,10 @@ func (s *Service) Send(id store.ChatID, t Turn) (agent.TurnStatus, error) {
 
 // Steer adds t to the chat's running turn when its agent reads input
 // mid-turn, and otherwise sends it as Send does; steered says which.
+// Only a device steers: the running turn keeps its own permission, so an
+// agent's words would run past the cap on what it sends. Its steer is sent.
 func (s *Service) Steer(id store.ChatID, t Turn) (status agent.TurnStatus, steered bool, err error) {
-	return s.send(id, t, true)
+	return s.send(id, t, t.From == nil)
 }
 
 // Stop stops whatever the chat runs on this host, a turn its agent started

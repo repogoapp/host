@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -58,12 +59,18 @@ func runInput(ctx context.Context, dir, stdin string, args ...string) (string, e
 	return stdout, nil
 }
 
+// onlyRealRepos is safe.bareRepository=explicit for every call. A folder laid
+// out like a git dir (HEAD, objects, refs, config) is one a cloned repo can
+// ship, and git would take it for a repository and run what its config names
+// (core.fsmonitor, filters). With this git refuses it, and still finds a .git.
+var onlyRealRepos = []string{"-c", "safe.bareRepository=explicit"}
+
 // `-C dir` rather than cmd.Dir so git resolves worktrees as the user would.
 func runRaw(ctx context.Context, dir string, timeout time.Duration, stdin string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", slices.Concat(onlyRealRepos, []string{"-C", dir}, args)...)
 	// A credential prompt or editor would hang here forever.
 	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 

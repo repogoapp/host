@@ -101,6 +101,28 @@ func TestServesTheDeviceAddress(t *testing.T) {
 	if status, _ := get("/hello/local", "Sec-Fetch-Site", "cross-site"); status != http.StatusForbidden {
 		t.Fatalf("a browser's call: %d", status)
 	}
+	// A page whose name was rebound to this address sends neither header, but
+	// still names itself; a container's name for this machine is allowed.
+	named := func(host string) int {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/hello/local", nil)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for host, want := range map[string]int{
+		"evil.example:47444": http.StatusForbidden, "evil.example": http.StatusForbidden,
+		"127.0.0.1.evil.example:47444": http.StatusForbidden,
+		"localhost:47444":              200, "LOCALHOST": 200, "192.168.64.1:47444": 200, "[::1]:47444": 200,
+		"host.docker.internal:47444": 200,
+	} {
+		if got := named(host); got != want {
+			t.Errorf("Host %q: %d, want %d", host, got, want)
+		}
+	}
 	// Public-only, a key's, an approve's and a stream's methods aren't served here.
 	for _, path := range []string{"/hello/ping", "/hello/keyed", "/hello/closed", "/hello/asks", "/hello/tail", "/nope/local", "/nope"} {
 		if status, _ := get(path); status != http.StatusNotFound {
