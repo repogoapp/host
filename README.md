@@ -1,11 +1,16 @@
 # RepoGo Host
 
 The RepoGo host is the `repogo` binary that runs on your computer, so you can
-drive your coding agents from the RepoGo iPhone app. It runs on macOS and Linux.
+drive your coding agents from the [RepoGo iPhone app](https://apps.apple.com/us/app/repogo/id6754802814).
+It runs on macOS and Linux.
 
-Your chats and code stay on your computer. Your phone reaches the host through
-RepoGo's relay, and everything between them is end-to-end encrypted: the relay
-forwards bytes it cannot read and never stores chat or code content.
+Your chats and code stay on your computer. Your phone connects straight to the
+host over Tailscale or your local network when it can, and through RepoGo's
+relay when it can't. Either way the connection is end-to-end encrypted: the
+relay forwards bytes it cannot read and never stores chat or code content.
+
+This repository holds the host, the relay behind `h.repogo.app`, and the
+[`@repogo/plugins`](plugins-sdk/README.md) SDK. The iPhone app isn't part of it.
 
 ## Get started
 
@@ -16,8 +21,8 @@ curl -fsSL https://repogo.app/install.sh | sh
 This installs the host as a background service and shows a pairing code. Scan
 it with your iPhone camera. With Node.js 22 or later, `npx @repogo/host` does
 the same. Either way `repogo` is linked into `~/.local/bin`, so later commands
-are `repogo <command>`; `repogo help` lists them. If RepoGo isn't installed, an App Clip opens so you
-can pair and start chatting right away.
+are `repogo <command>`; `repogo help` lists them. If RepoGo isn't installed, an
+App Clip opens so you can pair and start chatting right away.
 
 ### Requirements
 
@@ -49,7 +54,7 @@ can pair and start chatting right away.
 
 ## How it works
 
-The host has three parts.
+The host has four parts.
 
 ### Connections
 
@@ -247,6 +252,18 @@ internal/    the host's packages: transport and encryption, RPC methods,
 docs/        generated method and event references
 ```
 
+## Contributing
+
+Pull requests are welcome. Run `go test ./...` before you send one, and open an
+issue first for a larger change, so we can agree on the approach before you
+build it.
+
+## Security
+
+Please don't report a security problem in a public issue. Report it privately
+through [GitHub's private vulnerability reporting](https://github.com/repogoapp/host/security/advisories/new),
+and we'll reply there.
+
 ## Support
 
 - Website: [repogo.app](https://repogo.app)
@@ -254,8 +271,7 @@ docs/        generated method and event references
 
 ## License
 
-RepoGo is source-available under the [Functional Source License, Version 1.1,
-ALv2 Future License](../../LICENSE.md)
-(FSL-1.1-ALv2). You can use, modify and share it for anything except a product
-or service that competes with RepoGo. Each version becomes available under the
-Apache License 2.0 two years after its release.
+The RepoGo Host and its plugin SDK are open source under the
+[Apache License 2.0](LICENSE). Third-party notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The RepoGo name and logo are
+trademarks and aren't covered by the license.

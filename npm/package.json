@@ -25,7 +25,7 @@
     "access": "public"
   },
   "releaseRepository": "repogoapp/host",
-  "license": "FSL-1.1-ALv2",
+  "license": "Apache-2.0",
   "homepage": "https://repogo.app",
   "bugs": {
     "url": "https://github.com/repogoapp/host/issues"

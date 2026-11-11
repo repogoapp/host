@@ -17,12 +17,12 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE.md"
+    "LICENSE"
   ],
   "scripts": {
     "build": "rm -rf dist && bun build src/index.ts src/testing.ts --target=bun --outdir dist --splitting --external zod && tsc -p tsconfig.build.json && bun build src/workflow/executor.ts --target=bun --outfile dist/workflow-executor.js",
     "build:runtime": "bun build src/run.ts src/worker.ts --target=bun --outdir ../internal/plugins/runtime && bun build src/workflow/executor.ts --target=bun --outfile ../internal/plugins/runtime/workflow-executor.js",
-    "prepack": "cp ../LICENSE.md LICENSE.md && bun run build",
+    "prepack": "cp ../LICENSE LICENSE && bun run build",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
@@ -33,7 +33,7 @@
     "@types/bun": "latest",
     "typescript": "^5.9.0"
   },
-  "license": "FSL-1.1-ALv2",
+  "license": "Apache-2.0",
   "homepage": "https://repogo.app",
   "repository": {
     "type": "git",

@@ -68,8 +68,7 @@ remove everything.
 
 ## License
 
-RepoGo is source-available under the [Functional Source License, Version 1.1,
-ALv2 Future License](https://github.com/repogoapp/host/blob/main/LICENSE.md)
-(FSL-1.1-ALv2). You can use, modify and share it for anything except a product
-or service that competes with RepoGo. Each version becomes available under the
-Apache License 2.0 two years after its release.
+The RepoGo Host and its plugin SDK are open source under the
+[Apache License 2.0](https://github.com/repogoapp/host/blob/main/LICENSE). Third-party notices are in
+[THIRD_PARTY_NOTICES.md](https://github.com/repogoapp/host/blob/main/THIRD_PARTY_NOTICES.md). The RepoGo name and logo are
+trademarks and aren't covered by the license.
