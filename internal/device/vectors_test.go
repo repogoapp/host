@@ -16,22 +16,6 @@ func TestACryptoKitP256SignatureVerifies(t *testing.T) {
 	}
 }
 
-// The same vector as HostTransport.rotateMessage's Swift test.
-func TestRotateMessageVector(t *testing.T) {
-	newPublic := []byte{4}
-	for i := 1; i <= 64; i++ {
-		newPublic = append(newPublic, byte(i))
-	}
-	got, err := RotateMessage("26b1b9b47da2817dca94c31be4ae2387", "17597de8e726e7d763bf8b2ae179193b", newPublic)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "7265706f676f2d726f746174652d763126b1b9b47da2817dca94c31be4ae238717597de8e726e7d763bf8b2ae179193b41040102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40"
-	if hex.EncodeToString(got) != want {
-		t.Fatalf("RotateMessage = %x", got)
-	}
-}
-
 // The same vector as PairingClient.pairMessage's Swift test.
 func TestPairMessageVector(t *testing.T) {
 	joiner := []byte{4}

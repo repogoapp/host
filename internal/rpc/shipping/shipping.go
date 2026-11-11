@@ -29,7 +29,6 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "usage.time", d.time)
 	// Screen time is a paired device's own, so the machine's CLI can't record it.
 	rpc.Add(r, "usage.record_time", d.recordTime, rpc.Paired)
-	rpc.Add(r, "usage.clear_time", d.clearTime, rpc.Paired)
 }
 
 // HistoryParams is a range of Unix milliseconds, until exclusive.
@@ -94,20 +93,6 @@ type Recorded struct {
 func (d Deps) recordTime(ctx context.Context, c rpc.Caller, p RecordTimeParams) (Recorded, error) {
 	skipped, err := d.Usage.RecordUser(ctx, d.Device(c.Device), p.Spans, time.Now())
 	return Recorded{Skipped: skipped}, err
-}
-
-// ClearTimeParams narrows clearing to one project; empty clears every device's
-// screen time on this environment. Agents' work stays.
-type ClearTimeParams struct {
-	Cwd string `json:"cwd,omitempty"`
-}
-
-func (d Deps) clearTime(ctx context.Context, _ rpc.Caller, p ClearTimeParams) (rpc.Ack, error) {
-	scope := shippingcore.Scope{}
-	if p.Cwd != "" {
-		scope = shippingcore.Folders(p.Cwd)
-	}
-	return rpc.OK, d.Usage.ClearUser(ctx, scope)
 }
 
 // scope is the requests a call asks about: one repository's checkouts, one

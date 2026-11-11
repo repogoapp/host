@@ -102,12 +102,6 @@ func TestPromptSpansKeepTheirInput(t *testing.T) {
 	if got := spansOf(t, l, Scope{}, now); got[0].Kind != ActivityUser || got[0].EndedAtMs != ms(30) {
 		t.Fatalf("screen span became %+v", got[0])
 	}
-	if err := l.ClearUser(ctx, Scope{}); err != nil {
-		t.Fatal(err)
-	}
-	if got := spansOf(t, l, Scope{}, now); len(got) != 0 {
-		t.Fatalf("after clearing: %+v, want none", got)
-	}
 }
 
 // The agent clock: working opens, a wait closes, an answer opens again on the
@@ -182,7 +176,7 @@ func TestOpenAgentSpansEndAtNowAndCloseAtLastSeen(t *testing.T) {
 }
 
 // Reads take both kinds in a scope; clearing removes only devices' time.
-func TestActivityScopesAndClearKeepsAgentWork(t *testing.T) {
+func TestActivityScopes(t *testing.T) {
 	l := openTestLedger(t, t.TempDir(), rates{})
 	ctx := context.Background()
 	if _, err := l.RecordUser(ctx, phone, []UserSpan{
@@ -201,12 +195,5 @@ func TestActivityScopesAndClearKeepsAgentWork(t *testing.T) {
 	}
 	if got := spansOf(t, l, Folders(), now); len(got) != 0 {
 		t.Fatalf("no folders: %d spans, want none", len(got))
-	}
-	if err := l.ClearUser(ctx, Folders("/w/app")); err != nil {
-		t.Fatal(err)
-	}
-	got := spansOf(t, l, Scope{}, now)
-	if len(got) != 2 || got[0].Kind == got[1].Kind {
-		t.Fatalf("after clearing /w/app: %+v, want the sibling and the agent's span", got)
 	}
 }

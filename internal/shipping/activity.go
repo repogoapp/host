@@ -145,14 +145,6 @@ func validSpan(s UserSpan, now time.Time) bool {
 		s.StartedAtMs <= now.Add(maxClockSkew).UnixMilli()
 }
 
-// ClearUser deletes the devices' spans in scope, screen time and prompting,
-// every device's. Agent spans are the host's record and stay.
-func (l *Ledger) ClearUser(ctx context.Context, scope Scope) error {
-	where, args := inFolders(scope)
-	_, err := l.db.ExecContext(ctx, `DELETE FROM activity WHERE kind IN ('user', 'prompt') AND `+where, args...)
-	return err
-}
-
 // Activity is every span in scope that overlaps [sinceMs, untilMs), every
 // kind, oldest first. A span still open ends at now.
 func (l *Ledger) Activity(ctx context.Context, sinceMs, untilMs int64, scope Scope, now time.Time) ([]Span, error) {

@@ -12,7 +12,6 @@ import (
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/rpc"
-	"time"
 )
 
 func init() {
@@ -71,19 +70,6 @@ type RevokeParams struct {
 	ID device.ID `json:"id"`
 }
 
-// RotateParams moves the calling device to a new identity key (plan 520):
-// both signatures are over device.RotateMessage(host, caller, public_key).
-type RotateParams struct {
-	PublicKey    []byte `json:"public_key"`
-	SignatureOld []byte `json:"signature_old"`
-	SignatureNew []byte `json:"signature_new"`
-}
-
-// RotateResult is the device's id from now on: its new key's fingerprint.
-type RotateResult struct {
-	DeviceID device.ID `json:"device_id"`
-}
-
 // Changed tells every paired device its list is stale; each asks again, since
 // connected and you differ by the device asking.
 type Changed struct{}
@@ -98,22 +84,6 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "devices.register_push", d.registerPush, rpc.Paired)
 	// Not Paired: the owner at the machine revokes a lost phone from the CLI.
 	rpc.Add(r, "devices.revoke", d.revoke, rpc.Detached)
-	// rotate swaps the caller's own key, as the iPhone does when it moves its
-	// key into the Secure Enclave; the old key stops working at once.
-	rpc.Add(r, "devices.rotate", d.rotate, rpc.Paired)
-}
-
-// retireAfter gives the reply time to leave on the old socket before the old
-// id's sockets close; the phone reconnects with its new key meanwhile.
-const retireAfter = 2 * time.Second
-
-func (d Deps) rotate(_ context.Context, c rpc.Caller, a RotateParams) (RotateResult, error) {
-	next, err := d.Store.Rotate(c.Device, a.PublicKey, a.SignatureOld, a.SignatureNew)
-	if err != nil {
-		return RotateResult{}, err
-	}
-	time.AfterFunc(retireAfter, func() { d.Store.Retire(c.Device) })
-	return RotateResult{DeviceID: next.ID}, nil
 }
 
 func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (rpc.Ack, error) {
