@@ -45,25 +45,40 @@ func (s *Service) nameLater(turnID string, kind agent.Kind, model, prompt string
 		log.Info("naming a new chat: the answer isn't a title", "answer", answer)
 		return
 	}
-	untitled := store.PromptTitle(prompt)
+	id, opened := s.awaitOpened(ctx, turnID)
+	if !opened {
+		log.Info("naming a new chat: it never opened", "title", title)
+		return
+	}
+	opening := store.PromptTitle(prompt)
 	for {
-		if id, done := s.openedChat(turnID); done {
-			if id == "" {
-				return
-			}
-			chat, err := s.d.Cache.Info(id)
-			if err == nil && chat.Title != untitled {
-				return
-			}
-			// The row or the agent's file may trail the session by a moment.
-			if err == nil && s.setTitle(id, title) == nil {
-				return
-			}
+		chat, err := s.d.Cache.Info(id)
+		if err == nil && chat.Title != opening {
+			return // named in between, by the user or the agent's own files
+		}
+		// The row or the agent's file may trail the session by a moment.
+		if err == nil && s.setTitle(id, title) == nil {
+			return
 		}
 		select {
 		case <-ctx.Done():
 			log.Info("naming a new chat timed out", "title", title)
 			return
+		case <-time.After(titlePoll):
+		}
+	}
+}
+
+// awaitOpened waits for the chat turnID runs in to open; false when it never
+// does before ctx ends.
+func (s *Service) awaitOpened(ctx context.Context, turnID string) (store.ChatID, bool) {
+	for {
+		if id, done := s.openedChat(turnID); done {
+			return id, id != ""
+		}
+		select {
+		case <-ctx.Done():
+			return "", false
 		case <-time.After(titlePoll):
 		}
 	}
