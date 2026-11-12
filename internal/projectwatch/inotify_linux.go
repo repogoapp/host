@@ -104,7 +104,7 @@ func (w *inotify) addTree(top string, found func(file string)) error {
 	})
 }
 
-// forget drops the watches at and under a folder that was renamed away: the
+// forget drops the watches at and under a folder moved out of its place: the
 // kernel keeps them on the moved folder, under a path that is no longer true.
 func (w *inotify) forget(dir string) {
 	for wd, path := range w.dirs {
