@@ -66,14 +66,14 @@ func TestClaudeDropsSyntheticUserRecords(t *testing.T) {
 			want:    []string{"why do I see <task-notification> blocks in my chats?"},
 		},
 		{
-			name: "interrupts are dropped from text blocks",
+			name: "an interrupt is not a user message",
 			content: []map[string]any{
 				{"type": "text", "text": "[Request interrupted by user]"},
 			},
 			want: nil,
 		},
 		{
-			name: "interrupt for tool use is dropped too",
+			name: "an interrupt for tool use is not one either",
 			content: []map[string]any{
 				{"type": "text", "text": "[Request interrupted by user for tool use]"},
 			},
@@ -195,5 +195,27 @@ func TestFindEncodedDirPrefersTheDirectoryOnDisk(t *testing.T) {
 	}
 	if _, ok := findEncodedDir(root, "RepoGo--worktrees-me-gone"); ok {
 		t.Fatal("found a directory that does not exist")
+	}
+}
+
+// A stopped turn's interrupt line is saved as the turn's end, as Codex saves
+// its own, so a reopened chat still shows "stopped".
+func TestInterruptEndsTheTurnAsStopped(t *testing.T) {
+	for _, content := range []any{
+		"[Request interrupted by user]",
+		[]map[string]any{{"type": "text", "text": "[Request interrupted by user for tool use]"}},
+	} {
+		line, err := json.Marshal(map[string]any{
+			"type":     "user",
+			"promptId": "p1",
+			"message":  map[string]any{"role": "user", "content": content},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		events := session.Parse(&Sessions{}, line)
+		if len(events) != 1 || events[0].Kind != agent.EventTurnFailed || events[0].Error != "aborted" || events[0].TurnID != "p1" {
+			t.Fatalf("content %v: got %+v, want one turn_failed \"aborted\" for p1", content, events)
+		}
 	}
 }

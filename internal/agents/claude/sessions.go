@@ -278,6 +278,9 @@ func parseUser(l claudeTranscriptLine) []agent.Event {
 	// Plain strings and arrays both go through userProse: the CLI writes its own
 	// bookkeeping as plain-string user records too.
 	if txt := strings.TrimSpace(l.Message.Content.Text); txt != "" {
+		if isInterrupt(txt) {
+			return []agent.Event{stopEvent(l.PromptID)}
+		}
 		if result, ok := taskNotificationResult(txt); ok {
 			return []agent.Event{{Kind: agent.EventToolResult, Tool: result}}
 		}
@@ -303,6 +306,10 @@ func parseUser(l claudeTranscriptLine) []agent.Event {
 				Result:  result,
 			}})
 		case "text":
+			if isInterrupt(b.Text) {
+				out = append(out, stopEvent(l.PromptID))
+				continue
+			}
 			if p := userProse(b.Text); p != "" {
 				prose = append(prose, p)
 			}
@@ -315,6 +322,20 @@ func parseUser(l claudeTranscriptLine) []agent.Event {
 		out = append(out, agent.Event{Kind: agent.EventUserMessage, Text: text, TurnID: l.PromptID})
 	}
 	return out
+}
+
+// interruptPrefix opens the line Claude writes when a turn is stopped, with
+// " for tool use" when a tool call was cut off.
+const interruptPrefix = "[Request interrupted by user"
+
+func isInterrupt(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), interruptPrefix)
+}
+
+// stopEvent is a stopped turn's end, saved as Codex saves its own ("aborted"),
+// so a reopened chat still shows the turn as stopped.
+func stopEvent(turnID string) agent.Event {
+	return agent.Event{Kind: agent.EventTurnFailed, TurnID: turnID, Error: "aborted"}
 }
 
 // parseQueued is a prompt typed while a turn ran, or a background task's
@@ -387,14 +408,13 @@ func parseAssistant(l claudeTranscriptLine) []agent.Event {
 }
 
 // Records the CLI writes as if the user had spoken (task notifications, slash
-// commands, interrupts, skill bodies, image notes); a prefix, so a message
+// commands, skill bodies, image notes); a prefix, so a message
 // that merely mentions one is still a real message.
 var syntheticUserPrefixes = []string{
 	"<task-notification>",
 	"<local-command-caveat>",
 	"<local-command-stdout>",
 	"<command-name>",
-	"[Request interrupted by user",
 	"Base directory for this skill: ",
 	"[Image: source: ",
 }
