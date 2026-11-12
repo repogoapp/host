@@ -467,6 +467,17 @@ func TestAnOlderReadDoesNotReplaceANewerOne(t *testing.T) {
 	}
 }
 
+// After the clock is set back, a file that grew carries an earlier time than
+// the stored read. It is still the newer read, and its rows land.
+func TestAGrownFileLandsAfterTheClockMovesBack(t *testing.T) {
+	db := newStore(t)
+	write(t, db, "a", 20_000, 5)
+	write(t, db, "a", 10_000, 8)
+	if got, _ := db.Messages("claude:a", 0, 100); got.EventCount != 8 {
+		t.Fatalf("a grown file with an earlier time was dropped: %d events", got.EventCount)
+	}
+}
+
 // A page has to be actionable on its own: running a turn or showing a diff
 // needs its folder, and a push, deep link or reconnect has no list behind it.
 func TestEveryReadPathCarriesTheProjectAddress(t *testing.T) {

@@ -336,15 +336,19 @@ func (b *batch) kept(sid int64, rows []row, oldCount int, storedHash int64) (int
 }
 
 // readBefore reports whether e is an older read of the file than the stored
-// one: an earlier modification time or a smaller file, or the same file
-// yielding fewer rows because it was read before the rest was written.
+// one: an earlier time and no larger, a smaller file at the same time, or the
+// same file read before its last rows landed. An earlier time on a larger file
+// is a newer read: the file only grows, so the clock was set back, and trusting
+// the time would drop every write until it caught up.
 func readBefore(e Entry, storedUpdated, storedSize int64, storedCount int) bool {
-	updated := e.Meta.UpdatedAt.UnixMilli()
-	if updated != storedUpdated {
-		return updated < storedUpdated
-	}
-	if e.Meta.SizeBytes != storedSize {
-		return e.Meta.SizeBytes < storedSize
+	updated, size := e.Meta.UpdatedAt.UnixMilli(), e.Meta.SizeBytes
+	switch {
+	case updated < storedUpdated:
+		return size <= storedSize
+	case updated > storedUpdated:
+		return false
+	case size != storedSize:
+		return size < storedSize
 	}
 	return len(e.Events) < storedCount
 }
