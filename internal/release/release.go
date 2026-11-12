@@ -41,7 +41,7 @@ type Asset struct {
 
 type Manifest struct {
 	Version string `json:"version"`
-	// Assets are the bare binaries, for Linux.
+	// Assets are the bare binaries, for Linux and Windows.
 	Assets map[string]Asset `json:"assets"`
 	// Apps are RepoGo Host.app, zipped, for macOS: the bundle gives the host
 	// its name and icon in System Settings and privacy prompts.
@@ -182,9 +182,10 @@ func download(ctx context.Context, asset Asset, dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
 	keep := false
 	defer func() {
+		// Closed first: Windows won't delete a file that is still open.
+		f.Close()
 		if !keep {
 			os.Remove(f.Name())
 		}

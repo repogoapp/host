@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -231,9 +233,15 @@ func Settle(path, version string) error {
 
 // Exec replaces this process with binary, keeping its pid, arguments and
 // environment, so a terminal or a container with nothing to restart the host
-// sees the same process carry on.
+// sees the same process carry on. Windows can't replace a process, so there
+// binary starts beside it on the same console and this one exits.
 func Exec(binary string) error {
-	return syscall.Exec(binary, os.Args, os.Environ())
+	if runtime.GOOS != "windows" {
+		return syscall.Exec(binary, os.Args, os.Environ())
+	}
+	cmd := exec.Command(binary, os.Args[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Start()
 }
 
 func readMarker(path string) (*marker, error) {

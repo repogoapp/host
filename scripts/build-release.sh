@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the host for every platform a release ships, from one Mac: the two
 # macOS binaries with the system's clang, the two Linux ones static against
-# musl with zig as the C compiler (cgo stays on for SQLite). Writes
-# dist/repogo_<os>_<arch>. RELEASE_VERSION and RELEASE_REPOSITORY are stamped in.
+# musl and the two Windows ones against mingw, both with zig as the C compiler
+# (cgo stays on for SQLite). Writes dist/repogo_<os>_<arch>, .exe on Windows.
+# RELEASE_VERSION and RELEASE_REPOSITORY are stamped in.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -29,6 +30,14 @@ for arch in arm64 amd64; do
     go build -trimpath -tags netgo,osusergo,sqlite_omit_load_extension \
     -ldflags "-s -w -linkmode external -extldflags -static $stamp" \
     -o "dist/repogo_linux_$arch" ./repogo
+done
+
+for arch in arm64 amd64; do
+  target=$([ "$arch" = arm64 ] && echo aarch64-windows-gnu || echo x86_64-windows-gnu)
+  echo "windows/$arch"
+  CC="zig cc -target $target" CGO_ENABLED=1 GOOS=windows GOARCH=$arch \
+    go build -trimpath -tags sqlite_omit_load_extension -ldflags "-s -w $stamp" \
+    -o "dist/repogo_windows_$arch.exe" ./repogo
 done
 
 ls -l dist

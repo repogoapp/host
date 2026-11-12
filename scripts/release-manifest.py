@@ -11,10 +11,10 @@ package = Path('npm/package.json')
 pkg = json.loads(package.read_text())
 if tag != 'v' + pkg['version']:
     raise SystemExit('Tag must match npm/package.json version')
-# Linux ships the bare binary; macOS ships RepoGo Host.app, zipped, under apps,
-# a key a host that predates the bundle never reads.
+# Linux and Windows ship the bare binary; macOS ships RepoGo Host.app, zipped,
+# under apps, a key a host that predates the bundle never reads.
 files = {'assets': {}, 'apps': {}}
-for platform, kind, suffix in (('darwin', 'apps', '.app.zip'), ('linux', 'assets', '')):
+for platform, kind, suffix in (('darwin', 'apps', '.app.zip'), ('linux', 'assets', ''), ('windows', 'assets', '.exe')):
     for arch in ('amd64', 'arm64'):
         name = f'repogo_{platform}_{arch}{suffix}'
         matches = list(root.rglob(name))
