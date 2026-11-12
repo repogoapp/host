@@ -644,8 +644,9 @@ func bunPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(home, ".bun", "bin", "bun")
-	if _, err := os.Stat(path); err != nil {
+	// LookPath on a path adds Windows' .exe and checks it can run.
+	path, err := exec.LookPath(filepath.Join(home, ".bun", "bin", "bun"))
+	if err != nil {
 		return "", errors.New("bun not found")
 	}
 	return path, nil

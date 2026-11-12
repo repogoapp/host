@@ -108,16 +108,17 @@ func TestGHIsSourceControlAndSignedOutWhenGitHubSaysNo(t *testing.T) {
 
 func TestGHAssetNames(t *testing.T) {
 	for sys, want := range map[[2]string]string{
-		{"linux", "arm64"}:  "gh_2.101.0_linux_arm64.tar.gz",
-		{"linux", "amd64"}:  "gh_2.101.0_linux_amd64.tar.gz",
-		{"darwin", "arm64"}: "gh_2.101.0_macOS_arm64.zip",
+		{"linux", "arm64"}:   "gh_2.101.0_linux_arm64.tar.gz",
+		{"linux", "amd64"}:   "gh_2.101.0_linux_amd64.tar.gz",
+		{"darwin", "arm64"}:  "gh_2.101.0_macOS_arm64.zip",
+		{"windows", "arm64"}: "gh_2.101.0_windows_arm64.zip",
 	} {
 		name, err := ghAsset(sys[0], sys[1])
 		if err != nil || fmt.Sprintf(name, "2.101.0") != want {
 			t.Fatalf("%v: %q, %v", sys, name, err)
 		}
 	}
-	if _, err := ghAsset("windows", "amd64"); !errors.Is(err, binfetch.ErrUnsupported) {
-		t.Fatalf("windows: %v", err)
+	if _, err := ghAsset("freebsd", "amd64"); !errors.Is(err, binfetch.ErrUnsupported) {
+		t.Fatalf("freebsd: %v", err)
 	}
 }

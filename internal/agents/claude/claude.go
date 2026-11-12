@@ -33,10 +33,11 @@ func definition() agent.Provider {
 				// Claude uses an API key from its environment instead of a login.
 				AuthEnv: []string{"ANTHROPIC_API_KEY"},
 				// The native installer puts it here, and that build updates itself.
-				NativePaths:   []string{".local/bin/claude", ".claude/local/claude"},
-				NativeUpdate:  []string{"claude", "update"},
-				InstallScript: "curl -fsSL https://claude.ai/install.sh | bash",
-				Account:       claudeAccount,
+				NativePaths:          []string{".local/bin/claude", ".claude/local/claude"},
+				NativeUpdate:         []string{"claude", "update"},
+				InstallScript:        "curl -fsSL https://claude.ai/install.sh | bash",
+				InstallScriptWindows: "irm https://claude.ai/install.ps1 | iex",
+				Account:              claudeAccount,
 				// The subscription sign-in; with no terminal it prints the link and
 				// reads the pasted code from stdin.
 				LoginArgs:  []string{"auth", "login"},

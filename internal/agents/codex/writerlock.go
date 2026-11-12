@@ -1,10 +1,8 @@
 package codex
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // threadOpenElsewhere reports whether another Codex process (a terminal, the
@@ -17,22 +15,22 @@ func threadOpenElsewhere(home, threadID string) bool {
 		return false
 	}
 	defer coordination.Close()
-	if syscall.Flock(int(coordination.Fd()), syscall.LOCK_EX) != nil {
+	if lockFile(coordination) != nil {
 		return false
 	}
-	defer syscall.Flock(int(coordination.Fd()), syscall.LOCK_UN)
+	defer unlockFile(coordination)
 
 	thread, err := os.OpenFile(filepath.Join(dir, threadID+".lock"), os.O_RDWR, 0)
 	if err != nil {
 		return false
 	}
 	defer thread.Close()
-	err = syscall.Flock(int(thread.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-	if errors.Is(err, syscall.EWOULDBLOCK) {
+	held, err := tryLockFile(thread)
+	if held {
 		return true
 	}
 	if err == nil {
-		_ = syscall.Flock(int(thread.Fd()), syscall.LOCK_UN)
+		unlockFile(thread)
 	}
 	return false
 }

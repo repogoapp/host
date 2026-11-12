@@ -1,6 +1,7 @@
 // Package projectwatch runs one watcher per project folder, however many
 // devices hold it, and pushes what moved there: fs.changed for files and
-// git.changed for the git state. FSEvents on macOS and inotify on Linux;
+// git.changed for the git state. FSEvents on macOS, inotify on Linux and
+// ReadDirectoryChangesW on Windows;
 // polling elsewhere, and where the kernel has no watches left.
 package projectwatch
 

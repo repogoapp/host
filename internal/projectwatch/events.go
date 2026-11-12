@@ -26,7 +26,7 @@ type Project struct {
 func (Changed) Method() string { return "git.changed" }
 
 // FilesChanged is the files that moved under a watched folder, git repository or
-// not. Only where there is a tree watcher (FSEvents, inotify): polling cannot
+// not. Only where there is a tree watcher (FSEvents, inotify, ReadDirectoryChangesW): polling cannot
 // tell which file changed.
 type FilesChanged struct {
 	// Path is the folder as the device watched it.

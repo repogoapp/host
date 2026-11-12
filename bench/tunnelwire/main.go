@@ -1,3 +1,5 @@
+//go:build unix
+
 // Command tunnelwire compares carriers for the host↔gateway tunnel stream on
 // loopback, WebSocket and raw TLS, both carrying tunnelwire's frames.
 //

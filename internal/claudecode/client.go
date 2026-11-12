@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/repogoapp/host/internal/proctree"
 )
 
 const maxLine = 16 << 20
@@ -45,24 +47,24 @@ type Client struct {
 }
 
 func Start(ctx context.Context, opts Options, handlers Handlers) (_ *Client, err error) {
-	mcpConfig, removeMCPConfig, err := opts.writeMCPConfig()
+	sessionFiles, removeFiles, err := opts.writeFiles()
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		if err != nil {
-			removeMCPConfig()
+			removeFiles()
 		}
 	}()
-	args, err := opts.args(mcpConfig)
+	args, err := opts.args(sessionFiles)
 	if err != nil {
 		return nil, err
 	}
 	procCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(procCtx, opts.Executable, args...)
 	cmd.Dir, cmd.Env = opts.Cwd, opts.Env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	proctree.Own(cmd)
+	proctree.KillOnCancel(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -102,10 +104,10 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (_ *Client, err
 	go func() { defer drains.Done(); defer stderr.Close(); c.readStderr(stderr) }()
 	go func() {
 		err := cmd.Wait()
-		removeMCPConfig()
+		removeFiles()
 		close(c.exited)
 		// Descendants must not keep the pipes or tools alive after their owner exits.
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = proctree.Kill(cmd.Process.Pid)
 		drains.Wait()
 		c.mu.Lock()
 		c.exit = Exit{Code: cmd.ProcessState.ExitCode(), Err: err, Stderr: string(c.stderr)}

@@ -446,7 +446,8 @@ func (in *Inventory) Install(ctx context.Context, kind string) (UpdateResult, er
 		return res, nil
 	}
 
-	if !in.runLocked(ctx, &res, "/bin/sh", "-c", command) {
+	shell, args := installShell(command)
+	if !in.runLocked(ctx, &res, shell, args...) {
 		return res, nil
 	}
 	if after, _ := in.Get(ctx, kind); !after.Installed {
@@ -542,6 +543,16 @@ func ReadJSON(path string, into any) bool {
 	return found && err == nil
 }
 
+// installShell runs an install command: sh, or on Windows PowerShell, whose
+// default policy would refuse npm's npm.ps1 without Bypass. Bypass holds for
+// this one process only.
+func installShell(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "powershell", []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command}
+	}
+	return "/bin/sh", []string{"-c", command}
+}
+
 func lookPath(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
@@ -549,9 +560,13 @@ func lookPath(name string) bool {
 
 // InstallCommandOf prefers the tool's own installer, then npm, then brew.
 func InstallCommandOf(s Spec, has func(string) bool) string {
+	script := s.InstallScript
+	if runtime.GOOS == "windows" {
+		script = s.InstallScriptWindows
+	}
 	switch {
-	case s.InstallScript != "":
-		return s.InstallScript
+	case script != "":
+		return script
 	case s.Pkg != "" && has("npm"):
 		return "npm install -g " + s.Pkg
 	case s.Formula != "" && has("brew"):

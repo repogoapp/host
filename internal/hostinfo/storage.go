@@ -1,10 +1,6 @@
 package hostinfo
 
-import (
-	"os"
-
-	"golang.org/x/sys/unix"
-)
+import "os"
 
 // Storage is the size of the volume holding the home folder and the space
 // left on it; the phone works out what is used.
@@ -20,10 +16,5 @@ func homeStorage() (Storage, bool) {
 	if err != nil {
 		return Storage{}, false
 	}
-	var fs unix.Statfs_t
-	if err := unix.Statfs(home, &fs); err != nil || fs.Blocks == 0 {
-		return Storage{}, false
-	}
-	block := int64(fs.Bsize)
-	return Storage{TotalBytes: int64(fs.Blocks) * block, FreeBytes: int64(fs.Bavail) * block}, true
+	return volume(home)
 }

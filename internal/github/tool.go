@@ -105,7 +105,11 @@ func ghRelease(ctx context.Context, goos, goarch string) (string, string, error)
 		return "", "", err
 	}
 	file := fmt.Sprintf(name, strings.TrimPrefix(tag, "v"))
-	return binfetch.Base + "/cli/cli/releases/download/" + tag + "/" + file, "bin/gh", nil
+	member := "bin/gh"
+	if goos == "windows" {
+		member += ".exe"
+	}
+	return binfetch.Base + "/cli/cli/releases/download/" + tag + "/" + file, member, nil
 }
 
 // ghAsset is the release file name for a system, with %s for the version.
@@ -118,6 +122,8 @@ func ghAsset(goos, goarch string) (string, error) {
 		return "gh_%s_linux_" + goarch + ".tar.gz", nil
 	case "darwin":
 		return "gh_%s_macOS_" + goarch + ".zip", nil
+	case "windows":
+		return "gh_%s_windows_" + goarch + ".zip", nil
 	}
 	return "", fmt.Errorf("%w: gh on %s/%s", binfetch.ErrUnsupported, goos, goarch)
 }

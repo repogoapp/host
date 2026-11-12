@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/repogoapp/host/internal/clilogin"
@@ -101,6 +102,8 @@ type Spec struct {
 
 	// The tool's own installer, run by sh; empty installs with npm or brew.
 	InstallScript string
+	// Its installer on Windows, run by PowerShell; empty uses npm there.
+	InstallScriptWindows string
 
 	// The tool's release build for a system, fetched into ~/.local/bin when
 	// there is no installer, npm or brew; it updates the same way.
@@ -154,8 +157,8 @@ func nativeBinary(home string, paths []string) string {
 		return ""
 	}
 	for _, rel := range paths {
-		path := filepath.Join(home, rel)
-		if st, err := os.Stat(path); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+		// LookPath on a path adds Windows' .exe and checks it can run.
+		if path, err := exec.LookPath(filepath.Join(home, rel)); err == nil {
 			return path
 		}
 	}

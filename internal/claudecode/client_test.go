@@ -206,7 +206,7 @@ func TestMalformedFrameFailsProcess(t *testing.T) {
 }
 
 func TestLaunchOptions(t *testing.T) {
-	args, err := (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "session", SettingSources: []string{"user", "project", "local"}}).args("/private/mcp.json")
+	args, err := (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "session", SettingSources: []string{"user", "project", "local"}}).args(files{mcpConfig: "/private/mcp.json"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,18 +215,34 @@ func TestLaunchOptions(t *testing.T) {
 			t.Errorf("missing %s", flag)
 		}
 	}
-	if _, err = (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "a", SessionID: "b"}).args(""); err == nil {
+	if _, err = (Options{Executable: "claude", Cwd: "/tmp", ResumeID: "a", SessionID: "b"}).args(files{}); err == nil {
 		t.Fatal("accepted both session and resume")
 	}
-	if slices.Contains(args, "--append-system-prompt") {
+	if slices.Contains(args, "--append-system-prompt-file") {
 		t.Error("appended a system prompt nobody asked for")
 	}
-	args, err = (Options{Executable: "claude", Cwd: "/tmp", AppendSystemPrompt: "Use Mermaid."}).args("")
+}
+
+// The appended prompt goes in a file: inline, a long one overruns Windows'
+// command line ("The filename or extension is too long").
+func TestAppendedPromptIsAFile(t *testing.T) {
+	prompt := strings.Repeat("Use Mermaid. ", 4000)
+	o := Options{Executable: "claude", Cwd: "/tmp", AppendSystemPrompt: prompt}
+	f, remove, err := o.writeFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if at := slices.Index(args, "--append-system-prompt"); at < 0 || at+1 >= len(args) || args[at+1] != "Use Mermaid." {
-		t.Errorf("args %q do not append the prompt", args)
+	defer remove()
+	args, err := o.args(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := slices.Index(args, "--append-system-prompt-file")
+	if at < 0 || at+1 >= len(args) || slices.Contains(args, prompt) {
+		t.Fatalf("args don't name the prompt's file: %d args", len(args))
+	}
+	if b, err := os.ReadFile(args[at+1]); err != nil || string(b) != prompt {
+		t.Fatalf("prompt file: %v", err)
 	}
 }
 

@@ -4,23 +4,24 @@
 package terminal
 
 import (
-	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/google/uuid"
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/files"
+	"github.com/repogoapp/host/internal/proctree"
 )
 
 const (
@@ -88,8 +89,11 @@ type session struct {
 	rows      int
 	createdAt time.Time
 
-	pty *os.File
-	cmd *exec.Cmd
+	// pty is the shell's terminal and proc the shell on it; cmd says what
+	// to start, its path, arguments, folder and environment.
+	pty  console
+	proc shellProcess
+	cmd  *exec.Cmd
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -106,10 +110,34 @@ func New(paths files.Container, emit *emit.Emitter, log *slog.Logger) *Manager {
 	}
 }
 
+// console is a shell's terminal: what it prints, what it reads, and its
+// size. A pseudo-terminal on Unix (console_unix.go), a pseudo console on
+// Windows (console_windows.go).
+type console interface {
+	io.ReadWriteCloser
+	Resize(cols, rows int) error
+}
+
+// shellProcess is the shell running on a console.
+type shellProcess interface {
+	Pid() int
+	// Wait reaps the shell and is its exit code, -1 when it has none.
+	Wait() int
+}
+
 // LoginShell is the user's own shell, which is what their terminal would run.
 // Containers often start the host without SHELL and without zsh, so it falls
-// back to the first shell on PATH.
+// back to the first shell on PATH. On Windows it is PowerShell: pwsh, then
+// the Windows PowerShell every install has, then cmd.
 func LoginShell() string {
+	if runtime.GOOS == "windows" {
+		for _, name := range []string{"pwsh.exe", "powershell.exe"} {
+			if path, err := exec.LookPath(name); err == nil {
+				return path
+			}
+		}
+		return "cmd.exe"
+	}
 	if shell := os.Getenv("SHELL"); shell != "" {
 		if _, err := os.Stat(shell); err == nil {
 			return shell
@@ -151,7 +179,7 @@ func (m *Manager) Create(caller device.ID, cwd string, cols, rows int) (Info, er
 	// A login shell with the user's dotfiles, so their PATH, aliases and
 	// installed agent CLIs are all there.
 	shell := LoginShell()
-	cmd := exec.Command(shell, "-l")
+	cmd := exec.Command(shell, loginArgs(shell)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
 	if m.ProjectEnv != nil {
@@ -177,11 +205,11 @@ func newSession(cwd, shell string, cmd *exec.Cmd, cols, rows int) *session {
 
 // start runs the session's command on a new PTY and shows its tab.
 func (m *Manager) start(s *session) error {
-	f, err := pty.StartWithSize(s.cmd, &pty.Winsize{Cols: uint16(s.cols), Rows: uint16(s.rows)})
+	con, proc, err := startConsole(s.cmd, s.cols, s.rows)
 	if err != nil {
 		return fmt.Errorf("terminal: start %s: %w", s.shell, err)
 	}
-	s.pty = f
+	s.pty, s.proc = con, proc
 	m.mu.Lock()
 	m.sessions[s.id] = s
 	m.mu.Unlock()
@@ -318,7 +346,7 @@ func (m *Manager) Resize(id string, cols, rows int) error {
 		return err
 	}
 	cols, rows = clamp(cols, 80), clamp(rows, 24)
-	if err := pty.Setsize(s.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}); err != nil {
+	if err := s.pty.Resize(cols, rows); err != nil {
 		return fmt.Errorf("terminal: resize: %w", err)
 	}
 	return nil
@@ -339,17 +367,24 @@ func (m *Manager) Close(id string) error {
 // killGrace is how long a hung-up shell has to pass the signal on to its jobs.
 const killGrace = 2 * time.Second
 
+// open reports whether the session is still running.
+func (s *session) open() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.done
+}
+
 // end hangs up the shell's whole process group, so a shell passes the HUP to
 // the jobs it started, then kills whatever ignored it. A plain kill of the
 // shell leaves `npm run dev &` running on its port with no tab to find it.
 func (s *session) end() {
-	if s.cmd.Process == nil {
+	if s.proc == nil {
 		return
 	}
 	// The PTY started the shell as a session leader, so its pid is the group.
-	pgid := s.cmd.Process.Pid
-	_ = syscall.Kill(-pgid, syscall.SIGHUP)
-	time.AfterFunc(killGrace, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+	pgid := s.proc.Pid()
+	_ = proctree.Signal(pgid, syscall.SIGHUP)
+	time.AfterFunc(killGrace, func() { _ = proctree.Kill(pgid) })
 }
 
 // Open is how many of the user's shells are running.
@@ -439,18 +474,7 @@ func (m *Manager) finish(s *session) {
 		m.push(s, Output{SessionID: s.id, Data: chunk})
 	}
 
-	// Wait rather than read the exit status off the pty error: the PTY closing
-	// and the child being reaped are different events, and only Wait knows the
-	// code. It also stops the shell becoming a zombie for the life of the host.
-	code := 0
-	if err := s.cmd.Wait(); err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			code = exit.ExitCode()
-		} else {
-			code = -1
-		}
-	}
+	code := s.proc.Wait()
 	_ = s.pty.Close()
 
 	m.mu.Lock()

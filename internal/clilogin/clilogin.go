@@ -18,12 +18,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/creack/pty"
 
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/proctree"
 )
 
 const (
@@ -248,14 +248,14 @@ func launch(lg *login, s Spec, log *slog.Logger) (*exec.Cmd, *os.File, <-chan st
 func start(cmd *exec.Cmd, tty bool) (*os.File, io.WriteCloser, error) {
 	// Stopping the sign-in stops its whole process group: wrangler's launcher
 	// runs the CLI as a child that would otherwise keep its callback port.
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.Cancel = func() error { return proctree.Kill(cmd.Process.Pid) }
 	cmd.WaitDelay = 2 * time.Second
 	if tty {
 		// pty starts it in a new session, which is its own process group.
 		terminal, err := pty.Start(cmd)
 		return terminal, terminal, err
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	proctree.Own(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, err

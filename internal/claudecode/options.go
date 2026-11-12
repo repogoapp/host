@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type MCPServer struct {
@@ -26,9 +27,14 @@ type Options struct {
 	AppendSystemPrompt string
 }
 
-// args names the MCP config by path: written inline, its headers (API keys,
-// OAuth tokens) would sit in the process list for anyone running ps.
-func (o Options) args(mcpConfig string) ([]string, error) {
+// files are what args name by path, in a folder only this user can read.
+type files struct{ mcpConfig, prompt string }
+
+// args names the MCP config and the appended prompt by path. Inline, the
+// config's headers (API keys, OAuth tokens) would sit in the process list for
+// anyone running ps, and the prompt would overrun Windows' 32,767-character
+// command line.
+func (o Options) args(f files) ([]string, error) {
 	if o.Executable == "" || o.Cwd == "" {
 		return nil, errors.New("claudecode: executable and cwd are required")
 	}
@@ -43,48 +49,53 @@ func (o Options) args(mcpConfig string) ([]string, error) {
 		}
 	}
 	if o.SettingSources != nil {
-		sources := ""
-		for i, source := range o.SettingSources {
-			if i > 0 {
-				sources += ","
-			}
-			sources += source
-		}
-		a = append(a, "--setting-sources="+sources)
+		a = append(a, "--setting-sources="+strings.Join(o.SettingSources, ","))
 	}
-	if o.AppendSystemPrompt != "" {
-		a = append(a, "--append-system-prompt", o.AppendSystemPrompt)
+	if f.prompt != "" {
+		a = append(a, "--append-system-prompt-file", f.prompt)
 	}
 	if o.AllowBypass {
 		a = append(a, "--allow-dangerously-skip-permissions")
 	}
-	if mcpConfig != "" {
-		a = append(a, "--mcp-config", mcpConfig)
+	if f.mcpConfig != "" {
+		a = append(a, "--mcp-config", f.mcpConfig)
 	}
 	return a, nil
 }
 
-// writeMCPConfig writes the servers to a file only this user can read, in a
-// folder of its own; remove deletes both. No servers writes nothing.
-func (o Options) writeMCPConfig() (path string, remove func(), err error) {
-	if len(o.MCPServers) == 0 {
-		return "", func() {}, nil
-	}
-	b, err := json.Marshal(struct {
-		Servers map[string]MCPServer `json:"mcpServers"`
-	}{o.MCPServers})
-	if err != nil {
-		return "", nil, err
+// writeFiles writes the MCP servers and the appended prompt to files only this
+// user can read, in a folder of their own; remove deletes it. With neither it
+// writes nothing.
+func (o Options) writeFiles() (f files, remove func(), err error) {
+	if len(o.MCPServers) == 0 && o.AppendSystemPrompt == "" {
+		return files{}, func() {}, nil
 	}
 	dir, err := os.MkdirTemp("", "repogo-claude-")
 	if err != nil {
-		return "", nil, err
+		return files{}, nil, err
 	}
 	remove = func() { _ = os.RemoveAll(dir) }
-	path = filepath.Join(dir, "mcp.json")
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		remove()
-		return "", nil, err
+	write := func(name string, b []byte) (string, error) {
+		path := filepath.Join(dir, name)
+		return path, os.WriteFile(path, b, 0o600)
 	}
-	return path, remove, nil
+	if len(o.MCPServers) > 0 {
+		b, err := json.Marshal(struct {
+			Servers map[string]MCPServer `json:"mcpServers"`
+		}{o.MCPServers})
+		if err == nil {
+			f.mcpConfig, err = write("mcp.json", b)
+		}
+		if err != nil {
+			remove()
+			return files{}, nil, err
+		}
+	}
+	if o.AppendSystemPrompt != "" {
+		if f.prompt, err = write("prompt.md", []byte(o.AppendSystemPrompt)); err != nil {
+			remove()
+			return files{}, nil, err
+		}
+	}
+	return f, remove, nil
 }

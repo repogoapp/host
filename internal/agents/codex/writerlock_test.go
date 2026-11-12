@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 
 	"github.com/repogoapp/host/internal/agent"
@@ -31,8 +30,8 @@ func holdWriterLock(t *testing.T, home, threadID string, held bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { lock.Close() })
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatal(err)
+	if held, err := tryLockFile(lock); held || err != nil {
+		t.Fatalf("taking the lock: held %v, %v", held, err)
 	}
 }
 

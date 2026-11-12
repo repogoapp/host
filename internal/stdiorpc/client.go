@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/repogoapp/host/internal/proctree"
 )
 
 const maxLine = 16 << 20
@@ -86,8 +88,8 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error
 	procCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(procCtx, opts.Executable, opts.Args...)
 	cmd.Dir, cmd.Env = opts.Cwd, opts.Env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	proctree.Own(cmd)
+	proctree.KillOnCancel(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -131,7 +133,7 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error
 		err := cmd.Wait()
 		close(c.exited)
 		// Descendants must not keep the pipes or tools alive after their owner exits.
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = proctree.Kill(cmd.Process.Pid)
 		drains.Wait()
 		c.mu.Lock()
 		c.exit = Exit{Code: cmd.ProcessState.ExitCode(), Err: err, Stderr: string(c.stderr)}

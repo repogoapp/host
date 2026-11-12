@@ -21,7 +21,11 @@ func fetchBuild(ctx context.Context, s Spec) (string, error) {
 		if err != nil {
 			return url, err
 		}
-		_, err = binfetch.Install(ctx, url, member, s.Command)
+		name := s.Command
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		_, err = binfetch.Install(ctx, url, member, name)
 		return url, err
 	}
 	p, err := s.Package(ctx, runtime.GOOS, runtime.GOARCH)

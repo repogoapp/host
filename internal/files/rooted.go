@@ -3,8 +3,6 @@ package files
 import (
 	"os"
 	"path/filepath"
-
-	"golang.org/x/sys/unix"
 )
 
 type rootedPath struct {
@@ -26,20 +24,6 @@ func (s *Service) directory(path string, scope Scope) (*os.Root, string, error) 
 	defer p.root.Close()
 	root, err := p.root.OpenRoot(p.name)
 	return root, p.full, wrap(err)
-}
-
-// Openat preserves O_NOFOLLOW on the leaf; os.Root follows relative symlinks.
-func (p rootedPath) open() (*os.File, error) {
-	dir, err := p.root.Open(".")
-	if err != nil {
-		return nil, err
-	}
-	defer dir.Close()
-	fd, err := unix.Openat(int(dir.Fd()), p.name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, &os.PathError{Op: "openat", Path: p.full, Err: err}
-	}
-	return os.NewFile(uintptr(fd), p.full), nil
 }
 
 // filePath pins the checked parent so later path replacements cannot redirect I/O.

@@ -46,8 +46,15 @@ func New() (*Service, error) {
 		if s.log, err = apphome.Path("host.log"); err != nil {
 			return nil, err
 		}
+	case "windows":
+		if s.path, err = apphome.Path("host-task.cmd"); err != nil {
+			return nil, err
+		}
+		if s.log, err = apphome.Path("host.log"); err != nil {
+			return nil, err
+		}
 	default:
-		return nil, fmt.Errorf("repogo supports macOS and Linux")
+		return nil, fmt.Errorf("repogo supports macOS, Linux and Windows")
 	}
 	return s, nil
 }
@@ -61,6 +68,9 @@ func Supervised() bool {
 	case "linux":
 		cgroup, err := os.ReadFile("/proc/self/cgroup")
 		return err == nil && strings.Contains(string(cgroup), "/"+label+".service")
+	case "windows":
+		// The task's launcher sets it, and starts the host again when it exits.
+		return os.Getenv("REPOGO_SERVICE") == label
 	}
 	return false
 }
@@ -107,6 +117,12 @@ func Linger(ctx context.Context) error {
 }
 
 func (s *Service) Install(ctx context.Context, binary string) error {
+	if runtime.GOOS == "windows" {
+		if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+			return err
+		}
+		return s.installTask(ctx, binary)
+	}
 	// The invoking shell's PATH includes the user's Node and agent installations.
 	body := s.unit(runtime.GOOS, binary, os.Getenv("PATH"))
 	for _, dir := range []string{filepath.Dir(s.path), filepath.Dir(s.log)} {
@@ -159,7 +175,10 @@ WantedBy=default.target
 
 // program is the line of the unit that starts binary, as it is written there.
 func program(goos, binary string) string {
-	if goos == "darwin" {
+	switch goos {
+	case "windows":
+		return `"` + cmdEscape(binary) + `" serve`
+	case "darwin":
 		return "<string>" + xmlEscape(binary) + "</string><string>serve</string>"
 	}
 	return "ExecStart=" + systemdQuote(strings.ReplaceAll(binary, "$", "$$")) + " serve"
@@ -175,7 +194,10 @@ func xmlEscape(v string) string {
 func systemdQuote(v string) string { return strconv.Quote(strings.ReplaceAll(v, "%", "%%")) }
 
 func (s *Service) loaded(ctx context.Context) bool {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "windows":
+		return taskRunning(ctx)
+	case "darwin":
 		return command(ctx, "launchctl", "print", s.target()) == nil
 	}
 	return command(ctx, "systemctl", "--user", "is-active", "--quiet", label) == nil
@@ -184,6 +206,9 @@ func (s *Service) loaded(ctx context.Context) bool {
 func (s *Service) target() string { return fmt.Sprintf("gui/%d/%s", os.Getuid(), label) }
 
 func (s *Service) Start(ctx context.Context) error {
+	if runtime.GOOS == "windows" {
+		return startTask(ctx)
+	}
 	if runtime.GOOS == "darwin" {
 		if !s.loaded(ctx) {
 			if err := command(ctx, "launchctl", "enable", s.target()); err != nil {
@@ -204,6 +229,9 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 func (s *Service) Stop(ctx context.Context) error {
+	if runtime.GOOS == "windows" {
+		return s.stopTask(ctx)
+	}
 	if runtime.GOOS == "darwin" {
 		if !s.loaded(ctx) {
 			return nil
@@ -237,6 +265,12 @@ func (s *Service) waitUnloaded(ctx context.Context) error {
 }
 
 func (s *Service) Restart(ctx context.Context) error {
+	if runtime.GOOS == "windows" {
+		if err := s.stopTask(ctx); err != nil {
+			return err
+		}
+		return startTask(ctx)
+	}
 	if runtime.GOOS == "darwin" {
 		if !s.loaded(ctx) {
 			return s.Start(ctx)
@@ -254,8 +288,13 @@ func (s *Service) Uninstall(ctx context.Context) error {
 	if err := s.Stop(ctx); err != nil {
 		return err
 	}
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		if err := command(ctx, "systemctl", "--user", "disable", label); err != nil {
+			return err
+		}
+	case "windows":
+		if err := uninstallTask(ctx); err != nil {
 			return err
 		}
 	}
@@ -270,11 +309,18 @@ func (s *Service) Uninstall(ctx context.Context) error {
 
 func (s *Service) Logs() error {
 	cmd := exec.Command("tail", "-n", "50", "-F", s.log)
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", "Get-Content -Tail 50 -Wait -LiteralPath $args[0]", s.log)
+	}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
 
 func command(ctx context.Context, name string, args ...string) error {
-	_, err := syscmd.Output(ctx, 30*time.Second, name, args...)
+	_, err := outputOf(ctx, name, args...)
 	return err
+}
+
+func outputOf(ctx context.Context, name string, args ...string) (string, error) {
+	return syscmd.Output(ctx, 30*time.Second, name, args...)
 }

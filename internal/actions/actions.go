@@ -29,6 +29,7 @@ import (
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/files"
 	"github.com/repogoapp/host/internal/procscan"
+	"github.com/repogoapp/host/internal/proctree"
 	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/store"
 	"github.com/repogoapp/host/internal/terminal"
@@ -338,7 +339,8 @@ func (s *Service) start(caller device.ID, project, name string, sent map[string]
 			return nil, err
 		}
 		defer out.Close()
-		cmd := exec.Command(terminal.LoginShell(), "-l", "-c", action.Cmd)
+		shell := terminal.LoginShell()
+		cmd := exec.Command(shell, terminal.RunArgs(shell, action.Cmd)...)
 		prepare(cmd, cwd, env)
 		cmd.Stdout, cmd.Stderr = out, out
 		if err := cmd.Start(); err != nil {
@@ -620,10 +622,10 @@ func stopGroup(r store.ActionRun) {
 	if !sameProcess(r) {
 		return
 	}
-	_ = syscall.Kill(-r.PID, syscall.SIGTERM)
+	_ = proctree.Signal(r.PID, syscall.SIGTERM)
 	time.AfterFunc(stopGrace, func() {
 		if sameProcess(r) {
-			_ = syscall.Kill(-r.PID, syscall.SIGKILL)
+			_ = proctree.Kill(r.PID)
 		}
 	})
 }
@@ -725,12 +727,14 @@ func load(dir string) ([]declared, error) {
 }
 
 // command builds the shell invocation a blocking run uses: the user's login
-// shell, so an action sees the PATH the user's own terminal would.
+// shell (PowerShell on Windows), so an action sees the PATH the user's own
+// terminal would.
 func command(ctx context.Context, cmdline, cwd string, env map[string]string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, terminal.LoginShell(), "-l", "-c", cmdline)
+	shell := terminal.LoginShell()
+	cmd := exec.CommandContext(ctx, shell, terminal.RunArgs(shell, cmdline)...)
 	prepare(cmd, cwd, env)
 	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		return proctree.Signal(cmd.Process.Pid, syscall.SIGTERM)
 	}
 	cmd.WaitDelay = 2 * time.Second
 	return cmd
@@ -742,7 +746,7 @@ func command(ctx context.Context, cmdline, cwd string, env map[string]string) *e
 func prepare(cmd *exec.Cmd, cwd string, env map[string]string) {
 	cmd.Dir = cwd
 	cmd.Env = terminal.Environ(env)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	proctree.Own(cmd)
 }
 
 func newRunID() string {
