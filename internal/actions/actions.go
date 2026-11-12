@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/files"
@@ -151,8 +152,8 @@ type Deps struct {
 	Terminals Terminals
 	// EnvSources reads the envFrom handles bound on this host.
 	EnvSources EnvSources
-	// Changed sends a project's snapshot to every device.
-	Changed func(Snapshot)
+	// Events hears a project's snapshot after every change, for every device.
+	Events emit.Sink
 	// Logs is the folder detached runs write their output to.
 	Logs string
 	// Redact learns each env source's values, so no log keeps them.
@@ -191,7 +192,7 @@ func New(d Deps) (*Service, error) {
 		unset bool
 	}{
 		{"Paths", d.Paths == nil}, {"Store", d.Store == nil}, {"Terminals", d.Terminals == nil},
-		{"EnvSources", d.EnvSources == nil}, {"Changed", d.Changed == nil}, {"Logs", d.Logs == ""}, {"Redact", d.Redact == nil}, {"Log", d.Log == nil},
+		{"EnvSources", d.EnvSources == nil}, {"Events", d.Events == nil}, {"Logs", d.Logs == ""}, {"Redact", d.Redact == nil}, {"Log", d.Log == nil},
 	} {
 		if f.unset {
 			missing = append(missing, f.name)
@@ -598,7 +599,7 @@ func (s *Service) announceLocked(dir string) {
 		s.d.Log.Warn("actions not announced", "path", dir, "err", err)
 		return
 	}
-	s.d.Changed(snap)
+	s.d.Events.All(snap)
 }
 
 func (s *Service) logPath(id string) string { return filepath.Join(s.d.Logs, id+".log") }

@@ -114,7 +114,7 @@ func (c *capture) receivedTools() []Tool {
 // newManager serves sessions and db to pub, every hook a no-op.
 func newManager(t *testing.T, sessions *session.Store, db *store.Store, pub emit.Transport, turns TurnStream) *Manager {
 	return New(t.Context(), Deps{
-		Sessions: sessions, Store: db, Emit: emit.New(pub, slog.Default()), Turns: turns, Log: slog.Default(),
+		Sessions: sessions, Store: db, Emit: emit.New(pub, func() []device.ID { return nil }, slog.Default()), Turns: turns, Log: slog.Default(),
 		Attention: func(Attention) {},
 		Wire:      chatwire.New(nil),
 		Children:  noChildren{},
@@ -559,7 +559,7 @@ func TestWatchedChatsSubagentsArePushedToEveryWatcher(t *testing.T) {
 	pub := &capture{}
 	syncer := chatsync.New(sessions, db, slog.Default())
 	m := New(t.Context(), Deps{
-		Sessions: sessions, Store: db, Emit: emit.New(pub, slog.Default()), Turns: &fakeTurns{}, Log: slog.Default(),
+		Sessions: sessions, Store: db, Emit: emit.New(pub, func() []device.ID { return nil }, slog.Default()), Turns: &fakeTurns{}, Log: slog.Default(),
 		Attention: func(Attention) {},
 		Wire:      chatwire.New(nil),
 		Children:  syncer,

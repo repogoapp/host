@@ -16,6 +16,7 @@ import (
 
 	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/clilogin"
+	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/par"
 )
 
@@ -39,9 +40,9 @@ type Inventory struct {
 	// Which account each project uses, for CLIs with accounts; nil until
 	// OpenAccounts.
 	accounts *accountState
-	// accountsChanged hears each change to a CLI's accounts; nil in tests.
-	accountsChanged func(AccountsChanged)
-	onChange        func()
+	// events hears each change to a CLI's accounts; nil in tests.
+	events   emit.Sink
+	onChange func()
 	// loginEnded hears which sign-in ended and how, set once at assembly.
 	loginEnded func(kind string, ok bool)
 	log        *slog.Logger

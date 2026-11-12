@@ -8,8 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/repogoapp/host/internal/device"
-	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/testwait"
 )
@@ -59,7 +58,7 @@ func TestTheBundledRuntimeRunsAProjectsPlugins(t *testing.T) {
 	}
 	s := New(t.Context(), Config{
 		Runtime: runtime, Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
-		Emit: func(device.ID, emit.Event) error { return nil }, Redact: redact.New(), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Events: emittest.Sink{}, Redact: redact.New(), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	root := environment(t, s, "", map[string]string{"notes": notesPlugin})
 	if _, err := s.Call(t.Context(), root, "notes.notes.create", json.RawMessage(`{"text":"a"}`), nil, true, Origin{Caller: CallerCard}); err != nil {
@@ -92,7 +91,7 @@ func TestBundledRuntimeExecutesADurableWorkflow(t *testing.T) {
 	}
 	s := New(t.Context(), Config{
 		Runtime: entry, Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"),
-		Emit: func(device.ID, emit.Event) error { return nil }, Redact: redact.New(), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Events: emittest.Sink{}, Redact: redact.New(), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	root := environment(t, s, "", map[string]string{"reports": `import { definePlugin, workflow, z } from "@repogo/plugins";
 export default definePlugin({ namespace: "test.reports", workflows: {

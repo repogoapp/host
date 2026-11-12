@@ -21,6 +21,8 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/tunnelwire"
 )
 
@@ -201,7 +203,7 @@ func newService(t *testing.T, gatewayAddr string, ps peers) (*Service, *device.I
 	}
 	s, err := Open(Config{
 		Path: filepath.Join(t.TempDir(), "tunnels.json"), Identity: id, Peers: ps,
-		Gateway: gatewayAddr, Plaintext: true, Changed: func(Changed) {}, OwnPort: func() int { return ownPort }, DevicePort: 47444, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Gateway: gatewayAddr, Plaintext: true, Events: emittest.Sink{}, OwnPort: func() int { return ownPort }, DevicePort: 47444, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +295,7 @@ func TestDialsOnlyWhileATunnelIsOpen(t *testing.T) {
 	g := newFakeGateway(t, "127.0.0.1")
 	s, _ := newService(t, g.addr, peers{phone: {ID: phone}})
 	changes := make(chan Changed, 16)
-	s.cfg.Changed = func(c Changed) { changes <- c }
+	s.cfg.Events = emittest.Sink{OnAll: func(ev emit.Event) { changes <- ev.(Changed) }}
 	run(t, s)
 
 	select {
@@ -419,7 +421,7 @@ func TestAllowlistPersistsPrivately(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v", info.Mode().Perm())
 	}
-	again, err := Open(Config{Path: s.cfg.Path, Identity: id, Peers: peers{phone: {ID: phone}}, Changed: func(Changed) {}, OwnPort: s.cfg.OwnPort, Log: s.cfg.Log})
+	again, err := Open(Config{Path: s.cfg.Path, Identity: id, Peers: peers{phone: {ID: phone}}, Events: emittest.Sink{}, OwnPort: s.cfg.OwnPort, Log: s.cfg.Log})
 	if err != nil {
 		t.Fatal(err)
 	}

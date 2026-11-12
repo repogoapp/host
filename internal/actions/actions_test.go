@@ -14,6 +14,7 @@ import (
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/store"
@@ -80,7 +81,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { db.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := &harness{dir: dir, db: db, bound: boundHere{}, terms: terminal.New(containRoot(dir), emit.New(nopTransport{}, log), log)}
+	h := &harness{dir: dir, db: db, bound: boundHere{}, terms: terminal.New(containRoot(dir), emit.New(nopTransport{}, func() []device.ID { return nil }, log), log)}
 	t.Cleanup(h.terms.Shutdown)
 	h.Service = h.open(t)
 	return h
@@ -92,11 +93,11 @@ func (h *harness) open(t *testing.T) *Service {
 	s, err := New(Deps{
 		Paths: containRoot(h.dir), Store: h.db, Terminals: h.terms, Logs: filepath.Join(h.dir, ".logs"),
 		EnvSources: h.bound,
-		Changed: func(snap Snapshot) {
+		Events: emittest.Sink{OnAll: func(ev emit.Event) {
 			h.mu.Lock()
-			h.snaps = append(h.snaps, snap)
+			h.snaps = append(h.snaps, ev.(Snapshot))
 			h.mu.Unlock()
-		},
+		}},
 		Redact: redact.New(),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})

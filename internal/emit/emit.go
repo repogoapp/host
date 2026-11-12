@@ -71,10 +71,17 @@ const (
 // Room is a set of devices watching the same thing: "chat:<id>", "git:<path>".
 type Room string
 
+// Sink is what a producer holds to send its events: to one device, or to all.
+type Sink interface {
+	To(device.ID, Event) error
+	All(Event)
+}
+
 type Emitter struct {
-	t     Transport
-	log   *slog.Logger
-	epoch string
+	t        Transport
+	everyone func() []device.ID
+	log      *slog.Logger
+	epoch    string
 
 	mu      sync.Mutex
 	rev     int64
@@ -82,17 +89,20 @@ type Emitter struct {
 	state   map[Room]map[string]Stateful
 }
 
-func New(t Transport, log *slog.Logger) *Emitter {
+// New returns an Emitter that sends on t. everyone is who All reaches, read
+// at each send.
+func New(t Transport, everyone func() []device.ID, log *slog.Logger) *Emitter {
 	// Per process: a restarted host's revisions start over, and a device
 	// holding the old epoch must take a fresh snapshot rather than compare.
 	var buf [8]byte
 	rand.Read(buf[:])
 	return &Emitter{
-		t:       t,
-		log:     log,
-		epoch:   hex.EncodeToString(buf[:]),
-		members: map[Room]map[device.ID]struct{}{},
-		state:   map[Room]map[string]Stateful{},
+		t:        t,
+		everyone: everyone,
+		log:      log,
+		epoch:    hex.EncodeToString(buf[:]),
+		members:  map[Room]map[device.ID]struct{}{},
+		state:    map[Room]map[string]Stateful{},
 	}
 }
 
@@ -150,6 +160,21 @@ func (e *Emitter) To(d device.ID, ev Event) error {
 		return err
 	}
 	return e.t.Send(d, ev.Method(), payload)
+}
+
+// All sends ev to every device that lists what it describes. One that is
+// offline catches up on its next list.
+func (e *Emitter) All(ev Event) {
+	payload, err := wirejson.Marshal(ev)
+	if err != nil {
+		e.log.Warn("emit: cannot marshal", "method", ev.Method(), "err", err)
+		return
+	}
+	for _, d := range e.everyone() {
+		if err := e.t.Send(d, ev.Method(), payload); err != nil {
+			e.log.Debug("emit: not delivered", "method", ev.Method(), "device", d, "err", err)
+		}
+	}
 }
 
 // Publish stamps a Stateful event and sends it as judge decides from the

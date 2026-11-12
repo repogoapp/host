@@ -14,11 +14,11 @@ type AccountsChanged struct {
 
 func (AccountsChanged) Method() string { return "tools.accounts_changed" }
 
-// OnAccountsChanged tells f each change to a CLI's accounts, set once at assembly.
-func (in *Inventory) OnAccountsChanged(f func(AccountsChanged)) { in.accountsChanged = f }
+// SendTo names where each change to a CLI's accounts goes, set once at assembly.
+func (in *Inventory) SendTo(events emit.Sink) { in.events = events }
 
 func (in *Inventory) announceAccounts(kind string) {
-	if in.accountsChanged != nil {
-		in.accountsChanged(AccountsChanged{Kind: kind})
+	if in.events != nil {
+		in.events.All(AccountsChanged{Kind: kind})
 	}
 }

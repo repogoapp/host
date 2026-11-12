@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/clitool"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/redact"
@@ -76,8 +78,8 @@ func newFixture(t *testing.T) *fixture {
 		Ignored: func(_ context.Context, _ string, paths []string) (map[string]bool, error) {
 			return f.ignored, nil
 		},
-		Changed: func(c Changed) { f.events = append(f.events, c.Flow) },
-		Now:     func() time.Time { return f.now },
+		Events: emittest.Sink{OnAll: func(ev emit.Event) { f.events = append(f.events, ev.(Changed).Flow) }},
+		Now:    func() time.Time { return f.now },
 	})
 	return f
 }

@@ -111,7 +111,7 @@ func (c *collector) Send(_ device.ID, method string, payload []byte) error {
 
 // emitter wraps the collector as what NewPipes takes.
 func (c *collector) emitter() *emit.Emitter {
-	return emit.New(c, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return emit.New(c, func() []device.ID { return nil }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func (c *collector) snapshot() (string, string) {

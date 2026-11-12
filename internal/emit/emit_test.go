@@ -60,7 +60,7 @@ const (
 
 func TestPublishReachesOnlyTheRoom(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Join(a, "r1")
 	e.Join(b, "r2")
 
@@ -74,7 +74,7 @@ func TestPublishReachesOnlyTheRoom(t *testing.T) {
 
 func TestJoinReturnsStateWithoutSending(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 
 	// Remembered with nobody watching.
 	e.Publish("r", snapshot{Key: "s", Text: "hello"}, nil)
@@ -115,7 +115,7 @@ func (g growing) Delta() Event {
 // for whoever joins next.
 func TestDeltaSendsLessThanTheRoomKeeps(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Join(a, "r")
 	e.Publish("r", growing{snapshot: snapshot{Key: "s", Text: "hello world"}, from: 5}, nil)
 
@@ -129,7 +129,7 @@ func TestDeltaSendsLessThanTheRoomKeeps(t *testing.T) {
 }
 
 func TestLatestStateWins(t *testing.T) {
-	e := New(&recorder{}, nil)
+	e := New(&recorder{}, nil, nil)
 	e.Publish("r", snapshot{Key: "s", Text: "one"}, nil)
 	e.Publish("r", snapshot{Key: "s", Text: "two"}, nil)
 
@@ -141,7 +141,7 @@ func TestLatestStateWins(t *testing.T) {
 
 func TestPublishStampsEveryPayloadInOrder(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Join(a, "r")
 	e.Publish("r", snapshot{Key: "s", Text: "one"}, nil)
 	e.Publish("r", snapshot{Key: "other", Text: "x"}, nil)
@@ -158,14 +158,14 @@ func TestPublishStampsEveryPayloadInOrder(t *testing.T) {
 	if len(revs) != 3 || revs[0] != 1 || revs[1] != 2 || revs[2] != 3 {
 		t.Fatalf("revisions %v", revs)
 	}
-	if New(rec, nil).epoch == e.epoch {
+	if New(rec, nil, nil).epoch == e.epoch {
 		t.Error("two emitters share an epoch")
 	}
 }
 
 func TestNotRetainedClearsState(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Publish("r", snapshot{Key: "s", Text: "one"}, nil)
 	e.Publish("r", snapshot{Key: "s", Text: "one", Done: true}, nil)
 
@@ -182,7 +182,7 @@ func TestNotRetainedClearsState(t *testing.T) {
 
 func TestPublishPassLeavesStateAlone(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Join(a, "r")
 	e.Publish("r", snapshot{Key: "s", Text: "current"}, nil)
 	e.Publish("r", snapshot{Key: "s", Text: "stale", Done: true}, func(Event, bool) Verdict { return Pass })
@@ -197,7 +197,7 @@ func TestPublishPassLeavesStateAlone(t *testing.T) {
 
 func TestPublishJudgesTheCurrentState(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Join(a, "r")
 	var seen []string
 	judge := func(cur Event, ok bool) Verdict {
@@ -229,7 +229,7 @@ func TestPublishJudgesTheCurrentState(t *testing.T) {
 
 func TestLeaveStopsDelivery(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Join(a, "r")
 	e.Leave(a, "r")
 	e.Publish("r", snapshot{Key: "s"}, nil)
@@ -243,7 +243,7 @@ func TestLeaveStopsDelivery(t *testing.T) {
 
 func TestLeaveAll(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	e.Join(a, "r1")
 	e.Join(a, "r2")
 	e.Join(b, "r1")
@@ -258,7 +258,7 @@ func TestLeaveAll(t *testing.T) {
 
 func TestToBypassesRooms(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	if err := e.To(a, snapshot{Key: "s", Text: "direct"}); err != nil {
 		t.Fatal(err)
 	}
@@ -266,6 +266,18 @@ func TestToBypassesRooms(t *testing.T) {
 		t.Fatal("To must not record state")
 	}
 	if got := rec.all(); len(got) != 1 || got[0].to != a {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAllReachesEveryoneOutsideRooms(t *testing.T) {
+	rec := &recorder{}
+	e := New(rec, func() []device.ID { return []device.ID{a, b} }, nil)
+	e.All(snapshot{Key: "s", Text: "list"})
+	if snap := e.Join(a, ""); len(snap.State) != 0 || snap.Revision != 0 {
+		t.Fatal("All must not record state")
+	}
+	if got := rec.all(); len(got) != 2 || got[0].to != a || got[1].to != b {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -292,7 +304,7 @@ func (e arrayEvent) Stamped(Stamp) Stateful { return e }
 
 func TestEventNormalizesRequiredArrays(t *testing.T) {
 	rec := &recorder{}
-	e := New(rec, nil)
+	e := New(rec, nil, nil)
 	if err := e.To(a, arrayEvent{}); err != nil {
 		t.Fatal(err)
 	}

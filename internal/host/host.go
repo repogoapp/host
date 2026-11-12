@@ -193,6 +193,10 @@ func New(parent context.Context, cfg Config) (*Host, error) {
 	h := &Host{cfg: cfg, log: cfg.Log, redact: redact.New()}
 	h.redact.Add(cfg.Token)
 	h.ctx, h.cancel = context.WithCancel(parent)
+	// Producers hold the emitter; the mux sends on the device's own socket,
+	// on loopback or through the relay.
+	h.Pushes = emit.NewMux()
+	h.emitter = emit.New(h.Pushes, h.everyDevice, h.log)
 	for _, open := range []func() error{h.openAgents, h.openDevices, h.openChats, h.openProjects, h.openTransports} {
 		if err := open(); err != nil {
 			h.Close()
@@ -543,22 +547,12 @@ func (h *Host) projectsChanged(c store.ProjectChange) {
 	for i := range c.Changed {
 		c.Changed[i].HostID = host
 	}
-	h.toEveryDevice(projectsync.Changed{Projects: c.Changed, Removed: c.Removed})
+	h.emitter.All(projectsync.Changed{Projects: c.Changed, Removed: c.Removed})
 }
 
-// toEveryDevice pushes ev to each paired device and each client on this
-// machine, and counts those it reached; one that is offline catches up on
-// its next list.
-func (h *Host) toEveryDevice(ev emit.Event) int {
-	sent := 0
-	for _, id := range device.Recipients(h.devices.Peers(), h.Pushes.Attached()) {
-		if err := h.emitter.To(id, ev); err != nil {
-			h.log.Debug("update not delivered", "event", ev.Method(), "device", id, "err", err)
-			continue
-		}
-		sent++
-	}
-	return sent
+// everyDevice is who hears a change to what every device lists.
+func (h *Host) everyDevice() []device.ID {
+	return device.Recipients(h.devices.Peers(), h.Pushes.Attached())
 }
 
 // waitWithin waits for wg, and reports false if d passes first.

@@ -16,11 +16,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit/emittest"
 )
 
 func open(t *testing.T) *Service {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "mcp.json"), func(Changed) {})
+	s, err := Open(filepath.Join(t.TempDir(), "mcp.json"), emittest.Sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +53,7 @@ func openKeyServer(t *testing.T) string {
 func TestNoAuthServerConnectsAndIsOnWhereItWasAdded(t *testing.T) {
 	s := open(t)
 	var pushed []Changed
-	s.onChange = func(c Changed) { pushed = append(pushed, c) }
+	s.events = emittest.Sink{OnAll: func(ev emit.Event) { pushed = append(pushed, ev.(Changed)) }}
 	up := openServer(t)
 	project := t.TempDir()
 
@@ -116,7 +119,7 @@ func TestAPIKeyServerSendsItsKeyAndNeverShowsIt(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("store mode = %v, %v; want 0600", info.Mode().Perm(), err)
 	}
-	reopened, err := Open(s.path, func(Changed) {})
+	reopened, err := Open(s.path, emittest.Sink{})
 	if err != nil || len(reopened.ForTurn(context.Background(), project)) != 1 {
 		t.Fatalf("reopen lost the server: %v", err)
 	}
@@ -295,7 +298,7 @@ func TestSwitchesRenameAndRemove(t *testing.T) {
 // use it until a restart silently undid it.
 func TestFailedSaveRollsBack(t *testing.T) {
 	dir := t.TempDir()
-	s, err := Open(filepath.Join(dir, "mcp.json"), func(Changed) {})
+	s, err := Open(filepath.Join(dir, "mcp.json"), emittest.Sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +382,7 @@ func servers(s *Service) []Server {
 func TestBuiltinIsOnUntilSwitchedOffForTheEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mcp.json")
 	var told []Changed
-	s, err := Open(path, func(c Changed) { told = append(told, c) })
+	s, err := Open(path, emittest.Sink{OnAll: func(ev emit.Event) { told = append(told, ev.(Changed)) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +410,7 @@ func TestBuiltinIsOnUntilSwitchedOffForTheEnvironment(t *testing.T) {
 		t.Fatalf("remove: %v", err)
 	}
 
-	reopened, err := Open(path, func(Changed) {})
+	reopened, err := Open(path, emittest.Sink{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -68,7 +68,9 @@ func (c *collector) Send(to device.ID, method string, payload []byte) error {
 }
 
 // emitter wraps the collector as what Manager takes.
-func (c *collector) emitter() *emit.Emitter { return emit.New(c, quiet()) }
+func (c *collector) emitter() *emit.Emitter {
+	return emit.New(c, func() []device.ID { return nil }, quiet())
+}
 
 func (c *collector) text() string {
 	c.mu.Lock()

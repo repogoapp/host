@@ -15,8 +15,13 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/syscmd"
 )
+
+func init() {
+	emit.Register(Battery{})
+}
 
 func (Battery) Method() string { return "host.battery" }
 

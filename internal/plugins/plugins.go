@@ -65,10 +65,9 @@ type Config struct {
 	LogsPath string
 	// Redact masks the host's secrets in those lines, and learns the plugin keys.
 	Redact *redact.Vault
-	// Logged tells every phone that plugins wrote lines, so cards showing them reload; nil drops it.
-	Logged func(Logged)
-	// Emit sends a subscription's new answer to the device that made it.
-	Emit func(device.ID, emit.Event) error
+	// Events hears that plugins wrote lines, so every phone's cards showing them
+	// reload, and each subscription's new answer, for the device that made it.
+	Events emit.Sink
 	// Notify pushes a plugin's alert to the phones; nil drops it.
 	Notify func(Notice)
 	// Keys keeps each plugin's key for its HTTP methods that take one.
@@ -157,9 +156,7 @@ func (s *Service) Logs(ctx context.Context, q LogQuery) ([]LogLine, error) {
 
 // logged passes a written batch on to the phones.
 func (s *Service) logged(plugins []string) {
-	if s.cfg.Logged != nil {
-		s.cfg.Logged(Logged{Plugins: plugins})
-	}
+	s.cfg.Events.All(Logged{Plugins: plugins})
 }
 
 // On reports whether this host runs plugins.
@@ -483,7 +480,7 @@ func (s *Service) pushed(p push) {
 	data := Data{Subscription: sub.id, Revision: sub.revision, Result: p.Result, Items: p.Items, Done: p.Done, Error: p.Error.toError()}
 	d := sub.device
 	s.mu.Unlock()
-	if err := s.cfg.Emit(d, data); err != nil {
+	if err := s.cfg.Events.To(d, data); err != nil {
 		s.cfg.Log.Debug("plugins: data push failed", "device", d, "err", err)
 	}
 }
@@ -598,7 +595,7 @@ func (s *Service) resubscribe() {
 		}
 		s.mu.Unlock()
 		if ok {
-			_ = s.cfg.Emit(sub.device, data)
+			_ = s.cfg.Events.To(sub.device, data)
 		}
 	}
 }

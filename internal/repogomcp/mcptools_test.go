@@ -9,13 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/internal/mcp"
 )
 
 // mcpService is an MCP service with no servers connected.
 func mcpService(t *testing.T) *mcp.Service {
 	t.Helper()
-	s, err := mcp.Open(filepath.Join(t.TempDir(), "mcp.json"), func(mcp.Changed) {})
+	s, err := mcp.Open(filepath.Join(t.TempDir(), "mcp.json"), emittest.Sink{})
 	if err != nil {
 		t.Fatal(err)
 	}

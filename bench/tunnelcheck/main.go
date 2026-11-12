@@ -31,6 +31,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/internal/tunnel"
 )
 
@@ -112,7 +113,7 @@ func main() {
 		Path: filepath.Join(dir, "tunnels.json"), Identity: host,
 		Peers:   peers{phone: {ID: phone, Public: phonePub}},
 		Gateway: dial, Plaintext: gatewayHost == "127.0.0.1",
-		Changed: func(tunnel.Changed) {}, OwnPort: func() int { return 0 }, Log: logger,
+		Events: emittest.Sink{}, OwnPort: func() int { return 0 }, Log: logger,
 	})
 	if err != nil {
 		fail(err)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/tunnelwire"
 )
@@ -71,8 +72,8 @@ type Config struct {
 	// local gateway or a test.
 	Gateway   string
 	Plaintext bool
-	// Changed is told the whole list after every change, for tunnels.changed.
-	Changed func(Changed)
+	// Events hears the whole list after every change, as tunnels.changed.
+	Events emit.Sink
 	// OwnPort is the host's own loopback port, read at each open since the
 	// listener binds after this service is built. A tunnel to it is refused.
 	OwnPort func() int
@@ -304,7 +305,7 @@ func (s *Service) changed() {
 	s.mu.Lock()
 	ev := Changed{Tunnels: s.listLocked(), Connected: s.connected}
 	s.mu.Unlock()
-	s.cfg.Changed(ev)
+	s.cfg.Events.All(ev)
 }
 
 func (s *Service) saveLocked() error {

@@ -5,12 +5,13 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	pluginscore "github.com/repogoapp/host/internal/plugins"
 	"net/http"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	pluginscore "github.com/repogoapp/host/internal/plugins"
 
 	"github.com/repogoapp/host/internal/actions"
 	"github.com/repogoapp/host/internal/agent"
@@ -25,7 +26,6 @@ import (
 	"github.com/repogoapp/host/internal/clitool"
 	"github.com/repogoapp/host/internal/connect"
 	"github.com/repogoapp/host/internal/device"
-	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/files"
 	"github.com/repogoapp/host/internal/forward"
@@ -99,7 +99,7 @@ func (h *Host) openAgents() error {
 		return err
 	}
 	h.onClose(h.agents.Close)
-	h.mcps, err = mcp.Open(h.state("mcp.json"), func(ev mcp.Changed) { h.toEveryDevice(ev) })
+	h.mcps, err = mcp.Open(h.state("mcp.json"), h.emitter)
 	if err != nil {
 		return err
 	}
@@ -151,8 +151,7 @@ func (h *Host) openTools() error {
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
 		Global: h.state("plugins"), Crons: h.state("crons.json"), LogsPath: h.state("plugin-logs.db"), Redact: h.redact,
 		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
-		Logged: func(ev pluginscore.Logged) { h.toEveryDevice(ev) },
-		Emit:   func(d device.ID, ev emit.Event) error { return h.emitter.To(d, ev) },
+		Events: h.emitter,
 		Keys:   pluginKeys{h},
 		// The identity opens after this; it's read only once requests arrive.
 		HostID:     func() string { return string(h.devices.Identity().ID) },
@@ -223,17 +222,13 @@ func (h *Host) openDevices() error {
 		h.pairer.SetTLSPin(h.hostTLS.Current().Pin)
 	}
 
-	// Producers hold the emitter; the mux sends on the device's own socket,
-	// on loopback or through the relay.
-	h.Pushes = emit.NewMux()
-	h.emitter = emit.New(h.Pushes, h.log)
-	h.devices.OnRevoke(func(device.ID) { h.toEveryDevice(devicesrpc.Changed{}) })
+	h.devices.OnRevoke(func(device.ID) { h.emitter.All(devicesrpc.Changed{}) })
 
 	// Public tunnels: dialled only while one is open; every phone sees the list.
 	h.tunnels, err = tunnel.Open(tunnel.Config{
 		Path: h.state("tunnels.json"), Identity: h.devices.Identity(), Peers: h.devices,
 		Gateway: h.cfg.Gateway, Plaintext: h.cfg.GatewayPlaintext,
-		Changed: func(ev tunnel.Changed) { h.toEveryDevice(ev) }, OwnPort: h.info.Port, DevicePort: h.cfg.DevicePort,
+		Events: h.emitter, OwnPort: h.info.Port, DevicePort: h.cfg.DevicePort,
 		Plugins: h.Services.Plugins, Log: h.log,
 	})
 	if err != nil {
@@ -286,7 +281,7 @@ func (h *Host) openChats() error {
 		h.log.Info("settled orphaned turns", "chats", n)
 	}
 
-	h.announcer = chatlive.NewAnnouncer(h.devices, h.Pushes.Attached, h.emitter, h.db, h.Services.AgentCatalog.ModelLabel, h.agents.ProjectAgentIcon, h.log)
+	h.announcer = chatlive.NewAnnouncer(h.devices, h.emitter, h.db, h.Services.AgentCatalog.ModelLabel, h.agents.ProjectAgentIcon, h.log)
 	h.syncer = chatsync.New(h.sessions, h.db, h.log)
 	// h.live streams the manager's turns, so it comes after; no turn runs before New returns.
 	h.mgr = agent.NewManager(h.log, agent.Hooks{
@@ -366,8 +361,8 @@ func (h *Host) openProjects() error {
 	}
 	acts, err := actions.New(actions.Deps{
 		Paths: projectFiles, Store: h.db, Terminals: terminals, EnvSources: envSources,
-		Changed: func(snap actions.Snapshot) { h.toEveryDevice(snap) },
-		Logs:    h.state("action-runs"), Redact: h.redact, Log: h.log,
+		Events: h.emitter,
+		Logs:   h.state("action-runs"), Redact: h.redact, Log: h.log,
 	})
 	if err != nil {
 		return err
@@ -399,7 +394,7 @@ func (h *Host) openProjects() error {
 
 	schedules, err := schedule.New(schedule.Deps{
 		Self: h.devices.Identity().ID, Store: h.db, Chats: chats, Files: projectFiles, Agents: h.agents.Kinds(),
-		Changed: func(c schedule.Changed) { h.toEveryDevice(c) }, Log: h.log,
+		Events: h.emitter, Log: h.log,
 	})
 	if err != nil {
 		return err
@@ -432,7 +427,7 @@ func (h *Host) openProjects() error {
 	if err := s.Tools.OpenAccounts(h.state("cli-accounts.json")); err != nil {
 		return fmt.Errorf("open CLI accounts: %w", err)
 	}
-	s.Tools.OnAccountsChanged(func(ev clitool.AccountsChanged) { h.toEveryDevice(ev) })
+	s.Tools.SendTo(h.emitter)
 	s.Tools.Tools = append([]clitool.Tool{gh.Tool()}, h.agents.Tools()...)
 	// After the Go tools, so a declared CLI never takes one's kind.
 	for _, d := range clitool.DeclaredCLIs {
@@ -460,7 +455,7 @@ func (h *Host) openProjects() error {
 	s.Connect = connect.New(connect.Deps{
 		Sources: envSources, PluginDir: s.Plugins.Dir, SharedEnv: filepath.Join(h.state("plugins"), ".env"),
 		Contain: projectFiles.Contain, Home: h.cfg.Home, Ignored: gitService.Ignored, MCP: h.mcps, CLIs: s.Tools,
-		Changed: func(c connect.Changed) { h.toEveryDevice(c) }, Now: time.Now, Redact: h.redact, Log: h.log,
+		Events: h.emitter, Now: time.Now, Redact: h.redact, Log: h.log,
 	})
 	s.Tools.OnLoginEnd(s.Connect.CLIEnded)
 	s.Home = h.cfg.Home
@@ -526,14 +521,14 @@ func (h *Host) relayLinked() bool { return h.relay != nil && h.relay.Linked() }
 // setupChanged tells every phone the setup state: a sign-in or an install
 // outlives its caller, and changes what the CLI offers, so catalogs are re-read.
 func (h *Host) setupChanged() {
-	h.toEveryDevice(hostsetup.Snapshot(h.ctx, hostsetup.Sources{
+	h.emitter.All(hostsetup.Snapshot(h.ctx, hostsetup.Sources{
 		Host: h.info, GitHub: h.Services.GitHub, Tools: h.Services.Tools, Catalog: h.Services.AgentCatalog,
 	}, true))
 }
 
 // batteryChanged tells every paired phone the battery moved; a low one wakes them.
 func (h *Host) batteryChanged(b power.Battery) {
-	h.toEveryDevice(b)
+	h.emitter.All(b)
 	if h.alerts != nil {
 		h.alerts.Battery(h.ctx, b)
 	}

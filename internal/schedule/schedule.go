@@ -13,6 +13,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/chat"
 	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/files"
 	"github.com/repogoapp/host/internal/store"
 )
@@ -33,9 +34,9 @@ type Deps struct {
 	Chats  Starter
 	Files  files.Container
 	Agents []agent.Kind
-	// Changed sends the list to every paired device.
-	Changed func(Changed)
-	Log     *slog.Logger
+	// Events hears the list after every change, for every paired device.
+	Events emit.Sink
+	Log    *slog.Logger
 }
 
 // Scheduler keeps the schedules and starts each run when it is due.
@@ -54,7 +55,7 @@ func New(d Deps) (*Scheduler, error) {
 		unset bool
 	}{
 		{"Self", d.Self == ""}, {"Store", d.Store == nil}, {"Chats", d.Chats == nil}, {"Files", d.Files == nil},
-		{"Agents", len(d.Agents) == 0}, {"Changed", d.Changed == nil}, {"Log", d.Log == nil},
+		{"Agents", len(d.Agents) == 0}, {"Events", d.Events == nil}, {"Log", d.Log == nil},
 	} {
 		if f.unset {
 			missing = append(missing, f.name)
@@ -168,7 +169,7 @@ func (s *Scheduler) announce() {
 		s.d.Log.Error("reading schedules failed", "err", err)
 		return
 	}
-	s.d.Changed(list)
+	s.d.Events.All(list)
 }
 
 func (s *Scheduler) listed(sc store.SavedSchedule, now time.Time) Schedule {

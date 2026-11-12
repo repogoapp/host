@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
 )
 
@@ -96,11 +97,11 @@ type Service struct {
 	// calls is for tools, which may run longer than a sign-in step.
 	calls *http.Client
 
-	mu       sync.Mutex
-	servers  []record
-	off      []string
-	pending  map[string]*pending
-	onChange func(Changed)
+	mu      sync.Mutex
+	servers []record
+	off     []string
+	pending map[string]*pending
+	events  emit.Sink
 	// sessions is each server's open session, for cards calling its tools.
 	sessions map[string]*session
 
@@ -110,11 +111,11 @@ type Service struct {
 }
 
 // Open loads path, 0600 because it holds the users' credentials for other
-// services. changed is told the whole list after every change, for mcp.changed.
-func Open(path string, changed func(Changed)) (*Service, error) {
+// services. events hears the whole list after every change, as mcp.changed.
+func Open(path string, events emit.Sink) (*Service, error) {
 	s := &Service{
 		path:     path,
-		onChange: changed,
+		events:   events,
 		http:     &http.Client{Timeout: 15 * time.Second},
 		calls:    &http.Client{Timeout: time.Minute},
 		pending:  map[string]*pending{},
@@ -323,7 +324,7 @@ func (s *Service) commit(change func() error) error {
 	if err != nil {
 		return err
 	}
-	s.onChange(Changed{Servers: list, Builtins: on})
+	s.events.All(Changed{Servers: list, Builtins: on})
 	return nil
 }
 

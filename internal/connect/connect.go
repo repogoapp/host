@@ -85,9 +85,9 @@ type Deps struct {
 	Ignored func(ctx context.Context, dir string, paths []string) (map[string]bool, error)
 	MCP     MCPs
 	CLIs    CLIs
-	// Changed is told each flow as it starts, moves and ends.
-	Changed func(Changed)
-	Now     func() time.Time
+	// Events hears each flow as it starts, moves and ends.
+	Events emit.Sink
+	Now    func() time.Time
 	// Redact learns each value a flow writes, so no log keeps it.
 	Redact *redact.Vault
 	// Log hears what a flow couldn't tidy up after it ended; nil drops it.
@@ -513,7 +513,7 @@ func reason(err error) string {
 }
 
 func (s *Service) changed(f Flow) {
-	s.d.Changed(Changed{Flow: f})
+	s.d.Events.All(Changed{Flow: f})
 }
 
 // warn logs what went wrong after a flow's reply had gone.

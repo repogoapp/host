@@ -10,6 +10,8 @@ import (
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/chat"
+	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/internal/store"
 )
 
@@ -51,8 +53,8 @@ func newFixture(t *testing.T, at string) *fixture {
 	f.clock, _ = time.Parse(time.RFC3339, at)
 	f.scheduler, err = New(Deps{
 		Self: "host-1", Store: db, Chats: f.starts, Files: anyPath{}, Agents: agents,
-		Changed: func(c Changed) { f.events = append(f.events, c) },
-		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Events: emittest.Sink{OnAll: func(ev emit.Event) { f.events = append(f.events, ev.(Changed)) }},
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)

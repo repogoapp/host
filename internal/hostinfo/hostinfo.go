@@ -6,14 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/release"
 )
-
-func init() {
-	emit.Register(power.Battery{})
-}
 
 // Status is this running host's health. Whether a newer release is out is
 // Release, which host.setup carries.

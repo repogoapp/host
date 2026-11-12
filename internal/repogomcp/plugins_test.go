@@ -12,8 +12,7 @@ import (
 	"testing"
 
 	"github.com/repogoapp/host/internal/agent"
-	"github.com/repogoapp/host/internal/device"
-	"github.com/repogoapp/host/internal/emit"
+	"github.com/repogoapp/host/internal/emit/emittest"
 	"github.com/repogoapp/host/internal/outcome"
 	"github.com/repogoapp/host/internal/plugins"
 )
@@ -34,7 +33,7 @@ func pluginsServiceIn(t *testing.T, sdk, global string) *plugins.Service {
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	return plugins.New(t.Context(), plugins.Config{
 		Runtime: runtimeOf(sdk), Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"), Global: global,
-		Emit: func(device.ID, emit.Event) error { return nil }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Events: emittest.Sink{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 }
 
