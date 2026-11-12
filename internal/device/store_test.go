@@ -30,7 +30,7 @@ func TestPairingSurvivesRestart(t *testing.T) {
 	if err := first.Add(Peer{ID: id, Public: pub, Label: "Phone", Client: Client{Platform: "ios"}}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	identity, group := first.Identity().ID, first.GroupID()
+	identity := first.Identity().ID
 
 	// A different Store over the same file: what the next `go run` sees.
 	second, err := Open(path)
@@ -42,9 +42,6 @@ func TestPairingSurvivesRestart(t *testing.T) {
 	// a new keypair would invalidate every pairing at once.
 	if second.Identity().ID != identity {
 		t.Errorf("host identity changed across restart: %s -> %s", identity, second.Identity().ID)
-	}
-	if second.GroupID() != group {
-		t.Errorf("group changed across restart: %s -> %s", group, second.GroupID())
 	}
 
 	p, err := second.Peer(id)

@@ -213,7 +213,7 @@ func (h *Host) openDevices() error {
 	if err != nil {
 		return fmt.Errorf("reusable invite: %w", err)
 	}
-	h.log.Info("device identity", "id", h.devices.Identity().ID, "group", h.devices.GroupID(),
+	h.log.Info("device identity", "id", h.devices.Identity().ID,
 		"peers", len(h.devices.Peers()))
 	if h.cfg.Relay != "" {
 		h.hostTLS, err = hosttls.Open(h.state("tls-key.json"), h.devices.Identity())

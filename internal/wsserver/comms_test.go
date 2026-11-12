@@ -56,7 +56,6 @@ func (h *harness) dial(identity *device.Identity, opts ...func(*hostclient.Confi
 	cfg := hostclient.Config{
 		URL:      h.url,
 		Identity: identity,
-		GroupID:  h.devices.GroupID(),
 		Platform: "ios",
 		Label:    "Test phone",
 	}

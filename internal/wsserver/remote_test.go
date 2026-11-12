@@ -105,7 +105,7 @@ func (r *remote) pair(t *testing.T) *device.Identity {
 func (r *remote) dial(t *testing.T, id *device.Identity, pin [32]byte, opts ...func(*hostclient.Config)) (*hostclient.Client, error) {
 	t.Helper()
 	cfg := hostclient.Config{
-		URL: r.url, Identity: id, GroupID: r.devices.GroupID(), Platform: "ios", Label: "Phone",
+		URL: r.url, Identity: id, Platform: "ios", Label: "Phone",
 		TLS: &tls.Config{
 			MinVersion: tls.VersionTLS13,
 			// The pin is the only trust: CA checks are off and the key must match.

@@ -2,7 +2,6 @@ package device
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -23,12 +22,10 @@ type Store struct {
 	mu       sync.RWMutex
 	identity *Identity
 	peers    map[ID]Peer
-	groupID  string
 	revoked  []func(ID)
 }
 
 type fileFormat struct {
-	GroupID    string `json:"group_id"`
 	DeviceID   ID     `json:"device_id"`
 	PublicKey  string `json:"public_key"`
 	PrivateKey string `json:"private_key"`
@@ -70,7 +67,6 @@ func (s *Store) load(f fileFormat) error {
 	if s.identity.ID != f.DeviceID {
 		return fmt.Errorf("device id %s does not match its key", f.DeviceID)
 	}
-	s.groupID = f.GroupID
 	for _, p := range f.Peers {
 		s.peers[p.ID] = p
 	}
@@ -83,10 +79,6 @@ func (s *Store) initialize() error {
 		return err
 	}
 	s.identity = id
-	// A device is its own group until it pairs with something. The group id is
-	// random rather than derived from the device id so that pairing two devices
-	// can later merge them under one id without either being "the original".
-	s.groupID = randomID()
 	return s.save()
 }
 
@@ -94,12 +86,6 @@ func (s *Store) Identity() *Identity {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.identity
-}
-
-func (s *Store) GroupID() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.groupID
 }
 
 // Peer returns a paired device.
@@ -426,7 +412,6 @@ func (s *Store) Verify(id ID, msg, sig []byte) error {
 // save assumes the caller holds the write lock, or is initializing.
 func (s *Store) save() error {
 	f := fileFormat{
-		GroupID:    s.groupID,
 		DeviceID:   s.identity.ID,
 		PublicKey:  base64.StdEncoding.EncodeToString(s.identity.Public),
 		PrivateKey: base64.StdEncoding.EncodeToString(s.identity.private),
@@ -437,12 +422,6 @@ func (s *Store) save() error {
 
 	// 0600 from the first byte: the private key is never readable by others.
 	return apphome.WriteJSON(s.path, f, 0o600)
-}
-
-func randomID() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // validFCMToken is the shape Firebase issues: URL-safe base64 with a colon

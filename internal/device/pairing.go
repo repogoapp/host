@@ -42,12 +42,18 @@ var (
 	ErrReusableTTL    = errkind.New(errkind.Invalid, "pairing: a reusable invite lasts from an hour to 30 days")
 )
 
+// LegacyGroupID fills Invite.GroupID. Remove it once no App Store build up to
+// 1.0.4 pairs.
+const LegacyGroupID = "repogo"
+
 // Invite is what the QR encodes.
 type Invite struct {
 	// Where to reach the host. For local pairing this is the loopback address;
 	// for remote it is the relay's address.
 	Address string `json:"address"`
 
+	// GroupID is always LegacyGroupID: App Store builds up to 1.0.4 refuse an
+	// invite without one. Nothing reads it.
 	GroupID string `json:"group_id"`
 
 	// The inviting device, so the joiner can verify the host's reply came from
@@ -215,7 +221,7 @@ func (p *Pairer) invite(address, code string, expires time.Time, pin *SignedPin)
 	id := p.store.Identity()
 	return Invite{
 		Address:       address,
-		GroupID:       p.store.GroupID(),
+		GroupID:       LegacyGroupID,
 		InviterID:     id.ID,
 		InviterPublic: id.Public,
 		Label:         Label(),

@@ -30,7 +30,6 @@ const (
 type Config struct {
 	URL      string
 	Identity *device.Identity
-	GroupID  string
 
 	Role     string
 	Label    string
@@ -152,7 +151,6 @@ func (c *Client) shake(ctx context.Context) error {
 	version, err := c.ws.Hello(ctx, handshake.Hello{
 		DeviceID:   string(c.cfg.Identity.ID),
 		PublicKey:  c.cfg.Identity.Public,
-		GroupID:    c.cfg.GroupID,
 		Role:       c.cfg.Role,
 		Platform:   c.cfg.Platform,
 		Label:      c.cfg.Label,

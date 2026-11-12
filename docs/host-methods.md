@@ -1253,7 +1253,6 @@ Params:
 
 Result:
 
-- `group_id` string
 - `host_id` string
 - `host_public` base64 (nullable)
 - `host_proof` base64 (nullable)

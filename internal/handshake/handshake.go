@@ -24,7 +24,6 @@ type Challenge struct {
 type Hello struct {
 	DeviceID  string `json:"device_id"`
 	PublicKey []byte `json:"public_key"`
-	GroupID   string `json:"group_id"`
 	Role      string `json:"role"`
 
 	Platform string `json:"platform,omitempty"`

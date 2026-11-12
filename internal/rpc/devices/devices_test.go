@@ -62,14 +62,14 @@ func (h *running) local(t *testing.T, method string, params, into any) error {
 func (h *running) overRelay(t *testing.T, phone *device.Identity, timeout time.Duration) (*hostclient.Client, error) {
 	t.Helper()
 	return h.dial(t, timeout, h.relay.Through(hostclient.Config{
-		Identity: phone, GroupID: h.Devices.GroupID(), Role: handshake.RoleClient, Platform: "ios",
+		Identity: phone, Role: handshake.RoleClient, Platform: "ios",
 	}, h.Devices.Identity().ID, h.pin))
 }
 
 func (h *running) overLoopback(t *testing.T, phone *device.Identity) (*hostclient.Client, error) {
 	t.Helper()
 	return h.dial(t, 5*time.Second, hostclient.Config{
-		URL: h.ws, Identity: phone, GroupID: h.Devices.GroupID(), Role: handshake.RoleClient, Platform: "ios",
+		URL: h.ws, Identity: phone, Role: handshake.RoleClient, Platform: "ios",
 	})
 }
 

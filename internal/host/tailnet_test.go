@@ -86,7 +86,7 @@ func testServesDirect(t *testing.T, ip string, adjust func(*host.Config), served
 	defer cancel()
 	c, err := hostclient.Dial(ctx, hostclient.Config{
 		URL: "wss://" + net.JoinHostPort(ip, strconv.Itoa(port)) + "/ws", TLS: testhost.PinnedTLS(th.Pin(t)),
-		Identity: phone, GroupID: th.Devices.GroupID(), Role: handshake.RoleClient, Platform: "ios",
+		Identity: phone, Role: handshake.RoleClient, Platform: "ios",
 	})
 	if err != nil {
 		t.Fatalf("dial %s: %v", ip, err)

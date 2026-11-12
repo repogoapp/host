@@ -287,7 +287,7 @@ func dial(t *testing.T, cfg hostclient.Config) *hostclient.Client {
 
 func dialWS(t *testing.T, h *host, phone *device.Identity) *hostclient.Client {
 	return dial(t, hostclient.Config{
-		URL: h.wsURL, Identity: phone, GroupID: h.devices.GroupID(),
+		URL: h.wsURL, Identity: phone,
 		Role: handshake.RoleClient, Platform: "ios",
 	})
 }
@@ -297,12 +297,12 @@ func callers(t *testing.T, h *host) []caller {
 	phone := h.pair(t)
 	overWS := dialWS(t, h, phone)
 	overTLS := dial(t, hostclient.Config{
-		URL: h.remoteURL, Identity: phone, GroupID: h.devices.GroupID(),
+		URL: h.remoteURL, Identity: phone,
 		Role: handshake.RoleClient, Platform: "ios", TLS: testhost.PinnedTLS(h.pin),
 	})
 	// The phone asks for compressed messages; every case runs through the codec too.
 	deflated := dial(t, hostclient.Config{
-		URL: h.remoteURL, Identity: phone, GroupID: h.devices.GroupID(),
+		URL: h.remoteURL, Identity: phone,
 		Role: handshake.RoleClient, Platform: "ios", TLS: testhost.PinnedTLS(h.pin), Deflate: true,
 	})
 

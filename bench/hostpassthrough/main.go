@@ -97,7 +97,7 @@ func run(relay string) error {
 	var group string
 	start := time.Now()
 	remote, err := hostclient.Dial(ctx, hostclient.Config{
-		URL: "wss://" + target + "/ws", Identity: phone, GroupID: done.GroupID, Label: "passthrough check", Platform: "ios",
+		URL: "wss://" + target + "/ws", Identity: phone, Label: "passthrough check", Platform: "ios",
 		TLS: &tls.Config{
 			ServerName: target, MinVersion: tls.VersionTLS13,
 			// The pin is the only trust: CA checks are off and the key must match.

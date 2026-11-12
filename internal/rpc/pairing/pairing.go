@@ -40,7 +40,6 @@ type CompleteParams struct {
 }
 
 type CompleteResult struct {
-	GroupID    string    `json:"group_id"`
 	HostID     device.ID `json:"host_id"`
 	HostPublic []byte    `json:"host_public"`
 	HostProof  []byte    `json:"host_proof"`
@@ -120,7 +119,6 @@ func (d Deps) complete(_ context.Context, _ rpc.Caller, a CompleteParams) (Compl
 	// The host's own proof goes back so the joiner can confirm it paired with
 	// the machine whose screen it scanned, rather than something in the middle.
 	return CompleteResult{
-		GroupID:       d.Store.GroupID(),
 		HostID:        self.ID,
 		HostPublic:    self.Public,
 		HostProof:     hostProof,
