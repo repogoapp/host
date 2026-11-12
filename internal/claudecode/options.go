@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -27,13 +28,16 @@ type Options struct {
 	AppendSystemPrompt string
 }
 
+// promptFile is whether the appended prompt goes by path: on Windows only.
+var promptFile = runtime.GOOS == "windows"
+
 // files are what args name by path, in a folder only this user can read.
 type files struct{ mcpConfig, prompt string }
 
-// args names the MCP config and the appended prompt by path. Inline, the
-// config's headers (API keys, OAuth tokens) would sit in the process list for
-// anyone running ps, and the prompt would overrun Windows' 32,767-character
-// command line.
+// args names the MCP config by path: inline, its headers (API keys, OAuth
+// tokens) would sit in the process list for anyone running ps. On Windows the
+// prompt goes by path too, as it overruns the 32,767-character command line;
+// elsewhere it stays inline, since Claude Code before 2 lacks the file flag.
 func (o Options) args(f files) ([]string, error) {
 	if o.Executable == "" || o.Cwd == "" {
 		return nil, errors.New("claudecode: executable and cwd are required")
@@ -51,8 +55,11 @@ func (o Options) args(f files) ([]string, error) {
 	if o.SettingSources != nil {
 		a = append(a, "--setting-sources="+strings.Join(o.SettingSources, ","))
 	}
-	if f.prompt != "" {
+	switch {
+	case f.prompt != "":
 		a = append(a, "--append-system-prompt-file", f.prompt)
+	case o.AppendSystemPrompt != "":
+		a = append(a, "--append-system-prompt", o.AppendSystemPrompt)
 	}
 	if o.AllowBypass {
 		a = append(a, "--allow-dangerously-skip-permissions")
@@ -67,7 +74,7 @@ func (o Options) args(f files) ([]string, error) {
 // user can read, in a folder of their own; remove deletes it. With neither it
 // writes nothing.
 func (o Options) writeFiles() (f files, remove func(), err error) {
-	if len(o.MCPServers) == 0 && o.AppendSystemPrompt == "" {
+	if len(o.MCPServers) == 0 && (o.AppendSystemPrompt == "" || !promptFile) {
 		return files{}, func() {}, nil
 	}
 	dir, err := os.MkdirTemp("", "repogo-claude-")
@@ -91,7 +98,7 @@ func (o Options) writeFiles() (f files, remove func(), err error) {
 			return files{}, nil, err
 		}
 	}
-	if o.AppendSystemPrompt != "" {
+	if o.AppendSystemPrompt != "" && promptFile {
 		if f.prompt, err = write("prompt.md", []byte(o.AppendSystemPrompt)); err != nil {
 			remove()
 			return files{}, nil, err

@@ -223,9 +223,33 @@ func TestLaunchOptions(t *testing.T) {
 	}
 }
 
-// The appended prompt goes in a file: inline, a long one overruns Windows'
-// command line ("The filename or extension is too long").
-func TestAppendedPromptIsAFile(t *testing.T) {
+// Off Windows the prompt stays inline, which every Claude Code version takes.
+func TestAppendedPromptIsInline(t *testing.T) {
+	defer func(was bool) { promptFile = was }(promptFile)
+	promptFile = false
+	o := Options{Executable: "claude", Cwd: "/tmp", AppendSystemPrompt: "Use Mermaid."}
+	f, remove, err := o.writeFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remove()
+	args, err := o.args(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := slices.Index(args, "--append-system-prompt"); at < 0 || at+1 >= len(args) || args[at+1] != "Use Mermaid." {
+		t.Errorf("args %q do not append the prompt", args)
+	}
+	if slices.Contains(args, "--append-system-prompt-file") {
+		t.Errorf("args %q name a prompt file", args)
+	}
+}
+
+// On Windows the appended prompt goes in a file: inline, a long one overruns
+// the command line ("The filename or extension is too long").
+func TestAppendedPromptIsAFileOnWindows(t *testing.T) {
+	defer func(was bool) { promptFile = was }(promptFile)
+	promptFile = true
 	prompt := strings.Repeat("Use Mermaid. ", 4000)
 	o := Options{Executable: "claude", Cwd: "/tmp", AppendSystemPrompt: prompt}
 	f, remove, err := o.writeFiles()
