@@ -61,7 +61,10 @@ method(input, run, { effect: "read" }); effect is read, write (the
 default) or destructive, and a destructive method must take
 approve: "Restart {{machine}}?", filled from its input; approveUpTo:
 "auto-accept-edits" lets full-access chats run it unasked, and leaving it
-out asks in every mode). A method gets ctx.root, the
+out asks in every mode). A write may take an approve too: give one to a
+write that sends, publishes, deploys, pays or changes something outside
+this environment, since an agent's call and a card's tap otherwise run
+it unasked. A method gets ctx.root, the
 project's folder, and may read its files, run its CLIs or call APIs.
 A read that returns a list takes limit, with a default and a maximum
 in its schema (z.number().int().min(1).max(100).default(20)), and
@@ -69,8 +72,9 @@ returns only what a card or the voice agent shows of each item: ids,
 titles, status. A get method returns one in full; long text (a body,
 a log) is cut short in a list.
 For what the host itself holds (chats, git, actions, schedules, tunnels,
-reminders, a plugin's logs), ctx.host(method, params) runs the host method
-your tool of the same name runs (chats_list is "chats.list"): the only way
+reminders, a plugin's logs), ctx.host(method, params) runs a host method by
+its name (chats_list is "chats.list"; "git.diff", "actions.list" and
+"limits.read" have no tool of yours, and a plugin reaches them): the only way
 it reaches a card, since cards call plugin and MCP methods, never the host's.
 Return just what the card shows. A method that starts a chat or runs an
 action through it is destructive and takes an approve. Its answer is as of

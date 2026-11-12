@@ -14,8 +14,8 @@ import (
 
 const hostToolsInstructions = " The `chats_*` tools list, read, rename, pin, resolve, stop and message " +
 	"the chats on this environment, in every project, as the chat drawer does, and start another agent's chat " +
-	"(`agents_list`, `chats_start`) and wait for its answer (`chats_wait`); `projects_list`, `git_*`, " +
-	"`actions_list`, `schedules_list`, `tunnels_list` and `limits_read` are the app's own reads and actions; " +
+	"(`agents_list`, `chats_start`) and wait for its answer (`chats_wait`); `projects_list`, " +
+	"`schedules_list` and `tunnels_list` are the app's own reads; " +
 	"`reminders_*` notify the user's phones at a set time, set only when the user asks."
 
 // hosttools.json is written from the router by `go test ./internal/rpc/conformance -update`.
@@ -31,11 +31,15 @@ var hostTools = func() []rpc.ToolDef {
 	return slices.DeleteFunc(defs, func(d rpc.ToolDef) bool { return slices.Contains(agentDenied, d.Method) })
 }()
 
-// agentDenied are methods marked rpc.Tool that agents don't get: an action
-// runs a project's actions.json command, which a cloned repo or the agent
-// itself can write, and these tools run without an approval. The user runs
-// actions, and a plugin may through ctx.host.
-var agentDenied = []string{"actions.run", "actions.start", "actions.stop"}
+// agentDenied are rpc.Tool methods agents don't get, though a plugin may by
+// ctx.host. These tools run unasked, and an action runs actions.json's
+// command, which a repo or the agent can write: the user runs actions. Git,
+// the action list and limits an agent reads in its shell, under the chat's mode.
+var agentDenied = []string{
+	"actions.run", "actions.start", "actions.stop", "actions.list",
+	"git.status", "git.changes", "git.diff",
+	"limits.read",
+}
 
 // HostToolsFile is the embedded file, for the conformance test that writes it.
 func HostToolsFile() []byte { return hostToolsFile }

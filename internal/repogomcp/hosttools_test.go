@@ -86,9 +86,9 @@ func TestHostToolsReachOnlyTools(t *testing.T) {
 	}
 }
 
-// Agents can list actions but not run, start or stop them: the tools aren't
-// offered, and a call by name never reaches the method, though it is a Tool
-// cards may call.
+// Agents can't list, run, start or stop actions, nor read git or the limits:
+// the tools aren't offered, and a call by name never reaches the method,
+// though it is a Tool a plugin may call.
 func TestAgentsCantRunActions(t *testing.T) {
 	calls := map[string]rpc.Caller{}
 	r := hostRouter(t, calls)
@@ -99,10 +99,13 @@ func TestAgentsCantRunActions(t *testing.T) {
 	s := hostToolsServer(t, r)
 	token := attachIn(t, s, t.TempDir())
 	names := "," + toolNames(t, s, token) + ","
-	if !strings.Contains(names, ",actions_list,") {
-		t.Errorf("actions_list missing from %s", names)
+	if !strings.Contains(names, ",chats_list,") {
+		t.Errorf("chats_list missing from %s", names)
 	}
-	for _, denied := range []string{"actions_run", "actions_start", "actions_stop"} {
+	for _, denied := range []string{
+		"actions_run", "actions_start", "actions_stop", "actions_list",
+		"git_status", "git_changes", "git_diff", "limits_read",
+	} {
 		if strings.Contains(names, ","+denied+",") {
 			t.Errorf("%s offered: %s", denied, names)
 		}
