@@ -80,10 +80,24 @@ func (r *Router) ToolDefs() []ToolDef {
 		}
 		defs = append(defs, ToolDef{
 			Name: ToolName(s.Name), Method: s.Name, Description: s.Tool,
-			ReadOnly: s.Effect == Reads, InputSchema: wiredoc.Schema(s.Params),
+			ReadOnly: s.Effect == Reads, InputSchema: forAgents(wiredoc.Schema(s.Params)),
 		})
 	}
 	return defs
+}
+
+// agentHidden are the params a device sends that an agent never should: an
+// idempotency key is a phone's, for resending after a lost reply, and a key
+// a model picks (such as "1") would drop its next identical message.
+var agentHidden = []string{"idempotency_key"}
+
+func forAgents(schema map[string]any) map[string]any {
+	if props, ok := schema["properties"].(map[string]any); ok {
+		for _, name := range agentHidden {
+			delete(props, name)
+		}
+	}
+	return schema
 }
 
 // Tools renders every Tool method as the file the repogo MCP embeds, so what

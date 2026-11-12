@@ -26,6 +26,7 @@ import (
 	"github.com/repogoapp/host/internal/hostinfo"
 	"github.com/repogoapp/host/internal/hostsetup"
 	"github.com/repogoapp/host/internal/hostupdate"
+	"github.com/repogoapp/host/internal/idempotency"
 	mcpcore "github.com/repogoapp/host/internal/mcp"
 	pluginscore "github.com/repogoapp/host/internal/plugins"
 	projectcore "github.com/repogoapp/host/internal/project"
@@ -173,7 +174,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	setup := hostsetup.Sources{Host: cfg.Host, GitHub: cfg.GitHub, Tools: cfg.Tools, Catalog: cfg.AgentCatalog}
 	host.Register(r, host.Deps{Service: cfg.Host, Updates: cfg.Updates, Setup: setup, TLSRotate: cfg.TLSRotate})
 	turns.Register(r, turns.Deps{
-		Runner: cfg.Runner, Usage: cfg.AgentUsage,
+		Runner: cfg.Runner, Usage: cfg.AgentUsage, TurnChats: cfg.Store,
 	})
 	devices.Register(r, devices.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Online: cfg.Online, PushChanged: cfg.PushChanged})
 	pairing.Register(r, pairing.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr})
@@ -212,7 +213,10 @@ func New(cfg Config) (*rpc.Router, error) {
 	remindersrpc.Register(r, remindersrpc.Deps{Reminders: cfg.Reminders})
 	activitiesrpc.Register(r, activitiesrpc.Deps{Activities: cfg.Activities})
 	uploadsrpc.Register(r, uploadsrpc.Deps{Uploads: cfg.Uploads})
-	chats.Register(r, chats.Deps{Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire})
+	chats.Register(r, chats.Deps{
+		Chats: cfg.Chats, Live: cfg.Live, Agents: cfg.Agents, Wire: cfg.Wire,
+		Keys: idempotency.New(cfg.Store), Turns: cfg.Runner, TurnChats: cfg.Store,
+	})
 	return r, nil
 }
 

@@ -259,6 +259,10 @@ func (h *Host) sessionOpened(st agent.TurnStatus) {
 			h.log.Error("marking the chat's parent failed", "chat", st.ChatID, "parent", st.Parent, "err", err)
 		}
 	}
+	// Kept a day, so turns.get finds the chat after the turn is forgotten.
+	if err := h.db.SetTurnChat(st.TurnID, store.ChatID(st.ChatID), time.Now().UnixMilli()); err != nil {
+		h.log.Error("recording the turn's chat failed", "turn", st.TurnID, "chat", st.ChatID, "err", err)
+	}
 	h.live.StreamTurn(store.ChatID(st.ChatID), st.TurnID, st.Prompt)
 }
 

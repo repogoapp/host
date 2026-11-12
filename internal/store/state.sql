@@ -131,3 +131,26 @@ CREATE TABLE IF NOT EXISTS plugin_keys (
   key        TEXT    NOT NULL,  -- rgk_ and 43 base64url characters
   created_at INTEGER NOT NULL   -- ms; when it was made or last replaced
 ) WITHOUT ROWID;
+
+-- A request a phone may send again after its reply was lost, kept a day so
+-- the repeat gets the first answer instead of running twice. A failed
+-- request isn't kept. One writer: idempotency.go.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  scope        TEXT    NOT NULL,  -- 'device:<id>'
+  method       TEXT    NOT NULL,  -- 'chats.start'
+  key          TEXT    NOT NULL,  -- the caller's
+  request_hash BLOB    NOT NULL,  -- SHA-256 of the request without its key
+  result       BLOB    NOT NULL,  -- the answer's JSON
+  created_at   INTEGER NOT NULL,  -- ms
+  PRIMARY KEY (scope, method, key)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_idempotency_keys_age ON idempotency_keys(created_at);
+
+-- The chat each turn opened, kept a day, so turns.get still answers after
+-- the agent manager forgets an ended turn. One writer: idempotency.go.
+CREATE TABLE IF NOT EXISTS turn_chats (
+  turn_id    TEXT    PRIMARY KEY,
+  chat_id    TEXT    NOT NULL,  -- '<agent>:<session>'
+  created_at INTEGER NOT NULL   -- ms
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_turn_chats_age ON turn_chats(created_at);

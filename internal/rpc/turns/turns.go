@@ -4,10 +4,12 @@ package turns
 
 import (
 	"context"
+	"errors"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/agentusage"
 	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/store"
 )
 
 // Deps are the turn manager, which only the host has (it owns the CLI
@@ -15,6 +17,11 @@ import (
 type Deps struct {
 	Runner *agent.Manager
 	Usage  *agentusage.Service
+	// TurnChats is the chat each turn opened, kept a day, for a turn the
+	// Runner has forgotten.
+	TurnChats interface {
+		TurnChat(turnID string) (store.ChatID, error)
+	}
 }
 
 func Register(r *rpc.Router, d Deps) {
@@ -58,8 +65,16 @@ func (d Deps) list(context.Context, rpc.Caller, rpc.None) (TurnsResult, error) {
 	return TurnsResult{Turns: turns}, nil
 }
 
+// get answers for an ended turn the Runner forgot too, from the chat it
+// opened: a start replayed after its turn ended still finds its chat.
 func (d Deps) get(_ context.Context, _ rpc.Caller, a TurnParams) (Turn, error) {
 	s, err := d.Runner.Status(a.TurnID)
+	if errors.Is(err, agent.ErrNotFound) {
+		if chat, _ := d.TurnChats.TurnChat(a.TurnID); chat != "" {
+			_, session, _ := agent.SplitChatID(string(chat))
+			return Turn{TurnID: a.TurnID, ChatID: string(chat), State: agent.StateDone, SessionID: session}, nil
+		}
+	}
 	return turnOf(s), err
 }
 

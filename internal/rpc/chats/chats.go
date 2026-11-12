@@ -12,14 +12,24 @@ import (
 	"github.com/repogoapp/host/internal/chat"
 	"github.com/repogoapp/host/internal/chatlive"
 	"github.com/repogoapp/host/internal/handoff"
+	"github.com/repogoapp/host/internal/idempotency"
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/store"
 )
 
 type Deps struct {
 	Chats *chat.Service
-	// sent holds recent send ids, so a resent send runs once.
-	sent *sentTurns
+	// Keys runs a device's resent start or send once.
+	Keys *idempotency.Keys
+	// Turns reads a turn's state now, for a replayed answer: *agent.Manager.
+	Turns interface {
+		Status(turnID string) (agent.TurnStatus, error)
+	}
+	// TurnChats is the chat each turn opened, for a replayed start whose
+	// turn the manager has forgotten.
+	TurnChats interface {
+		TurnChat(turnID string) (store.ChatID, error)
+	}
 	// Live pushes a chat's new messages to a device that asked for them.
 	Live *chatlive.Manager
 	// Agents knows each CLI's resume command, for handoff.
@@ -29,7 +39,6 @@ type Deps struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	d.sent = newSentTurns()
 	rpc.Add(r, "chats.list", d.list, rpc.Tool("List the chats on this environment, newest activity first, "+
 		"filtered and sorted like the chat drawer. Empty cwd is every project."),
 		rpc.Read, rpc.LiveOn("chats.changed", "chats.removed"))
@@ -147,9 +156,12 @@ func (d Deps) toolsUnsubscribe(_ context.Context, c rpc.Caller, a ToolsUnsubscri
 	return rpc.OK, nil
 }
 
-func (d Deps) send(_ context.Context, c rpc.Caller, a SendParams) (SendResult, error) {
+func (d Deps) send(ctx context.Context, c rpc.Caller, a SendParams) (SendResult, error) {
+	key := a.IdempotencyKey
+	a.IdempotencyKey = ""
+	request := a
 	a.Turn.Device, a.Turn.From = c.Device, from(c)
-	return once(d.sent, c.Device, a.SendID, func() (SendResult, error) {
+	out, replayed, err := idempotency.Do(ctx, d.Keys, keyScope(c), "chats.send", key, request, func() (SendResult, error) {
 		if a.Steer {
 			status, steered, err := d.Chats.Steer(a.ChatID, a.Turn)
 			return SendResult{TurnID: status.TurnID, State: status.State, Steered: steered}, err
@@ -157,18 +169,65 @@ func (d Deps) send(_ context.Context, c rpc.Caller, a SendParams) (SendResult, e
 		status, err := d.Chats.Send(a.ChatID, a.Turn)
 		return SendResult{TurnID: status.TurnID, State: status.State}, err
 	})
+	if replayed {
+		out.State = d.stateNow(out.TurnID)
+	}
+	return out, err
 }
 
-func (d Deps) start(_ context.Context, c rpc.Caller, a StartParams) (StartResult, error) {
+func (d Deps) start(ctx context.Context, c rpc.Caller, a StartParams) (StartResult, error) {
+	key := a.IdempotencyKey
+	a.IdempotencyKey = ""
+	request := a
 	a.Turn.Device, a.Turn.From = c.Device, from(c)
 	where := chat.Start{Path: a.Cwd, Agent: a.Agent, Title: a.Title, ProjectAgent: a.ProjectAgent}
 	if c.Agent != nil && (a.Child == nil || *a.Child) {
 		where.Parent = c.Agent.ChatID
 	}
-	return once(d.sent, c.Device, a.SendID, func() (StartResult, error) {
+	run := func() (StartResult, error) {
 		status, err := d.Chats.Start(where, a.Turn)
 		return StartResult{TurnID: status.TurnID, State: status.State}, err
-	})
+	}
+	scope := keyScope(c)
+	out, replayed, err := idempotency.Do(ctx, d.Keys, scope, "chats.start", key, request, run)
+	if !replayed {
+		return out, err
+	}
+	if _, err := d.Turns.Status(out.TurnID); err == nil {
+		out.State = d.stateNow(out.TurnID)
+		return out, nil
+	}
+	if chat, _ := d.TurnChats.TurnChat(out.TurnID); chat != "" {
+		out.State = agent.StateDone
+		return out, nil
+	}
+	// The start ended, or the host restarted, before its agent opened a
+	// chat: nothing came of it, so the resend starts one.
+	if err := d.Keys.Forget(scope, "chats.start", key); err != nil {
+		return StartResult{}, err
+	}
+	out, _, err = idempotency.Do(ctx, d.Keys, scope, "chats.start", key, request, run)
+	return out, err
+}
+
+// keyScope is whose idempotency key a call carries: a device's, never an
+// agent's or a plugin's, which don't resend and would reuse a key such as
+// "1" for different messages.
+func keyScope(c rpc.Caller) string {
+	if c.Agent != nil || c.Plugin != "" || c.Device == "" {
+		return ""
+	}
+	return "device:" + string(c.Device)
+}
+
+// stateNow is a replayed turn's state as it is now, so an answer kept for
+// a day never reads as queued or running for a turn that ended; a turn the
+// manager has forgotten ended.
+func (d Deps) stateNow(turnID string) agent.TurnState {
+	if status, err := d.Turns.Status(turnID); err == nil {
+		return status.State
+	}
+	return agent.StateDone
 }
 
 // from is the chat an agent calls from, whose settings cap what it sends;

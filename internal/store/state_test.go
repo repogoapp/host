@@ -368,15 +368,17 @@ func TestStateAttachesFromAPathWithAnApostrophe(t *testing.T) {
 // inserts, updates or deletes it.
 func TestStateTablesHaveOneWriter(t *testing.T) {
 	writers := map[string][]string{
-		"chat_marks":    {"marks.go", "import.go", "delete.go"},
-		"project_marks": {"projectmarks.go"},
-		"voice_numbers": {"voice.go", "delete.go"},
-		"queued_turns":  {"queue.go"},
-		"chat_queues":   {"queue.go"},
-		"schedules":     {"schedules.go"},
-		"action_runs":   {"actionruns.go"},
-		"reminders":     {"reminders.go"},
-		"plugin_keys":   {"pluginkeys.go"},
+		"chat_marks":       {"marks.go", "import.go", "delete.go"},
+		"project_marks":    {"projectmarks.go"},
+		"voice_numbers":    {"voice.go", "delete.go"},
+		"queued_turns":     {"queue.go"},
+		"chat_queues":      {"queue.go"},
+		"schedules":        {"schedules.go"},
+		"action_runs":      {"actionruns.go"},
+		"reminders":        {"reminders.go"},
+		"plugin_keys":      {"pluginkeys.go"},
+		"idempotency_keys": {"idempotency.go"},
+		"turn_chats":       {"idempotency.go"},
 	}
 	shape, err := stateShape()
 	if err != nil {

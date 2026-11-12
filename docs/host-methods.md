@@ -313,7 +313,7 @@ Params:
 - `chat_id` string: The chat's id, as chats.list gives it
 - `turn` object{Turn}: The message
 - `steer` bool: Add it to the running turn instead of queueing it
-- `send_id` string (omitted when empty): The sender's id for this send; a repeat with it within ten minutes gets the first answer
+- `idempotency_key` string (omitted when empty): The sender's key for this send; a repeat with it within a day gets the first answer
 
 Result:
 
@@ -335,7 +335,7 @@ Params:
 - `title` string: The chat's name; empty has its agent name it after the start
 - `project_agent` string (omitted when empty)
 - `child` bool (omitted when empty) (nullable): For an agent: false opens a normal chat for the user; omit to start one under this chat
-- `send_id` string (omitted when empty): The sender's id for this start; a repeat with it within ten minutes gets the first answer
+- `idempotency_key` string (omitted when empty): The sender's key for this start; a repeat with it within a day gets the first answer
 
 Result:
 

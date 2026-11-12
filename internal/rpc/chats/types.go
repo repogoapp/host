@@ -132,8 +132,9 @@ type SendParams struct {
 	Turn   chat.Turn    `json:"turn" doc:"The message"`
 	// Steer adds the turn to the chat's running one where the agent allows it.
 	Steer bool `json:"steer" doc:"Add it to the running turn instead of queueing it"`
-	// SendID names this send, so a repeat after a lost reply runs it once.
-	SendID string `json:"send_id,omitempty" doc:"The sender's id for this send; a repeat with it within ten minutes gets the first answer"`
+	// IdempotencyKey names this send, so a repeat after a lost reply runs it
+	// once. Only a device's counts; agents never see it.
+	IdempotencyKey string `json:"idempotency_key,omitempty" doc:"The sender's key for this send; a repeat with it within a day gets the first answer"`
 }
 
 type SendResult struct {
@@ -156,8 +157,9 @@ type StartParams struct {
 	// Child is for an agent starting a chat: unset or true starts one under
 	// the calling chat, out of the drawer; false opens one for the user.
 	Child *bool `json:"child,omitempty" doc:"For an agent: false opens a normal chat for the user; omit to start one under this chat"`
-	// SendID names this start, so a repeat after a lost reply starts one chat.
-	SendID string `json:"send_id,omitempty" doc:"The sender's id for this start; a repeat with it within ten minutes gets the first answer"`
+	// IdempotencyKey names this start, so a repeat after a lost reply starts
+	// one chat. Only a device's counts; agents never see it.
+	IdempotencyKey string `json:"idempotency_key,omitempty" doc:"The sender's key for this start; a repeat with it within a day gets the first answer"`
 }
 
 type StartResult struct {
