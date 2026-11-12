@@ -61,6 +61,13 @@ func (c *changedFiles) add(file string, created bool) {
 	c.files[file] = created
 }
 
+// lose records that changes went unreported, so the next push says Truncated.
+func (c *changedFiles) lose() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.truncated = true
+}
+
 // ignoreDirs remembers folders git reported ignored.
 func (c *changedFiles) ignoreDirs(dirs []string) {
 	c.mu.Lock()

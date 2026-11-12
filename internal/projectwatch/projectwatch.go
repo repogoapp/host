@@ -1,6 +1,7 @@
 // Package projectwatch runs one watcher per project folder, however many
 // devices hold it, and pushes what moved there: fs.changed for files and
-// git.changed for the git state. FSEvents where it exists; polling elsewhere.
+// git.changed for the git state. FSEvents on macOS and inotify on Linux;
+// polling elsewhere, and where the kernel has no watches left.
 package projectwatch
 
 import (
@@ -314,11 +315,16 @@ func (m *Manager) watch(ctx context.Context, path, real string, wake chan struct
 	stop, live := watchTree(real, func(file string, created bool) {
 		moved.add(file, created)
 		nudge(wake)
+	}, func() {
+		moved.lose()
+		nudge(wake)
 	})
 	every := tick
 	if live {
 		defer stop()
 		every = backstop
+	} else {
+		m.log.Info("watch: no tree watcher, polling", "path", path)
 	}
 	t := time.NewTicker(every)
 	defer t.Stop()

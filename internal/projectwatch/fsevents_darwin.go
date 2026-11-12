@@ -33,8 +33,9 @@ var (
 )
 
 // watchEvents streams every change under paths through one FSEvents stream:
-// one descriptor for a whole tree, where kqueue needs one per file.
-func watchEvents(paths []string, onPath func(string, bool)) (func(), bool) {
+// one descriptor for a whole tree, where kqueue needs one per file. So it
+// asks nothing about which folders are watched, and reports nothing lost.
+func watchEvents(paths []string, _ func(string) bool, onPath func(string, bool), _ func()) (func(), bool) {
 	streamsMu.Lock()
 	nextStream++
 	id := nextStream

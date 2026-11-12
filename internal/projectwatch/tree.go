@@ -18,18 +18,20 @@ var skipDirs = map[string]bool{
 
 // watchTree calls kick per change a diff or an editor would show: the file
 // relative to the folder ("" for git's own state) and whether it was created or
-// renamed. False where there is no tree watcher, and the caller polls instead.
-func watchTree(path string, kick func(file string, created bool)) (stop func(), ok bool) {
+// renamed. lost is called when the system dropped changes it cannot name.
+// False where there is no tree watcher, and the caller polls instead.
+func watchTree(path string, kick func(file string, created bool), lost func()) (stop func(), ok bool) {
 	root, gitdir := resolved(path), resolved(git.Dir(path))
 	paths := []string{root}
 	if !files.Within(root, gitdir) {
 		paths = append(paths, gitdir)
 	}
-	return watchEvents(paths, func(changed string, created bool) {
+	watched := func(dir string) bool { return dir == gitdir || relevant(root, gitdir, dir) }
+	return watchEvents(paths, watched, func(changed string, created bool) {
 		if relevant(root, gitdir, changed) {
 			kick(worktreeFile(root, gitdir, changed), created)
 		}
-	})
+	}, lost)
 }
 
 // worktreeFile is changed relative to root, or "" when it is git's own state

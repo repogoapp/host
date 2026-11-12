@@ -527,6 +527,18 @@ func TestChangedFilesAreCollectedOnceEachAndCapped(t *testing.T) {
 	}
 }
 
+// Changes the system dropped cannot be named, so the next push is truncated.
+func TestLostChangesTruncateTheNextTake(t *testing.T) {
+	var c changedFiles
+	c.lose()
+	if files, truncated := c.take(); len(files) != 0 || !truncated {
+		t.Errorf("take() after lose = %v, %v; want no files, truncated", files, truncated)
+	}
+	if _, truncated := c.take(); truncated {
+		t.Error("a second take() is still truncated")
+	}
+}
+
 // A push names at most maxFiles; more is truncated, fewer keeps what the
 // collection said.
 func TestCappedCutsAtMaxFiles(t *testing.T) {
