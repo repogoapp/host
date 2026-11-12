@@ -281,6 +281,10 @@ A page provides scrolling, safe-area handling and grouped-list margins.
   If an empty state helps the user, show an explanatory row instead.
 - Use the navigation title for the screen name; do not repeat it in
   the content. A record's descriptive title may appear below its ID.
+- Until a page loads, its bar shows the label of the Button or Item
+  that opened it; then the first Route's title, or on a TabBar page
+  the picked tab's (its Route's title, else its label). Make the
+  opening label the same text, so the title doesn't change as it loads.
 Before saving a page, review: unnecessary whole-screen wrappers,
 stacked margins and padding, empty headings or blank space, and
 whether lists remain native rows.
