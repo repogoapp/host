@@ -260,7 +260,7 @@ func TestRegisterPushValidatesAndStamps(t *testing.T) {
 		{"", PushTarget{Service: PushAPNs, Token: "ab", Environment: "sandbox", InstallID: strings.Repeat("x", 65)}},
 		{"", PushTarget{Service: "gcm", Token: "ab", Environment: "sandbox"}},
 		{"", PushTarget{Token: "ab", Environment: "sandbox"}},
-		{PushToStart, PushTarget{Service: PushFCM, Token: "fJ3x:APA91b"}},
+		{PushActivity, PushTarget{Service: PushFCM, Token: "fJ3x:APA91b"}},
 		{"", PushTarget{Service: PushFCM, Token: "fJ3x:APA91b", Environment: "sandbox"}},
 		{"", PushTarget{Service: PushFCM, Token: "not a token"}},
 		{"", PushTarget{Service: PushFCM, Token: strings.Repeat("a", maxFCMToken+1)}},
@@ -364,6 +364,20 @@ func TestRegisterPushKeepsAnFCMToken(t *testing.T) {
 	p, _ := s.Peer(key.ID)
 	if p.Push == nil || p.Push.Service != PushFCM || p.Push.Token != target.Token {
 		t.Fatalf("push = %+v", p.Push)
+	}
+	// The same token opts the phone into both Live Updates; Android has no
+	// per-activity tokens.
+	for _, kind := range []string{PushToStart, PushStepsStart} {
+		if err := s.RegisterPush(key.ID, kind, target); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+	if err := s.RegisterPush(key.ID, PushActivity, target); !errors.Is(err, errkind.ErrInvalid) {
+		t.Fatalf("activity token: %v", err)
+	}
+	p, _ = s.Peer(key.ID)
+	if p.PushToStart == nil || p.StepsStart == nil {
+		t.Fatalf("opt-ins %+v %+v", p.PushToStart, p.StepsStart)
 	}
 	// The grant still binds the token to this phone and host.
 	other := target

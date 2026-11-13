@@ -322,6 +322,9 @@ const (
 // maxFCMToken bounds an FCM registration token, which runs to a few hundred bytes.
 const maxFCMToken = 1024
 
+// maxIntegrity bounds a Play Integrity token, which runs to a few kilobytes.
+const maxIntegrity = 16 << 10
+
 func (t PushTarget) validate(kind string) error {
 	switch {
 	case kind != "" && kind != PushToStart && kind != PushActivity && kind != PushStepsStart && kind != PushSteps:
@@ -340,9 +343,12 @@ func (t PushTarget) validate(kind string) error {
 			return fmt.Errorf("%w: environment must be sandbox or production", errkind.ErrInvalid)
 		}
 	case PushFCM:
-		// FCM has no Live Activities and no sandbox.
-		if kind != "" {
-			return fmt.Errorf("%w: an fcm token is an alert token", errkind.ErrInvalid)
+		// Android draws its Live Updates itself from data messages, so one
+		// token serves alerts and both activities: registered under start or
+		// steps_start, it opts the phone into that activity. FCM has no
+		// per-activity tokens and no sandbox.
+		if kind != "" && kind != PushToStart && kind != PushStepsStart {
+			return fmt.Errorf("%w: an fcm token is an alert, start or steps_start token", errkind.ErrInvalid)
 		}
 		if t.Environment != "" {
 			return fmt.Errorf("%w: an fcm token has no environment", errkind.ErrInvalid)
@@ -352,6 +358,9 @@ func (t PushTarget) validate(kind string) error {
 		}
 	default:
 		return fmt.Errorf("%w: service must be apns or fcm", errkind.ErrInvalid)
+	}
+	if len(t.Integrity) > maxIntegrity || (t.Integrity != "" && t.Service != PushFCM) {
+		return fmt.Errorf("%w: an integrity token is an fcm token's, at most %d bytes", errkind.ErrInvalid, maxIntegrity)
 	}
 	if len(t.Grant) == 0 || len(t.Grant) > MaxPushProofBytes || t.GrantedAt <= 0 {
 		return fmt.Errorf("%w: a token needs the phone's grant", errkind.ErrInvalid)

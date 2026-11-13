@@ -1,6 +1,7 @@
-// Package push turns hook notices into APNs alerts for the paired phones. The
-// relay holds the APNs key, so every send is a push request on the host's link
-// to it; the host contributes only device tokens and a generic body.
+// Package push turns hook notices into alerts for the paired phones: APNs for
+// iOS, FCM data messages for Android. The relay holds both keys, so every send
+// is a push request on the host's link to it; the host contributes only
+// device tokens and a generic body.
 package push
 
 import (
@@ -103,15 +104,12 @@ func (n *Notifier) Battery(ctx context.Context, b power.Battery) {
 		n.warned = false
 	case !n.warned && b.Present && b.Percent < lowBatteryAt:
 		n.warned = true
-		payload, _ := json.Marshal(map[string]any{
-			"aps": map[string]any{
-				"alert": map[string]string{"title": "Low battery",
-					"body": fmt.Sprintf("Your environment has %d%% battery left. Plug it in to keep your work running.", b.Percent)},
-				"sound": "default",
-			},
-			"host_id": n.store.Identity().ID,
+		n.push(ctx, note{
+			title:    "Low battery",
+			body:     fmt.Sprintf("Your environment has %d%% battery left. Plug it in to keep your work running.", b.Percent),
+			collapse: "battery",
+			fields:   map[string]string{"host_id": n.hostID()},
 		})
-		n.push(ctx, "battery", payload)
 	}
 }
 
@@ -119,35 +117,25 @@ func (n *Notifier) Battery(ctx context.Context, b power.Battery) {
 // when it is not connected to be asked. Opening the app fetches the request
 // with browser.pending.
 func (n *Notifier) BrowserRequest(ctx context.Context, to device.ID, requestID string) {
-	payload, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert": map[string]string{"title": "Browser needed",
-				"body": "An agent wants to use the browser in RepoGo. Open the app to let it."},
-			"sound": "default",
-		},
-		"host_id":    n.store.Identity().ID,
-		"kind":       "browser_request",
-		"request_id": requestID,
-	})
+	m := note{
+		title:    "Browser needed",
+		body:     "An agent wants to use the browser in RepoGo. Open the app to let it.",
+		collapse: "browser:" + requestID,
+		fields:   map[string]string{"host_id": n.hostID(), "kind": "browser_request", "request_id": requestID},
+	}
 	for _, peer := range n.store.Peers() {
 		if peer.ID == to {
-			n.pushPeer(ctx, peer, "browser:"+requestID, payload)
+			n.pushPeer(ctx, peer, m)
 		}
 	}
 }
 
 func (n *Notifier) deliver(ctx context.Context, notice notify.Notice, a alert) {
 	chatID := notice.ChatID()
-	payload, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert":     map[string]string{"title": a.Title, "body": a.Body},
-			"sound":     "default",
-			"thread-id": chatID,
-		},
-		"host_id": n.store.Identity().ID,
-		"chat_id": chatID,
+	n.push(ctx, note{
+		title: a.Title, body: a.Body, thread: chatID, collapse: chatID,
+		fields: map[string]string{"host_id": n.hostID(), "chat_id": chatID},
 	})
-	n.push(ctx, chatID, payload)
 }
 
 // PluginNotice is a plugin's alert: `plugins.Notice` as this package takes it.
@@ -158,22 +146,14 @@ type PluginNotice struct {
 // Plugin pushes a plugin's alert to every paired phone. A tap opens the
 // notice's link if it has one, else the project's page it names.
 func (n *Notifier) Plugin(ctx context.Context, notice PluginNotice) {
-	payload, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert":     map[string]string{"title": notice.Title, "body": notice.Body},
-			"sound":     "default",
-			"thread-id": "plugin:" + notice.Plugin,
-		},
-		"host_id": n.store.Identity().ID,
-		"project": notice.Root,
-		"page":    notice.Page,
-		"url":     notice.URL,
-	})
 	collapse := notice.Collapse
 	if collapse == "" {
 		collapse = notice.Plugin + ":" + notice.Title
 	}
-	n.push(ctx, collapse, payload)
+	n.push(ctx, note{
+		title: notice.Title, body: notice.Body, thread: "plugin:" + notice.Plugin, collapse: collapse,
+		fields: map[string]string{"host_id": n.hostID(), "project": notice.Root, "page": notice.Page, "url": notice.URL},
+	})
 }
 
 // Reminder pushes a reminder to every paired phone. A tap opens its chat,
@@ -187,32 +167,71 @@ func (n *Notifier) Reminder(ctx context.Context, r reminder.Alert) {
 	if thread == "" {
 		thread = "reminders"
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert":     map[string]string{"title": "Reminder", "body": body},
-			"sound":     "default",
-			"thread-id": thread,
-		},
-		"host_id": n.store.Identity().ID,
-		"chat_id": r.ChatID,
+	n.push(ctx, note{
+		title: "Reminder", body: body, thread: thread, collapse: "reminder:" + r.ID,
+		fields: map[string]string{"host_id": n.hostID(), "chat_id": r.ChatID},
 	})
-	n.push(ctx, "reminder:"+r.ID, payload)
 }
 
-// push sends one APNs payload to every paired phone with a token.
-func (n *Notifier) push(ctx context.Context, collapseID string, payload []byte) {
+func (n *Notifier) hostID() string { return string(n.store.Identity().ID) }
+
+// note is one alert as both services show it: its text, the group it joins
+// (iOS's thread-id), the id a later one replaces it by, and the fields a tap
+// reads (which chat, project or page it opens).
+type note struct {
+	title, body string
+	thread      string
+	collapse    string
+	fields      map[string]string
+}
+
+// apns is the alert as an APNs body: `aps`, with the fields beside it.
+func (m note) apns() []byte {
+	aps := map[string]any{"alert": map[string]string{"title": m.title, "body": m.body}, "sound": "default"}
+	if m.thread != "" {
+		aps["thread-id"] = m.thread
+	}
+	body := map[string]any{"aps": aps}
+	for k, v := range m.fields {
+		body[k] = v
+	}
+	payload, _ := json.Marshal(body)
+	return payload
+}
+
+// fcm is the alert as an FCM data message, which the Android app draws:
+// kind alert, so it tells alerts from Live Updates, and the alert's own kind
+// (a browser request) as alert_kind.
+func (m note) fcm() []byte {
+	data := map[string]any{"kind": "alert", "title": m.title, "body": m.body, "thread": m.thread, "collapse": m.collapse}
+	for k, v := range m.fields {
+		if k == "kind" {
+			k = "alert_kind"
+		}
+		data[k] = v
+	}
+	return Data(data)
+}
+
+// push sends one alert to every paired phone with a token.
+func (n *Notifier) push(ctx context.Context, m note) {
 	for _, peer := range n.store.Peers() {
-		n.pushPeer(ctx, peer, collapseID, payload)
+		n.pushPeer(ctx, peer, m)
 	}
 }
 
-func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, collapseID string, payload []byte) {
-	// The relay delivers through APNs only; an FCM token waits on the host until it can.
-	if peer.Push == nil || peer.Push.Service != device.PushAPNs {
+// pushPeer sends m to one phone in its service's shape: APNs collapses by id,
+// and Android replaces a notification by the collapse id the data carries.
+func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, m note) {
+	if peer.Push == nil {
 		return
 	}
 	req := Request(peer, *peer.Push)
-	req.CollapseID, req.Payload = collapseID, payload
+	if IsFCM(peer.Push) {
+		req.Payload, req.Priority = m.fcm(), 10
+	} else {
+		req.CollapseID, req.Payload = m.collapse, m.apns()
+	}
 	dead := Send(ctx, n.send, n.log, req)
 	// The app registers a fresh token on its next launch.
 	if dead {
@@ -226,7 +245,31 @@ func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, collapseID st
 // for this host; the relay refuses a push without it.
 func Request(peer device.Peer, target device.PushTarget) pushgate.PushRequest {
 	return pushgate.PushRequest{
-		Token: target.Token, Environment: target.Environment,
-		Grant: pushgate.PushGrant{Device: peer.ID, PublicKey: peer.Public, Signature: target.Grant, GrantedAt: target.GrantedAt},
+		Token: target.Token, Service: target.Service, Environment: target.Environment,
+		Grant:     pushgate.PushGrant{Device: peer.ID, PublicKey: peer.Public, Signature: target.Grant, GrantedAt: target.GrantedAt},
+		Integrity: target.Integrity,
 	}
+}
+
+// IsFCM is a target Android's FCM delivers to, which takes data messages
+// (Data) where APNs takes an `aps` body.
+func IsFCM(target *device.PushTarget) bool {
+	return target != nil && target.Service == device.PushFCM
+}
+
+// Data is an FCM data message's payload: a flat map of strings, with any
+// other value as its JSON. The relay hands it to FCM as the message's data.
+func Data(fields map[string]any) []byte {
+	data := make(map[string]string, len(fields))
+	for k, v := range fields {
+		switch v := v.(type) {
+		case string:
+			data[k] = v
+		default:
+			b, _ := json.Marshal(v)
+			data[k] = string(b)
+		}
+	}
+	body, _ := json.Marshal(data)
+	return body
 }

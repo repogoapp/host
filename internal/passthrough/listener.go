@@ -90,7 +90,7 @@ func (l *Listener) Linked() bool {
 	return l.out != nil
 }
 
-// Push asks the relay to deliver req through APNs. A refusal is a
+// Push asks the relay to deliver req through APNs or FCM. A refusal is a
 // *jsonrpc.Error with the relay's code; CodeNotFound is a dead token.
 func (l *Listener) Push(ctx context.Context, req pushgate.PushRequest) error {
 	reply := make(chan relayLine, 1)

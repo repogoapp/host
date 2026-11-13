@@ -42,6 +42,9 @@ type RegisterPushParams struct {
 	InstallID   string `json:"install_id,omitempty"`
 	Grant       []byte `json:"grant,omitempty"`
 	GrantedAt   int64  `json:"granted_at,omitempty"`
+	// Integrity is an Android phone's Play Integrity token for the grant,
+	// whose request hash is the grant's (pushgate.IntegrityHash).
+	Integrity string `json:"integrity,omitempty"`
 	// Kind "start" is the token that starts the Live Activity and "activity"
 	// the running one's; "steps_start" and "steps" are a plugin's step
 	// activity's. Empty is the device's alert token.
@@ -93,7 +96,7 @@ func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (rpc.Ack, er
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {
 	target := device.PushTarget{
 		Token: a.Token, Service: a.Service, Environment: a.Environment, InstallID: a.InstallID,
-		Grant: a.Grant, GrantedAt: a.GrantedAt,
+		Grant: a.Grant, GrantedAt: a.GrantedAt, Integrity: a.Integrity,
 	}
 	var err error
 	if a.Kind == device.PushSteps {

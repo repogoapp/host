@@ -12,12 +12,14 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/repogoapp/host/internal/appattest"
+	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/passthrough"
 	"github.com/repogoapp/host/internal/pushgate"
 )
@@ -75,18 +77,35 @@ func main() {
 
 // pushGate answers hosts' pushes with the APNs key from the environment; with
 // none it is nil and the relay refuses them, as a local run does.
+// pushGate answers hosts' pushes with the keys from the environment: APNs for
+// iOS, FCM for Android, whose grants pass Play Integrity or come from a device
+// in FCM_TRUSTED_DEVICES (test phones on builds Play didn't install, by their
+// device ids, comma-separated). With no key at all it is nil and the relay
+// refuses pushes, as a local run does.
 func pushGate(log *slog.Logger) (*pushgate.Gate, error) {
-	deliver := pushgate.APNs(log)
-	if deliver == nil {
-		log.Warn("hrelay: no APNs key; pushes are refused")
+	apns, fcm := pushgate.APNs(log), pushgate.FCM(log)
+	if apns == nil && fcm == nil {
+		log.Warn("hrelay: no APNs or FCM key; pushes are refused")
 		return nil, nil
 	}
-	verifier, err := appattest.New(pushgate.AppID())
-	if err != nil {
-		return nil, err
+	var verify pushgate.VerifyApp
+	if apns != nil {
+		verifier, err := appattest.New(pushgate.AppID())
+		if err != nil {
+			return nil, err
+		}
+		verify = verifier.Verify
 	}
-	log.Info("hrelay: pushes on", "bundle", pushgate.BundleID())
-	return pushgate.New(deliver, verifier.Verify), nil
+	var trusted []device.ID
+	for _, id := range strings.Split(os.Getenv("FCM_TRUSTED_DEVICES"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			trusted = append(trusted, device.ID(id))
+		}
+	}
+	integrity := pushgate.PlayIntegrity(log)
+	log.Info("hrelay: pushes on", "bundle", pushgate.BundleID(), "apns", apns != nil, "fcm", fcm != nil,
+		"play_integrity", integrity != nil, "trusted_devices", len(trusted))
+	return pushgate.New(apns, verify).WithFCM(fcm, integrity, trusted), nil
 }
 
 // linkTLS is the certificate for the relay's own name: a pair from files when

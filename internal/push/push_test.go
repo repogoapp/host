@@ -2,6 +2,7 @@ package push
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -121,8 +122,8 @@ func TestLowBatteryAlertsOnceUntilRecovered(t *testing.T) {
 	}
 }
 
-func TestFCMTokensWaitForTheRelay(t *testing.T) {
-	store, phone := storeWithPhones(t)
+func TestAndroidGetsTheAlertAsADataMessage(t *testing.T) {
+	store, _ := storeWithPhones(t)
 	android, _ := device.Generate()
 	if err := store.Add(device.Peer{ID: android.ID, Public: android.Public}); err != nil {
 		t.Fatal(err)
@@ -135,10 +136,34 @@ func TestFCMTokensWaitForTheRelay(t *testing.T) {
 	n := New(store, sender, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	n.deliver(context.Background(), notify.Notice{Agent: agent.Kind("claude"), SessionID: "s1"},
-		alert{"Task finished", "Your environment finished a task."})
+		alert{"Approval needed", "Your environment is waiting for you."})
+	n.BrowserRequest(context.Background(), android.ID, "r1")
 
-	// Only the APNs phone is sent to; the relay can't deliver FCM yet.
-	if len(sender.Calls) != 1 || sender.Calls[0].Token != "abcd" {
-		t.Fatalf("calls = %+v, want only %s's", sender.Calls, phone)
+	var toAndroid []map[string]string
+	for _, call := range sender.Calls {
+		if call.Service != device.PushFCM {
+			if !strings.Contains(string(call.Payload), `"aps"`) {
+				t.Errorf("iOS got %s", call.Payload)
+			}
+			continue
+		}
+		var data map[string]string
+		if err := json.Unmarshal(call.Payload, &data); err != nil {
+			t.Fatalf("not a flat data message: %s", call.Payload)
+		}
+		if call.Priority != 10 || call.CollapseID != "" {
+			t.Errorf("android push %+v", call)
+		}
+		toAndroid = append(toAndroid, data)
+	}
+	if len(toAndroid) != 2 {
+		t.Fatalf("android got %d", len(toAndroid))
+	}
+	if a := toAndroid[0]; a["kind"] != "alert" || a["title"] != "Approval needed" || a["chat_id"] != "claude:s1" ||
+		a["collapse"] != "claude:s1" || a["host_id"] != string(store.Identity().ID) {
+		t.Errorf("alert %v", a)
+	}
+	if b := toAndroid[1]; b["kind"] != "alert" || b["alert_kind"] != "browser_request" || b["request_id"] != "r1" {
+		t.Errorf("browser request %v", b)
 	}
 }

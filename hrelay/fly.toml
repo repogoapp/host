@@ -1,6 +1,8 @@
 # RepoGo's relay: phones reach hosts through it, and hosts send their pushes
 # on their link. Deploy from apps/host: fly deploy -c hrelay/fly.toml
-# Secrets: APNS_AUTH_KEY, APNS_KEY_ID, APNS_TEAM_ID, APPLE_BUNDLE_ID.
+# Secrets: APNS_AUTH_KEY, APNS_KEY_ID, APNS_TEAM_ID, APPLE_BUNDLE_ID,
+# FCM_SERVICE_ACCOUNT, PLAY_CERT_SHA256, FCM_TRUSTED_DEVICES (see .env.relay.example
+# at the root).
 app = "repogo-h-relay"
 primary_region = "ewr"
 

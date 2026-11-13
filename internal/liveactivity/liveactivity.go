@@ -1,6 +1,8 @@
 // Package liveactivity keeps one Live Activity per paired phone for this
-// environment. It carries counts only (working, needs you, finished), since
-// Apple and the relay read every push in plaintext.
+// environment: an iOS Live Activity through APNs, or an Android Live Update
+// the app draws from FCM data messages. It carries counts only (working,
+// needs you, finished), since Apple, Google and the relay read every push in
+// plaintext.
 package liveactivity
 
 import (
@@ -8,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -80,6 +83,12 @@ type Driver struct {
 	last delivery
 	// Starts sent to phones that have not sent the update token yet.
 	startSentAt map[device.ID]time.Time
+	// Android's side: the card's generation, new each time it starts showing,
+	// and each round's revision, so the app ignores a message older than one
+	// it drew; the Android phones that have had this generation's start.
+	generation   int64
+	revision     int64
+	androidShown map[device.ID]bool
 	// When Run pushes next with no change to prompt it; zero for never.
 	wakeAt time.Time
 }
@@ -97,6 +106,7 @@ func New(chats Chats, devices *device.Store, send push.Sender, log *slog.Logger)
 		chats: chats, devices: devices, send: send, log: log, now: time.Now,
 		pending: map[store.ChatID]bool{}, wake: make(chan struct{}, 1),
 		active: map[store.ChatID]agent.ChatStatus{}, finished: map[store.ChatID]bool{}, startSentAt: map[device.ID]time.Time{},
+		androidShown: map[device.ID]bool{},
 	}
 }
 
@@ -159,7 +169,12 @@ func (d *Driver) restore(ctx context.Context) {
 		d.active[row.ID] = row.Status
 	}
 	for _, peer := range d.devices.Peers() {
-		d.showing = d.showing || peer.Activity != nil
+		// An Android phone may still show a card from before the restart:
+		// showing again ends it, with the counts, once nothing is active.
+		d.showing = d.showing || peer.Activity != nil || push.IsFCM(peer.PushToStart)
+	}
+	if d.showing {
+		d.generation = d.now().UnixMilli()
 	}
 	if len(d.active) == 0 && d.showing {
 		d.idleSince = d.now()
@@ -247,6 +262,8 @@ func (d *Driver) update(ctx context.Context) {
 		return
 	case !d.showing:
 		d.showing = true
+		d.generation = d.now().UnixMilli()
+		clear(d.androidShown)
 	case c == d.last.counts && d.last.ok:
 		return
 	}
@@ -267,12 +284,18 @@ func (d *Driver) push(ctx context.Context) {
 	c := d.counts()
 	now := d.now()
 	ending := len(d.active) == 0 && now.Sub(d.idleSince) >= idleTimeout
+	// Android gets running counts at normal priority; these wake the phone.
+	urgent := ending || d.last.at.IsZero() || c.NeedsYou > d.last.counts.NeedsYou || c.Working+c.NeedsYou == 0
+	d.revision++
 	var round peerResult
 	for _, peer := range d.devices.Peers() {
 		var r peerResult
-		if ending {
+		switch {
+		case push.IsFCM(peer.PushToStart):
+			r = d.pushAndroid(ctx, peer, c, ending, urgent)
+		case ending:
 			r = d.endPeer(ctx, peer, c)
-		} else {
+		default:
 			r = d.pushPeer(ctx, peer, c, now)
 		}
 		round.retry = round.retry || r.retry
@@ -292,6 +315,7 @@ func (d *Driver) settle(c Counts, now time.Time, ending bool, round peerResult) 
 			d.showing, d.last, d.wakeAt = false, delivery{}, time.Time{}
 			clear(d.finished)
 			clear(d.startSentAt)
+			clear(d.androidShown)
 		}
 		return
 	}
@@ -361,6 +385,41 @@ func (d *Driver) endPeer(ctx context.Context, peer device.Peer, c Counts) peerRe
 	case delivered:
 		d.forget(peer, device.PushActivity, act.Token)
 	}
+	return peerResult{}
+}
+
+// pushAndroid sends the counts to an Android phone as a data message, which
+// its app draws as a Live Update. One token serves every round: no start
+// token to wait on and no renewal, as Android doesn't end the card itself.
+func (d *Driver) pushAndroid(ctx context.Context, peer device.Peer, c Counts, ending, urgent bool) peerResult {
+	event := "update"
+	switch {
+	case ending:
+		event = "end"
+	case !d.androidShown[peer.ID]:
+		event, urgent = "start", true
+	}
+	req := push.Request(peer, *peer.PushToStart)
+	req.Payload = push.Data(map[string]any{
+		"kind": "agents", "host_id": string(d.devices.Identity().ID), "event": event,
+		"generation": strconv.FormatInt(d.generation, 10), "revision": strconv.FormatInt(d.revision, 10),
+		"timestamp": strconv.FormatInt(d.now().UnixMilli(), 10), "state": c,
+	})
+	req.Priority = 5
+	if urgent {
+		req.Priority = 10
+	}
+	isDead, err := push.Try(ctx, d.send, req)
+	switch {
+	case isDead:
+		d.log.Warn("liveactivity: token is dead", "device", peer.ID, "service", "fcm", "err", err)
+		d.forget(peer, device.PushToStart, peer.PushToStart.Token)
+		return peerResult{}
+	case err != nil:
+		d.log.Debug("liveactivity: not delivered", "device", peer.ID, "service", "fcm", "err", err)
+		return peerResult{retry: true}
+	}
+	d.androidShown[peer.ID] = true
 	return peerResult{}
 }
 

@@ -605,6 +605,7 @@ Params:
 - `install_id` string (omitted when empty)
 - `grant` base64 (omitted when empty) (nullable)
 - `granted_at` int (omitted when empty)
+- `integrity` string (omitted when empty)
 - `kind` string
 - `activity` string (omitted when empty)
 

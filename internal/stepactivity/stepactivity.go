@@ -1,6 +1,8 @@
 // Package stepactivity keeps the Live Activities plugins start on every
-// paired phone: a title, a body, steps or a bar, a timer, all the plugin's. Unlike liveactivity's
-// counts, its text is the plugin's and reaches Apple and the relay as is.
+// paired phone: a title, a body, steps or a bar, a timer, all the plugin's.
+// iOS gets them through APNs; Android draws them as Live Updates from FCM
+// data messages. Unlike liveactivity's counts, its text is the plugin's and
+// reaches Apple, Google and the relay as is.
 package stepactivity
 
 import (
@@ -9,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -284,7 +287,9 @@ type round struct {
 	attrs    Attributes
 	state    State
 	revision int
-	phones   map[device.ID]phone
+	// When the activity started, in Unix ms: Android's generation for it.
+	generation int64
+	phones     map[device.ID]phone
 }
 
 // flush pushes every activity that is due, and answers when the next one is.
@@ -306,7 +311,8 @@ func (d *Driver) flush(ctx context.Context) (next time.Time) {
 			continue
 		}
 		act.dirty, act.pushedAt = false, now
-		r := round{key: key, attrs: act.attrs, state: act.state, revision: act.revision, phones: map[device.ID]phone{}}
+		r := round{key: key, attrs: act.attrs, state: act.state, revision: act.revision,
+			generation: act.startedAt.UnixMilli(), phones: map[device.ID]phone{}}
 		for id, p := range act.phones {
 			r.phones[id] = *p
 		}
@@ -346,6 +352,13 @@ func (d *Driver) pushRound(ctx context.Context, r round, now time.Time) (map[dev
 	retry := false
 	for _, peer := range d.devices.Peers() {
 		p := r.phones[peer.ID]
+		if push.IsFCM(peer.StepsStart) {
+			if d.pushAndroid(ctx, peer, r, &p, ending, now) == failed {
+				retry = true
+			}
+			results[peer.ID] = p
+			continue
+		}
 		if token, ok := peer.Steps[r.key]; ok {
 			event := "update"
 			if ending {
@@ -382,6 +395,45 @@ func (d *Driver) pushRound(ctx context.Context, r round, now time.Time) (map[dev
 		results[peer.ID] = p
 	}
 	return results, retry
+}
+
+// pushAndroid sends the activity to an Android phone as a data message, which
+// its app draws as a Live Update: one token for every activity, no update
+// token to wait on. Running updates go at normal priority; a start or an end
+// wakes the phone.
+func (d *Driver) pushAndroid(ctx context.Context, peer device.Peer, r round, p *phone, ending bool, now time.Time) outcome {
+	event := "update"
+	switch {
+	case ending:
+		event = "end"
+	case p.startSentAt.IsZero():
+		event = "start"
+	}
+	req := push.Request(peer, *peer.StepsStart)
+	req.Payload = push.Data(map[string]any{
+		"kind": "steps", "host_id": r.attrs.HostID, "event": event, "key": r.key, "project": r.attrs.Project,
+		"generation": strconv.FormatInt(r.generation, 10), "revision": strconv.Itoa(r.revision),
+		"timestamp": strconv.FormatInt(now.UnixMilli(), 10), "state": r.state,
+	})
+	req.Priority = 10
+	if event == "update" {
+		req.Priority = 5
+	}
+	isDead, err := push.Try(ctx, d.send, req)
+	switch {
+	case isDead:
+		if err := d.devices.ForgetPush(peer.ID, device.PushStepsStart, peer.StepsStart.Token); err != nil {
+			d.log.Warn("stepactivity: could not forget token", "device", peer.ID, "err", err)
+		}
+		return dead
+	case err != nil:
+		d.log.Debug("stepactivity: not delivered", "device", peer.ID, "service", "fcm", "err", err)
+		return failed
+	}
+	if p.startSentAt.IsZero() {
+		p.startSentAt = now
+	}
+	return delivered
 }
 
 // payload is the `aps` body for event. iOS drops a start without an alert,

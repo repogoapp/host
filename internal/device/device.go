@@ -135,6 +135,9 @@ type PushTarget struct {
 	// phone signed it. The relay requires the accompanying platform evidence.
 	Grant     []byte `json:"grant,omitempty"`
 	GrantedAt int64  `json:"granted_at,omitempty"`
+	// Integrity is the Play Integrity token an Android phone got for this
+	// grant, which the relay decodes on its first push.
+	Integrity string `json:"integrity,omitempty"`
 }
 
 var (
