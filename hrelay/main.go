@@ -75,8 +75,6 @@ func main() {
 	}
 }
 
-// pushGate answers hosts' pushes with the APNs key from the environment; with
-// none it is nil and the relay refuses them, as a local run does.
 // pushGate answers hosts' pushes with the keys from the environment: APNs for
 // iOS, FCM for Android, whose grants pass Play Integrity or come from a device
 // in FCM_TRUSTED_DEVICES (test phones on builds Play didn't install, by their

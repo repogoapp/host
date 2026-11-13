@@ -45,12 +45,11 @@ func IntegrityHash(pub, grantMessage []byte) string {
 // only if allowDecode agrees.
 type CheckIntegrity func(ctx context.Context, pub, msg []byte, grantedAt time.Time, token string, allowDecode func() bool) error
 
-// PlayIntegrity checks with FCM_SERVICE_ACCOUNT's key, which must be in the
-// Cloud project linked in Play Console, for PLAY_PACKAGE (app.repogo) signed
-// with PLAY_CERT_SHA256 (the app signing key's fingerprint, as Play Console
-// shows it). Passed grants are kept in HRELAY_VERDICTS (on the volume by
-// default), since Google decodes a token only once. Nil without a key or a
-// fingerprint, so the relay sends to trusted Android devices alone.
+// PlayIntegrity checks with FCM_SERVICE_ACCOUNT's key (in the Cloud project
+// Play Console links) for PLAY_PACKAGE signed with PLAY_CERT_SHA256, the app
+// signing key's fingerprint. Passed grants are kept in HRELAY_VERDICTS, since
+// Google decodes a token only once. Nil without a key or a fingerprint, so the
+// relay sends to trusted Android devices alone.
 func PlayIntegrity(log *slog.Logger) CheckIntegrity {
 	_, auth := googleAccount(log, playScope)
 	cert, err := hex.DecodeString(strings.ReplaceAll(os.Getenv("PLAY_CERT_SHA256"), ":", ""))
