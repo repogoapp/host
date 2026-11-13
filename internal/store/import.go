@@ -216,14 +216,21 @@ func (b *batch) syncEntry(e Entry) (listed, moved bool, err error) {
 		}
 	}
 	// Growth over unchanged rows is an append the client keeps; a changed or
-	// dropped row it holds is a rewrite it must reload. A row with no events
-	// yet has no history to invalidate.
+	// dropped row it holds is a rewrite it must reload, unless every row it
+	// holds still reads the same to it. A row with no events yet has no
+	// history to invalidate.
 	bump := 0
 	if keep < oldCount {
-		bump = 1
-		// A rewind can legitimately restore a model from an older row.
-		if _, err := b.resetModel.Exec(kind, id); err != nil {
+		held, err := b.heldRowsRead(kind, priorSID, rows, keep, oldCount)
+		if err != nil {
 			return false, false, err
+		}
+		if !held {
+			bump = 1
+			// A rewind can legitimately restore a model from an older row.
+			if _, err := b.resetModel.Exec(kind, id); err != nil {
+				return false, false, err
+			}
 		}
 	}
 
@@ -333,6 +340,38 @@ func (b *batch) kept(sid int64, rows []row, oldCount int, storedHash int64) (int
 		}
 	}
 	return lo, nil
+}
+
+// heldRowsRead reports whether the stored rows from keep to oldCount, which
+// rows rewrites, still reach a phone as the same rows: a tool's output came in
+// late, and the chat lane carries none. Fewer rows than before never do.
+func (b *batch) heldRowsRead(kind string, sid int64, rows []row, keep, oldCount int) (bool, error) {
+	if b.s.sameRow == nil || len(rows) < oldCount {
+		return false, nil
+	}
+	stored, err := readEvents(b.tx, eventSelect+` AND idx >= ? AND idx < ? ORDER BY idx`, sid, keep, oldCount)
+	if err != nil {
+		return false, err
+	}
+	if len(stored) != oldCount-keep {
+		return false, nil
+	}
+	for i, old := range stored {
+		if !b.s.sameRow(kind, old, rows[keep+i].message(keep+i)) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// message is the row as a page carries it, at index.
+func (r row) message(index int) Message {
+	m := Message{Index: index, Kind: r.kind}
+	m.Turn, _ = r.turn.(string)
+	m.Text, _ = r.text.(string)
+	m.Tool, _ = r.tool.(string)
+	m.At, _ = r.at.(int64)
+	return m
 }
 
 // readBefore reports whether e is an older read of the file than the stored

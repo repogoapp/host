@@ -39,7 +39,16 @@ type Store struct {
 
 	// Told each recorded status, for the agent clock; see notify.go.
 	onStatus func(StatusChange)
+
+	// Whether two stored rows reach a phone as the same row; see SameRow.
+	sameRow func(kind string, old, new Message) bool
 }
+
+// SameRow sets how the import tells a rewritten row a phone must reload from
+// one it can keep: stored rows carry a tool's output, the rows a phone holds
+// do not, so only the host's wire builder knows. Set before the first write;
+// without it every rewritten row counts as changed.
+func (s *Store) SameRow(fn func(kind string, old, new Message) bool) { s.sameRow = fn }
 
 // Kept is state.db's tables and columns state.sql doesn't name: a newer host's,
 // kept after an update rolled back. The host logs them.

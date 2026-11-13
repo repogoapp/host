@@ -307,6 +307,7 @@ func (h *Host) openChats() error {
 	// state.db for the next start, as an update leaves them.
 	h.onClose(h.stopTurns)
 	wire := chatwire.New(h.agents.Labelers)
+	h.db.SameRow(wire.SameRow)
 	h.live = chatlive.New(h.ctx, chatlive.Deps{
 		Sessions: h.sessions, Store: h.db, Emit: h.emitter, Turns: h.mgr, Log: h.log,
 		Attention: h.announcer.Attention,

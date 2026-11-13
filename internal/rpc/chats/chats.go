@@ -4,6 +4,7 @@ package chats
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/repogoapp/host/internal/chatwire"
@@ -11,6 +12,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/chat"
 	"github.com/repogoapp/host/internal/chatlive"
+	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/handoff"
 	"github.com/repogoapp/host/internal/idempotency"
 	"github.com/repogoapp/host/internal/rpc"
@@ -143,12 +145,11 @@ func (d Deps) workflow(_ context.Context, _ rpc.Caller, a WorkflowParams) (Workf
 }
 
 func (d Deps) toolsSubscribe(_ context.Context, c rpc.Caller, a ToolsSubscribeParams) (ToolsSubscribeResult, error) {
-	rows, err := d.Chats.ToolCalls(a.ChatID, a.CallIDs)
-	if err != nil {
-		return ToolsSubscribeResult{}, err
+	if a.ChatID.SessionID() == "" || len(a.CallIDs) == 0 {
+		return ToolsSubscribeResult{}, fmt.Errorf("%w: chat_id and call_ids are required", errkind.ErrInvalid)
 	}
-	d.Live.WatchTools(c.Device, a.ChatID, a.CallIDs)
-	return ToolsSubscribeResult{Tools: d.Wire.Details(a.ChatID.Kind(), rows)}, nil
+	tools, err := d.Live.WatchTools(c.Device, a.ChatID, a.CallIDs)
+	return ToolsSubscribeResult{Tools: tools}, err
 }
 
 func (d Deps) toolsUnsubscribe(_ context.Context, c rpc.Caller, a ToolsUnsubscribeParams) (rpc.Ack, error) {

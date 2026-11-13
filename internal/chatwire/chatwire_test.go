@@ -222,3 +222,34 @@ func TestDetailOutputIsCut(t *testing.T) {
 		t.Errorf("output %d bytes (valid %v)", len(got.Output), utf8.ValidString(got.Output))
 	}
 }
+
+// A tool's output is not on the chat lane, so a row whose output alone
+// changed reaches a phone as the same row; what the output decides does not.
+func TestSameRow(t *testing.T) {
+	b := New([]Labeler{fake{kind: "claude"}})
+	result := func(call agent.ToolCall) store.Message {
+		m := toolRow(t, "tool_result", call)
+		m.Index, m.At = 2, 30
+		return m
+	}
+	launched := result(agent.ToolCall{CallID: "c", Output: "Async agent launched successfully."})
+	for _, tc := range []struct {
+		name string
+		new  store.Message
+		same bool
+	}{
+		{"a late output", result(agent.ToolCall{CallID: "c", Output: "Found two bugs."}), true},
+		{"a late output that failed", result(agent.ToolCall{CallID: "c", Output: "It crashed.", IsError: true}), false},
+		{"a recording in the output", result(agent.ToolCall{CallID: "c", Output: `{"recordingId":"r1"}`}), false},
+		{"another call", result(agent.ToolCall{CallID: "d", Output: "Found two bugs."}), false},
+	} {
+		if got := b.SameRow("claude", launched, tc.new); got != tc.same {
+			t.Errorf("%s: same = %v, want %v", tc.name, got, tc.same)
+		}
+	}
+	moved := launched
+	moved.At = 31
+	if b.SameRow("claude", launched, moved) {
+		t.Error("a row with another time read as the same row")
+	}
+}

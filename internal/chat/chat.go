@@ -156,14 +156,6 @@ func (s *Service) Messages(id store.ChatID, p Page) (store.Page, error) {
 	return page, err
 }
 
-// ToolCalls is the call and result rows of the tool calls a sheet shows.
-func (s *Service) ToolCalls(id store.ChatID, callIDs []string) ([]store.Message, error) {
-	if id.SessionID() == "" || len(callIDs) == 0 {
-		return nil, fmt.Errorf("%w: chat_id and call_ids are required", errkind.ErrInvalid)
-	}
-	return s.d.Cache.ToolCalls(id, callIDs)
-}
-
 // Subagent is the transcript of an agent the call callID started, as the
 // cache holds it: with agentKey that agent of a workflow, else the call's
 // only one.

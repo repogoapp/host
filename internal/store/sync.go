@@ -104,7 +104,8 @@ type Activity struct {
 	LastMessageAt int64
 }
 
-// Epoch identifies this process's revision counter. Stable until the host restarts.
+// Epoch identifies the cache file and its revision counter: minted once per
+// file and kept in sync_meta, so it changes only when the cache is rebuilt.
 func (s *Store) Epoch() string { return s.epoch }
 
 // openSync reads the cache's epoch, minting one for a new file, and seeds the

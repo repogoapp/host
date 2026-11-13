@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"maps"
 	"slices"
@@ -108,7 +109,7 @@ type Manager struct {
 	// The calls each device's open tool sheets show, by chat (WatchTools).
 	// Apart from tails, so a sheet re-watching after a reconnect need not
 	// wait for its chat to subscribe again.
-	toolWatches map[device.ID]map[store.ChatID]map[string]bool
+	toolWatches map[device.ID]map[store.ChatID]map[string]uint64
 
 	// Chats with a turn relaying through StreamTurn. Their session file may
 	// not exist yet, and a subscriber is allowed to wait for it.
@@ -161,7 +162,7 @@ func New(ctx context.Context, d Deps) *Manager {
 
 		subs:        map[device.ID]store.ChatID{},
 		watches:     map[store.ChatID]*watch{},
-		toolWatches: map[device.ID]map[store.ChatID]map[string]bool{},
+		toolWatches: map[device.ID]map[store.ChatID]map[string]uint64{},
 		streamSent:  map[store.ChatID]streamSent{},
 		now:         time.Now,
 		streaming:   map[store.ChatID]int{},
@@ -323,22 +324,47 @@ func (m *Manager) Nudge(chatID store.ChatID) {
 	}
 }
 
-// WatchTools sends a device the calls its open tool sheet shows, whole, as
-// their rows land while it holds the chat's subscription.
-func (m *Manager) WatchTools(caller device.ID, chatID store.ChatID, callIDs []string) {
+// WatchTools answers the calls a device's open tool sheet shows, whole, and
+// sends each again as it changes. The watch starts before the read, so a
+// result landing between the two is never missed. The answer is not recorded
+// as sent: an older flush may still push after it, so a flush is asked for,
+// and the sheet is sent each call once more and ends on what the store holds.
+func (m *Manager) WatchTools(caller device.ID, chatID store.ChatID, callIDs []string) ([]chatwire.ToolDetail, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	chats := m.toolWatches[caller]
 	if chats == nil {
-		chats = map[store.ChatID]map[string]bool{}
+		chats = map[store.ChatID]map[string]uint64{}
 		m.toolWatches[caller] = chats
 	}
 	if chats[chatID] == nil {
-		chats[chatID] = map[string]bool{}
+		chats[chatID] = map[string]uint64{}
 	}
 	for _, id := range callIDs {
-		chats[chatID][id] = true
+		chats[chatID][id] = toolUnsent
 	}
+	m.mu.Unlock()
+
+	calls, err := m.db.ToolCalls(chatID, callIDs)
+	if err != nil {
+		m.UnwatchTools(caller, chatID, callIDs)
+		return nil, err
+	}
+	m.Nudge(chatID)
+	return m.wire.Details(chatID.Kind(), calls), nil
+}
+
+// toolUnsent is a watched call no flush has sent its device yet.
+const toolUnsent = 0
+
+// toolSum is detail as toolWatches records it; never toolUnsent.
+func toolSum(detail chatwire.ToolDetail) (uint64, error) {
+	body, err := json.Marshal(detail)
+	if err != nil {
+		return 0, err
+	}
+	h := fnv.New64a()
+	h.Write(body)
+	return h.Sum64() | 1, nil
 }
 
 // UnwatchTools stops sending the calls a closed sheet showed. Unsubscribe
@@ -506,35 +532,41 @@ func (m *Manager) sendSubagents(chatID store.ChatID, devices []device.ID) {
 	}
 }
 
-// pushTools sends each watched call among rows, merged with its earlier rows.
-func (m *Manager) pushTools(caller device.ID, chatID store.ChatID, rows []store.Message) error {
+// pushTools sends caller each watched call that reads differently from what
+// a flush last sent it. Compared against the store, not a flush's appended
+// rows: a late result rewrites a row in place, and the sweep may import it
+// first. A call counts as sent only once its send succeeded, so a failed one
+// goes again on the next flush. Only the chat's flush calls this.
+func (m *Manager) pushTools(caller device.ID, chatID store.ChatID) error {
 	m.mu.Lock()
-	watched := maps.Clone(m.toolWatches[caller][chatID])
+	last := maps.Clone(m.toolWatches[caller][chatID])
 	m.mu.Unlock()
-	if len(watched) == 0 {
+	if len(last) == 0 {
 		return nil
 	}
-	var ids []string
-	for _, row := range rows {
-		var call struct {
-			CallID string `json:"call_id"`
-		}
-		if row.Tool != "" && json.Unmarshal([]byte(row.Tool), &call) == nil && watched[call.CallID] &&
-			!slices.Contains(ids, call.CallID) {
-			ids = append(ids, call.CallID)
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	calls, err := m.db.ToolCalls(chatID, ids)
+	calls, err := m.db.ToolCalls(chatID, slices.Sorted(maps.Keys(last)))
 	if err != nil {
 		return err
 	}
 	for _, detail := range m.wire.Details(chatID.Kind(), calls) {
+		sum, err := toolSum(detail)
+		if err != nil {
+			return err
+		}
+		if last[detail.CallID] == sum {
+			continue
+		}
 		if err := m.emit.To(caller, Tool{ChatID: string(chatID), ToolDetail: detail}); err != nil {
 			return err
 		}
+		m.mu.Lock()
+		// Still the watch this read: a sheet opened since is owed its own send.
+		if watched := m.toolWatches[caller][chatID]; watched != nil {
+			if now, ok := watched[detail.CallID]; ok && now == last[detail.CallID] {
+				watched[detail.CallID] = sum
+			}
+		}
+		m.mu.Unlock()
 	}
 	return nil
 }
@@ -571,6 +603,9 @@ func (m *Manager) flush(ctx context.Context, w *watch) error {
 	m.mu.Unlock()
 	for d, from := range at {
 		to, err := m.deliver(ctx, d, w.chatID, from)
+		if err == nil {
+			err = m.pushTools(d, w.chatID)
+		}
 		if err != nil {
 			m.log.Debug("chatlive: could not push rows", "chat", w.chatID, "device", d, "err", err)
 		}
@@ -609,9 +644,6 @@ func (m *Manager) deliver(ctx context.Context, d device.ID, chatID store.ChatID,
 			return from, nil
 		}
 		if err := m.emit.To(d, Appended{Page: m.wire.Page(page)}); err != nil {
-			return from, err
-		}
-		if err := m.pushTools(d, chatID, page.Events); err != nil {
 			return from, err
 		}
 		from.next = page.NextIndex

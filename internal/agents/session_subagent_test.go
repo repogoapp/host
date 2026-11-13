@@ -6,11 +6,14 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/agents/claude"
 	"github.com/repogoapp/host/internal/agents/codex"
+	"github.com/repogoapp/host/internal/chatwire"
 	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/store"
 )
 
 func claudeText(role, text string, sidechain bool) map[string]any {
@@ -216,5 +219,72 @@ func TestCodexChildLinksOnlyToItsSpawn(t *testing.T) {
 	children, err := c.Children(metas[0])
 	if err != nil || len(children) != 1 || children[0].CallID != "call_spawn" {
 		t.Fatalf("children = %+v, %v; want the thread linked to call_spawn", children, err)
+	}
+}
+
+// A background agent's report lands on a row devices already hold. That row
+// reads the same on the chat lane but for "background", which a device reads
+// from the call's agents, so their history stays: no new generation.
+func TestABackgroundAgentsReportKeepsTheGeneration(t *testing.T) {
+	notice := "<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_task</tool-use-id>\n" +
+		"<status>completed</status>\n<summary>Agent \"Audit\" finished</summary>\n" +
+		"<result>Found two bugs.</result>\n<usage><tool_uses>3</tool_uses></usage>\n</task-notification>"
+	lines := []any{
+		map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_use", "id": "toolu_task", "name": "Agent", "input": map[string]any{"description": "Audit"}},
+		}}},
+		map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_result", "tool_use_id": "toolu_task", "content": "Async agent launched successfully."},
+		}}},
+		claudeText("assistant", "It is running.", false),
+	}
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	jsonl(t, path, lines...)
+
+	provider := claude.New(agent.Dependencies{})
+	wire := chatwire.New([]chatwire.Labeler{provider})
+	db, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SameRow(wire.SameRow)
+
+	background := func(step int64) (generation int64, background bool) {
+		t.Helper()
+		meta := session.Meta{ID: "s", Agent: agent.KindClaude, Path: path, UpdatedAt: time.UnixMilli(step), SizeBytes: step}
+		events, err := session.ReadAll(meta, &claude.Sessions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Sync(meta, events); err != nil {
+			t.Fatal(err)
+		}
+		page, err := db.Tail("claude:s", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range wire.Page(page).Events {
+			if row.Kind == string(agent.EventToolResult) && row.Tool != nil {
+				background = row.Tool.Background
+			}
+		}
+		return page.Generation, background
+	}
+
+	before, launched := background(1)
+	if !launched {
+		t.Fatal("the launch's answer did not read as a background launch")
+	}
+	jsonl(t, path, append(lines, map[string]any{
+		"type": "user", "origin": map[string]any{"kind": "task-notification"},
+		"message": map[string]any{"role": "user", "content": notice},
+	})...)
+	after, still := background(2)
+	if after != before {
+		t.Errorf("generation %d after the report, want %d still", after, before)
+	}
+	if still {
+		t.Error("a freshly read row still says background after the report")
 	}
 }

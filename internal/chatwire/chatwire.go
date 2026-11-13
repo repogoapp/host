@@ -8,6 +8,7 @@ package chatwire
 import (
 	"encoding/json"
 	"path"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -168,6 +169,20 @@ func (b *Builder) Page(p store.Page) Page {
 		Cwd: p.Cwd, Agent: p.Agent, ProjectAgent: p.ProjectAgent, Generation: p.Generation, CacheEpoch: p.CacheEpoch,
 		EventCount: p.EventCount, NextIndex: p.NextIndex, FirstIndex: p.FirstIndex, HasBefore: p.HasBefore,
 	}
+}
+
+// SameRow reports whether two stored rows reach a phone as the same row, for
+// the store's import (store.SameRow). Background is left out: it says a
+// launch's first answer is still the call's only one, which the late result
+// ends, and a phone reads that from the call's agents (chats.subagents).
+func (b *Builder) SameRow(kind string, old, new store.Message) bool {
+	rows := b.Messages(agent.Kind(kind), []store.Message{old, new})
+	for _, row := range rows {
+		if row.Tool != nil {
+			row.Tool.Background = false
+		}
+	}
+	return reflect.DeepEqual(rows[0], rows[1])
 }
 
 // Messages builds the rows of a chat by agent kind; a subagent's rows are

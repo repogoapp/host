@@ -477,8 +477,9 @@ func toolResultLine(id, output string) string {
 	return string(b)
 }
 
-// An open tool sheet gets its call whole as the result lands; a call it
-// doesn't show sends nothing, and a closed sheet stops the pushes.
+// An open tool sheet gets its call whole, once as it is watched and again as
+// the result lands; a call it doesn't show sends nothing, and a closed sheet
+// stops the pushes.
 func TestWatchedToolsArePushedWhole(t *testing.T) {
 	home, sessions := liveHome(t, userLine("list it"), toolUseLine("toolu_1", "ls"), toolUseLine("toolu_2", "pwd"))
 	db, err := store.Open(t.TempDir())
@@ -507,25 +508,31 @@ func TestWatchedToolsArePushedWhole(t *testing.T) {
 	defer m.Unsubscribe(caller)
 
 	writeClaudeSession(t, home, "live-1", []string{toolResultLine("toolu_2", "/srv"), toolResultLine("toolu_1", "a.txt")})
-	testwait.For(t, "the watched call", func() bool { return len(pub.receivedTools()) > 0 })
+	testwait.For(t, "the watched call's result", func() bool {
+		tools := pub.receivedTools()
+		return len(tools) > 0 && tools[len(tools)-1].Output == "a.txt"
+	})
 
 	tools := pub.receivedTools()
-	if len(tools) != 1 {
-		t.Fatalf("pushed %d calls, want only the watched one: %+v", len(tools), tools)
+	for _, tool := range tools {
+		if tool.CallID != "toolu_1" {
+			t.Fatalf("pushed %+v, want only the watched call", tool)
+		}
 	}
-	got := tools[0]
+	got := tools[len(tools)-1]
 	if got.ChatID != "claude:live-1" || got.CallID != "toolu_1" || got.Name != "Bash" ||
 		got.State != chatwire.StateCompleted || got.Output != "a.txt" || !strings.Contains(string(got.Input), `"ls"`) {
 		t.Errorf("pushed %+v", got)
 	}
+	sent := len(tools)
 
 	m.UnwatchTools(caller, "claude:live-1", []string{"toolu_1"})
 	pushed := len(pub.received())
 	writeClaudeSession(t, home, "live-1", []string{toolUseLine("toolu_1", "ls again")})
 	m.Nudge("claude:live-1")
 	testwait.For(t, "the next page", func() bool { return len(pub.received()) > pushed })
-	if n := len(pub.receivedTools()); n != 1 {
-		t.Errorf("a closed sheet still received %d more pushes", n-1)
+	if n := len(pub.receivedTools()); n != sent {
+		t.Errorf("a closed sheet still received %d more pushes", n-sent)
 	}
 }
 
