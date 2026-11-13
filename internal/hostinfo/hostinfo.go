@@ -61,6 +61,10 @@ const (
 	// would ignore them and push every row from since_index, so the phone
 	// sends them only here.
 	CapabilitySubscribeCursor = "subscribe_cursor"
+	// CapabilityAgentTurnRows is a host that saves an agent_turn row where an
+	// agent began a turn no one prompted (a background task reporting back),
+	// so a device can seat that turn as its own reply before the row lands.
+	CapabilityAgentTurnRows = "agent_turn_rows"
 )
 
 // Battery is the machine's last power reading.
@@ -223,7 +227,7 @@ func (s *Service) Status() Status {
 		out.Device = &device
 	}
 	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos,
-		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeCursor}
+		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeCursor, CapabilityAgentTurnRows}
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}

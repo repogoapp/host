@@ -139,6 +139,11 @@ const (
 	// what lets one Event type describe both.
 	EventUserMessage EventKind = "user_message"
 
+	// The agent began a turn no one prompted: a background task reporting
+	// back, a peer or a coordinator. Text is the origin ("task-notification").
+	// Never drawn as a message; it starts a reply the way a prompt does.
+	EventAgentTurn EventKind = "agent_turn"
+
 	EventText         EventKind = "text"
 	EventReasoning    EventKind = "reasoning"
 	EventToolCall     EventKind = "tool_call"

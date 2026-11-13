@@ -687,14 +687,16 @@ func toTurnStart(r reader, sid int64, events []Message) ([]Message, error) {
 		return events, nil
 	}
 	first := events[0].Index
-	if kind := agent.EventKind(events[0].Kind); kind == agent.EventUserMessage || kind == agent.EventTurnStarted {
+	if kind := agent.EventKind(events[0].Kind); kind == agent.EventUserMessage || kind == agent.EventTurnStarted ||
+		kind == agent.EventAgentTurn {
 		return events, nil
 	}
 	var start int
 	err := r.QueryRow(
-		`SELECT idx FROM events WHERE sid = ? AND idx < ? AND idx >= ? AND kind IN (?, ?)
+		`SELECT idx FROM events WHERE sid = ? AND idx < ? AND idx >= ? AND kind IN (?, ?, ?)
 		 ORDER BY idx DESC LIMIT 1`,
-		sid, first, first-maxTurnReach, string(agent.EventUserMessage), string(agent.EventTurnStarted)).Scan(&start)
+		sid, first, first-maxTurnReach, string(agent.EventUserMessage), string(agent.EventTurnStarted),
+		string(agent.EventAgentTurn)).Scan(&start)
 	if err == sql.ErrNoRows {
 		return events, nil
 	}

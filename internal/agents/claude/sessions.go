@@ -267,8 +267,18 @@ func (c *Sessions) ParseLine(line []byte) ([]agent.Event, string) {
 }
 
 // parseUser is a user record: the person's words, tool results sent back, or
-// a background agent's report.
+// a background agent's report. A record Claude wrote for itself (`origin`, a
+// task notification) also marks where that turn of its own begins.
 func parseUser(l claudeTranscriptLine) []agent.Event {
+	events := parseUserRecord(l)
+	if l.IsMeta || !autonomousOrigin(l.Origin.Kind) {
+		return events
+	}
+	start := agent.Event{Kind: agent.EventAgentTurn, Text: l.Origin.Kind, TurnID: l.PromptID}
+	return append([]agent.Event{start}, events...)
+}
+
+func parseUserRecord(l claudeTranscriptLine) []agent.Event {
 	// isMeta marks what the CLI wrote in the user's place: loaded skills,
 	// "Continue from where you left off", hook feedback, image notes. The
 	// compact summary is the conversation so far, restated for the model.
@@ -532,6 +542,11 @@ type claudeTranscriptLine struct {
 	// PromptID names the turn: the CLI stamps it on a prompt and on every tool
 	// result sent back while answering it. Replies carry none (claudeTurns).
 	PromptID string `json:"promptId"`
+	// Origin says who wrote a user record Claude queued for itself rather
+	// than one the person typed (`autonomousOrigin`).
+	Origin struct {
+		Kind string `json:"kind"`
+	} `json:"origin"`
 	// ToolUseResult is the CLI's own record of a tool result, beside it.
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
 

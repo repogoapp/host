@@ -575,7 +575,8 @@ func transcriptTurn(events []agent.Event) TurnObservation {
 	}
 	lifecycle := start >= 0
 	for i := len(events) - 1; i >= 0 && start < 0; i-- {
-		if events[i].Kind == agent.EventUserMessage {
+		// A turn the agent began itself starts where its marker is.
+		if events[i].Kind == agent.EventUserMessage || events[i].Kind == agent.EventAgentTurn {
 			start = i
 		}
 	}
