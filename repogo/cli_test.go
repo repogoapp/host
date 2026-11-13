@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -92,19 +93,25 @@ func TestConfirmAsksOrRefuses(t *testing.T) {
 	}
 }
 
-// Installing links repogo onto PATH from ~/.local/bin, says how to add that
-// folder when PATH lacks it, and never replaces a file it didn't make;
-// uninstalling removes only its own link.
+// Installing links repogo onto PATH from ~/.local/bin, adds that folder to
+// the shell's profile once when PATH lacks it, and never replaces a file it
+// didn't make; uninstalling removes only its own link.
 func TestRepogoIsLinkedOntoPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(apphome.EnvVar, filepath.Join(home, ".repogo"))
 	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("ZDOTDIR", "")
 	target := filepath.Join(home, ".repogo", "bin", "repogo")
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profile := filepath.Join(home, ".zshrc")
+	if err := os.WriteFile(profile, []byte("alias ll='ls -l'"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -113,20 +120,27 @@ func TestRepogoIsLinkedOntoPath(t *testing.T) {
 	if got, err := os.Readlink(link); err != nil || got != target {
 		t.Fatalf("link %q, %v", got, err)
 	}
-	if !strings.Contains(out.String(), `export PATH="$HOME/.local/bin:$PATH"`) {
-		t.Fatalf("no PATH hint: %q", out.String())
+	if !strings.Contains(out.String(), "Added ~/.local/bin to PATH in ~/.zshrc") {
+		t.Fatalf("no PATH note: %q", out.String())
 	}
-	// Already linked: nothing to say, every run after the first.
+	data, _ := os.ReadFile(profile)
+	if !strings.HasPrefix(string(data), "alias ll='ls -l'\n\n") || strings.Count(string(data), `export PATH="$HOME/.local/bin:$PATH"`) != 1 {
+		t.Fatalf("profile: %q", data)
+	}
+	// Linked, profile written: nothing to say or add, every run after the
+	// first, even before a new terminal picks up PATH.
 	out.Reset()
 	linkOnPath(&out)
-	if out.Len() != 0 {
-		t.Fatalf("a hint with the link in place: %q", out.String())
+	if again, _ := os.ReadFile(profile); out.Len() != 0 || string(again) != string(data) {
+		t.Fatalf("a second run said %q, profile %q", out.String(), again)
 	}
+	// The folder on PATH already: the profile is never touched.
 	os.Remove(link)
+	os.Remove(profile)
 	t.Setenv("PATH", filepath.Dir(link)+":/usr/bin")
 	linkOnPath(&out)
-	if out.Len() != 0 {
-		t.Fatalf("a PATH hint with the folder on PATH: %q", out.String())
+	if _, err := os.Stat(profile); out.Len() != 0 || !os.IsNotExist(err) {
+		t.Fatalf("with the folder on PATH: said %q, profile %v", out.String(), err)
 	}
 	unlinkFromPath()
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
@@ -140,5 +154,28 @@ func TestRepogoIsLinkedOntoPath(t *testing.T) {
 	unlinkFromPath()
 	if data, err := os.ReadFile(link); err != nil || string(data) != "theirs" {
 		t.Fatalf("another repogo was replaced: %q %v", data, err)
+	}
+}
+
+// Each shell gets the profile it reads at startup.
+func TestShellProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", "")
+	bash := ".bashrc"
+	if runtime.GOOS == "darwin" {
+		bash = ".bash_profile"
+	}
+	for shell, want := range map[string]string{
+		"/bin/zsh":               ".zshrc",
+		"/bin/bash":              bash,
+		"/opt/homebrew/bin/fish": filepath.Join(".config", "fish", "conf.d", "repogo.fish"),
+		"/bin/sh":                ".profile",
+	} {
+		t.Setenv("SHELL", shell)
+		got, line, ok := shellProfile()
+		if !ok || got != filepath.Join(home, want) || line == "" {
+			t.Errorf("%s: %q %q %v", shell, got, line, ok)
+		}
 	}
 }
