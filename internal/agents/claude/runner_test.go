@@ -244,6 +244,9 @@ func TestClaudesOwnTurnIsAdoptedAndJoined(t *testing.T) {
 	chatID := agent.ChatID(agent.KindClaude, result.SessionID)
 	s, _ := r.pool.Get(chatID)
 	r.pool.Release(chatID, s)
+	// The fake's idle after its result would clear the running fed below if it
+	// landed later, and join would find no turn to bind.
+	testwait.For(t, "the turn's idle", func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.owedIdle == 0 })
 
 	join := func(ctx context.Context, text *strings.Builder) <-chan error {
 		done := make(chan error, 1)
