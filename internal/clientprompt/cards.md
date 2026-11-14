@@ -49,6 +49,10 @@ File: path (as file: takes it, may read {{…}}); draws that file of the
   height (default regular).
 Icon: name="SF Symbol"; size="sm|md|lg", default md; alt names it for
   VoiceOver (without one it's decorative).
+  Every icon (icon=, Icon's name) is an SF Symbol, drawn on iOS. Beside it
+  write androidIcon (a Material Symbol name) and webIcon (a Lucide name), so
+  each platform draws its own: icon="person.3.fill" androidIcon="groups"
+  webIcon="users". A missing or unknown one draws the SF Symbol's nearest.
 Progress: value="0..1" plain decimal bar; self-closing; color tints it, default primary.
   Above 1 is full, so a 0–100 percent needs its fraction from the source.
   style="ring" draws a ring instead, with a short label in its middle
