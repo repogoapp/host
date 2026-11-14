@@ -43,6 +43,9 @@ type Ledger struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// Where the user's commits are read from; nil reads none.
+	commitSource CommitSource
+
 	mu       sync.Mutex
 	sweeping chan struct{}
 	sweptAt  time.Time
@@ -67,7 +70,7 @@ func Open(ctx context.Context, path, rateCache string, providers ...Provider) (*
 }
 
 func create(db *sql.DB) error {
-	for _, statement := range []string{
+	for _, statement := range append([]string{
 		`CREATE TABLE IF NOT EXISTS requests (
 		  agent TEXT NOT NULL, key TEXT NOT NULL,
 		  session TEXT NOT NULL, at INTEGER NOT NULL, model TEXT NOT NULL,
@@ -90,7 +93,7 @@ func create(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS activity_cwd_start ON activity (cwd, started_at)`,
 		`CREATE INDEX IF NOT EXISTS activity_start ON activity (started_at)`,
 		`CREATE INDEX IF NOT EXISTS activity_open_chat ON activity (chat_id) WHERE ended_at IS NULL`,
-	} {
+	}, commitsSchema...) {
 		if _, err := db.Exec(statement); err != nil {
 			return err
 		}
@@ -192,6 +195,9 @@ func (l *Ledger) refresh(ctx context.Context, maxAge time.Duration) {
 		l.sweeping = done
 		go func() {
 			err := l.sweep(l.ctx)
+			// Commits ride the same sweep. A failure here leaves the folders'
+			// stamps unmoved, so the next sweep reads them again.
+			_ = l.sweepCommits(l.ctx, time.Now())
 			l.mu.Lock()
 			if err == nil {
 				l.sweptAt = time.Now()

@@ -2030,6 +2030,7 @@ Result:
 - `homes` [object{Home}]
 - `buckets` [object{HourBucket}]
 - `sessions` [object{AgentCount}]
+- `commits` [object{Commit}] (omitted when empty) (nullable)
 - `pricing_fetched` bool
 
 ## `usage.time`

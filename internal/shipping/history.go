@@ -35,6 +35,10 @@ type History struct {
 	Homes    []Home       `json:"homes" wire:"array"`
 	Buckets  []HourBucket `json:"buckets" wire:"array"`
 	Sessions []AgentCount `json:"sessions" wire:"array"`
+	// The user's commits in the range, each once, oldest first: the phone
+	// dedupes them across environments by SHA, so they are not bucketed.
+	// Omitted when none, so a host from before commits reads the same.
+	Commits []Commit `json:"commits,omitempty"`
 	// False until public rates were fetched once; every bucket is unpriced till then.
 	PricingFetched bool `json:"pricing_fetched"`
 }
@@ -153,12 +157,17 @@ func (l *Ledger) History(ctx context.Context, sinceMs, untilMs int64, scope Scop
 	if err != nil {
 		return History{}, err
 	}
+	commits, err := l.commits(ctx, where, args)
+	if err != nil {
+		return History{}, err
+	}
 	out := History{
 		MachineID:      machineID(),
 		Complete:       l.indexed(),
 		Homes:          l.homes(),
 		Buckets:        make([]HourBucket, 0, len(byKey)),
 		Sessions:       sessions,
+		Commits:        commits,
 		PricingFetched: l.pricing.fetchedAtMs() > 0,
 	}
 	for _, b := range byKey {

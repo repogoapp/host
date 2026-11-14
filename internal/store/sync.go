@@ -342,6 +342,25 @@ func (s *Store) SetRepo(path, owner, name string) (Project, bool, error) {
 	return rows[0], true, nil
 }
 
+// GitCheckouts is every project folder with a first commit recorded: each
+// checkout on this machine, for the usage ledger's commit reads.
+func (s *Store) GitCheckouts() ([]string, error) {
+	rows, err := s.db.Query(`SELECT path FROM projects WHERE root_commit != ''`)
+	if err != nil {
+		return nil, fmt.Errorf("store: git checkouts: %w", err)
+	}
+	defer rows.Close()
+	paths := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}
+
 // Checkouts is the project folders whose first commit is root: every checkout
 // of one repository on this machine.
 func (s *Store) Checkouts(root string) ([]string, error) {

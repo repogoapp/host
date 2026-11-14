@@ -261,6 +261,7 @@ func (h *Host) Start() {
 	h.spawn(func(ctx context.Context) { h.live.WatchNotices(ctx, h.bridge) })
 	h.spawn(h.syncer.Run)
 	h.spawn(h.Services.ProjectSync.Run)
+	h.Services.Usage.ReadCommits(commitSource{h.db})
 	h.spawn(h.Services.Usage.Run)
 	h.spawn(func(ctx context.Context) {
 		everyMinute(ctx, h.Services.Schedules.Tick, h.Services.Reminders.Tick, h.Services.Uploads.Sweep, h.Services.Connect.Tick)
