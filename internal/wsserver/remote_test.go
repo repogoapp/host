@@ -69,7 +69,7 @@ func newRemoteOn(t *testing.T, through func(host *device.Identity) net.Listener)
 	srv, err := wsserver.New(wsserver.Config{
 		Token: testhost.Token, ServerID: "testhost", Devices: th.Devices, Router: router,
 		Pushes: emit.NewMux(), OnDisconnect: func(device.ID) {}, Log: slog.New(slog.DiscardHandler),
-		Pairing: th.Config.Pairer.Accepting,
+		Pairing: th.Config.Pairer.Accepting, Stream: echoStream,
 	})
 	if err != nil {
 		t.Fatal(err)

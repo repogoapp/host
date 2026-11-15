@@ -17,4 +17,7 @@ cp "$binary" "$app/Contents/MacOS/repogo"
 chmod 755 "$app/Contents/MacOS/repogo"
 sed "s/{{VERSION}}/$version/g" "$packaging/Info.plist" > "$app/Contents/Info.plist"
 cp "$packaging/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+# The licenses the binary's own and bundled code ship under go with it.
+root="$(dirname "$packaging")/.."
+cp "$root/LICENSE" "$root/NOTICE" "$root/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/"
 plutil -lint "$app/Contents/Info.plist" >/dev/null

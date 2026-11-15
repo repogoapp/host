@@ -57,6 +57,9 @@ type Config struct {
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// Deflate asks for compressed messages, as the phone does.
 	Deflate bool
+	// Stream, on a /stream URL, is the request sent after the hello; the
+	// client then reads the stream with Next instead of making calls.
+	Stream []byte
 }
 
 type Client struct {
@@ -119,8 +122,27 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		ws.CloseNow()
 		return nil, err
 	}
+	if cfg.Stream != nil {
+		if err := c.ws.Write(ctx, websocket.MessageText, cfg.Stream); err != nil {
+			ws.CloseNow()
+			return nil, fmt.Errorf("hostclient: stream request: %w", err)
+		}
+		return c, nil
+	}
 	go c.read()
 	return c, nil
+}
+
+// Send writes one text message on a /stream socket: input for the stream.
+func (c *Client) Send(ctx context.Context, b []byte) error {
+	return c.ws.Write(ctx, websocket.MessageText, b)
+}
+
+// Next reads a /stream socket's next message: a frame when binary, else the
+// text explaining why the stream ended.
+func (c *Client) Next(ctx context.Context) (binary bool, b []byte, err error) {
+	typ, b, err := c.ws.Read(ctx)
+	return typ == websocket.MessageBinary, b, err
 }
 
 // Deflating reports whether the host agreed to compressed messages.

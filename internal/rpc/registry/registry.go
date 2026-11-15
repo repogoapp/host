@@ -56,6 +56,7 @@ import (
 	projectsrpc "github.com/repogoapp/host/internal/rpc/projects"
 	remindersrpc "github.com/repogoapp/host/internal/rpc/reminders"
 	schedulesrpc "github.com/repogoapp/host/internal/rpc/schedules"
+	screensrpc "github.com/repogoapp/host/internal/rpc/screens"
 	shippingrpc "github.com/repogoapp/host/internal/rpc/shipping"
 	terminalsrpc "github.com/repogoapp/host/internal/rpc/terminals"
 	toolsrpc "github.com/repogoapp/host/internal/rpc/tools"
@@ -193,6 +194,7 @@ func New(cfg Config) (*rpc.Router, error) {
 		},
 	})
 	portsrpc.Register(r)
+	screensrpc.Register(r)
 	agentsrpc.Register(r, agentsrpc.Deps{
 		Files: cfg.Files, Environment: cfg.Agents, Project: cfg.ProjectAgents, Catalog: cfg.AgentCatalog,
 	})

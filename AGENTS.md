@@ -55,7 +55,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | --- | --- | --- |
 | `jsonrpc`, `handshake`, `wirecodec`, `tunnelwire` | Wire structs, codes and the per-message codec, no other behaviour; `tunnelwire` is public so the tunnel gateway shares it | any import |
 | `chatwire`, `wirejson` | What leaves the host: a chat's transcript as the phone receives it, and required arrays at JSON boundaries | parsing transcripts |
-| `wsserver`, `wsconn`, `passthrough`, `hosttls`, `redial`, `hostclient`, `api` | Move bytes: server, shared WebSocket connection, the relay that pipes phones' TLS and the host's link to it, the host's pinned TLS key, the one reconnect loop, Go test client, loopback HTTP onto `rpc` | knows what a chat is |
+| `wsserver`, `wsconn`, `passthrough`, `hosttls`, `redial`, `hostclient`, `api` | Move bytes: server (and its `/stream` media sockets, direct or through the relay), shared WebSocket connection, the relay that pipes phones' TLS and the host's link to it, the host's pinned TLS key, the one reconnect loop, Go test client, loopback HTTP onto `rpc` | knows what a chat is |
 | `pushgate` | The relay's side of a push: the phone's grant, rate limits, APNs | host state |
 | `appattest` | Verify Apple app attestation and assertions for push authorization | app or host state |
 | `rpc`, `rpc/<family>` | One method → one core call; typed params and result, access and lifetime on the `rpc.Add` line. Thin | logic a second transport would copy |
@@ -77,7 +77,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `schedule` | The user's schedules: validates them, computes each next run, and on a minute ticker starts every due one as a new chat; rows in `state.db` through `store` | writing SQL itself |
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
 | `git`, `github` | Git reporting and shipping, `gh` wrapper and PRs. One git runner in `git` | a second `exec.Command("git"` |
-| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`, `projectagent`, `reminder`, `stepactivity`, `uploads`) | One resource each | |
+| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`, `projectagent`, `reminder`, `simulators`, `stepactivity`, `uploads`) | One resource each | |
 | `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing | resolving provider homes itself |
 | `emit`, `errkind`, `outcome`, `par`, `sqlitedb`, `syscmd`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, what a plugin method or MCP tool answers, fan-out, SQLite pragmas, short system tools, `~/.repogo`, dev log copies | a second way to do the same |
 | `wiredoc`, `clientcontract`, `lint`, `testwait` | Development only: the generated wire docs and the clients' contracts (Swift, Kotlin and TypeScript), the code standards as tests, polling in tests | imported by production code |

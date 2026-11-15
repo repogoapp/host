@@ -188,6 +188,10 @@ var unchecked = map[string]string{
 	"ports.list": "shells out to list every listening socket on the machine; covered in internal/ports",
 	"ports.kill": "signals real processes",
 
+	"screens.list":     "shells out to simctl, the Android SDK and Screen Sharing on the machine; parsing covered in internal/screens",
+	"screens.boot":     "boots a real simulator or emulator",
+	"screens.shutdown": "stops a real simulator or emulator",
+
 	"git.diff":  "needs a real repository; covered in internal/git",
 	"git.patch": "same",
 

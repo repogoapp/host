@@ -65,6 +65,8 @@ var methodExports = map[string]bool{
 
 	"ports.list": true, "ports.kill": true,
 
+	"screens.list": true, "screens.boot": true, "screens.shutdown": true,
+
 	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
 	"projects.add": true, "projects.create": true, "projects.delete": true,
 
@@ -416,6 +418,8 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/terminal":      "terminals",
 	"github.com/repogoapp/host/internal/rpc/ports":     "ports",
 	"github.com/repogoapp/host/internal/ports":         "ports",
+	"github.com/repogoapp/host/internal/rpc/screens":   "screens",
+	"github.com/repogoapp/host/internal/screens":       "screens",
 	"github.com/repogoapp/host/internal/rpc/forward":   "forward",
 	"github.com/repogoapp/host/internal/forward":       "forward",
 

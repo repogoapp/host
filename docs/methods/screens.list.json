@@ -1,0 +1,14 @@
+{
+  "screens": [
+    {
+      "kind": "kind",
+      "platform": "platform",
+      "id": "id",
+      "name": "name",
+      "os": "os",
+      "booted": true,
+      "serial": "serial",
+      "user": "user"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the host for every platform a release ships, from one Mac: the two
-# macOS binaries with the system's clang, the two Linux ones static against
+# macOS binaries with the system's clang and Swift (Xcode), the two Linux ones static against
 # musl and the two Windows ones against mingw, both with zig as the C compiler
 # (cgo stays on for SQLite). Writes dist/repogo_<os>_<arch>, .exe on Windows.
 # RELEASE_VERSION and RELEASE_REPOSITORY are stamped in.
@@ -15,10 +15,12 @@ module=github.com/repogoapp/host/internal/release
 stamp="-X $module.Version=$RELEASE_VERSION -X $module.Repository=$RELEASE_REPOSITORY"
 rm -rf dist && mkdir -p dist
 
+# simcap_uhid links the Swift bridge iOS 27 simulators take touches through.
+scripts/build-simcap-uhid.sh arm64 x86_64
 for arch in arm64 amd64; do
   echo "darwin/$arch"
   CGO_ENABLED=1 GOOS=darwin GOARCH=$arch \
-    go build -trimpath -ldflags "-s -w $stamp" -o "dist/repogo_darwin_$arch" ./repogo
+    go build -trimpath -tags simcap_uhid -ldflags "-s -w $stamp" -o "dist/repogo_darwin_$arch" ./repogo
 done
 
 # netgo/osusergo keep name and user lookups off libc's NSS, which a static

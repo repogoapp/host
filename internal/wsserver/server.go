@@ -57,6 +57,10 @@ type Config struct {
 	// OnDisconnect runs when a device's last socket here closes.
 	OnDisconnect func(device.ID)
 
+	// Stream serves a /stream socket's media for a paired device, on every
+	// remote listener (ServeRemote); nil serves no /stream.
+	Stream StreamFunc
+
 	// Pairing reports whether a pairing code is live. Only then may a device
 	// this host doesn't know say hello over passthrough, to call pair.complete.
 	Pairing func() bool
@@ -159,11 +163,16 @@ func (s *Server) CloseRemote() {
 
 // ServeRemote ends pinned TLS with keys on lis, the relay's or a direct one,
 // and serves /ws only to paired devices whose hello binds that session. Each
-// listener has its own limits, so one flooded can't starve another.
+// listener has its own limits, so one flooded can't starve another. Each
+// also serves /stream, a live view's media; the phone tries a direct
+// listener (the tailnet's, the LAN's) first, the relay when none answers.
 func (s *Server) ServeRemote(lis net.Listener, keys *tls.Config) error {
 	var unproven atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) { s.handleRemoteWS(w, r, &unproven) })
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) { s.handleRemoteWS(w, r, &unproven, false) })
+	if s.cfg.Stream != nil {
+		mux.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) { s.handleRemoteWS(w, r, &unproven, true) })
+	}
 	lis = tls.NewListener(&capped{Listener: lis, open: make(chan struct{}, maxOpen)}, keys)
 	// Short, as the TLS handshake shares it: a phone sends its request at once.
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: remoteHelloTimeout, ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelDebug)}
@@ -201,7 +210,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // handleRemoteWS is /ws over passthrough TLS. Its Host is the relay name, not
 // loopback, so the loopback check is replaced by the TLS binding: the hello
 // must sign this session's exporter, and the local token is never accepted.
-func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request, unproven *atomic.Int32) {
+func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request, unproven *atomic.Int32, stream bool) {
 	if r.TLS == nil {
 		http.Error(w, "TLS required", http.StatusForbidden)
 		return
@@ -227,6 +236,7 @@ func (s *Server) handleRemoteWS(w http.ResponseWriter, r *http.Request, unproven
 	c.SetReadLimit(jsonrpc.MaxMessageBytes + wirecodec.Overhead)
 	conn := newConn(s, c)
 	conn.bind = exporter
+	conn.stream = stream
 	conn.helloDone = done
 	conn.run(r.Context())
 }

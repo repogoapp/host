@@ -65,6 +65,10 @@ const (
 	// agent began a turn no one prompted (a background task reporting back),
 	// so a device can seat that turn as its own reply before the row lands.
 	CapabilityAgentTurnRows = "agent_turn_rows"
+	// CapabilityScreens is a host with live screens to show: its display on a
+	// Mac, simulators with Xcode, emulators with the Android SDK. screens.*
+	// lists, boots and stops them, and a /stream shows one.
+	CapabilityScreens = "screens"
 )
 
 // Battery is the machine's last power reading.
@@ -82,6 +86,9 @@ type Deps struct {
 	PublicIP func(context.Context) (string, error)
 	// Trash is whether deleted files and projects go to the Trash: files.TrashDir.
 	Trash bool
+	// Screens reports whether this machine can have live screens:
+	// screens.Supported. Nil reports none.
+	Screens func() bool
 	// ReadDevice reads what kind of machine this is, once; nil is the system's.
 	ReadDevice func() Device
 	// TLSKey is the key phones pin now; nil, or one returning nil, without a relay.
@@ -230,6 +237,9 @@ func (s *Service) Status() Status {
 		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeCursor, CapabilityAgentTurnRows}
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
+	}
+	if s.d.Screens != nil && s.d.Screens() {
+		out.Capabilities = append(out.Capabilities, CapabilityScreens)
 	}
 	out.Capabilities = append(out.Capabilities, CapabilitySchedules)
 	return out

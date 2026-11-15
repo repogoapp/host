@@ -133,3 +133,22 @@ func TestTheLocalNetworkIsPrivateAndNotATunnel(t *testing.T) {
 		}
 	}
 }
+
+func TestScreensCapabilityFollowsWhatTheMachineCanShow(t *testing.T) {
+	has := func(caps []string, want string) bool {
+		for _, c := range caps {
+			if c == want {
+				return true
+			}
+		}
+		return false
+	}
+	s := New(Deps{Power: reading{}, Relay: func() bool { return false }, ReadDevice: func() Device { return studio },
+		Screens: func() bool { return true }})
+	if caps := s.Status().Capabilities; !has(caps, CapabilityScreens) {
+		t.Fatalf("capabilities %v, want screens", caps)
+	}
+	if caps := newService(reading{}).Status().Capabilities; has(caps, CapabilityScreens) {
+		t.Fatalf("capabilities %v without screens", caps)
+	}
+}

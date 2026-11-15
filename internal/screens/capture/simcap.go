@@ -1,0 +1,267 @@
+// Package simcap is `repogo simcap`: a booted iOS simulator's screen as H.264
+// on stdout, one frame per message (a 4-byte big-endian length, then the
+// frame as the phone reads it), and input from stdin, through Xcode's private
+// SimulatorKit. The host runs it as a child process for each live view, so a
+// SimulatorKit that changed under an Xcode update can crash only that view.
+package capture
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"time"
+)
+
+// Input is one line on stdin, and one text message a phone sends on /stream:
+// a touch, its point a fraction of the screen (0 to 1 from the top left), a
+// button, or an action. The host turns each into its platform's command.
+type Input struct {
+	Touch  string  `json:"touch,omitempty"` // down, move, up or cancel (the phone took the finger for a pinch)
+	X      float64 `json:"x,omitempty"`
+	Y      float64 `json:"y,omitempty"`
+	Button string  `json:"button,omitempty"` // home, back, recents, lock, siri, side, volume_up, volume_down, mute
+	// Action is anything else: see the host's controls for the list. Value
+	// carries its argument (dark, extra-large, a URL, text).
+	Action string  `json:"action,omitempty"`
+	Value  string  `json:"value,omitempty"`
+	Lat    float64 `json:"lat,omitempty"`
+	Lon    float64 `json:"lon,omitempty"`
+	Bundle string  `json:"bundle,omitempty"` // push: the app; empty reads it from the payload
+
+	// A Mac screen's trackpad and keyboard: the cursor where the phone keeps
+	// it with the buttons held, wheel notches at it, one key pressed or released.
+	Pointer *Pointer `json:"pointer,omitempty"`
+	Scroll  *Scroll  `json:"scroll,omitempty"`
+	Key     *Key     `json:"key,omitempty"`
+}
+
+// Pointer is the cursor at a fraction of the screen, with buttons held: bit
+// 0 the left button, 2 the right.
+type Pointer struct {
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+	Buttons byte    `json:"buttons"`
+}
+
+// Scroll is wheel notches at the cursor: positive DY scrolls the content
+// down into view from above (wheel up), positive DX from the left.
+type Scroll struct {
+	DX int `json:"dx"`
+	DY int `json:"dy"`
+}
+
+// Key is one X11 keysym pressed or released.
+type Key struct {
+	Keysym uint32 `json:"keysym"`
+	Down   bool   `json:"down"`
+}
+
+// Valid reports whether in is a touch with its point on the screen, a button
+// or an action.
+func (in Input) Valid() bool {
+	switch in.Touch {
+	case "down", "move", "up", "cancel":
+		return in.X >= 0 && in.X <= 1 && in.Y >= 0 && in.Y <= 1
+	case "":
+		if p := in.Pointer; p != nil {
+			return p.X >= 0 && p.X <= 1 && p.Y >= 0 && p.Y <= 1
+		}
+		return in.Button != "" || in.Action != "" || in.Scroll != nil || in.Key != nil
+	}
+	return false
+}
+
+// The actions simcap carries out itself, through SimulatorKit; the host runs
+// the rest with simctl.
+const (
+	ActionRotate         = "rotate"          // Value: a UIDeviceOrientation, 1 to 4
+	ActionKeyboard       = "keyboard"        // Value: on or off, the on-screen keyboard
+	ActionPasteKeys      = "paste_keys"      // ⌘V, after the host set the device's pasteboard
+	ActionText           = "text"            // types Value
+	ActionMemoryWarning  = "memory_warning"  //
+	ActionSlowAnimations = "slow_animations" // Value: on or off
+	ActionFold           = "fold"            // Value: closed, open, book or laptop (a foldable's pose)
+)
+
+// onscreen is whether the on-screen keyboard was last turned on.
+var onscreen bool
+
+// keyboardReady is set once this session connected the hardware keyboard
+// the phone's typing goes through: iOS counts key presses only from one,
+// and a device may have been left with it off.
+var keyboardReady bool
+
+// withKeyboard runs typing that needs a connected hardware keyboard, as
+// iOS counts key presses only from one: with the device showing its own
+// keyboard, one is connected for the typing, then the on-screen one comes back.
+func withKeyboard(typing func()) {
+	if !onscreen {
+		readyKeyboard()
+		typing()
+		return
+	}
+	onscreenKeyboard(false)
+	time.Sleep(keyboardSettle)
+	typing()
+	time.Sleep(keyboardSettle)
+	onscreenKeyboard(true)
+}
+
+// readyKeyboard connects that keyboard once, unless the device is set to
+// show its own, and waits for iOS to take it.
+func readyKeyboard() {
+	if keyboardReady || onscreen {
+		return
+	}
+	keyboardReady = true
+	if onscreenKeyboard(false) {
+		time.Sleep(keyboardSettle)
+	}
+}
+
+// keyboardSettle is how long iOS takes to take keys from a hardware keyboard
+// just connected, and to finish them before it is disconnected.
+const keyboardSettle = 400 * time.Millisecond
+
+// Indigo button sources and the HID pages and usages DeviceKit's chrome.json
+// gives the hardware buttons.
+var buttons = map[string]func(){
+	"home":        func() { button(0x0, 0) },
+	"lock":        func() { button(0x1, 0) },
+	"siri":        func() { button(0x400002, 300) }, // a tap is ignored; a hold invokes it
+	"side":        func() { button(0xbb8, 0) },
+	"volume_up":   func() { hid(12, 233) },
+	"volume_down": func() { hid(12, 234) },
+	"mute":        func() { hid(11, 46) },
+}
+
+// Run streams udid's screen to out and plays in's lines on it until in ends;
+// universal sends touches and keys through Universal HID, as iOS 27 needs.
+// Beside the frames, out carries JSON for the host behind a length with its
+// top bit set: {"display":{"screen","rotation","foldable"}} as the active
+// panel or its turn changes, {"failed":why} for a line it couldn't carry out.
+func Run(developerDir, udid string, universal bool, out *os.File, in io.Reader) error {
+	if err := start(developerDir, udid, universal, out); err != nil {
+		return err
+	}
+	defer stop()
+	var finger fingerState
+	// A viewer that closes mid-touch (a swipe away to the chat) never lifts
+	// its finger; left down, the simulator reads every later touch as a second.
+	defer finger.lift()
+	lines := bufio.NewScanner(in)
+	for lines.Scan() {
+		var input Input
+		if json.Unmarshal(lines.Bytes(), &input) != nil || !input.Valid() {
+			continue
+		}
+		finger.track(input)
+		if err := play(input); err != nil {
+			failed(err.Error())
+		}
+	}
+	return lines.Err()
+}
+
+// fingerState is whether the simulator has a finger down, and where, so a
+// lost lift is made up before the next press and when the input ends.
+type fingerState struct {
+	down bool
+	x, y float64
+}
+
+func (f *fingerState) track(in Input) {
+	switch in.Touch {
+	case "down":
+		f.lift()
+		f.down, f.x, f.y = true, in.X, in.Y
+	case "move":
+		f.x, f.y = in.X, in.Y
+	case "up", "cancel":
+		f.down = false
+	}
+}
+
+func (f *fingerState) lift() {
+	if f.down {
+		touch(2, f.x, f.y)
+		f.down = false
+	}
+}
+
+func play(in Input) error {
+	switch in.Touch {
+	case "down":
+		touch(0, in.X, in.Y)
+	case "move":
+		touch(1, in.X, in.Y)
+	case "up", "cancel":
+		// Indigo touches have no cancel; a lift ends it.
+		touch(2, in.X, in.Y)
+	}
+	if press, ok := buttons[in.Button]; ok {
+		press()
+	}
+	if in.Key != nil {
+		readyKeyboard()
+		// A key from the phone: special keys and modifiers as pressed and
+		// released, so ⇧ or ⌘ held from its row reaches the next key.
+		if usage, ok := usageFor(in.Key.Keysym); ok {
+			key(usage, in.Key.Down)
+		}
+	}
+	switch in.Action {
+	case ActionRotate:
+		var orientation int
+		if _, err := fmt.Sscan(in.Value, &orientation); err != nil || !rotate(orientation) {
+			return fmt.Errorf("couldn't rotate: open Simulator on the Mac")
+		}
+	case ActionFold:
+		if !fold(in.Value) {
+			return fmt.Errorf("couldn't fold to %s", in.Value)
+		}
+	case ActionKeyboard:
+		if !onscreenKeyboard(in.Value == "on") {
+			return fmt.Errorf("couldn't change the on-screen keyboard")
+		}
+		onscreen = in.Value == "on"
+		keyboardReady = !onscreen
+	case ActionText:
+		withKeyboard(func() { typeText(in.Value) })
+	case ActionPasteKeys:
+		// ⌘V into the focused field, the pasteboard already set by the host.
+		withKeyboard(func() {
+			key(commandKey, true)
+			key(vKey, true)
+			key(vKey, false)
+			key(commandKey, false)
+		})
+	case ActionMemoryWarning:
+		memoryWarning()
+	case ActionSlowAnimations:
+		caDebug("debug_slow_animations", in.Value == "on")
+	}
+	return nil
+}
+
+// typeText presses each character's key, with Shift where it needs one.
+// Characters a US keyboard has no key for are skipped.
+func typeText(text string) {
+	for _, r := range text {
+		usage, shift, ok := keyFor(r)
+		if !ok {
+			continue
+		}
+		if shift {
+			key(leftShift, true)
+		}
+		key(usage, true)
+		key(usage, false)
+		if shift {
+			key(leftShift, false)
+		}
+		time.Sleep(8 * time.Millisecond)
+	}
+}

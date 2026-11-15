@@ -1662,6 +1662,38 @@ Result:
 
 - `ok` bool
 
+## `screens.list`
+
+Params:
+
+- none
+
+Result:
+
+- `screens` [object{Screen}]
+
+## `screens.boot`
+
+Detached: runs to completion if the caller disconnects.
+
+Params:
+
+- `id` string
+
+Result:
+
+- `ok` bool
+
+## `screens.shutdown`
+
+Params:
+
+- `id` string
+
+Result:
+
+- `ok` bool
+
 ## `terminals.create`
 
 Params:

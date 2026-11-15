@@ -42,6 +42,9 @@ type conn struct {
 	// stranger is an unpaired device admitted over passthrough while a code is
 	// live: it may make one Unpaired call (pair.complete), then the socket closes.
 	stranger bool
+	// stream is a /stream socket: after its hello it carries one media stream
+	// (serveStream), never calls or pushes.
+	stream bool
 	// helloDone frees the place held before the hello, once it passed or
 	// failed, or a stranger's pairing ended; nil on loopback.
 	helloDone func()
@@ -66,7 +69,7 @@ func (c *conn) run(ctx context.Context) {
 				return errors.New("a remote connection authenticates by a bound signature only")
 			}
 			signed = device.BindTLS(signed, c.bind)
-			if c.srv.admitsStranger(h, signed) {
+			if !c.stream && c.srv.admitsStranger(h, signed) {
 				c.stranger = true
 				c.caller = rpc.Caller{Device: device.ID(h.DeviceID), Scope: rpc.ScopeRemote}
 				return nil
@@ -88,6 +91,10 @@ func (c *conn) run(ctx context.Context) {
 	}
 	if c.stranger {
 		c.pairOnce(ctx)
+		return
+	}
+	if c.stream {
+		c.serveStream(ctx)
 		return
 	}
 	c.srv.log.Info("wsserver: connected", "device", c.caller.Device, "label", h.Label)

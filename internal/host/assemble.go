@@ -49,7 +49,9 @@ import (
 	"github.com/repogoapp/host/internal/rpc"
 	devicesrpc "github.com/repogoapp/host/internal/rpc/devices"
 	"github.com/repogoapp/host/internal/rpc/registry"
+	screensrpc "github.com/repogoapp/host/internal/rpc/screens"
 	"github.com/repogoapp/host/internal/schedule"
+	"github.com/repogoapp/host/internal/screens"
 	"github.com/repogoapp/host/internal/session"
 	"github.com/repogoapp/host/internal/shipping"
 	"github.com/repogoapp/host/internal/stepactivity"
@@ -207,6 +209,7 @@ func (h *Host) openDevices() error {
 	h.info = hostinfo.New(hostinfo.Deps{
 		Power: h.keeper, Relay: h.relayLinked, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
 		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "", TLSKey: h.tlsKey,
+		Screens: screens.Supported,
 	})
 	h.pairer, err = device.OpenPairer(h.devices, h.state("pair-reusable.json"))
 	if err != nil {
@@ -482,6 +485,7 @@ func (h *Host) openTransports() error {
 		Devices: h.devices, Router: h.Router, Pushes: h.Pushes, OnDisconnect: h.disconnected, Log: h.log,
 		Pairing:    h.pairer.Accepting,
 		SelfAuthed: map[string]http.Handler{repogomcp.Path: h.tools},
+		Stream:     screensrpc.Stream,
 	})
 	if err != nil || h.cfg.Relay == "" {
 		return err

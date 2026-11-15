@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/release"
+	"github.com/repogoapp/host/internal/screens"
+	"github.com/repogoapp/host/internal/screens/capture"
 	"github.com/repogoapp/host/internal/service"
 )
 
@@ -53,7 +56,37 @@ func table() []command {
 			return nil
 		}},
 		{name: "help", args: "[command]", summary: "This list, or one command's flags", run: runHelp},
+		{name: "simcap", args: "<udid> [universal]", summary: "Stream a booted iOS simulator's screen (run by the host for a live view)",
+			hidden: true, run: simcapCommand},
+		{name: "screencap", summary: "Stream this Mac's screen from Screen Sharing (run by the host for a live view)",
+			hidden: true, run: func(ctx context.Context, _ *flag.FlagSet, _ []string) error {
+				return capture.RunScreen(ctx, os.Stdout, os.Stdin)
+			}},
+		{name: "androidcap", args: "<console port>", summary: "Stream a running Android emulator's screen (run by the host for a live view)",
+			hidden: true, run: func(ctx context.Context, _ *flag.FlagSet, args []string) error {
+				if len(args) != 1 {
+					return fmt.Errorf("usage: repogo androidcap <console port>")
+				}
+				port, err := strconv.Atoi(args[0])
+				if err != nil {
+					return fmt.Errorf("usage: repogo androidcap <console port>")
+				}
+				return capture.RunAndroid(ctx, port, os.Stdout, os.Stdin)
+			}},
 	}
+}
+
+// simcapCommand is the child process the host starts for each live view of
+// an iOS simulator: H.264 on stdout, touches on stdin.
+func simcapCommand(_ context.Context, _ *flag.FlagSet, args []string) error {
+	if len(args) < 1 || len(args) > 2 || (len(args) == 2 && args[1] != "universal") {
+		return fmt.Errorf("usage: repogo simcap <udid> [universal]")
+	}
+	dir, err := screens.DeveloperDir()
+	if err != nil {
+		return err
+	}
+	return capture.Run(dir, args[0], len(args) == 2, os.Stdout, os.Stdin)
 }
 
 func withYes(fs *flag.FlagSet) { fs.Bool("yes", false, "don't ask first") }

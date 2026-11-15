@@ -1,0 +1,4 @@
+module SimcapUHID {
+  header "../uhid_darwin.h"
+  export *
+}
