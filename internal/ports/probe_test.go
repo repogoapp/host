@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 func portOf(t *testing.T, addr string) int {
@@ -112,11 +114,5 @@ func TestProberRechecksAFailureInTheBackground(t *testing.T) {
 		t.Fatal("a recheck held up the scan instead of running in the background")
 	}
 	close(release)
-	deadline := time.Now().Add(time.Second)
-	for !p.web(context.Background(), listeners)[key] {
-		if time.Now().After(deadline) {
-			t.Fatal("recheck never passed")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testwait.For(t, "the recheck to pass", func() bool { return p.web(context.Background(), listeners)[key] })
 }

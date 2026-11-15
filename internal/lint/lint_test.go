@@ -35,6 +35,7 @@ var backgrounds = map[string]string{
 	"internal/hostinfo/network.go:magicDNSName":                "Status takes no context; a local lookup its timeout ends",
 	"internal/hostinfo/network.go:cliTailnetIP":                "Status takes no context; a local command its timeout ends",
 	"internal/chat/title.go:Service.nameLater":                 "naming a new chat runs after chats.start answers; titleDeadline ends it",
+	"internal/ports/probe.go:prober.start":                     "a recheck runs on after the scan that started it returns, so a slow port never holds up the list; probeTimeout ends it",
 }
 
 // history catches comments that narrate what the code once was. Words such as
