@@ -59,9 +59,13 @@ func Reachable(ctx context.Context, dir string, sinceMs int64) ([]string, error)
 	// --full-history: a path limit would otherwise follow one parent of a
 	// merge and skip the commits on the other.
 	args = append(args, "--no-merges", "--full-history", "--regexp-ignore-case",
-		"--author=<"+regexp.QuoteMeta(who)+">",
-		"--since=@"+strconv.FormatInt(sinceMs/1000, 10),
-		"--", ".")
+		"--author=<"+regexp.QuoteMeta(who)+">")
+	// No bound is no --since: git doesn't read a small "@N" as a timestamp,
+	// and "@0" came out near now, losing every commit older than this second.
+	if sinceMs > 0 {
+		args = append(args, "--since=@"+strconv.FormatInt(sinceMs/1000, 10))
+	}
+	args = append(args, "--", ".")
 	out, err := runTimeout(ctx, dir, logTimeout, args...)
 	if err != nil {
 		return nil, err
