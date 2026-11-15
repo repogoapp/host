@@ -211,6 +211,7 @@ Result:
 - `queue_revision` int (omitted when empty)
 - `match` string (omitted when empty)
 - `match_index` int (omitted when empty) (nullable)
+- `search_rank` int (omitted when empty)
 
 ## `chats.sync`
 

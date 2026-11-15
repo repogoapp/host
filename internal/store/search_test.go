@@ -304,3 +304,66 @@ func TestSearchPages(t *testing.T) {
 		t.Errorf("second page = %+v, %v; want only claude:a", second.Chats, err)
 	}
 }
+
+func TestSearchRanksBeforeLimitAndPagesAcrossGroups(t *testing.T) {
+	db := newStore(t)
+	for i, c := range []struct{ id, title, body string }{
+		{"exact", "Cache Repair", "fixed"},
+		{"title-old", "Investigate cache repair", "fixed"},
+		{"title-new", "Cache repair details", "fixed"},
+		{"body-old", "Networking", "cache repair"},
+		{"body-new", "Transport", "cache repair"},
+	} {
+		syncChat(t, db, c.id, c.title, prompt(c.body))
+		if _, err := db.db.Exec(`UPDATE sessions SET updated_at = ? WHERE session_id = ?`, i+1, c.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []ChatID{"claude:exact", "claude:title-new", "claude:title-old", "claude:body-new", "claude:body-old"}
+	var got []ChatID
+	cursor := ""
+	for range len(want) {
+		page, err := db.Chats(ChatQuery{Search: "cache repair", Limit: 1, Cursor: cursor})
+		if err != nil || len(page.Chats) != 1 {
+			t.Fatalf("page = %+v, %v", page, err)
+		}
+		c := page.Chats[0]
+		got = append(got, c.ID)
+		rank := 3
+		if c.ID == want[0] {
+			rank = 1
+		} else if strings.HasPrefix(c.ID.SessionID(), "title-") {
+			rank = 2
+		}
+		if c.SearchRank != rank {
+			t.Fatalf("%s rank = %d, want %d", c.ID, c.SearchRank, rank)
+		}
+		cursor = page.NextCursor
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ranked pages = %v, want %v", got, want)
+	}
+	page, err := db.Chats(ChatQuery{Search: "cache repair", Limit: 1, Cursor: cursor})
+	if err != nil || len(page.Chats) != 0 {
+		t.Fatalf("last page = %+v, %v", page, err)
+	}
+	for _, query := range []string{"cache rep", "find the chat about cache repair"} {
+		page, err := db.Chats(ChatQuery{Search: query, Limit: 1})
+		if err != nil || len(page.Chats) != 1 || page.Chats[0].SearchRank != 2 {
+			t.Fatalf("prefix/filler %q = %+v, %v", query, page, err)
+		}
+	}
+	plain, err := db.Chats(ChatQuery{Limit: 1})
+	if err != nil || len(plain.Chats) != 1 || plain.Chats[0].ID != "claude:body-new" || plain.Chats[0].SearchRank != 0 {
+		t.Fatalf("plain = %+v, %v", plain, err)
+	}
+}
+
+func TestSearchRankRejectsMalformedCursor(t *testing.T) {
+	db := newStore(t)
+	for _, cursor := range []string{"old\n123", "0\nid\n123", "4\nid\n123", "1\nid\nbad"} {
+		if _, err := db.Chats(ChatQuery{Search: "cache", Cursor: cursor}); err == nil {
+			t.Fatalf("accepted %q", cursor)
+		}
+	}
+}

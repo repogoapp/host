@@ -138,6 +138,8 @@ type Chat struct {
 	// The index of the prompt or reply Match was cut from, where the phone
 	// opens the chat; nil when the title matched.
 	MatchIndex *int `json:"match_index,omitempty"`
+	// Search relevance: exact title (1), all terms in title (2), conversation (3).
+	SearchRank int `json:"search_rank,omitempty"`
 }
 
 // Stamp adds what the cache does not store, for a row leaving this host: the
@@ -226,7 +228,8 @@ type ChatQuery struct {
 	Parent ChatID
 
 	// Search narrows to chats whose title, prompts and replies hold every
-	// word of the text (search.go); empty matches everything.
+	// word of the text (search.go); empty matches everything. Search orders by
+	// relevance then descending activity, regardless of Sort and Order.
 	Search string
 
 	Sort  ChatSort
@@ -259,7 +262,7 @@ type ChatPage struct {
 // chatSelect reads chat rows with what state.db holds for them (marks, voice
 // numbers, the queue's count and version), for queryChats.
 const chatSelect = `
-SELECT s.agent, s.session_id, s.title, s.summary,
+SELECT 0 AS search_rank, s.agent, s.session_id, s.title, s.summary,
   COALESCE((SELECT e.text FROM events e WHERE e.sid = s.sid AND e.kind = 'user_message' ORDER BY e.idx DESC LIMIT 1), ''), s.cwd, s.created_at, s.updated_at, s.activity_at, s.context_used, s.context_size, s.model, s.model_label, s.project_agent, s.permission_mode, s.mode, s.reasoning_level, s.fast_mode, s.status, s.status_at, s.last_turn_started_at, s.last_turn_finished_at, m.resolved_at, m.pinned_at, COALESCE(m.parent_id, ''), s.rev, COALESCE(v.number, 0),
   (SELECT COUNT(*) FROM state.queued_turns t WHERE t.chat_id = s.agent || ':' || s.session_id), COALESCE(q.rev, 0)
 FROM sessions s LEFT JOIN state.chat_marks m ON m.agent = s.agent AND m.session_id = s.session_id
@@ -282,7 +285,7 @@ func readChats(db querier, query string, args ...any) ([]Chat, error) {
 	for rows.Next() {
 		var c Chat
 		var agent, sessionID string
-		if err := rows.Scan(&agent, &sessionID, &c.Title, &c.Summary, &c.LastUserMessagePreview, &c.CWD,
+		if err := rows.Scan(&c.SearchRank, &agent, &sessionID, &c.Title, &c.Summary, &c.LastUserMessagePreview, &c.CWD,
 			&c.CreatedAt, &c.UpdatedAt, &c.ActivityAt, &c.ContextUsed, &c.ContextSize, &c.Model, &c.ModelLabel, &c.ProjectAgent, &c.PermissionMode, &c.Mode, &c.ReasoningLevel, &c.FastMode, &c.Status, &c.StatusAt,
 			&c.LastTurnStartedAt, &c.LastTurnFinishedAt, &c.ResolvedAt, &c.PinnedAt, &c.ParentID, &c.Revision, &c.VoiceNumber,
 			&c.QueuedCount, &c.QueueRevision); err != nil {
@@ -323,9 +326,11 @@ func (q ChatQuery) withDefaults() (ChatQuery, error) {
 	return q, nil
 }
 
-// cursorAt is the keyset position of one row under q: session id first, since
-// neither it nor a collapsed title holds a newline.
+// cursorAt includes relevance for searches so paging cannot skip between rank groups.
 func (q ChatQuery) cursorAt(c Chat) string {
+	if q.Search != "" {
+		return fmt.Sprintf("%d\n%s\n%d", c.SearchRank, c.ID.SessionID(), c.ActivityAt)
+	}
 	switch q.Sort {
 	case SortTitle:
 		return c.ID.SessionID() + "\n" + c.Title
@@ -344,6 +349,9 @@ func (s *Store) Chats(q ChatQuery) (ChatPage, error) {
 	if err != nil {
 		return ChatPage{}, err
 	}
+	if q.Search != "" {
+		q.Sort, q.Order = SortActivity, OrderDesc
+	}
 	limit := q.Limit
 	key := "s.activity_at"
 	switch q.Sort {
@@ -360,6 +368,21 @@ func (s *Store) Chats(q ChatQuery) (ChatPage, error) {
 	query := chatSelect
 	args := []any{}
 	where := []string{}
+	match := ""
+	if q.Search != "" {
+		match = searchMatch(q.Search)
+		if match == "" {
+			return ChatPage{Chats: []Chat{}}, nil
+		}
+		query = `WITH search AS MATERIALIZED (
+			SELECT rowid AS sid, CASE
+			WHEN lower(title) = lower(?) THEN 1
+			WHEN rowid IN (SELECT rowid FROM chat_search WHERE title MATCH ?) THEN 2
+			ELSE 3 END AS rank
+			FROM chat_search WHERE chat_search MATCH ?
+		) ` + strings.Replace(chatSelect, "0 AS search_rank", "search.rank AS search_rank", 1) + ` JOIN search ON search.sid = s.sid`
+		args = append(args, indexText(strings.TrimSpace(q.Search)), match, match)
+	}
 	switch {
 	case q.Resolved == nil:
 	case *q.Resolved:
@@ -368,7 +391,17 @@ func (s *Store) Chats(q ChatQuery) (ChatPage, error) {
 		where = append(where, `m.resolved_at IS NULL`)
 	}
 	if q.Cursor != "" {
-		sessionID, keyValue, ok := strings.Cut(q.Cursor, "\n")
+		cursor := q.Cursor
+		rank := 0
+		if q.Search != "" {
+			value, rest, ok := strings.Cut(cursor, "\n")
+			parsed, err := strconv.Atoi(value)
+			if !ok || err != nil || parsed < 1 || parsed > 3 {
+				return ChatPage{}, fmt.Errorf("%w: malformed search cursor", ErrInvalid)
+			}
+			rank, cursor = parsed, rest
+		}
+		sessionID, keyValue, ok := strings.Cut(cursor, "\n")
 		if !ok {
 			return ChatPage{}, fmt.Errorf("%w: malformed cursor", ErrInvalid)
 		}
@@ -382,8 +415,13 @@ func (s *Store) Chats(q ChatQuery) (ChatPage, error) {
 		}
 		// Row-value comparison: strictly past the last row in sort order, ties
 		// broken the same way the ORDER BY does.
-		where = append(where, fmt.Sprintf(`(%s, s.session_id) %s (?, ?)`, key, cmp))
-		args = append(args, after, sessionID)
+		if q.Search != "" {
+			where = append(where, `(search.rank > ? OR (search.rank = ? AND (s.activity_at, s.session_id) < (?, ?)))`)
+			args = append(args, rank, rank, after, sessionID)
+		} else {
+			where = append(where, fmt.Sprintf(`(%s, s.session_id) %s (?, ?)`, key, cmp))
+			args = append(args, after, sessionID)
+		}
 	}
 	if q.Cwd != "" {
 		where = append(where, `s.cwd = ?`)
@@ -404,19 +442,14 @@ func (s *Store) Chats(q ChatQuery) (ChatPage, error) {
 	case q.Search == "":
 		where = append(where, `m.parent_id IS NULL`)
 	}
-	match := ""
-	if q.Search != "" {
-		// Text with no words in it, punctuation alone, matches no chat.
-		if match = searchMatch(q.Search); match == "" {
-			return ChatPage{Chats: []Chat{}}, nil
-		}
-		where = append(where, `s.sid IN (SELECT rowid FROM chat_search WHERE chat_search MATCH ?)`)
-		args = append(args, match)
-	}
 	if len(where) > 0 {
 		query += ` WHERE ` + strings.Join(where, ` AND `)
 	}
-	query += fmt.Sprintf(` ORDER BY %s %s, s.session_id %s LIMIT ?`, key, dir, dir)
+	order := ""
+	if q.Search != "" {
+		order = "search.rank ASC, "
+	}
+	query += fmt.Sprintf(` ORDER BY %s%s %s, s.session_id %s LIMIT ?`, order, key, dir, dir)
 	args = append(args, limit)
 
 	out, err := s.queryChats(query, args...)

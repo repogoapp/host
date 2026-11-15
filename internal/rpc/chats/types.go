@@ -30,7 +30,8 @@ type Query struct {
 	Order string `json:"order" doc:"desc (default) or asc"`
 
 	// Search keeps the chats whose title, prompts and replies hold every word
-	// of it; each row then carries match, the words around the hit.
+	// of it; each row carries match and search_rank. Search overrides Sort and
+	// Order with relevance then descending activity.
 	Search string `json:"search" doc:"Words a chat's title, prompts or replies must all hold"`
 
 	// Parent lists the chats one chat's agent started; empty leaves them out

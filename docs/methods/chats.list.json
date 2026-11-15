@@ -33,7 +33,8 @@
       "queued_count": 1,
       "queue_revision": 1,
       "match": "match",
-      "match_index": 1
+      "match_index": 1,
+      "search_rank": 1
     }
   ],
   "next_cursor": "next_cursor"
