@@ -2,6 +2,8 @@ package devices_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -282,5 +284,53 @@ func TestHelloUpdatesTheDeviceRecord(t *testing.T) {
 	sent.Kind = strings.Repeat("k", 65)
 	if err := call(t, c, "devices.hello", devices.HelloParams{Client: sent}, nil); err == nil {
 		t.Error("an oversized kind was accepted")
+	}
+}
+
+// Hello reports the tokens the host keeps for the phone by hash, so a
+// reconnect re-sends only what is missing or changed; a forgotten one drops out.
+func TestHelloReportsTheTokensTheHostKeeps(t *testing.T) {
+	h := start(t)
+	phone := generate(t)
+	if err := h.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Client: device.Client{Platform: "ios"}}); err != nil {
+		t.Fatalf("pair phone: %v", err)
+	}
+	c, err := h.overRelay(t, phone, 5*time.Second)
+	if err != nil {
+		t.Fatalf("phone over the relay: %v", err)
+	}
+	hello := func() devices.HelloResult {
+		var out devices.HelloResult
+		if err := call(t, c, "devices.hello", devices.HelloParams{Client: device.Client{Platform: "ios", Kind: "app"}}, &out); err != nil {
+			t.Fatalf("devices.hello: %v", err)
+		}
+		return out
+	}
+	if got := hello().Push; len(got) != 0 {
+		t.Fatalf("hello before any token = %+v, want none", got)
+	}
+
+	granted := phone.GrantPush(h.Devices.Identity().ID, device.PushTarget{Service: device.PushAPNs, Token: "abcd", Environment: "sandbox"})
+	register := func(token string) {
+		push := devices.RegisterPushParams{Token: token, Service: granted.Service, Environment: granted.Environment,
+			Grant: granted.Grant, GrantedAt: granted.GrantedAt, Kind: device.PushToStart}
+		if token == "" {
+			push = devices.RegisterPushParams{Kind: device.PushToStart}
+		}
+		if err := call(t, c, "devices.register_push", push, nil); err != nil {
+			t.Fatalf("register_push %q: %v", token, err)
+		}
+	}
+	register(granted.Token)
+	sum := sha256.Sum256([]byte("abcd"))
+	want := device.HeldPush{Kind: device.PushToStart, TokenSHA256: hex.EncodeToString(sum[:]),
+		Environment: "sandbox", GrantedAt: granted.GrantedAt}
+	if got := hello().Push; len(got) != 1 || got[0] != want {
+		t.Fatalf("hello after register = %+v, want [%+v]", got, want)
+	}
+
+	register("")
+	if got := hello().Push; len(got) != 0 {
+		t.Fatalf("hello after forgetting = %+v, want none", got)
 	}
 }

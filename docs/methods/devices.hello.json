@@ -1,3 +1,12 @@
 {
-  "ok": true
+  "push": [
+    {
+      "kind": "kind",
+      "activity": "activity",
+      "token_sha256": "token_sha256",
+      "environment": "environment",
+      "granted_at": 1,
+      "integrity": true
+    }
+  ]
 }

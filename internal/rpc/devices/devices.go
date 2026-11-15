@@ -32,6 +32,12 @@ type HelloParams struct {
 	device.Client
 }
 
+// HelloResult tells the phone which push tokens the host already keeps for
+// it, so a reconnect re-sends only a missing, changed or aging one.
+type HelloResult struct {
+	Push []device.HeldPush `json:"push" wire:"array"`
+}
+
 // RegisterPushParams is a push token and its grant; the host stamps when it
 // first saw the token itself.
 type RegisterPushParams struct {
@@ -89,8 +95,11 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "devices.revoke", d.revoke, rpc.Detached)
 }
 
-func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (rpc.Ack, error) {
-	return rpc.OK, d.Store.SetClient(c.Device, a.Client)
+func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (HelloResult, error) {
+	if err := d.Store.SetClient(c.Device, a.Client); err != nil {
+		return HelloResult{}, err
+	}
+	return HelloResult{Push: d.Store.HeldPush(c.Device)}, nil
 }
 
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {

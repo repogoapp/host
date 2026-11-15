@@ -592,7 +592,7 @@ Params:
 
 Result:
 
-- `ok` bool
+- `push` [object{HeldPush}]
 
 ## `devices.register_push`
 

@@ -2,6 +2,7 @@ package device
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -227,6 +228,46 @@ func (s *Store) RegisterStepsPush(id ID, key string, target PushTarget) error {
 		}
 		p.Steps = steps
 	})
+}
+
+// HeldPush is one push token the host keeps for a phone, as hello reports
+// it: the token's hash, so the phone can skip re-sending one the host has,
+// and when its grant was signed, so it re-sends before the grant expires.
+type HeldPush struct {
+	Kind string `json:"kind"`
+	// Activity is the step activity a "steps" token updates.
+	Activity    string `json:"activity,omitempty"`
+	TokenSHA256 string `json:"token_sha256"`
+	Environment string `json:"environment"`
+	GrantedAt   int64  `json:"granted_at"`
+	// Integrity is whether an Android phone sent Play Integrity evidence
+	// with the grant; one sent without it re-sends once it can.
+	Integrity bool `json:"integrity,omitempty"`
+}
+
+// HeldPush lists the tokens the host keeps for a device, steps by key.
+func (s *Store) HeldPush(id ID) []HeldPush {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.peers[id]
+	if !ok {
+		return nil
+	}
+	held := func(kind, activity string, t PushTarget) HeldPush {
+		sum := sha256.Sum256([]byte(t.Token))
+		return HeldPush{Kind: kind, Activity: activity, TokenSHA256: hex.EncodeToString(sum[:]),
+			Environment: t.Environment, GrantedAt: t.GrantedAt, Integrity: t.Integrity != ""}
+	}
+	out := []HeldPush{}
+	for _, kind := range []string{"", PushToStart, PushActivity, PushStepsStart} {
+		if t := *pushField(&p, kind); t != nil {
+			out = append(out, held(kind, "", *t))
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(p.Steps)) {
+		out = append(out, held(PushSteps, key, p.Steps[key]))
+	}
+	return out
 }
 
 // ForgetStepsPush drops a step activity's dead token, unless the phone has
