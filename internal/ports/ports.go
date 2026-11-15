@@ -29,17 +29,25 @@ type listener struct {
 	cwd     string
 }
 
-// ListPorts enumerates listening sockets (see ports_*.go), filtered to servers
-// started inside dir when given. Failure yields an empty list.
+// ListPorts enumerates listening sockets (see ports_*.go) that answer a web
+// request (see probe.go), filtered to servers started inside dir when given.
+// Failure yields an empty list.
 func ListPorts(ctx context.Context, dir string) []Port {
-	return ports(listPlatformPorts(ctx), os.Getpid(), portlessRoutes(), dir)
+	self := os.Getpid()
+	var others []listener
+	for _, l := range listPlatformPorts(ctx) {
+		if l.pid != self {
+			others = append(others, l)
+		}
+	}
+	return ports(others, webProbes.web(ctx, others), portlessRoutes(), dir)
 }
 
-// ports leaves out self, the host's own listener, which isn't a dev server.
-func ports(listeners []listener, self int, routes map[int]string, dir string) []Port {
+// ports keeps the listeners that serve pages, and those under dir when given.
+func ports(listeners []listener, web map[probeKey]bool, routes map[int]string, dir string) []Port {
 	kept := make([]Port, 0, len(listeners))
 	for _, l := range listeners {
-		if l.pid == self || (dir != "" && !files.Within(dir, l.cwd)) {
+		if !web[probeKey{l.pid, l.port}] || (dir != "" && !files.Within(dir, l.cwd)) {
 			continue
 		}
 		kept = append(kept, Port{Port: l.port, Command: l.command, Cwd: l.cwd, Portless: routes[l.port]})

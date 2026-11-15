@@ -37,21 +37,22 @@ func TestListPlatformPortsFindsAListenerWithItsCwd(t *testing.T) {
 	t.Skipf("port %d not enumerated (no lsof on this machine?)", port)
 }
 
-func TestPortsNamesPortlessFiltersByDirAndLeavesOutTheHost(t *testing.T) {
+func TestPortsKeepsWebServersNamesPortlessAndFiltersByDir(t *testing.T) {
 	dir := t.TempDir()
 	listeners := []listener{
 		{port: 5000, pid: 1, command: "node", cwd: filepath.Join(dir, "web")},
 		{port: 3000, pid: 2, command: "vite", cwd: dir},
-		{port: 4000, pid: 9, command: "repogo", cwd: dir},
 		{port: 8080, pid: 3, command: "nginx", cwd: "/"},
+		{port: 5037, pid: 4, command: "adb", cwd: dir},
 	}
+	web := map[probeKey]bool{{1, 5000}: true, {2, 3000}: true, {3, 8080}: true}
 	routes := map[int]string{3000: "web.localhost"}
 
-	all := ports(listeners, 9, routes, "")
+	all := ports(listeners, web, routes, "")
 	if len(all) != 3 || all[0].Port != 3000 || all[0].Portless != "web.localhost" || all[2].Port != 8080 {
-		t.Fatalf("ports = %+v, want 3000 (named), 5000 and 8080 without the host's 4000", all)
+		t.Fatalf("ports = %+v, want 3000 (named), 5000 and 8080 without adb's 5037", all)
 	}
-	mine := ports(listeners, 9, routes, dir)
+	mine := ports(listeners, web, routes, dir)
 	if len(mine) != 2 || mine[0].Port != 3000 || mine[1].Port != 5000 {
 		t.Fatalf("ports in %s = %+v, want 3000 and 5000", dir, mine)
 	}
