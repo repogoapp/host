@@ -47,7 +47,12 @@ func (r *runner) Available() error {
 func (r *runner) Close() { r.pool.Close() }
 
 func (r *runner) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
-	s, err := r.acquireSession(ctx, req, r.settingSources(ctx, req, io))
+	// Picked before the trust question, which needs the chat's id to reach a phone.
+	id := req.SessionID
+	if id == "" {
+		id = uuid.NewString()
+	}
+	s, err := r.acquireSession(ctx, req, id, r.settingSources(ctx, req, io, id))
 	if err != nil {
 		return agent.Result{}, err
 	}
@@ -72,7 +77,7 @@ func (r *runner) Join(ctx context.Context, chatID string, io agent.TurnIO) (agen
 	return s.join(ctx, io)
 }
 
-func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest, sources []string) (*liveSession, error) {
+func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest, newID string, sources []string) (*liveSession, error) {
 	epoch := r.pool.Epoch()
 	var servers []agent.MCPServer
 	if r.deps.MCP != nil {
@@ -116,7 +121,7 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest, sour
 		}
 		r.pool.Retire(req.ChatID, s)
 	}
-	s, err := r.startSession(ctx, req, servers, own, instructions, sources)
+	s, err := r.startSession(ctx, req, newID, servers, own, instructions, sources)
 	if err != nil {
 		return nil, err
 	}
@@ -134,10 +139,10 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest, sour
 	return s, nil
 }
 
-func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool, instructions string, sources []string) (*liveSession, error) {
+func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, newID string, servers []agent.MCPServer, own bool, instructions string, sources []string) (*liveSession, error) {
 	id := req.SessionID
 	if id == "" {
-		id = uuid.NewString()
+		id = newID
 	}
 	s := newLiveSession(id, req.Cwd)
 	s.key = agent.ChatID(agent.KindClaude, id)

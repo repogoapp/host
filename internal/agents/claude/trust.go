@@ -23,16 +23,16 @@ var (
 	userSources = []string{"user"}
 )
 
+// The trust approval's options, by id; the answer is the picked id.
 const (
-	trustQuestionID = "trust"
-	trustYes        = "Trust"
-	trustNo         = "Not now"
+	trustYes = "trust"
+	trustNo  = "reject"
 )
 
 // settingSources is what a turn in req.Cwd loads: everything in a folder
 // Claude trusts, or in one whose settings change nothing that runs; else
 // the user's own, once the user has been asked and hasn't said yes.
-func (r *runner) settingSources(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) []string {
+func (r *runner) settingSources(ctx context.Context, req agent.TurnRequest, io agent.TurnIO, sessionID string) []string {
 	if req.Cwd == "" || trustedFolder(r.configFile(), req.Cwd) || sameDir(filepath.Join(req.Cwd, ".claude"), r.home) {
 		return allSources
 	}
@@ -46,11 +46,16 @@ func (r *runner) settingSources(ctx context.Context, req agent.TurnRequest, io a
 	if declined || io.Ask == nil {
 		return userSources
 	}
+	// A turn reaches the phone once its chat has an id, which Claude reports
+	// only after it starts: report it now, or no phone sees the question.
+	if io.Session != nil {
+		io.Session(sessionID, "")
+	}
 	answer, err := io.Ask(ctx, trustApproval(io.TurnID, found))
 	if err != nil {
 		return userSources
 	}
-	if pickedLabel(answer) != trustYes {
+	if pickedOption(answer) != trustYes {
 		r.trustMu.Lock()
 		if r.declined == nil {
 			r.declined = map[string]bool{}
@@ -80,28 +85,23 @@ func sameDir(a, b string) bool {
 	return ra == rb
 }
 
-// pickedLabel is the option chosen in the trust form's one question.
-func pickedLabel(answer json.RawMessage) string {
-	var values map[string]json.RawMessage
-	var label string
-	if json.Unmarshal(answer, &values) == nil {
-		_ = json.Unmarshal(values[trustQuestionID], &label)
-	}
-	return label
+// pickedOption is the id of the option chosen on the trust approval.
+func pickedOption(answer json.RawMessage) string {
+	var id string
+	_ = json.Unmarshal(answer, &id)
+	return id
 }
 
+// trustApproval asks as a tool approval does: a short title on the bar, and
+// what the settings would run in the row's details.
 func trustApproval(turnID string, found []string) agent.Approval {
-	text := "This project has its own Claude settings:\n• " + strings.Join(found, "\n• ") +
-		"\n\nTrust it to load them, as Claude in a terminal does once you trust a folder."
+	input, _ := json.Marshal(map[string]any{"settings": found})
 	return agent.Approval{
-		CallID: "trust:" + turnID, Title: "Trust this project?", Kind: agent.ApprovalQuestion,
-		Questions: []agent.Question{{
-			ID: trustQuestionID, Header: "Claude settings", Text: text,
-			Options: []agent.QuestionOption{
-				{Label: trustYes, Description: "Load its hooks and rules; Claude in the terminal won't ask either"},
-				{Label: trustNo, Description: "Run this chat with your own settings only"},
-			},
-		}},
+		CallID: "trust:" + turnID, Title: "Trust this folder's Claude settings?", Kind: "other", Input: input,
+		Options: []agent.ApprovalOption{
+			{OptionID: trustYes, Name: "Trust", Kind: "allow_always"},
+			{OptionID: trustNo, Name: "Not now", Kind: "reject_once"},
+		},
 	}
 }
 

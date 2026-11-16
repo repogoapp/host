@@ -139,13 +139,13 @@ func (run *trustRun) send(t *testing.T, chat, pick string) string {
 	defer cancel()
 	io := agent.TurnIO{TurnID: chat, Emit: func(agent.Event) {}, Ask: func(_ context.Context, a agent.Approval) (json.RawMessage, error) {
 		run.asked++
-		if a.Kind != agent.ApprovalQuestion || !strings.Contains(a.Questions[0].Text, "./setup.sh") {
+		if len(a.Options) != 2 || !strings.Contains(string(a.Input), "./setup.sh") {
 			t.Errorf("the card doesn't name the hook: %+v", a)
 		}
 		if pick == "" {
 			return nil, errors.New("dismissed")
 		}
-		return json.Marshal(map[string]string{trustQuestionID: pick})
+		return json.Marshal(pick)
 	}}
 	if _, err := run.r.Send(ctx, agent.TurnRequest{ChatID: chat, Cwd: run.cwd, Prompt: "hello"}, io); err != nil {
 		t.Fatal(err)
