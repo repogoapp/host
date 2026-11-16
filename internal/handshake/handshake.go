@@ -60,12 +60,9 @@ type Rejected struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Roles are descriptive, not load-bearing: routing is by exact device id and
-// authority comes from the signature. A runtime owns a filesystem and serves
-// RPC; a client calls and observes.
-const (
-	RoleRuntime = "runtime"
-	RoleClient  = "client"
-)
+// RoleClient is the role a phone or tool sends: it calls and observes. Roles
+// are descriptive, not load-bearing: routing is by exact device id and
+// authority comes from the signature.
+const RoleClient = "client"
 
 const ReasonAuthFailed = "auth_failed"

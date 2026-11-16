@@ -77,8 +77,3 @@ func osRelease(path string) string {
 	}
 	return strings.TrimSpace(fields["NAME"] + " " + fields["VERSION_ID"])
 }
-
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}

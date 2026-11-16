@@ -11,7 +11,6 @@ import { Database } from "./database";
 import { parseDuration } from "./duration";
 import type { Activity, AgentOptions, AgentReply, Caller, Context, CronEntry, CronStatus, Manifest, ManifestCron, Notice } from "./context";
 
-export type { Manifest, ManifestCron, ManifestMethod } from "./context";
 import type { Effect, HTTPAddresses, PermissionMode, PluginDefinition } from "./define";
 import { MethodError, toCallError } from "./errors";
 import { EventBus } from "./events";

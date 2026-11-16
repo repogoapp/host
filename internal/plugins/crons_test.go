@@ -261,15 +261,6 @@ export default definePlugin({ methods: { caller: method(z.object({}), (_, ctx) =
 	}
 }
 
-func realPath(t *testing.T, path string) string {
-	t.Helper()
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return real
-}
-
 // A line naming a plugin only a project has is an unknown plugin: it runs nothing.
 func TestACronNeverRunsAProjectsOwnPlugin(t *testing.T) {
 	dir := sdk(t)

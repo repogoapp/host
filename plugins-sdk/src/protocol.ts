@@ -2,7 +2,8 @@ import type { WorkflowRequest } from "./workflow/contracts";
 import type { Caller, CronEntry } from "./context";
 import type { CallError } from "./errors";
 import type { LogRecord } from "./logs";
-import type { Manifest, SentNotice } from "./runtime";
+import type { Manifest } from "./context";
+import type { SentNotice } from "./runtime";
 import type { UploadedFile } from "./uploads";
 
 // What the host and the plugins server say to each other over the socket: one JSON

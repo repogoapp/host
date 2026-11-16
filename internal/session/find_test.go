@@ -11,9 +11,8 @@ import (
 
 // counting is a provider of the files in dir that counts its Lists.
 type counting struct {
-	dir     string
-	lists   int
-	refresh bool
+	dir   string
+	lists int
 }
 
 func (c *counting) Kind() agent.Kind { return agent.KindClaude }

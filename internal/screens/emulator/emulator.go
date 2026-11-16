@@ -165,24 +165,6 @@ func status(resp *http.Response) error {
 	return fmt.Errorf("emulator: gRPC status %s: %s", code, resp.Trailer.Get("Grpc-Message"))
 }
 
-// Call runs a unary method.
-func (c *Client) Call(ctx context.Context, method string, message []byte) ([]byte, error) {
-	resp, err := c.request(ctx, method, bytes.NewReader(frame(message)))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	reply, err := readFrame(resp.Body)
-	if errors.Is(err, io.EOF) {
-		err = nil
-	}
-	io.Copy(io.Discard, resp.Body)
-	if serr := status(resp); serr != nil {
-		return nil, serr
-	}
-	return reply, err
-}
-
 // Stream runs a server-streaming method, handing each message to each.
 func (c *Client) Stream(ctx context.Context, method string, message []byte, each func([]byte) error) error {
 	resp, err := c.request(ctx, method, bytes.NewReader(frame(message)))

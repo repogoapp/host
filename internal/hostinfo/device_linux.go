@@ -20,3 +20,8 @@ func readDevice() Device {
 		ModelName:  strings.TrimSpace(string(product)),
 	}
 }
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}

@@ -11,7 +11,6 @@ type Notification = stdiorpc.Notification
 
 // The notifications a turn is read from.
 const (
-	MethodTurnStarted           = "turn/started"
 	MethodTurnCompleted         = "turn/completed"
 	MethodItemStarted           = "item/started"
 	MethodItemCompleted         = "item/completed"
