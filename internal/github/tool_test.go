@@ -122,3 +122,47 @@ func TestGHAssetNames(t *testing.T) {
 		t.Fatalf("freebsd: %v", err)
 	}
 }
+
+// The real gh against github.com, through the host's sign-in path: a device
+// code comes back, a second start returns it, and cancelling ends it. The
+// config dir is scratch, so the runner's login is never touched and the
+// sign-in can never complete. The `github` CI job runs it with REPOGO_GH_LIVE=1.
+func TestLoginLiveStartsAndCancels(t *testing.T) {
+	if os.Getenv("REPOGO_GH_LIVE") != "1" {
+		t.Skip("set REPOGO_GH_LIVE=1 with gh on PATH to ask github.com for a device code")
+	}
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	ended := make(chan bool, 1)
+	in := clitool.NewInventory(nil, slog.New(slog.DiscardHandler))
+	in.Tools = []clitool.Tool{newService(t, t.TempDir()).Tool()}
+	in.OnLoginEnd(func(_ string, ok bool) { ended <- ok })
+
+	code, err := in.LoginStart(t.Context(), "github")
+	if err != nil {
+		t.Fatalf("LoginStart: %v", err)
+	}
+	if !codeLine.MatchString("one-time code: "+code.UserCode) || code.URL != deviceURL || code.Style != clilogin.StyleDevice {
+		t.Fatalf("code = %+v", code)
+	}
+	if again, _ := in.LoginStart(t.Context(), "github"); again != code {
+		t.Fatalf("second LoginStart = %+v, want %+v", again, code)
+	}
+	if gh, _ := in.Get(t.Context(), "github"); gh.Authed || gh.LoginPending == nil || *gh.LoginPending != code {
+		t.Fatalf("gh while pending = %+v", gh)
+	}
+
+	in.LoginCancel("github")
+	select {
+	case ok := <-ended:
+		if ok {
+			t.Fatal("a cancelled sign-in reported success")
+		}
+	case <-time.After(clilogin.CancelGrace + 20*time.Second):
+		t.Fatal("cancelling did not end the sign-in")
+	}
+	if gh, _ := in.Get(t.Context(), "github"); gh.Authed || gh.LoginPending != nil {
+		t.Fatalf("gh after cancel = %+v", gh)
+	}
+}

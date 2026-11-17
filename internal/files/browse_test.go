@@ -230,7 +230,7 @@ func TestBrowseDirsOnlyOpensADriveButNotItsHiddenFolders(t *testing.T) {
 	}
 	for _, path := range []string{
 		volumes, filepath.Join(drive, ".Trashes"), filepath.Join(volumes, "com.apple.TimeMachine.localsnapshots"),
-		filepath.Join(volumes, "Macintosh HD"), filepath.Join(volumes, "Macintosh HD", "Users"),
+		filepath.Join(volumes, "Macintosh HD"), filepath.Join(volumes, "Macintosh HD", "usr"),
 	} {
 		if _, _, err := svc.Browse(path, dirsOnly); !errors.Is(err, files.ErrNotBrowsable) {
 			t.Errorf("Browse(%s) = %v, want ErrNotBrowsable", path, err)
