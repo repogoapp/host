@@ -62,6 +62,9 @@ func streamDisplay(ctx context.Context, c *controller, password string, send fun
 	if err != nil {
 		return err
 	}
+	watch, stopWatching := context.WithCancel(ctx)
+	defer stopWatching()
+	go c.watchDesktop(watch)
 	err = streamChild(ctx, c, send, input, []string{"screencap"}, first)
 	if err != nil && err.Error() == vnc.ErrRefused.Error() {
 		refusedMu.Lock()

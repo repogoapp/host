@@ -1,0 +1,31 @@
+package desktop
+
+import "errors"
+
+// SwipePhase is a space swipe's step, as the Dock reads it.
+type SwipePhase int
+
+const (
+	SwipeBegan     SwipePhase = 1
+	SwipeChanged   SwipePhase = 2
+	SwipeEnded     SwipePhase = 4
+	SwipeCancelled SwipePhase = 8
+)
+
+// ErrNoSwipe answers a swipe the host can't post (no Accessibility): the
+// caller moves a whole space with Control-arrow once it ends instead.
+var ErrNoSwipe = errors.New("swipe with Control-arrow")
+
+// Swipe posts one step of the three-finger swipe between spaces, which the
+// Mac follows live, as with fingers on its trackpad. Progress is in
+// spaces, negative toward the space on the right (the fingers move left
+// to reach it). An end needs a velocity in the swipe's direction to finish
+// the move; below that it, and a cancel, slide back. The events are
+// undocumented: a macOS update can stop them moving anything.
+func Swipe(phase SwipePhase, progress, velocity float64) error {
+	if !trusted() {
+		return ErrNoSwipe
+	}
+	swipe(int(phase), progress, velocity)
+	return nil
+}

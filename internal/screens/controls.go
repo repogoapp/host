@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/repogoapp/host/internal/screens/capture"
+	"github.com/repogoapp/host/internal/screens/desktop"
 )
 
 // Message is a text message the host sends on a live view's /stream: what
@@ -18,6 +19,12 @@ type Message struct {
 	State      *State   `json:"state,omitempty"`
 	Screenshot string   `json:"screenshot,omitempty"` // base64 JPEG or PNG
 	Failed     string   `json:"failed,omitempty"`
+	// Desktop is a Mac screen's spaces and Dock, sent when they change;
+	// Icons its apps' icons by bundle ID (base64 PNG), each sent once.
+	Desktop *desktop.Desktop  `json:"desktop,omitempty"`
+	Icons   map[string]string `json:"icons,omitempty"`
+	// Launchpad is every installed app, by name, when the phone asks.
+	Launchpad []desktop.App `json:"launchpad,omitempty"`
 }
 
 // State is the device's settings as the phone shows them.
@@ -63,14 +70,19 @@ type controller struct {
 	// displayed is set once simcap reports the panel's turn, which then
 	// decides Rotation rather than the orientation the host asked for.
 	displayed bool
+	// activeScreen is the panel simcap shows, by the screen ID simctl's
+	// --display takes; 0 until it says.
+	activeScreen uint32
 	// restart asks an Android recorder to start again, and sizeChanged its
 	// touches to read the screen again: a rotation or fold changed its size.
 	restart     chan struct{}
 	sizeChanged atomic.Bool
+	// refresh asks a Mac screen's desktop to be read again, after an action.
+	refresh chan struct{}
 }
 
 func newController(ctx context.Context, d Screen, reply func(any) error) *controller {
-	c := &controller{d: d, reply: reply, restart: make(chan struct{}, 1), state: State{Orientation: 1}}
+	c := &controller{d: d, reply: reply, restart: make(chan struct{}, 1), refresh: make(chan struct{}, 1), state: State{Orientation: 1}}
 	switch d.Platform {
 	case "ios":
 		c.readIOS(ctx)
@@ -84,8 +96,9 @@ func newController(ctx context.Context, d Screen, reply func(any) error) *contro
 // controls are the actions this device takes, by name; the phone shows only these.
 func (c *controller) controls() []string {
 	if c.d.Kind == KindDisplay {
-		// The screen takes clicks, drags and typing; nothing else yet.
-		return []string{"text"}
+		// The screen takes clicks, drags and typing, and moves between
+		// its spaces and apps.
+		return []string{"text", "desktop"}
 	}
 	common := []string{"home", "appearance", "content_size", "contrast", "rotate", "url", "location",
 		"status_bar", "slow_animations", "screenshot"}
@@ -96,7 +109,7 @@ func (c *controller) controls() []string {
 		}
 		return out
 	}
-	out := append(common, "paste", "push", "shake", "memory_warning")
+	out := append(common, "app_switcher", "paste", "push", "shake", "memory_warning")
 	c.mu.Lock()
 	if c.foldable {
 		out = append(out, "fold")
@@ -127,7 +140,7 @@ func (c *controller) sendState() {
 // device's input path (simcap on iOS, the adb shell on Android).
 func (c *controller) hostRuns(in capture.Input) bool {
 	if c.d.Kind == KindDisplay {
-		return false
+		return isDesktopAction(in.Action)
 	}
 	if in.Key != nil {
 		// Keys go in order with typing and touches, on the device's path.
@@ -136,7 +149,8 @@ func (c *controller) hostRuns(in capture.Input) bool {
 	if in.Action != "" {
 		if c.d.Platform == "ios" {
 			return in.Action != capture.ActionText &&
-				in.Action != capture.ActionMemoryWarning
+				in.Action != capture.ActionMemoryWarning &&
+				in.Action != capture.ActionAppSwitcher
 		}
 		// Typing goes in order with touches, through the adb shell.
 		return in.Action != capture.ActionText
@@ -150,9 +164,12 @@ func (c *controller) hostRuns(in capture.Input) bool {
 // orientation).
 func (c *controller) act(ctx context.Context, in capture.Input, forward func(capture.Input) error) error {
 	var err error
-	if c.d.Platform == "ios" {
+	switch {
+	case c.d.Kind == KindDisplay:
+		return c.actDisplay(ctx, in, forward)
+	case c.d.Platform == "ios":
 		err = c.actIOS(ctx, in, forward)
-	} else {
+	default:
 		err = c.actAndroid(ctx, in)
 	}
 	if err == nil && in.Action != "screenshot" {
@@ -192,6 +209,7 @@ func (c *controller) fromSimcap(message []byte) {
 	learnedFoldable := m.Display.Foldable && !c.foldable
 	c.foldable = c.foldable || m.Display.Foldable
 	c.displayed = true
+	c.activeScreen = m.Display.Screen
 	c.state.Rotation = upright(m.Display.Rotation)
 	c.mu.Unlock()
 	if learnedFoldable {

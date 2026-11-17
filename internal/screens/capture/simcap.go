@@ -83,6 +83,7 @@ const (
 	ActionMemoryWarning  = "memory_warning"  //
 	ActionSlowAnimations = "slow_animations" // Value: on or off
 	ActionFold           = "fold"            // Value: closed, open, book or laptop (a foldable's pose)
+	ActionAppSwitcher    = "app_switcher"    // the swipe up from the bottom edge that pauses
 )
 
 // onscreen is whether the on-screen keyboard was last turned on.
@@ -240,10 +241,26 @@ func play(in Input) error {
 		})
 	case ActionMemoryWarning:
 		memoryWarning()
+	case ActionAppSwitcher:
+		appSwitcher()
 	case ActionSlowAnimations:
 		caDebug("debug_slow_animations", in.Value == "on")
 	}
 	return nil
+}
+
+// appSwitcher plays the gesture that opens the app switcher on a device
+// without a Home button: a swipe up from the bottom edge, a third of the
+// screen, that pauses before it lifts. Lifting while it moves would go home.
+func appSwitcher() {
+	const from, to, steps = 0.995, 0.62, 12
+	touch(0, 0.5, from)
+	for i := 1; i <= steps; i++ {
+		time.Sleep(16 * time.Millisecond)
+		touch(1, 0.5, from-(from-to)*float64(i)/steps)
+	}
+	time.Sleep(450 * time.Millisecond)
+	touch(2, 0.5, to)
 }
 
 // typeText presses each character's key, with Shift where it needs one.

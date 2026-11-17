@@ -194,7 +194,15 @@ func (c *controller) actIOS(ctx context.Context, in capture.Input, forward func(
 		}
 		defer os.RemoveAll(dir)
 		path := filepath.Join(dir, "shot.jpg")
-		if _, err = c.simctl(ctx, "io", id, "screenshot", "--type=jpeg", path); err == nil {
+		// The panel the stream shows: left to simctl, a foldable's shot is
+		// its outer screen, black while it's open.
+		args := []string{"io", id, "screenshot", "--type=jpeg"}
+		c.mu.Lock()
+		if c.activeScreen != 0 {
+			args = append(args, "--display="+strconv.FormatUint(uint64(c.activeScreen), 10))
+		}
+		c.mu.Unlock()
+		if _, err = c.simctl(ctx, append(args, path)...); err == nil {
 			var shot []byte
 			if shot, err = os.ReadFile(path); err == nil {
 				c.reply(Message{Screenshot: base64.StdEncoding.EncodeToString(shot)})
