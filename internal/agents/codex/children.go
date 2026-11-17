@@ -74,8 +74,7 @@ func (c *Sessions) ChildEvents(meta session.Meta, child session.Child) ([]agent.
 		}
 		out = append(out, events...)
 	}
-	codexTurns(out)
-	return out, nil
+	return c.Normalize(out), nil
 }
 
 // childRollout is one rollout of a spawned thread, as List peeked it.

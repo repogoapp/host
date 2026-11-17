@@ -392,6 +392,8 @@ func (c *Sessions) ParseLine(line []byte) ([]agent.Event, string) {
 		return parseEventMsg(l), l.Timestamp
 	case "response_item":
 		return parseResponseItem(l), l.Timestamp
+	case "realtime_item":
+		return parseRealtimeItem(l), l.Timestamp
 	}
 	return nil, ""
 }
@@ -582,6 +584,10 @@ type codexLine struct {
 		// response_item
 		Role    string      `json:"role"`
 		Content []codexPart `json:"content"`
+
+		// realtime_item: one spoken segment of a voice session
+		Text              string `json:"text"`
+		RealtimeSessionID string `json:"realtime_session_id"`
 
 		// web_search_call
 		ID     string          `json:"id"`

@@ -73,9 +73,11 @@ func codexTurns(events []agent.Event) {
 	}
 }
 
-// Normalize names the turn each row belongs to; a row the file does not
-// settle keeps an empty TurnID rather than a guess.
+// Normalize joins a voice session's segments, then names the turn each row
+// belongs to; a row the file does not settle keeps an empty TurnID rather
+// than a guess.
 func (c *Sessions) Normalize(events []agent.Event) []agent.Event {
+	events = joinVoiceSegments(events)
 	codexTurns(events)
 	return events
 }
