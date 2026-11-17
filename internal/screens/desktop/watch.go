@@ -3,11 +3,10 @@ package desktop
 import "sync"
 
 // Changes tells of each change the Mac reports, until stop is called: an
-// app coming to the front, launching or quitting, the space changing, and
-// in the front app a window opening, closing, focusing, minimizing,
-// resizing or retitling. The receiver reads the desktop again; a burst of
-// changes is one receive. The window changes need Accessibility; the rest
-// don't.
+// app coming to the front, launching or quitting, the space changing, and a
+// window of the front app opening, closing, focusing, minimizing, resizing
+// or retitling (those need Accessibility). The receiver reads the desktop
+// again; a burst of changes is one receive.
 func Changes() (changes <-chan struct{}, stop func()) {
 	startWatch.Do(watch)
 	c := make(chan struct{}, 1)

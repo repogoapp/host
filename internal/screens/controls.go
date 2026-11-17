@@ -3,76 +3,202 @@ package screens
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/repogoapp/host/internal/device"
+	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/screens/capture"
-	"github.com/repogoapp/host/internal/screens/desktop"
+	"github.com/repogoapp/host/internal/screens/emulator"
 )
 
-// Message is a text message the host sends on a live view's /stream: what
-// the device can do and its settings (first, and after each change), a
-// screenshot, or why an action didn't happen.
-type Message struct {
-	Controls   []string `json:"controls,omitempty"`
-	State      *State   `json:"state,omitempty"`
-	Screenshot string   `json:"screenshot,omitempty"` // base64 JPEG or PNG
-	Failed     string   `json:"failed,omitempty"`
-	// Desktop is a Mac screen's spaces and Dock, sent when they change;
-	// Icons its apps' icons by bundle ID (base64 PNG), each sent once.
-	Desktop *desktop.Desktop  `json:"desktop,omitempty"`
-	Icons   map[string]string `json:"icons,omitempty"`
-	// Launchpad is every installed app, by name, when the phone asks.
-	Launchpad []desktop.App `json:"launchpad,omitempty"`
+// Events is the part of the host's emitter the screens use: each screen's
+// live view is a room, screen:<id>, holding its latest view and desktop.
+type Events interface {
+	Publish(r emit.Room, ev emit.Stateful, judge func(cur emit.Event, ok bool) emit.Verdict) bool
+	Join(d device.ID, r emit.Room) emit.Snapshot
+	Leave(d device.ID, r emit.Room)
 }
 
-// State is the device's settings as the phone shows them.
-type State struct {
-	Appearance     string `json:"appearance"`   // light or dark
-	ContentSize    string `json:"content_size"` // an iOS content size category, as contentSizes names them
-	Contrast       bool   `json:"contrast"`
-	Orientation    int    `json:"orientation"` // UIDeviceOrientation: 1 portrait, 2 upside down, 3 landscape left, 4 landscape right
-	Rotation       int    `json:"rotation"`    // degrees the phone turns the video to show it upright
-	StatusBar      bool   `json:"status_bar"`  // 9:41, full battery and signal
-	SlowAnimations bool   `json:"slow_animations"`
-	Folded         bool   `json:"folded"`
-	// Pose is a foldable iPhone's: closed, open, book or laptop; empty until set.
-	Pose string `json:"pose"`
-	// OnscreenKeyboard is whether iOS shows its own keyboard for a focused
-	// field, which it does only with no hardware keyboard connected.
-	OnscreenKeyboard bool `json:"onscreen_keyboard"`
+// Manager keeps one controller per screen a phone looks at or acts on, so
+// every phone watching a screen sees the same settings.
+type Manager struct {
+	events Events
+
+	mu          sync.Mutex
+	controllers map[string]*controller
 }
 
-// contentSizes are iOS's content size categories, smallest first, with the
-// Android font scale each stands for.
-var contentSizes = []struct {
-	name  string
-	scale float64
-}{
-	{"extra-small", 0.82}, {"small", 0.88}, {"medium", 0.94}, {"large", 1.0},
-	{"extra-large", 1.12}, {"extra-extra-large", 1.24}, {"extra-extra-extra-large", 1.35},
-	{"accessibility-medium", 1.5}, {"accessibility-large", 1.65}, {"accessibility-extra-large", 1.8},
-	{"accessibility-extra-extra-large", 1.9}, {"accessibility-extra-extra-extra-large", 2.0},
+func NewManager(events Events) *Manager {
+	return &Manager{events: events, controllers: map[string]*controller{}}
 }
 
-// controller carries out one live view's actions on its device, turning
-// each into the platform's command, and keeps the state it reports.
+func room(id string) emit.Room { return emit.Room("screen:" + id) }
+
+// controller is the running screen's controller, made and read on first use.
+func (m *Manager) controller(ctx context.Context, id string) (*controller, error) {
+	c, _, err := m.lookup(ctx, id)
+	return c, err
+}
+
+// current is the screen's controller with its settings just read, so a
+// change made outside the app shows.
+func (m *Manager) current(ctx context.Context, id string) (*controller, error) {
+	c, made, err := m.lookup(ctx, id)
+	if err == nil && !made {
+		c.read(ctx)
+	}
+	return c, err
+}
+
+// lookup finds the screen's controller, or makes and reads it: made says
+// which. One with a live view open is running, so it skips listing the
+// devices. A screen seen shut down, or started again since, loses its
+// controller: what the host set on it went with that run.
+func (m *Manager) lookup(ctx context.Context, id string) (c *controller, made bool, err error) {
+	m.mu.Lock()
+	if c := m.controllers[id]; c != nil && c.streaming() {
+		m.mu.Unlock()
+		return c, false, nil
+	}
+	m.mu.Unlock()
+	d, err := find(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	if !d.Booted() {
+		m.forget(id)
+		return nil, false, ErrNotRunning
+	}
+	d.run = runOf(d)
+	m.mu.Lock()
+	c = m.controllers[id]
+	if c != nil && c.d.serial == d.serial && c.d.run == d.run {
+		m.mu.Unlock()
+		return c, false, nil
+	}
+	c = newController(d, m)
+	m.controllers[id] = c
+	m.mu.Unlock()
+	c.read(ctx)
+	return c, true, nil
+}
+
+// runOf names this run of a booted screen, so one started again outside the
+// host is told from the last: the time a simulator's launchd started, or
+// the emulator's process. Empty when neither can be read.
+func runOf(d Screen) string {
+	switch d.Kind {
+	case KindSimulator:
+		if d.data == "" {
+			return ""
+		}
+		if info, err := os.Stat(filepath.Join(d.data, "var", "run", "launchd_bootstrap.plist")); err == nil {
+			return info.ModTime().String()
+		}
+	case KindEmulator:
+		if port, ok := consolePort(d.serial); ok {
+			return emulator.Run(port)
+		}
+	}
+	return ""
+}
+
+// forget drops a screen's controller: it shut down.
+func (m *Manager) forget(id string) {
+	m.mu.Lock()
+	delete(m.controllers, id)
+	m.mu.Unlock()
+}
+
+// ViewResult is screens.view's reply: the room's view and desktop as the
+// device joined it. Later pushes carry newer revisions.
+type ViewResult struct {
+	View    *ViewChanged    `json:"view,omitempty"`
+	Desktop *DesktopChanged `json:"desktop,omitempty"`
+}
+
+// View joins the device to the screen's room and returns its state, read
+// again so a change made outside the app shows.
+func (m *Manager) View(ctx context.Context, d device.ID, id string) (ViewResult, error) {
+	if _, err := m.current(ctx, id); err != nil {
+		return ViewResult{}, err
+	}
+	snap := m.events.Join(d, room(id))
+	var out ViewResult
+	if v, ok := snap.State["view"].(ViewChanged); ok {
+		out.View = &v
+	}
+	if v, ok := snap.State["desktop"].(DesktopChanged); ok {
+		out.Desktop = &v
+	}
+	return out, nil
+}
+
+// Leave takes the device out of the screen's room.
+func (m *Manager) Leave(d device.ID, id string) { m.events.Leave(d, room(id)) }
+
+// Boot starts a device; see Boot.
+func (m *Manager) Boot(ctx context.Context, id string) error { return Boot(ctx, id) }
+
+// Shutdown stops a device and, once it has stopped, forgets its controller.
+func (m *Manager) Shutdown(ctx context.Context, id string) error {
+	err := Shutdown(ctx, id)
+	if err == nil {
+		m.forget(id)
+	}
+	return err
+}
+
+// controller carries out a screen's actions, turning each into the
+// platform's command, keeps the settings it reports, and holds its open
+// live views.
 type controller struct {
-	d     Screen
-	adb   string
-	reply func(any) error
+	d   Screen
+	m   *Manager
+	adb string
 
-	mu    sync.Mutex
-	state State
-	// foldable is set when simcap reports two panels, which adds fold.
+	// publishMu orders the view's pushes, taken before mu: a push is a
+	// socket write, which mustn't hold up the frames reading mu.
+	publishMu sync.Mutex
+	mu        sync.Mutex
+	state     State
+	// orientation is the UIDeviceOrientation the host last turned it to:
+	// 1 portrait, 2 upside down, 3 landscape left, 4 landscape right.
+	orientation int
+	// rotation is how far, clockwise, the phone turns the video to show it
+	// upright: 0, 90, 180 or -90. It rides in each frame's header.
+	rotation int
+	// pendingTurn is the rotation a rotate under way will end at, taken with
+	// the next frame: the screen starts turning before the device answers,
+	// and a video turned only then showed it sideways in between.
+	pendingTurn *int
+	// foldable is set when simcap reports two panels (iOS) or the AVD has a
+	// hinge (Android).
 	foldable bool
 	// displayed is set once simcap reports the panel's turn, which then
-	// decides Rotation rather than the orientation the host asked for.
+	// decides rotation rather than the orientation the host asked for.
 	displayed bool
 	// activeScreen is the panel simcap shows, by the screen ID simctl's
 	// --display takes; 0 until it says.
 	activeScreen uint32
+	// views are the open live views, newest last: an action that needs the
+	// device's input path takes the newest.
+	views []*liveView
+	// commands are simcap actions waiting for it to say they're done.
+	nextCommand int
+	commands    map[int]chan error
+
+	// desktopMu orders desktop pushes; lastDesktop is the last one sent.
+	desktopMu   sync.Mutex
+	lastDesktop *DesktopView
+
 	// restart asks an Android recorder to start again, and sizeChanged its
 	// touches to read the screen again: a rotation or fold changed its size.
 	restart     chan struct{}
@@ -81,111 +207,202 @@ type controller struct {
 	refresh chan struct{}
 }
 
-func newController(ctx context.Context, d Screen, reply func(any) error) *controller {
-	c := &controller{d: d, reply: reply, restart: make(chan struct{}, 1), refresh: make(chan struct{}, 1), state: State{Orientation: 1}}
-	switch d.Platform {
-	case "ios":
-		c.readIOS(ctx)
-	case "android":
+// liveView is one open /stream: forward writes to its device's input path.
+type liveView struct {
+	forward func(capture.Input) error
+}
+
+func newController(d Screen, m *Manager) *controller {
+	c := &controller{d: d, m: m, orientation: 1, commands: map[int]chan error{},
+		restart: make(chan struct{}, 1), refresh: make(chan struct{}, 1)}
+	if d.Platform == PlatformAndroid {
 		c.adb = androidTool("platform-tools", "adb")
-		c.readAndroid(ctx)
+		c.foldable = hasHinge(d.ID)
 	}
 	return c
 }
 
-// controls are the actions this device takes, by name; the phone shows only these.
-func (c *controller) controls() []string {
-	if c.d.Kind == KindDisplay {
-		// The screen takes clicks, drags and typing, and moves between
-		// its spaces and apps.
-		return []string{"text", "desktop"}
+// read reads the device's settings, then sends the view.
+func (c *controller) read(ctx context.Context) {
+	var s State
+	switch c.d.Platform {
+	case PlatformIOS:
+		s = c.readIOS(ctx)
+	case PlatformAndroid:
+		s = c.readAndroid(ctx)
+	default:
+		c.publish()
+		return
 	}
-	common := []string{"home", "appearance", "content_size", "contrast", "rotate", "url", "location",
-		"status_bar", "slow_animations", "screenshot"}
-	if c.d.Platform == "android" {
-		out := append(common, "back", "recents", "lock", "volume_up", "volume_down", "text")
-		if c.hasHinge() {
-			out = append(out, "fold")
+	c.update(func(cur *State) {
+		// What the host set and can't read back stays.
+		s.StatusBar, s.SlowAnimations = cur.StatusBar, cur.SlowAnimations
+		if c.d.Platform == PlatformIOS {
+			s.OnscreenKeyboard, s.Pose = cur.OnscreenKeyboard, cur.Pose
 		}
-		return out
+		*cur = s
+	})
+}
+
+// controls are the actions this screen takes.
+func (c *controller) controls() []Control {
+	if c.d.Kind == KindDisplay {
+		return []Control{ControlText, ControlDesktop}
 	}
-	out := append(common, "app_switcher", "paste", "push", "shake", "memory_warning")
-	c.mu.Lock()
+	out := []Control{ControlAppearance, ControlContentSize, ControlContrast, ControlStatusBar,
+		ControlSlowAnimations, ControlRotate, ControlOpenURL, ControlLocation, ControlScreenshot}
 	if c.foldable {
-		out = append(out, "fold")
+		out = append(out, ControlPose)
 	}
-	c.mu.Unlock()
-	// The on-screen keyboard is a CoreSimulator setting: every runtime takes it.
-	out = append(out, "keyboard")
-	switch {
-	case !c.universalHID():
-		out = append(out, "text", "lock", "siri", "volume_up", "volume_down")
-	case capture.UniversalHID:
-		// iOS 27 takes keys through Universal HID; its buttons are still
-		// Indigo messages, which it ignores.
-		out = append(out, "text")
+	if c.d.Platform == PlatformAndroid {
+		return append(out, ControlText)
+	}
+	out = append(out, ControlPush, ControlShake, ControlMemoryWarning, ControlOnscreenKeyboard)
+	if !c.universalHID() || capture.UniversalHID {
+		out = append(out, ControlText)
 	}
 	return out
 }
 
-// sendState reports the current state to the phone.
-func (c *controller) sendState() {
-	c.mu.Lock()
-	state := c.state
-	c.mu.Unlock()
-	c.reply(Message{State: &state})
-}
-
-// hostRuns reports whether the host carries out in itself, rather than the
-// device's input path (simcap on iOS, the adb shell on Android).
-func (c *controller) hostRuns(in capture.Input) bool {
-	if c.d.Kind == KindDisplay {
-		return isDesktopAction(in.Action)
-	}
-	if in.Key != nil {
-		// Keys go in order with typing and touches, on the device's path.
-		return false
-	}
-	if in.Action != "" {
-		if c.d.Platform == "ios" {
-			return in.Action != capture.ActionText &&
-				in.Action != capture.ActionMemoryWarning &&
-				in.Action != capture.ActionAppSwitcher
-		}
-		// Typing goes in order with touches, through the adb shell.
-		return in.Action != capture.ActionText
-	}
-	// iOS 26 and later drop the Home button's HID press.
-	return c.d.Platform == "ios" && in.Button == "home" && iosMajor(c.d.OS) >= 26
-}
-
-// act carries out one action the host runs, then reports the state. forward
-// passes an action on to simcap (iOS rotation, after the host decides the
-// orientation).
-func (c *controller) act(ctx context.Context, in capture.Input, forward func(capture.Input) error) error {
-	var err error
+// buttons are the hardware buttons this screen takes over /stream.
+func (c *controller) buttons() []HardwareButton {
 	switch {
 	case c.d.Kind == KindDisplay:
-		return c.actDisplay(ctx, in, forward)
-	case c.d.Platform == "ios":
-		err = c.actIOS(ctx, in, forward)
-	default:
-		err = c.actAndroid(ctx, in)
+		return []HardwareButton{}
+	case c.d.Platform == PlatformAndroid:
+		return []HardwareButton{ButtonHome, ButtonBack, ButtonRecents, ButtonLock, ButtonVolumeUp, ButtonVolumeDown}
+	case !c.universalHID():
+		return []HardwareButton{ButtonHome, ButtonAppSwitcher, ButtonLock, ButtonSiri, ButtonVolumeUp, ButtonVolumeDown}
 	}
-	if err == nil && in.Action != "screenshot" {
-		c.sendState()
-	}
-	return err
+	// iOS 27 takes its buttons as Indigo messages, which it ignores.
+	return []HardwareButton{ButtonHome, ButtonAppSwitcher}
 }
 
-func (c *controller) set(change func(*State)) {
+// supports refuses an action this screen doesn't take.
+func (c *controller) supports(control Control) error {
 	c.mu.Lock()
-	change(&c.state)
+	defer c.mu.Unlock()
+	if !slices.Contains(c.controls(), control) {
+		return ErrUnsupported
+	}
+	return nil
+}
+
+// update changes the state and sends the view: snapshots go out in the
+// order the changes were made.
+func (c *controller) update(change func(*State)) { c.change(func() { change(&c.state) }) }
+
+func (c *controller) publish() { c.change(func() {}) }
+
+// change runs fn under mu, then sends the view it left.
+func (c *controller) change(fn func()) {
+	c.publishMu.Lock()
+	defer c.publishMu.Unlock()
+	c.mu.Lock()
+	fn()
+	view := ViewChanged{Screen: c.d.ID, Controls: c.controls(), Buttons: c.buttons()}
+	if c.d.Kind != KindDisplay {
+		state := c.state
+		view.State = &state
+	}
 	c.mu.Unlock()
+	c.m.events.Publish(room(c.d.ID), view, nil)
+}
+
+func (c *controller) streaming() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.views) > 0
+}
+
+// publishDesktop sends the Mac's desktop when it changed.
+func (c *controller) publishDesktop(v DesktopView) {
+	c.desktopMu.Lock()
+	defer c.desktopMu.Unlock()
+	if c.lastDesktop != nil && sameJSON(*c.lastDesktop, v) {
+		return
+	}
+	c.lastDesktop = &v
+	c.m.events.Publish(room(c.d.ID), DesktopChanged{Screen: c.d.ID, Desktop: v}, nil)
+}
+
+func sameJSON(a, b any) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
+// open adds a live view whose input path is forward; close takes it away.
+func (c *controller) open(forward func(capture.Input) error) (close func()) {
+	v := &liveView{forward: forward}
+	c.mu.Lock()
+	c.views = append(c.views, v)
+	c.mu.Unlock()
+	return func() {
+		c.mu.Lock()
+		c.views = slices.DeleteFunc(c.views, func(x *liveView) bool { return x == v })
+		c.mu.Unlock()
+	}
+}
+
+// forward writes to the newest live view's input path.
+func (c *controller) forward(in capture.Input) error {
+	c.mu.Lock()
+	var v *liveView
+	if n := len(c.views); n > 0 {
+		v = c.views[n-1]
+	}
+	c.mu.Unlock()
+	if v == nil {
+		return ErrNotStreaming
+	}
+	return v.forward(in)
+}
+
+// showTurn has every open view send a frame now, so the turn in its header
+// reaches the phone: a still screen (the Home screen, which doesn't turn
+// with the device) sends none of its own, and the phone kept the old turn
+// until something moved.
+func (c *controller) showTurn() {
+	c.mu.Lock()
+	views := slices.Clone(c.views)
+	c.mu.Unlock()
+	for _, v := range views {
+		v.forward(capture.Input{Action: capture.ActionKeyframe})
+	}
+}
+
+// commandWait is how long simcap may take to carry out an action.
+const commandWait = 10 * time.Second
+
+// command sends an action to simcap and waits for it to say it's done.
+func (c *controller) command(ctx context.Context, in capture.Input) error {
+	c.mu.Lock()
+	c.nextCommand++
+	in.ID = c.nextCommand
+	done := make(chan error, 1)
+	c.commands[in.ID] = done
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.commands, in.ID)
+		c.mu.Unlock()
+	}()
+	if err := c.forward(in); err != nil {
+		return err
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(commandWait):
+		return errors.New("the simulator didn't answer")
+	}
 }
 
 // fromSimcap takes a message simcap sent the host: the active panel and its
-// turn, or why an action failed.
+// turn, or that an action finished.
 func (c *controller) fromSimcap(message []byte) {
 	var m struct {
 		Display *struct {
@@ -193,45 +410,65 @@ func (c *controller) fromSimcap(message []byte) {
 			Rotation int    `json:"rotation"`
 			Foldable bool   `json:"foldable"`
 		} `json:"display"`
-		Failed string `json:"failed"`
+		Done *struct {
+			ID    int    `json:"id"`
+			Error string `json:"error"`
+		} `json:"done"`
 	}
 	if json.Unmarshal(message, &m) != nil {
 		return
 	}
-	if m.Failed != "" {
-		c.reply(Message{Failed: m.Failed})
+	if d := m.Done; d != nil {
+		c.mu.Lock()
+		done := c.commands[d.ID]
+		c.mu.Unlock()
+		if done != nil {
+			var err error
+			if d.Error != "" {
+				err = errors.New(d.Error)
+			}
+			done <- err
+		}
 		return
 	}
 	if m.Display == nil {
 		return
 	}
+	turned := false
+	c.change(func() {
+		c.foldable = c.foldable || m.Display.Foldable
+		c.displayed = true
+		c.activeScreen = m.Display.Screen
+		turned = c.rotation != upright(m.Display.Rotation)
+		c.rotation = upright(m.Display.Rotation)
+		// The device's real turn, so the next rotate starts from it: one the
+		// host assumed (portrait, for a device it just met) sent a turn the
+		// device was already at, and nothing moved.
+		c.orientation = orientationAt(m.Display.Rotation)
+	})
+	if turned {
+		// Off simcap's reader, which this is: the write goes to its input.
+		go c.showTurn()
+	}
+}
+
+// quarterTurns is the frame header's rotation: quarter turns clockwise.
+func (c *controller) quarterTurns() byte {
 	c.mu.Lock()
-	learnedFoldable := m.Display.Foldable && !c.foldable
-	c.foldable = c.foldable || m.Display.Foldable
-	c.displayed = true
-	c.activeScreen = m.Display.Screen
-	c.state.Rotation = upright(m.Display.Rotation)
-	c.mu.Unlock()
-	if learnedFoldable {
-		c.reply(Message{Controls: c.controls()})
+	defer c.mu.Unlock()
+	if c.pendingTurn != nil {
+		c.rotation, c.pendingTurn = *c.pendingTurn, nil
 	}
-	c.sendState()
+	return byte(((c.rotation/90)%4 + 4) % 4)
 }
 
-func lightOrDark(v string) string {
-	if v == "dark" {
-		return "dark"
-	}
-	return "light"
-}
+func ptr[T any](v T) *T { return &v }
 
-func contentSize(name string) (string, bool) {
-	for _, s := range contentSizes {
-		if s.name == name {
-			return name, true
-		}
+func onOff(on bool) string {
+	if on {
+		return "on"
 	}
-	return "", false
+	return "off"
 }
 
 // shellQuote quotes s for the device's sh.

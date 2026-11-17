@@ -12,7 +12,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/hostclient"
 	"github.com/repogoapp/host/internal/rpc"
-	"github.com/repogoapp/host/internal/wsserver"
+	"github.com/repogoapp/host/internal/screens"
 )
 
 // echoStream sends the request back as two frames, then the device's first
@@ -55,8 +55,9 @@ func TestStreamSendsFramesThenWhyItEnded(t *testing.T) {
 		t.Fatalf("input = %v %q %v, want the touch back", binary, b, err)
 	}
 	binary, b, err := c.Next(ctx)
-	var failed wsserver.StreamFailed
-	if err != nil || binary || json.Unmarshal(b, &failed) != nil || failed.Error != "stream over" {
+	var failed screens.StreamMessage
+	if err != nil || binary || json.Unmarshal(b, &failed) != nil || failed.Type != "failed" || failed.Failed == nil ||
+		failed.Failed.Error != "stream over" || failed.Failed.Code != nil {
 		t.Fatalf("end = %v %q %v, want the stream's error as text", binary, b, err)
 	}
 }

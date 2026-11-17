@@ -1,0 +1,41 @@
+{
+  "screen": "screen",
+  "desktop": {
+    "locked": true,
+    "spaces": [
+      {
+        "id": "id",
+        "apps": [
+          "apps"
+        ]
+      }
+    ],
+    "current_space": "current_space",
+    "apps": [
+      {
+        "bundle": "bundle",
+        "name": "name",
+        "running": true,
+        "windows": [
+          {
+            "id": 1,
+            "title": "title",
+            "space": "space"
+          }
+        ]
+      }
+    ],
+    "front": "front",
+    "focus": {
+      "window": 1,
+      "title": "title",
+      "full_screen": true,
+      "buttons": [
+        "close"
+      ],
+      "tiles": true
+    }
+  },
+  "epoch": "epoch",
+  "revision": 1
+}

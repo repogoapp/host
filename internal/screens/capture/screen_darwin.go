@@ -56,6 +56,10 @@ func RunScreen(ctx context.Context, out *os.File, in io.Reader) error {
 				pad.play(client, input)
 			}
 		}
+		// A view that closes mid-touch never lifts its finger.
+		if pad.buttons != 0 {
+			client.Pointer(pad.x, pad.y, 0)
+		}
 	}()
 	return client.Run(ctx, func() {
 		if len(client.Screen) == 0 {
@@ -101,6 +105,8 @@ func (s *screenInput) play(c *vnc.Client, in Input) {
 			s.buttons = 1
 		}
 		c.Pointer(s.x, s.y, s.buttons)
+	case in.Action == ActionKeyframe:
+		C.simcap_keyframe()
 	case in.Action == ActionText:
 		for _, r := range in.Value {
 			keysym := Keysym(r)

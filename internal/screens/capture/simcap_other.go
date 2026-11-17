@@ -21,7 +21,8 @@ func rotate(int) bool             { return false }
 func memoryWarning()              {}
 func onscreenKeyboard(bool) bool  { return false }
 func fold(string) bool            { return false }
-func failed(string)               {}
+func tell([]byte)                 {}
+func keyframe()                   {}
 func caDebug(string, bool)        {}
 func stop()                       {}
 

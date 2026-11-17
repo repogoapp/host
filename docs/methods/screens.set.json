@@ -1,0 +1,9 @@
+{
+  "appearance": "light",
+  "content_size": "extra-small",
+  "contrast": true,
+  "status_bar": true,
+  "slow_animations": true,
+  "pose": "closed",
+  "onscreen_keyboard": true
+}

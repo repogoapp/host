@@ -64,6 +64,7 @@ import (
 	"github.com/repogoapp/host/internal/rpc/turns"
 	uploadsrpc "github.com/repogoapp/host/internal/rpc/uploads"
 	"github.com/repogoapp/host/internal/schedule"
+	"github.com/repogoapp/host/internal/screens"
 	"github.com/repogoapp/host/internal/shipping"
 	"github.com/repogoapp/host/internal/stepactivity"
 	"github.com/repogoapp/host/internal/store"
@@ -130,7 +131,9 @@ type Config struct {
 	Projects  *projectcore.Service
 	Git       *gitcore.Service
 	Terminals *terminal.Manager
-	Actions   *actionscore.Service
+	// Screens is the live views of this machine's simulators, emulators and display.
+	Screens *screens.Manager
+	Actions *actionscore.Service
 
 	// GitHub is how a project gets onto this host in the first place.
 	GitHub *ghcore.Service
@@ -194,7 +197,7 @@ func New(cfg Config) (*rpc.Router, error) {
 		},
 	})
 	portsrpc.Register(r)
-	screensrpc.Register(r)
+	screensrpc.Register(r, screensrpc.Deps{Screens: cfg.Screens})
 	agentsrpc.Register(r, agentsrpc.Deps{
 		Files: cfg.Files, Environment: cfg.Agents, Project: cfg.ProjectAgents, Catalog: cfg.AgentCatalog,
 	})

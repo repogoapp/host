@@ -2,7 +2,6 @@ package screens
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -33,18 +32,28 @@ func ListAndroid(ctx context.Context) ([]Screen, error) {
 	}
 	var screens []Screen
 	for _, avd := range strings.Fields(string(out)) {
+		name := strings.ReplaceAll(avd, "_", " ")
+		form := FormPhone
+		switch {
+		case hasHinge(avd):
+			form = FormFoldable
+		case strings.Contains(strings.ToLower(name), "tablet"):
+			form = FormTablet
+		}
 		screens = append(screens, Screen{
 			Kind:     KindEmulator,
-			Platform: "android",
+			Platform: PlatformAndroid,
 			ID:       avd,
-			Name:     strings.ReplaceAll(avd, "_", " "),
-			OS:       avdAPILevel(avd),
+			Name:     name,
+			OS:       avdOS(avd),
+			State:    StateShutdown,
+			Form:     form,
 		})
 	}
 	running := runningAVDs(ctx)
 	for i := range screens {
 		if serial, ok := running[screens[i].ID]; ok {
-			screens[i].Booted, screens[i].Serial = true, serial
+			screens[i].State, screens[i].serial = StateBooted, serial
 		}
 	}
 	sortDevices(screens)
@@ -87,20 +96,28 @@ func emulatorSerials(out string) []string {
 	return serials
 }
 
-// avdAPILevel reads the AVD's target from its .ini ("android-37.0" → "API 37.0").
-func avdAPILevel(avd string) string {
-	home := avdHome()
-	if home == "" {
-		return ""
-	}
-	ini, err := os.ReadFile(filepath.Join(home, avd+".ini"))
+// avdOS reads the AVD's target from its .ini ("android-36" is Android 16, API 36).
+func avdOS(avd string) OS {
+	os := OS{Name: "Android"}
+	ini, err := readFile(avdHome(), avd+".ini")
 	if err != nil {
-		return ""
+		return os
 	}
-	if level, ok := strings.CutPrefix(iniValue(string(ini), "target"), "android-"); ok {
-		return "API " + level
+	level, ok := strings.CutPrefix(iniValue(ini, "target"), "android-")
+	major, _, _ := strings.Cut(level, ".")
+	n, err := strconv.Atoi(major)
+	if !ok || err != nil {
+		return os
 	}
-	return ""
+	os.APILevel = &n
+	os.Version = androidReleases[n]
+	return os
+}
+
+// androidReleases are Android's versions by API level.
+var androidReleases = map[int]string{
+	26: "8.0", 27: "8.1", 28: "9", 29: "10", 30: "11", 31: "12", 32: "12L", 33: "13", 34: "14",
+	35: "15", 36: "16", 37: "17",
 }
 
 func avdHome() string {
@@ -186,13 +203,13 @@ func waitForAndroid(ctx context.Context, avd string) error {
 // androidcap` reads its display from its gRPC control port and encodes it
 // here, and plays input through the same port. Elsewhere, or for an emulator
 // without that port, it falls back to screenrecord over adb.
-func streamAndroid(ctx context.Context, c *controller, send func([]byte) error, input <-chan capture.Input) error {
-	if port, ok := consolePort(c.d.Serial); ok && runtime.GOOS == "darwin" {
+func streamAndroid(ctx context.Context, c *controller, framed *framer, input *inputQueue) error {
+	if port, ok := consolePort(c.d.serial); ok && runtime.GOOS == "darwin" {
 		if _, err := emulator.Find(port); err == nil {
-			return streamChild(ctx, c, send, input, []string{"androidcap", strconv.Itoa(port)}, nil)
+			return streamChild(ctx, c, framed.child, input, []string{"androidcap", strconv.Itoa(port)}, nil)
 		}
 	}
-	return recordAndroid(ctx, c, send, input)
+	return recordAndroid(ctx, c, framed, input)
 }
 
 // consolePort is an emulator's console port, from its serial (emulator-5554).
@@ -202,20 +219,28 @@ func consolePort(serial string) (int, bool) {
 }
 
 // recordAndroid runs screenrecord, again when it stops on its own every few
-// minutes or the screen changes size (a rotation, a fold).
-func recordAndroid(ctx context.Context, c *controller, send func([]byte) error, input <-chan capture.Input) error {
+// minutes or the screen changes size (a rotation, a fold). Each run's frames
+// go through framed, so their sequence keeps counting.
+func recordAndroid(ctx context.Context, c *controller, framed *framer, input *inputQueue) error {
 	touches := make(chan capture.Input)
 	go playAndroid(ctx, c, touches)
+	toDevice := func(in capture.Input) error {
+		if in.Action == capture.ActionKeyframe {
+			// screenrecord has no way to ask; started again, it opens with one.
+			c.restartRecorder()
+			return nil
+		}
+		select {
+		case touches <- in:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	defer c.open(toDevice)()
 	go func() {
 		defer close(touches)
-		c.serve(ctx, input, func(in capture.Input) error {
-			select {
-			case touches <- in:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
+		c.serve(ctx, input, toDevice)
 	}()
 	for {
 		started := time.Now()
@@ -229,8 +254,8 @@ func recordAndroid(ctx context.Context, c *controller, send func([]byte) error, 
 			case <-run.Done():
 			}
 		}()
-		err := pump(run, exec.CommandContext(run, c.adb, "-s", c.d.Serial, "exec-out", "screenrecord",
-			"--output-format=h264", "--bit-rate", streamBitRate, "--size", streamSize(c.screen(ctx)), "-"), send)
+		err := pump(run, exec.CommandContext(run, c.adb, "-s", c.d.serial, "exec-out", "screenrecord",
+			"--output-format=h264", "--bit-rate", streamBitRate, "--size", streamSize(c.screen(ctx)), "-"), framed)
 		cancel()
 		switch {
 		case ctx.Err() != nil:
@@ -313,7 +338,9 @@ func playAndroid(ctx context.Context, c *controller, input <-chan capture.Input)
 	if w == 0 {
 		return
 	}
-	cmd := exec.CommandContext(ctx, c.adb, "-s", c.d.Serial, "shell")
+	cmd := exec.CommandContext(ctx, c.adb, "-s", c.d.serial, "shell")
+	// The lift below has to reach the shell after ctx ends.
+	endsWithInput(cmd)
 	shell, err := cmd.StdinPipe()
 	if err != nil || cmd.Start() != nil {
 		return
@@ -492,28 +519,38 @@ var androidKeys = map[string]string{
 	"home": "KEYCODE_HOME", "back": "KEYCODE_BACK", "recents": "KEYCODE_APP_SWITCH", "lock": "KEYCODE_POWER",
 }
 
-func (c *controller) readAndroid(ctx context.Context) {
+func (c *controller) readAndroid(ctx context.Context) State {
+	var s State
 	if out, err := c.shell(ctx, "cmd uimode night"); err == nil {
-		c.state.Appearance = map[bool]string{true: "dark", false: "light"}[strings.Contains(string(out), "yes")]
+		v := AppearanceLight
+		if strings.Contains(string(out), "yes") {
+			v = AppearanceDark
+		}
+		s.Appearance = &v
 	}
 	if out, err := c.shell(ctx, "settings get system font_scale"); err == nil {
-		scale, _ := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-		c.state.ContentSize = nearestSize(scale)
-	}
-	if out, err := c.shell(ctx, "settings get secure high_text_contrast_enabled"); err == nil {
-		c.state.Contrast = strings.TrimSpace(string(out)) == "1"
-	}
-	if c.hasHinge() {
-		if out, err := c.shell(ctx, "cmd device_state state"); err == nil {
-			c.state.Folded = strings.Contains(string(out), "CLOSED")
+		if scale, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
+			s.ContentSize = ptr(nearestSize(scale))
 		}
 	}
+	if out, err := c.shell(ctx, "settings get secure high_text_contrast_enabled"); err == nil {
+		s.Contrast = ptr(strings.TrimSpace(string(out)) == "1")
+	}
+	if c.foldable {
+		if out, err := c.shell(ctx, "cmd device_state state"); err == nil {
+			pose := PoseOpen
+			if strings.Contains(string(out), "CLOSED") {
+				pose = PoseClosed
+			}
+			s.Pose = &pose
+		}
+	}
+	return s
 }
 
 // hasHinge reads the AVD's config: a hinge sensor makes it a foldable.
-func (c *controller) hasHinge() bool {
-	home := avdHome()
-	ini, err := readFile(home, c.d.ID+".ini")
+func hasHinge(avd string) bool {
+	ini, err := readFile(avdHome(), avd+".ini")
 	if err != nil {
 		return false
 	}
@@ -522,15 +559,15 @@ func (c *controller) hasHinge() bool {
 }
 
 func (c *controller) shell(ctx context.Context, command string) ([]byte, error) {
-	return run(ctx, c.adb, "-s", c.d.Serial, "shell", command)
+	return run(ctx, c.adb, "-s", c.d.serial, "shell", command)
 }
 
 // screen is the emulator's screen as touches address it now: its physical
 // size, swapped while it lies on its side.
 func (c *controller) screen(ctx context.Context) (w, h int) {
-	w, h = screenSize(ctx, c.adb, c.d.Serial)
+	w, h = screenSize(ctx, c.adb, c.d.serial)
 	c.mu.Lock()
-	sideways := c.state.Orientation == 3 || c.state.Orientation == 4
+	sideways := c.orientation == 3 || c.orientation == 4
 	c.mu.Unlock()
 	if sideways {
 		return h, w
@@ -546,95 +583,102 @@ func (c *controller) restartRecorder() {
 	}
 }
 
-func (c *controller) actAndroid(ctx context.Context, in capture.Input) error {
-	var err error
-	switch in.Action {
-	case "appearance":
-		mode := map[bool]string{true: "yes", false: "no"}[lightOrDark(in.Value) == "dark"]
-		if _, err = c.shell(ctx, "cmd uimode night "+mode); err == nil {
-			c.set(func(s *State) { s.Appearance = lightOrDark(in.Value) })
+func (c *controller) setAndroid(ctx context.Context, s Settings) error {
+	if v := s.Appearance; v != nil {
+		if _, err := c.shell(ctx, "cmd uimode night "+map[bool]string{true: "yes", false: "no"}[*v == AppearanceDark]); err != nil {
+			return err
 		}
-	case "content_size":
-		size, ok := contentSize(in.Value)
-		if !ok {
-			return fmt.Errorf("unknown text size %q", in.Value)
+		c.update(func(st *State) { st.Appearance = ptr(*v) })
+	}
+	if v := s.ContentSize; v != nil {
+		if _, err := c.shell(ctx, fmt.Sprintf("settings put system font_scale %g", scaleOf(*v))); err != nil {
+			return err
 		}
-		if _, err = c.shell(ctx, fmt.Sprintf("settings put system font_scale %g", scaleOf(size))); err == nil {
-			c.set(func(s *State) { s.ContentSize = size })
+		c.update(func(st *State) { st.ContentSize = ptr(*v) })
+	}
+	if v := s.Contrast; v != nil {
+		if _, err := c.shell(ctx, "settings put secure high_text_contrast_enabled "+map[bool]string{true: "1", false: "0"}[*v]); err != nil {
+			return err
 		}
-	case "contrast":
-		on := in.Value == "on"
-		if _, err = c.shell(ctx, "settings put secure high_text_contrast_enabled "+map[bool]string{true: "1", false: "0"}[on]); err == nil {
-			c.set(func(s *State) { s.Contrast = on })
-		}
-	case "rotate":
-		// The emulator turns clockwise a quarter at a time.
-		turns := map[string]int{"right": 1, "left": 3}[in.Value]
-		for range turns {
-			if _, err = run(ctx, c.adb, "-s", c.d.Serial, "emu", "rotate"); err != nil {
-				return err
-			}
-		}
-		c.set(func(s *State) { s.Orientation = turn(s.Orientation, in.Value) })
-		c.restartRecorder()
-	case "fold":
-		folded := in.Value == "closed"
-		if _, err = run(ctx, c.adb, "-s", c.d.Serial, "emu", map[bool]string{true: "fold", false: "unfold"}[folded]); err == nil {
-			c.set(func(s *State) { s.Folded = folded })
-			c.restartRecorder()
-		}
-	case "url":
-		_, err = c.shell(ctx, "am start -a android.intent.action.VIEW -d "+shellQuote(in.Value))
-	case "location":
-		if in.Value != "clear" {
-			_, err = run(ctx, c.adb, "-s", c.d.Serial, "emu", "geo", "fix", fmt.Sprint(in.Lon), fmt.Sprint(in.Lat))
-		}
-	case "status_bar":
-		on := in.Value == "on"
+		c.update(func(st *State) { st.Contrast = ptr(*v) })
+	}
+	if v := s.StatusBar; v != nil {
 		demo := "am broadcast -a com.android.systemui.demo -e command "
 		script := demo + "exit"
-		if on {
+		if *v {
 			script = strings.Join([]string{"settings put global sysui_demo_allowed 1", demo + "enter",
 				demo + "clock -e hhmm 0941", demo + "battery -e level 100 -e plugged false",
 				demo + "network -e wifi show -e level 4 -e mobile show -e datatype none -e level 4",
 				demo + "notifications -e visible false"}, "; ")
 		}
-		if _, err = c.shell(ctx, script); err == nil {
-			c.set(func(s *State) { s.StatusBar = on })
+		if _, err := c.shell(ctx, script); err != nil {
+			return err
 		}
-	case "slow_animations":
-		on := in.Value == "on"
-		scale := map[bool]string{true: "10", false: "1"}[on]
-		if _, err = c.shell(ctx, "settings put global animator_duration_scale "+scale+
-			"; settings put global transition_animation_scale "+scale+
-			"; settings put global window_animation_scale "+scale); err == nil {
-			c.set(func(s *State) { s.SlowAnimations = on })
-		}
-	case "screenshot":
-		var shot []byte
-		if shot, err = run(ctx, c.adb, "-s", c.d.Serial, "exec-out", "screencap", "-p"); err == nil {
-			c.reply(Message{Screenshot: base64.StdEncoding.EncodeToString(shot)})
-		}
-	default:
-		return fmt.Errorf("%s isn't available on this emulator", in.Action)
+		c.update(func(st *State) { st.StatusBar = ptr(*v) })
 	}
+	if v := s.SlowAnimations; v != nil {
+		scale := map[bool]string{true: "10", false: "1"}[*v]
+		if _, err := c.shell(ctx, "settings put global animator_duration_scale "+scale+
+			"; settings put global transition_animation_scale "+scale+
+			"; settings put global window_animation_scale "+scale); err != nil {
+			return err
+		}
+		c.update(func(st *State) { st.SlowAnimations = ptr(*v) })
+	}
+	if v := s.Pose; v != nil {
+		// An emulator folds closed or opens; book and laptop are open.
+		folded := *v == PoseClosed
+		if _, err := run(ctx, c.adb, "-s", c.d.serial, "emu", map[bool]string{true: "fold", false: "unfold"}[folded]); err != nil {
+			return err
+		}
+		pose := PoseOpen
+		if folded {
+			pose = PoseClosed
+		}
+		c.update(func(st *State) { st.Pose = &pose })
+		c.restartRecorder()
+	}
+	return nil
+}
+
+func (c *controller) rotateAndroid(ctx context.Context, t Turn) error {
+	// The emulator turns clockwise a quarter at a time.
+	turns := map[Turn]int{TurnRight: 1, TurnLeft: 3}[t]
+	for range turns {
+		if _, err := run(ctx, c.adb, "-s", c.d.serial, "emu", "rotate"); err != nil {
+			return err
+		}
+	}
+	c.mu.Lock()
+	c.orientation = turn(c.orientation, t)
+	c.mu.Unlock()
+	c.restartRecorder()
+	return nil
+}
+
+func (c *controller) locationAndroid(ctx context.Context, at *Coordinate) error {
+	// The emulator has no way to clear a fix; the last one stays.
+	if at == nil {
+		return nil
+	}
+	_, err := run(ctx, c.adb, "-s", c.d.serial, "emu", "geo", "fix", fmt.Sprint(at.Lon), fmt.Sprint(at.Lat))
 	return err
 }
 
 // nearestSize is the content size category whose Android scale is closest.
-func nearestSize(scale float64) string {
+func nearestSize(scale float64) ContentSize {
 	best := contentSizes[0]
 	for _, s := range contentSizes[1:] {
 		if math.Abs(s.scale-scale) < math.Abs(best.scale-scale) {
 			best = s
 		}
 	}
-	return best.name
+	return ContentSize(best.name)
 }
 
-func scaleOf(name string) float64 {
+func scaleOf(size ContentSize) float64 {
 	for _, s := range contentSizes {
-		if s.name == name {
+		if s.name == string(size) {
 			return s.scale
 		}
 	}

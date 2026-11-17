@@ -65,7 +65,14 @@ var methodExports = map[string]bool{
 
 	"ports.list": true, "ports.kill": true,
 
-	"screens.list": true, "screens.boot": true, "screens.shutdown": true,
+	"screens.list": true, "screens.boot": true, "screens.shutdown": true, "screens.view": true,
+	"screens.leave": true, "screens.set": true, "screens.rotate": true, "screens.open_url": true,
+	"screens.location": true, "screens.push": true, "screens.shake": true, "screens.memory_warning": true,
+	"screens.screenshot": true,
+
+	"screens.desktop.space": true, "screens.desktop.open_app": true, "screens.desktop.quit_app": true,
+	"screens.desktop.window": true, "screens.desktop.button": true, "screens.desktop.tile": true,
+	"screens.desktop.launchpad": true, "screens.desktop.icons": true,
 
 	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
 	"projects.add": true, "projects.create": true, "projects.delete": true,
@@ -109,6 +116,15 @@ func methodsGen(specs []rpc.Spec, exported func(string) bool) (*swiftGen, *swift
 			g.markDir(s.Result, decodes)
 		}
 	}
+	wireIn, wireOut := rpc.WireTypes()
+	for _, t := range wireIn {
+		g.collect(t, map[reflect.Type]bool{})
+		g.markDir(t, encodes)
+	}
+	for _, t := range wireOut {
+		g.collect(t, map[reflect.Type]bool{})
+		g.markDir(t, decodes)
+	}
 	g.assignNames()
 	events := eventGenerator(hostemit.Catalog())
 	for typ, name := range events.names {
@@ -135,6 +151,9 @@ func methodsGen(specs []rpc.Spec, exported func(string) bool) (*swiftGen, *swift
 		if !found[name] {
 			panic("unknown Swift export: " + name)
 		}
+	}
+	for _, t := range append(wireIn, wireOut...) {
+		g.typeRef(t, "")
 	}
 	g.drain()
 	for _, name := range events.names {
@@ -378,6 +397,11 @@ func (g *swiftGen) collect(t reflect.Type, seen map[reflect.Type]bool) {
 		}
 		t = t.Elem()
 	}
+	if _, ok := enumValues(t); ok && !seen[t] {
+		seen[t] = true
+		g.seen = append(g.seen, t)
+		return
+	}
 	if t.Kind() != reflect.Struct || seen[t] || t == timeT {
 		return
 	}
@@ -509,6 +533,13 @@ func (g *swiftGen) typeRef(t reflect.Type, hint string) string {
 		panic("unsupported JSON number: " + t.String())
 	case t == timeT:
 		return "String"
+	case isEnum(t):
+		name, ok := g.names[t]
+		if !ok {
+			panic("enum without a wire family: " + t.String())
+		}
+		g.queue = append(g.queue, pending{t, name})
+		return "HostAPI." + name
 	case t.Implements(marshalerT) || reflect.PointerTo(t).Implements(marshalerT) ||
 		t.Implements(textMarshalerT) || reflect.PointerTo(t).Implements(textMarshalerT):
 		panic("unsupported custom marshaler: " + t.String())
@@ -577,10 +608,131 @@ func (g *swiftGen) drain() {
 		rest := g.queue
 		g.queue = nil
 		g.bodies[p.name] = "" // reserve against recursion
-		g.bodies[p.name] = g.structBody(p.t, p.name)
+		g.bodies[p.name] = g.body(p.t, p.name)
 		g.order = append(g.order, p.name)
 		g.queue = append(g.queue, rest...)
 	}
+}
+
+var (
+	enumT  = reflect.TypeFor[rpc.Enum]()
+	unionT = reflect.TypeFor[rpc.Union]()
+)
+
+// enumValues are a named string type's values when it is an rpc.Enum.
+func enumValues(t reflect.Type) ([]string, bool) {
+	if t.Kind() != reflect.String || t.Name() == "" || !t.Implements(enumT) {
+		return nil, false
+	}
+	return reflect.Zero(t).Interface().(rpc.Enum).Values(), true
+}
+
+func isEnum(t reflect.Type) bool {
+	_, ok := enumValues(t)
+	return ok
+}
+
+func isUnion(t reflect.Type) bool { return t.Kind() == reflect.Struct && t.Implements(unionT) }
+
+// unionCase is one case of a tagged union: its type on the wire, which is
+// also its payload's key, and the payload's struct.
+type unionCase struct {
+	wire string
+	t    reflect.Type
+}
+
+func unionCases(t reflect.Type) []unionCase {
+	var cases []unionCase
+	tagged := false
+	for _, f := range wiredoc.Fields(t) {
+		if f.Name == "type" {
+			if f.Type.Kind() != reflect.String {
+				panic("union tag must be a string: " + t.String())
+			}
+			tagged = true
+			continue
+		}
+		if f.Type.Kind() != reflect.Pointer || f.Type.Elem().Kind() != reflect.Struct || !f.Omitted {
+			panic("union case must be an omitempty struct pointer: " + t.String() + "." + f.Name)
+		}
+		cases = append(cases, unionCase{f.Name, f.Type.Elem()})
+	}
+	if !tagged || len(cases) == 0 {
+		panic("union needs a type tag and a case: " + t.String())
+	}
+	return cases
+}
+
+// body is one generated type: an enum, a tagged union or a struct.
+func (g *swiftGen) body(t reflect.Type, name string) string {
+	if g.props == nil {
+		g.props, g.conformances = map[string][]prop{}, map[string]string{}
+	}
+	switch {
+	case isEnum(t):
+		g.conformances[name] = "Codable"
+		return g.enumBody(t, name)
+	case isUnion(t):
+		g.conformances[name] = g.conformance(t)
+		return g.unionBody(t, name)
+	}
+	return g.structBody(t, name)
+}
+
+// enumBody is a string enum whose unknown case takes a value a newer host
+// sends, so a phone never fails to decode one.
+func (g *swiftGen) enumBody(t reflect.Type, name string) string {
+	values, _ := enumValues(t)
+	var b strings.Builder
+	fmt.Fprintf(&b, "  public nonisolated enum %s: String, Codable, Hashable, Sendable, CaseIterable {\n", name[strings.LastIndexByte(name, '.')+1:])
+	for _, v := range values {
+		fmt.Fprintf(&b, "    case %s = %q\n", swiftIdent(v), v)
+	}
+	b.WriteString("    /// A value this build doesn't know, from a newer host.\n    case unknown = \"\"\n")
+	b.WriteString("\n    public init(from decoder: Decoder) throws {\n")
+	b.WriteString("      self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown\n    }\n")
+	b.WriteString("  }\n")
+	return b.String()
+}
+
+// unionBody is a tagged union as an enum with an associated value per case:
+// {"type": case, case: payload} on the wire, and unknown for a case a newer
+// host or phone adds.
+func (g *swiftGen) unionBody(t reflect.Type, name string) string {
+	cases := unionCases(t)
+	conformance := g.conformance(t)
+	var b strings.Builder
+	fmt.Fprintf(&b, "  public nonisolated enum %s: %s, Hashable, Sendable {\n", name[strings.LastIndexByte(name, '.')+1:], conformance)
+	refs := make([]string, len(cases))
+	for i, c := range cases {
+		refs[i] = g.typeRef(c.t, name+pascal(c.wire))
+		fmt.Fprintf(&b, "    case %s(%s)\n", swiftIdent(c.wire), refs[i])
+	}
+	b.WriteString("    /// A case this build doesn't know, by its type.\n    case unknown(String)\n")
+	b.WriteString("\n    enum CodingKeys: String, CodingKey {\n      case type = \"type\"\n")
+	for _, c := range cases {
+		fmt.Fprintf(&b, "      case %s = %q\n", swiftIdent(c.wire), c.wire)
+	}
+	b.WriteString("    }\n")
+	if g.dirs[t]&decodes != 0 || conformance == "Codable" {
+		b.WriteString("\n    public init(from decoder: Decoder) throws {\n      let c = try decoder.container(keyedBy: CodingKeys.self)\n")
+		b.WriteString("      switch try c.decode(String.self, forKey: .type) {\n")
+		for i, c := range cases {
+			id := swiftIdent(c.wire)
+			fmt.Fprintf(&b, "      case %q: self = .%s(try c.decode(%s.self, forKey: .%s))\n", c.wire, strings.Trim(id, "`"), refs[i], id)
+		}
+		b.WriteString("      case let type: self = .unknown(type)\n      }\n    }\n")
+	}
+	if g.dirs[t]&encodes != 0 || conformance == "Codable" {
+		b.WriteString("\n    public func encode(to encoder: Encoder) throws {\n      var c = encoder.container(keyedBy: CodingKeys.self)\n      switch self {\n")
+		for _, c := range cases {
+			id := swiftIdent(c.wire)
+			fmt.Fprintf(&b, "      case .%s(let value):\n        try c.encode(%q, forKey: .type)\n        try c.encode(value, forKey: .%s)\n", strings.Trim(id, "`"), c.wire, id)
+		}
+		b.WriteString("      case .unknown(let type):\n        try c.encode(type, forKey: .type)\n      }\n    }\n")
+	}
+	b.WriteString("  }\n")
+	return b.String()
 }
 
 func (g *swiftGen) structBody(t reflect.Type, name string) string {
@@ -775,30 +927,32 @@ func cleanName(n string) string {
 var EventExports = map[string]string{
 	"chats.appended": "Chats.Appended", "chats.streaming": "Chats.Streaming",
 	"chats.approval": "Chats.Approval", "chats.tool": "Chats.ToolChanged",
-	"chats.subagents":        "Chats.Subagents",
-	"fs.changed":             "FS.Changed",
-	"git.changed":            "Git.Changed",
-	"chats.changed":          "Chats.Chat",
-	"chats.removed":          "Chats.Removed",
-	"chats.attention":        "Chats.Attention",
-	"terminals.changed":      "Terminals.Changed",
-	"terminals.output":       "Terminals.Output",
-	"terminals.exit":         "Terminals.Exit",
-	"forward.pipe_data":      "Forward.PipeData",
-	"forward.pipe_closed":    "Forward.PipeClosed",
-	"host.battery":           "Host.Battery",
-	"host.setup_changed":     "Host.SetupChanged",
-	"browser.request":        "Browser.Request",
-	"connect.changed":        "Connect.Changed",
-	"mcp.changed":            "MCP.Changed",
-	"tools.accounts_changed": "Tools.AccountsChanged",
-	"tunnels.changed":        "Tunnels.Changed",
-	"devices.changed":        "Devices.Changed",
-	"projects.changed":       "Projects.Changed",
-	"schedules.changed":      "Schedules.Changed",
-	"actions.changed":        "Actions.Changed",
-	"plugins.data":           "Plugins.Data",
-	"plugins.logged":         "Plugins.Logged",
+	"chats.subagents":         "Chats.Subagents",
+	"fs.changed":              "FS.Changed",
+	"git.changed":             "Git.Changed",
+	"chats.changed":           "Chats.Chat",
+	"chats.removed":           "Chats.Removed",
+	"chats.attention":         "Chats.Attention",
+	"terminals.changed":       "Terminals.Changed",
+	"terminals.output":        "Terminals.Output",
+	"terminals.exit":          "Terminals.Exit",
+	"forward.pipe_data":       "Forward.PipeData",
+	"forward.pipe_closed":     "Forward.PipeClosed",
+	"host.battery":            "Host.Battery",
+	"host.setup_changed":      "Host.SetupChanged",
+	"browser.request":         "Browser.Request",
+	"connect.changed":         "Connect.Changed",
+	"mcp.changed":             "MCP.Changed",
+	"tools.accounts_changed":  "Tools.AccountsChanged",
+	"tunnels.changed":         "Tunnels.Changed",
+	"devices.changed":         "Devices.Changed",
+	"projects.changed":        "Projects.Changed",
+	"schedules.changed":       "Schedules.Changed",
+	"actions.changed":         "Actions.Changed",
+	"plugins.data":            "Plugins.Data",
+	"screens.view_changed":    "Screens.ViewChanged",
+	"screens.desktop_changed": "Screens.DesktopChanged",
+	"plugins.logged":          "Plugins.Logged",
 }
 
 func eventGenerator(catalog []hostemit.Event) *swiftGen {

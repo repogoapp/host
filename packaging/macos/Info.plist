@@ -34,5 +34,7 @@
 	<string>RepoGo Host opens the projects you work on from your phone.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
 	<string>RepoGo Host opens the projects you work on from your phone.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>RepoGo Host plays your Mac’s sound on your phone, and your phone’s mic on your Mac, while you view this Mac’s screen there.</string>
 </dict>
 </plist>

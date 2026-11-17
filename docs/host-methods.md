@@ -1678,7 +1678,7 @@ Detached: runs to completion if the caller disconnects.
 
 Params:
 
-- `id` string
+- `screen` string
 
 Result:
 
@@ -1688,11 +1688,217 @@ Result:
 
 Params:
 
-- `id` string
+- `screen` string
 
 Result:
 
 - `ok` bool
+
+## `screens.view`
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `view` object{ViewChanged} (omitted when empty) (nullable)
+- `desktop` object{DesktopChanged} (omitted when empty) (nullable)
+
+## `screens.leave`
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `ok` bool
+
+## `screens.set`
+
+Params:
+
+- `screen` string
+- `appearance` string (omitted when empty) (nullable)
+- `content_size` string (omitted when empty) (nullable)
+- `contrast` bool (omitted when empty) (nullable)
+- `status_bar` bool (omitted when empty) (nullable)
+- `slow_animations` bool (omitted when empty) (nullable)
+- `onscreen_keyboard` bool (omitted when empty) (nullable)
+- `pose` string (omitted when empty) (nullable)
+
+Result:
+
+- `appearance` string (omitted when empty) (nullable)
+- `content_size` string (omitted when empty) (nullable)
+- `contrast` bool (omitted when empty) (nullable)
+- `status_bar` bool (omitted when empty) (nullable)
+- `slow_animations` bool (omitted when empty) (nullable)
+- `pose` string (omitted when empty) (nullable)
+- `onscreen_keyboard` bool (omitted when empty) (nullable)
+
+## `screens.rotate`
+
+Params:
+
+- `screen` string
+- `turn` string
+
+Result:
+
+- `ok` bool
+
+## `screens.open_url`
+
+Params:
+
+- `screen` string
+- `url` string
+
+Result:
+
+- `ok` bool
+
+## `screens.location`
+
+Params:
+
+- `screen` string
+- `coordinate` object{Coordinate} (omitted when empty) (nullable)
+
+Result:
+
+- `ok` bool
+
+## `screens.push`
+
+Params:
+
+- `screen` string
+- `payload` json (nullable)
+- `bundle` string (omitted when empty)
+
+Result:
+
+- `ok` bool
+
+## `screens.shake`
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `ok` bool
+
+## `screens.memory_warning`
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `ok` bool
+
+## `screens.screenshot`
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `image` base64 (nullable)
+
+## `screens.desktop.space`
+
+Params:
+
+- `screen` string
+- `space` string
+
+Result:
+
+- `ok` bool
+
+## `screens.desktop.open_app`
+
+Params:
+
+- `screen` string
+- `bundle` string
+
+Result:
+
+- `ok` bool
+
+## `screens.desktop.quit_app`
+
+Params:
+
+- `screen` string
+- `bundle` string
+
+Result:
+
+- `ok` bool
+
+## `screens.desktop.window`
+
+Params:
+
+- `screen` string
+- `window` int
+
+Result:
+
+- `ok` bool
+
+## `screens.desktop.button`
+
+Params:
+
+- `screen` string
+- `button` string
+
+Result:
+
+- `ok` bool
+
+## `screens.desktop.tile`
+
+Params:
+
+- `screen` string
+- `tile` string
+
+Result:
+
+- `ok` bool
+
+## `screens.desktop.launchpad`
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `apps` [object{App}]
+
+## `screens.desktop.icons`
+
+Params:
+
+- `screen` string
+- `bundles` [string]
+
+Result:
+
+- `icons` [object{Icon}]
 
 ## `terminals.create`
 

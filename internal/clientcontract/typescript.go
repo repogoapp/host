@@ -106,6 +106,22 @@ func (ts tsGen) iface(g *swiftGen, name string) string {
 	t := g.types[name]
 	simple := name[strings.LastIndexByte(name, '.')+1:]
 	var b strings.Builder
+	if values, ok := enumValues(t); ok {
+		quoted := make([]string, len(values))
+		for i, v := range values {
+			quoted[i] = fmt.Sprintf("%q", v)
+		}
+		fmt.Fprintf(&b, "  export type %s = %s;\n", simple, strings.Join(quoted, " | "))
+		return b.String()
+	}
+	if isUnion(t) {
+		var cases []string
+		for _, c := range unionCases(t) {
+			cases = append(cases, fmt.Sprintf("{ type: %q; %s: %s }", c.wire, c.wire, ts.typeRef(c.t)))
+		}
+		fmt.Fprintf(&b, "  export type %s =\n    | %s;\n", simple, strings.Join(cases, "\n    | "))
+		return b.String()
+	}
 	fields := wiredoc.Fields(t)
 	if len(fields) == 0 {
 		fmt.Fprintf(&b, "  export interface %s {}\n", simple)
@@ -135,6 +151,9 @@ func (ts tsGen) iface(g *swiftGen, name string) string {
 // `n` one that may be null.
 func (ts tsGen) shape(g *swiftGen, name string) string {
 	t := g.types[name]
+	if isEnum(t) || isUnion(t) {
+		return ""
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %q: [", name)
 	for i, f := range wiredoc.Fields(t) {
@@ -149,7 +168,7 @@ func (ts tsGen) shape(g *swiftGen, name string) string {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		fmt.Fprintf(&b, "[%q, %q, %q]", f.Name, ts.typeRef(f.Type), flags)
+		fmt.Fprintf(&b, "[%q, %q, %q]", f.Name, ts.shapeRef(f.Type), flags)
 	}
 	b.WriteString("],\n")
 	return b.String()
@@ -160,6 +179,9 @@ var tsIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
 // typeRef is the TypeScript spelling of t, after the checks Swift's typeRef
 // ran. A pointer is its element; the field adds null.
 func (ts tsGen) typeRef(t reflect.Type) string {
+	if isEnum(t) {
+		return ts.names[t]
+	}
 	switch {
 	case t.Kind() == reflect.Pointer:
 		return ts.typeRef(t.Elem())
@@ -193,6 +215,24 @@ func (ts tsGen) typeRef(t reflect.Type) string {
 		return name
 	}
 	panic("unsupported TypeScript mapping: " + t.String())
+}
+
+// shapeRef is a field's type as the shapes test reads it: an enum is a
+// string, a union any JSON.
+func (ts tsGen) shapeRef(t reflect.Type) string {
+	switch {
+	case t.Kind() == reflect.Pointer:
+		return ts.shapeRef(t.Elem())
+	case isEnum(t):
+		return "string"
+	case isUnion(t):
+		return "JSONValue"
+	case t.Kind() == reflect.Slice && t.Elem().Kind() != reflect.Uint8:
+		return ts.shapeRef(t.Elem()) + "[]"
+	case t.Kind() == reflect.Map:
+		return "Record<string, " + ts.shapeRef(t.Elem()) + ">"
+	}
+	return ts.typeRef(t)
 }
 
 // shapeName is the shapes key for a method's result; a result that is no

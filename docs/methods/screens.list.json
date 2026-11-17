@@ -1,13 +1,17 @@
 {
   "screens": [
     {
-      "kind": "kind",
-      "platform": "platform",
+      "kind": "simulator",
+      "platform": "ios",
       "id": "id",
       "name": "name",
-      "os": "os",
-      "booted": true,
-      "serial": "serial",
+      "os": {
+        "name": "name",
+        "version": "version",
+        "api_level": 1
+      },
+      "state": "shutdown",
+      "form": "phone",
       "user": "user"
     }
   ]

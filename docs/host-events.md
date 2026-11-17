@@ -235,6 +235,26 @@ Signal: not replayed; a missed one is recovered by refetching.
 
 - `schedules` [object{Schedule}]
 
+## `screens.desktop_changed`
+
+Stateful, key `desktop`: the last one is handed to a device joining the room; `revision` orders them within an `epoch`.
+
+- `screen` string
+- `desktop` object{DesktopView}
+- `epoch` string
+- `revision` int
+
+## `screens.view_changed`
+
+Stateful, key `view`: the last one is handed to a device joining the room; `revision` orders them within an `epoch`.
+
+- `screen` string
+- `controls` [string]
+- `buttons` [string]
+- `state` object{State} (omitted when empty) (nullable)
+- `epoch` string
+- `revision` int
+
 ## `terminals.changed`
 
 Signal: not replayed; a missed one is recovered by refetching.

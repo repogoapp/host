@@ -291,7 +291,14 @@ func (r *Router) Dispatch(ctx context.Context, c Caller, m *jsonrpc.Message) *js
 	}
 	out, err := r.Call(ctx, c, m.Method, m.Params)
 	if err != nil {
-		return jsonrpc.Fail(m.ID, Code(err), err.Error())
+		fail := jsonrpc.Fail(m.ID, Code(err), err.Error())
+		var withData ErrorData
+		if errors.As(err, &withData) {
+			if data, merr := wirejson.Marshal(withData.ErrorData()); merr == nil {
+				fail.Error.Data = data
+			}
+		}
+		return fail
 	}
 	return &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Result: out}
 }

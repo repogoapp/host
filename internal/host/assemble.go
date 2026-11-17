@@ -52,6 +52,7 @@ import (
 	screensrpc "github.com/repogoapp/host/internal/rpc/screens"
 	"github.com/repogoapp/host/internal/schedule"
 	"github.com/repogoapp/host/internal/screens"
+	"github.com/repogoapp/host/internal/screens/capture"
 	"github.com/repogoapp/host/internal/session"
 	"github.com/repogoapp/host/internal/shipping"
 	"github.com/repogoapp/host/internal/stepactivity"
@@ -250,6 +251,10 @@ func (h *Host) openDevices() error {
 	s.Addr = func() string { addr, _ := h.invite.Load().(string); return addr }
 	s.Fetcher = forward.NewFetcher(h.log)
 	s.Pipes = forward.NewPipes(h.emitter, h.log)
+	s.Screens = screens.NewManager(h.emitter)
+	// A phone's mic on the Mac is a device a mic child removes as it exits;
+	// one killed with the last host (a restart) left its device behind.
+	go capture.RemoveMicDevices()
 	s.Tunnels = h.tunnels
 	return nil
 }
@@ -485,7 +490,7 @@ func (h *Host) openTransports() error {
 		Devices: h.devices, Router: h.Router, Pushes: h.Pushes, OnDisconnect: h.disconnected, Log: h.log,
 		Pairing:    h.pairer.Accepting,
 		SelfAuthed: map[string]http.Handler{repogomcp.Path: h.tools},
-		Stream:     screensrpc.Stream,
+		Stream:     screensrpc.Deps{Screens: h.Services.Screens, PhoneName: h.phoneName}.Stream,
 	})
 	if err != nil || h.cfg.Relay == "" {
 		return err
@@ -584,4 +589,14 @@ func (h *Host) projectEnv(dir string) []string {
 		return nil
 	}
 	return h.Services.Tools.AccountEnv(mcp.Root(dir))
+}
+
+// phoneName is what a paired phone called itself when it paired.
+func (h *Host) phoneName(id device.ID) string {
+	for _, peer := range h.devices.Peers() {
+		if peer.ID == id {
+			return peer.Label
+		}
+	}
+	return ""
 }

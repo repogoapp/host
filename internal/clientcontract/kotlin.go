@@ -91,6 +91,12 @@ func (k kotlinGen) class(g *swiftGen, name, method string) string {
 	if kotlinTypeNames[simple] {
 		panic("Kotlin type name shadows a built-in: " + name)
 	}
+	switch {
+	case isEnum(t):
+		return k.enum(t, name)
+	case isUnion(t):
+		return k.union(t, name)
+	}
 	var b strings.Builder
 	b.WriteString("    @Serializable\n")
 	fields := wiredoc.Fields(t)
@@ -121,8 +127,56 @@ func (k kotlinGen) class(g *swiftGen, name, method string) string {
 	return b.String()
 }
 
+// enum is a string enum whose unknown entry takes a value a newer host sends.
+func (k kotlinGen) enum(t reflect.Type, name string) string {
+	values, _ := enumValues(t)
+	simple := name[strings.LastIndexByte(name, '.')+1:]
+	var b strings.Builder
+	fmt.Fprintf(&b, "    @Serializable(with = %s.Serializer::class)\n    enum class %s(val wire: String) {\n", simple, simple)
+	for _, v := range values {
+		fmt.Fprintf(&b, "      %s(%q),\n", kotlinEntry(swiftIdent(v)), v)
+	}
+	b.WriteString("      /** A value this build doesn't know, from a newer host. */\n      unknown(\"\");\n\n")
+	fmt.Fprintf(&b, "      object Serializer : KSerializer<%s> {\n", simple)
+	fmt.Fprintf(&b, "        override val descriptor = PrimitiveSerialDescriptor(%q, PrimitiveKind.STRING)\n", "HostAPI."+name)
+	fmt.Fprintf(&b, "        override fun serialize(encoder: Encoder, value: %s) = encoder.encodeString(value.wire)\n", simple)
+	fmt.Fprintf(&b, "        override fun deserialize(decoder: Decoder): %s {\n          val wire = decoder.decodeString()\n          return entries.firstOrNull { it.wire == wire } ?: unknown\n        }\n      }\n    }\n", simple)
+	return b.String()
+}
+
+// union is a tagged union as a sealed class, a subclass per case, read and
+// written as {"type": case, case: payload}; unknown keeps a case's type.
+func (k kotlinGen) union(t reflect.Type, name string) string {
+	simple := name[strings.LastIndexByte(name, '.')+1:]
+	cases := unionCases(t)
+	var b strings.Builder
+	fmt.Fprintf(&b, "    @Serializable(with = %s.Serializer::class)\n    sealed class %s {\n", simple, simple)
+	for _, c := range cases {
+		fmt.Fprintf(&b, "      data class %s(val value: %s) : %s()\n", pascal(c.wire), k.typeRef(c.t), simple)
+	}
+	fmt.Fprintf(&b, "      /** A case this build doesn't know, by its type. */\n      data class Unknown(val type: String) : %s()\n\n", simple)
+	fmt.Fprintf(&b, "      object Serializer : KSerializer<%s> {\n", simple)
+	fmt.Fprintf(&b, "        override val descriptor = buildClassSerialDescriptor(%q)\n", "HostAPI."+name)
+	fmt.Fprintf(&b, "        override fun serialize(encoder: Encoder, value: %s) {\n          val out = encoder as JsonEncoder\n          val json = when (value) {\n", simple)
+	for _, c := range cases {
+		fmt.Fprintf(&b, "            is %s -> buildJsonObject { put(\"type\", %q); put(%q, out.json.encodeToJsonElement(%s.serializer(), value.value)) }\n",
+			pascal(c.wire), c.wire, c.wire, k.typeRef(c.t))
+	}
+	b.WriteString("            is Unknown -> buildJsonObject { put(\"type\", value.type) }\n          }\n          out.encodeJsonElement(json)\n        }\n")
+	fmt.Fprintf(&b, "        override fun deserialize(decoder: Decoder): %s {\n          val input = decoder as JsonDecoder\n", simple)
+	b.WriteString("          val json = input.decodeJsonElement().jsonObject\n          val type = json[\"type\"]?.jsonPrimitive?.content ?: \"\"\n          return when (type) {\n")
+	for _, c := range cases {
+		fmt.Fprintf(&b, "            %q -> %s(input.json.decodeFromJsonElement(%s.serializer(), json.getValue(%q)))\n", c.wire, pascal(c.wire), k.typeRef(c.t), c.wire)
+	}
+	b.WriteString("            else -> Unknown(type)\n          }\n        }\n      }\n    }\n")
+	return b.String()
+}
+
 // typeRef is the Kotlin spelling of t, after the checks Swift's typeRef ran.
 func (k kotlinGen) typeRef(t reflect.Type) string {
+	if isEnum(t) {
+		return "HostAPI." + k.names[t]
+	}
 	switch {
 	case t.Kind() == reflect.Pointer:
 		return strings.TrimSuffix(k.typeRef(t.Elem()), "?") + "?"
@@ -205,6 +259,22 @@ func kotlinToolList(specs []rpc.Spec) string {
 	return b.String()
 }
 
+// kotlinEntry is an enum entry's name: an identifier, escaped also when a
+// modifier would read it as one at the start of the entry (open, data, …).
+func kotlinEntry(swift string) string {
+	name := strings.Trim(swift, "`")
+	if kotlinKeywords[name] || kotlinModifiers[name] {
+		return "`" + name + "`"
+	}
+	return name
+}
+
+var kotlinModifiers = map[string]bool{"open": true, "data": true, "inner": true, "value": true, "enum": true,
+	"sealed": true, "override": true, "abstract": true, "final": true, "internal": true, "private": true,
+	"public": true, "protected": true, "lateinit": true, "const": true, "inline": true, "external": true,
+	"annotation": true, "companion": true, "operator": true, "infix": true, "tailrec": true, "suspend": true,
+	"vararg": true, "crossinline": true, "noinline": true, "reified": true, "expect": true, "actual": true}
+
 // kotlinIdent is a Swift property name in Kotlin: the same word, re-escaped.
 func kotlinIdent(swift string) string {
 	name := strings.Trim(swift, "`")
@@ -232,10 +302,17 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
 /** A host method: its wire name and how its params and result cross the wire. */

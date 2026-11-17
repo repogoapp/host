@@ -10,101 +10,673 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/screens/capture"
 )
 
-// Stream sends a running device's screen as H.264 until ctx ends or send
-// fails, and plays input on it. Each send is one access unit, NAL units each
-// behind a 4-byte length, as AVFoundation reads them. reply sends a Message:
-// controls and state first, then what actions report. password is This
-// Mac's, from the phone for this session only; empty for every other device.
-func Stream(ctx context.Context, id, password string, send func([]byte) error, reply func(any) error,
-	input <-chan capture.Input) error {
-	d, err := find(ctx, id)
+// The /stream protocol: the phone opens with a StreamRequest; the host
+// answers StreamMessage{ready}, then frames (a 16-byte header and an access
+// unit) until StreamMessage{failed} or the socket closes. The phone sends
+// StreamInput. Either side skips a type, codec or flag it doesn't know; the
+// version bumps only for a change the other side can't skip.
+
+// StreamVersion is the newest /stream version this host speaks.
+const StreamVersion = 1
+
+// Codec is how a stream's frames are encoded.
+type Codec string
+
+const (
+	CodecH264 Codec = "h264"
+	CodecHEVC Codec = "hevc"
+)
+
+func (Codec) Values() []string { return []string{"h264", "hevc"} }
+
+// StreamRequest is a /stream socket's first message: the versions and
+// codecs the phone takes, whose screen to send, and for a display the
+// account password the phone keeps; never logged.
+type StreamRequest struct {
+	Versions []int   `json:"versions" wire:"array"`
+	Codecs   []Codec `json:"codecs" wire:"array"`
+	Screen   string  `json:"screen"`
+	Password string  `json:"password,omitempty"`
+}
+
+// StreamMessage is a text message the host sends on /stream.
+type StreamMessage struct {
+	Type   string        `json:"type"`
+	Ready  *StreamReady  `json:"ready,omitempty"`
+	Failed *StreamFailed `json:"failed,omitempty"`
+	Audio  *StreamAudio  `json:"audio,omitempty"`
+	Mic    *StreamMic    `json:"mic,omitempty"`
+}
+
+func (StreamMessage) WireUnion() {}
+
+// StreamReady is the version and codec the host picked; frames follow.
+type StreamReady struct {
+	Version int   `json:"version"`
+	Codec   Codec `json:"codec"`
+}
+
+// AudioCodec is how a stream's sound is encoded.
+type AudioCodec string
+
+const AudioCodecAAC AudioCodec = "aac"
+
+func (AudioCodec) Values() []string { return []string{"aac"} }
+
+// StreamAudio is the sound's state, sent when it starts, stops or can't
+// run; the video goes on either way. While on, frames with the AAC codec
+// in their header carry it: AAC-LC, one raw access unit each, at
+// SampleRate with Channels.
+type StreamAudio struct {
+	On         bool        `json:"on"`
+	Codec      *AudioCodec `json:"codec,omitempty"`
+	SampleRate *int        `json:"sample_rate,omitempty"`
+	Channels   *int        `json:"channels,omitempty"`
+	// Error is why the sound stopped or couldn't start.
+	Error string `json:"error,omitempty"`
+}
+
+// StreamMic is the phone's microphone on the Mac, sent when it starts,
+// stops or can't run. While on, the Mac has an input named Device that apps
+// can pick, playing the MicAudio the phone sends.
+type StreamMic struct {
+	On     bool   `json:"on"`
+	Device string `json:"device,omitempty"`
+	// Error is why the mic stopped or couldn't start.
+	Error string `json:"error,omitempty"`
+}
+
+// StreamFailed is why the stream ended, with a code when the phone can act on it.
+type StreamFailed struct {
+	Error string       `json:"error"`
+	Code  *ScreenError `json:"code,omitempty"`
+}
+
+// StreamInput is one message the phone sends: a finger, a button, typing,
+// a key, a Mac's pointer or wheel, a space swipe, or a keyframe request.
+type StreamInput struct {
+	Type       string           `json:"type"`
+	Touch      *TouchInput      `json:"touch,omitempty"`
+	Button     *ButtonInput     `json:"button,omitempty"`
+	Text       *TextInput       `json:"text,omitempty"`
+	Key        *KeyInput        `json:"key,omitempty"`
+	Pointer    *PointerInput    `json:"pointer,omitempty"`
+	Scroll     *ScrollInput     `json:"scroll,omitempty"`
+	SpaceSwipe *SpaceSwipeInput `json:"space_swipe,omitempty"`
+	Keyframe   *KeyframeInput   `json:"keyframe,omitempty"`
+	Sound      *SoundInput      `json:"sound,omitempty"`
+	Mic        *MicInput        `json:"mic,omitempty"`
+	MicAudio   *MicAudioInput   `json:"mic_audio,omitempty"`
+}
+
+func (StreamInput) WireUnion() {}
+
+// TouchPhase is a finger's step.
+type TouchPhase string
+
+const (
+	TouchDown   TouchPhase = "down"
+	TouchMove   TouchPhase = "move"
+	TouchUp     TouchPhase = "up"
+	TouchCancel TouchPhase = "cancel" // the phone took the finger for a pinch
+)
+
+func (TouchPhase) Values() []string { return []string{"down", "move", "up", "cancel"} }
+
+// TouchInput is a finger on the screen. X and Y are fractions of the frame
+// as sent, before the phone turns it by the header's rotation. Only finger
+// 0 is played: the devices take one finger from the host.
+type TouchInput struct {
+	Finger int        `json:"finger"`
+	Phase  TouchPhase `json:"phase"`
+	X      float64    `json:"x"`
+	Y      float64    `json:"y"`
+}
+
+// ButtonInput presses a hardware button.
+type ButtonInput struct {
+	Button HardwareButton `json:"button"`
+}
+
+// TextInput types text, any Unicode, in order with the rest.
+type TextInput struct {
+	Text string `json:"text"`
+}
+
+// KeyInput presses or releases one key, by its X11 keysym.
+type KeyInput struct {
+	Keysym int  `json:"keysym"`
+	Down   bool `json:"down"`
+}
+
+// PointerInput is a Mac's cursor at a fraction of the frame, with the buttons held.
+type PointerInput struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Left   bool    `json:"left,omitempty"`
+	Right  bool    `json:"right,omitempty"`
+	Middle bool    `json:"middle,omitempty"`
+}
+
+// ScrollInput is wheel notches at the cursor: positive DY scrolls the
+// content down into view from above (wheel up), positive DX from the left.
+type ScrollInput struct {
+	DX int `json:"dx"`
+	DY int `json:"dy"`
+}
+
+// SwipePhase is a space swipe's step.
+type SwipePhase string
+
+const (
+	SwipeBegan     SwipePhase = "began"
+	SwipeChanged   SwipePhase = "changed"
+	SwipeEnded     SwipePhase = "ended"
+	SwipeCancelled SwipePhase = "cancelled"
+)
+
+func (SwipePhase) Values() []string { return []string{"began", "changed", "ended", "cancelled"} }
+
+// SpaceSwipeInput is a step of a live swipe between a Mac's spaces.
+// Progress is in spaces; an end's direction is -1 or 1 to finish the move
+// that way, 0 or absent to slide back.
+type SpaceSwipeInput struct {
+	Phase     SwipePhase `json:"phase"`
+	Progress  float64    `json:"progress"`
+	Direction *int       `json:"direction,omitempty"`
+}
+
+// KeyframeInput asks for a keyframe at once, after the phone's decoder failed.
+type KeyframeInput struct{}
+
+// MicInput makes the phone's microphone an input on the Mac, or stops it.
+type MicInput struct {
+	On bool `json:"on"`
+}
+
+// MicAudioInput is the phone's microphone while it is on: 16-bit signed
+// little-endian mono PCM at 24 kHz, a few tens of milliseconds at a time.
+type MicAudioInput struct {
+	PCM []byte `json:"pcm"`
+}
+
+// SoundInput sends the screen's sound to the phone, or stops it. While it
+// is on, the Mac's own speakers are quiet.
+type SoundInput struct {
+	On bool `json:"on"`
+}
+
+// The frame header: 16 bytes in front of every frame, big-endian. Byte 0
+// is its size, so fields can be added at its end; 1 the codec; 2 the
+// flags; 3 the quarter turns clockwise the phone turns the frame; 4–7 a
+// sequence number; 8–15 the capture time in microseconds on the host's
+// uptime clock, 0 when the source gives none.
+const (
+	frameHeaderSize = 16
+	frameCodecH264  = 1
+	frameCodecAAC   = 3
+	// Flags.
+	frameKeyframe      = 1 << 0
+	frameParameterSets = 1 << 1
+)
+
+// negotiate picks the version and codec, or says why none fits.
+func negotiate(req StreamRequest) (StreamReady, error) {
+	version := 0
+	for _, v := range req.Versions {
+		if v <= StreamVersion && v > version {
+			version = v
+		}
+	}
+	if version == 0 {
+		return StreamReady{}, newError(errkind.Invalid, ErrorUnsupportedVersion,
+			fmt.Sprintf("This environment speaks screen stream version %d. Update RepoGo.", StreamVersion))
+	}
+	for _, c := range req.Codecs {
+		if c == CodecH264 {
+			return StreamReady{Version: version, Codec: CodecH264}, nil
+		}
+	}
+	return StreamReady{}, newError(errkind.Invalid, ErrorUnsupportedVersion, "This app can't decode H.264 video.")
+}
+
+// Stream serves a /stream socket: its request, then the screen as frames
+// until ctx ends, playing the phone's input on it. The socket sends an
+// error returned as the failed message, with its code (StreamCode).
+func (m *Manager) Stream(ctx context.Context, req StreamRequest, phone Phone, send func([]byte) error,
+	reply func(any) error, input <-chan StreamInput) error {
+	ready, err := negotiate(req)
 	if err != nil {
 		return err
 	}
-	if !d.Booted {
-		return ErrNotRunning
+	c, err := m.current(ctx, req.Screen)
+	if err != nil {
+		return err
 	}
-	c := newController(ctx, d, reply)
-	reply(Message{Controls: c.controls()})
-	c.sendState()
-	switch d.Kind {
-	case KindSimulator:
-		return streamIOS(ctx, c, send, input)
-	case KindDisplay:
-		return streamDisplay(ctx, c, password, send, input)
-	}
-	return streamAndroid(ctx, c, send, input)
-}
-
-// serve hands each input to the host when it runs it, one at a time, and
-// the rest to device (the touch and button path), until input ends.
-func (c *controller) serve(ctx context.Context, input <-chan capture.Input, device func(capture.Input) error) {
-	actions := make(chan capture.Input, 16)
-	defer close(actions)
+	sayReady := func() error { return reply(StreamMessage{Type: "ready", Ready: &ready}) }
+	queue := newInputQueue()
+	framed := &framer{c: c, send: send}
+	sound := &soundOut{c: c, framed: framed, reply: reply}
+	mic := &micIn{c: c, phone: phone, reply: reply}
+	// The sound leaves out the mic's own playing, so the phone doesn't hear itself.
+	sound.exclude = mic.process
+	mic.changed = func() { sound.restart(ctx) }
+	// The sound first: the mic stopping restarts a sound still running.
+	defer mic.stop()
+	defer sound.stop()
 	go func() {
-		for in := range actions {
-			if err := c.act(ctx, in, device); err != nil {
-				c.reply(Message{Failed: err.Error()})
-				// The phone showed the change at once; this puts it back.
-				c.sendState()
+		defer queue.close()
+		for in := range input {
+			switch {
+			case in.Sound != nil:
+				sound.set(ctx, in.Sound.On)
+				continue
+			case in.Mic != nil:
+				mic.set(ctx, in.Mic.On)
+				continue
+			case in.MicAudio != nil:
+				mic.write(in.MicAudio.PCM)
+				continue
+			}
+			for _, it := range c.translate(in) {
+				queue.push(it)
 			}
 		}
 	}()
-	for in := range inputs(ctx, input) {
-		if !c.hostRuns(in) {
-			if device(in) != nil {
-				return
-			}
-			continue
+	switch c.d.Kind {
+	case KindDisplay:
+		// A display says ready itself, once Screen Sharing took the password.
+		err = streamDisplay(ctx, c, req.Password, sayReady, framed.child, queue)
+	case KindSimulator:
+		if err = sayReady(); err == nil {
+			err = streamIOS(ctx, c, framed.child, queue)
+		}
+	default:
+		if err = sayReady(); err == nil {
+			err = streamAndroid(ctx, c, framed, queue)
+		}
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+// Phone is the paired phone on a stream: its device ID and what it's called.
+type Phone struct {
+	ID   string
+	Name string
+}
+
+// item is one input after translation: for the device's input path, or a
+// step the host carries out itself, in order with the rest.
+type item struct {
+	device capture.Input
+	host   func(ctx context.Context, device func(capture.Input) error) error
+}
+
+// translate turns a phone's input into what the device takes.
+func (c *controller) translate(in StreamInput) []item {
+	dev := func(in capture.Input) []item { return []item{{device: in}} }
+	switch {
+	case in.Touch != nil:
+		t := in.Touch
+		// The devices take one finger; another's touches would fight the first.
+		if t.Finger != 0 || t.X < 0 || t.X > 1 || t.Y < 0 || t.Y > 1 {
+			return nil
+		}
+		switch t.Phase {
+		case TouchDown, TouchMove, TouchUp, TouchCancel:
+			return dev(capture.Input{Touch: string(t.Phase), X: t.X, Y: t.Y})
+		}
+	case in.Button != nil:
+		return c.button(in.Button.Button)
+	case in.Text != nil && in.Text.Text != "":
+		text := in.Text.Text
+		if c.d.Platform == PlatformIOS {
+			return []item{{host: func(ctx context.Context, device func(capture.Input) error) error {
+				return c.typeIOS(ctx, text, device)
+			}}}
+		}
+		return dev(capture.Input{Action: capture.ActionText, Value: text})
+	case in.Key != nil:
+		if in.Key.Keysym <= 0 || in.Key.Keysym > 0x1fffffff {
+			return nil
+		}
+		return dev(capture.Input{Key: &capture.Key{Keysym: uint32(in.Key.Keysym), Down: in.Key.Down}})
+	case in.Pointer != nil:
+		p := in.Pointer
+		if p.X < 0 || p.X > 1 || p.Y < 0 || p.Y > 1 {
+			return nil
+		}
+		var buttons byte
+		if p.Left {
+			buttons |= 1
+		}
+		if p.Middle {
+			buttons |= 2
+		}
+		if p.Right {
+			buttons |= 4
+		}
+		return dev(capture.Input{Pointer: &capture.Pointer{X: p.X, Y: p.Y, Buttons: buttons}})
+	case in.Scroll != nil:
+		return dev(capture.Input{Scroll: &capture.Scroll{DX: in.Scroll.DX, DY: in.Scroll.DY}})
+	case in.SpaceSwipe != nil && c.d.Kind == KindDisplay:
+		step := *in.SpaceSwipe
+		return []item{{host: func(ctx context.Context, device func(capture.Input) error) error {
+			return c.swipe(ctx, step, device)
+		}}}
+	case in.Keyframe != nil:
+		return dev(capture.Input{Action: capture.ActionKeyframe})
+	}
+	return nil
+}
+
+// button is a hardware button's press on this device.
+func (c *controller) button(b HardwareButton) []item {
+	if !slices.Contains(c.buttons(), b) {
+		return nil
+	}
+	switch {
+	case b == ButtonAppSwitcher && c.d.Platform == PlatformIOS:
+		// Home pressed twice where iOS still takes the button; the swipe
+		// from iOS 26, which drops its press.
+		in := capture.Input{Action: capture.ActionAppSwitcher}
+		if iosMajor(c.d.OS.Version) < 26 {
+			in.Value = capture.SwitcherPress
+		}
+		return []item{{device: in}}
+	case b == ButtonHome && c.d.Platform == PlatformIOS && iosMajor(c.d.OS.Version) >= 26:
+		// iOS 26 and later drop the Home button's HID press.
+		return []item{{host: func(ctx context.Context, _ func(capture.Input) error) error {
+			_, err := c.simctl(ctx, "launch", c.d.ID, "com.apple.springboard")
+			return err
+		}}}
+	}
+	return []item{{device: capture.Input{Button: string(b)}}}
+}
+
+// inputQueue holds the phone's input until the device takes it. It never
+// drops a press, a lift or a key: under pressure only a finger's or the
+// cursor's moves fold into the latest.
+type inputQueue struct {
+	mu    sync.Mutex
+	items []item
+	// buttons are the cursor's buttons as the last pointer queued left them.
+	buttons byte
+	closed  bool
+	wake    chan struct{}
+}
+
+// maxQueued bounds the moves held; presses and keys are kept past it.
+const maxQueued = 512
+
+func newInputQueue() *inputQueue { return &inputQueue{wake: make(chan struct{}, 1)} }
+
+func (q *inputQueue) push(it item) {
+	q.mu.Lock()
+	if n := len(q.items); n > 0 && movesOn(q.items[n-1], it) {
+		q.items[n-1] = it
+	} else if n < maxQueued || !isMove(it, q.buttons) {
+		q.items = append(q.items, it)
+	}
+	if p := it.device.Pointer; it.host == nil && p != nil {
+		q.buttons = p.Buttons
+	}
+	q.mu.Unlock()
+	q.signal()
+}
+
+func (q *inputQueue) signal() {
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+}
+
+// isMove reports whether it can be dropped: the finger moving, or the cursor
+// moving with the buttons it already held. A pointer that presses or lets go
+// of a button is kept.
+func isMove(it item, buttons byte) bool {
+	d := it.device
+	if it.host != nil {
+		return false
+	}
+	return d.Touch == "move" || (d.Touch == "" && d.Pointer != nil && d.Pointer.Buttons == buttons)
+}
+
+// movesOn reports whether next only moves on from last: the finger moving
+// again, or the cursor moving with the same buttons held.
+func movesOn(last, next item) bool {
+	if last.host != nil || next.host != nil {
+		return false
+	}
+	a, b := last.device, next.device
+	if a.Touch == "move" && b.Touch == "move" {
+		return true
+	}
+	return a.Pointer != nil && b.Pointer != nil && a.Pointer.Buttons == b.Pointer.Buttons
+}
+
+func (q *inputQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.mu.Unlock()
+	q.signal()
+}
+
+// next is the oldest input, waiting for one; false once closed and empty, or ctx ends.
+func (q *inputQueue) next(ctx context.Context) (item, bool) {
+	for {
+		q.mu.Lock()
+		if len(q.items) > 0 {
+			it := q.items[0]
+			q.items = q.items[1:]
+			q.mu.Unlock()
+			return it, true
+		}
+		closed := q.closed
+		q.mu.Unlock()
+		if closed {
+			return item{}, false
 		}
 		select {
-		case actions <- in:
-		default: // a burst past the queue is dropped rather than held
+		case <-q.wake:
+		case <-ctx.Done():
+			return item{}, false
 		}
 	}
 }
 
-// streamChild runs this binary again as args (simcap, screencap), passing
-// first and then input to it as lines, and its framed output on as frames.
-func streamChild(ctx context.Context, c *controller, send func([]byte) error, input <-chan capture.Input,
+// serve plays the queue on device, the host's own steps in order with it,
+// until the queue ends; then it releases the keys and buttons still held.
+// A finger still down is lifted by the device's own path when its input ends.
+func (c *controller) serve(ctx context.Context, q *inputQueue, device func(capture.Input) error) {
+	keys := map[uint32]bool{}
+	var pointer *capture.Pointer
+	defer func() {
+		for k := range keys {
+			device(capture.Input{Key: &capture.Key{Keysym: k}})
+		}
+		if pointer != nil && pointer.Buttons != 0 {
+			device(capture.Input{Pointer: &capture.Pointer{X: pointer.X, Y: pointer.Y}})
+		}
+	}()
+	for {
+		it, ok := q.next(ctx)
+		if !ok {
+			return
+		}
+		if it.host != nil {
+			if err := it.host(ctx, device); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "screens: input:", err)
+			}
+			continue
+		}
+		in := it.device
+		if in.Key != nil {
+			if in.Key.Down {
+				keys[in.Key.Keysym] = true
+			} else {
+				delete(keys, in.Key.Keysym)
+			}
+		}
+		if in.Pointer != nil {
+			p := *in.Pointer
+			pointer = &p
+		}
+		if device(in) != nil {
+			return
+		}
+	}
+}
+
+// framer puts the header on each frame it sends.
+type framer struct {
+	c             *controller
+	send          func([]byte) error
+	mu            sync.Mutex
+	sequence      uint32
+	audioSequence uint32
+}
+
+// child sends one frame from a capture child: its capture time (8 bytes,
+// big-endian microseconds), then the access unit.
+func (f *framer) child(frame []byte) error {
+	if len(frame) < 8 {
+		return nil
+	}
+	return f.frame(frame[8:], binary.BigEndian.Uint64(frame[:8]))
+}
+
+// frame sends an access unit, NAL units behind 4-byte lengths, with its header.
+func (f *framer) frame(unit []byte, capturedUS uint64) error {
+	f.mu.Lock()
+	sequence := f.sequence
+	f.sequence++
+	f.mu.Unlock()
+	out := make([]byte, frameHeaderSize, frameHeaderSize+len(unit))
+	out[0] = frameHeaderSize
+	out[1] = frameCodecH264
+	out[2] = nalFlags(unit)
+	out[3] = f.c.quarterTurns()
+	binary.BigEndian.PutUint32(out[4:], sequence)
+	binary.BigEndian.PutUint64(out[8:], capturedUS)
+	return f.send(append(out, unit...))
+}
+
+// audio sends one AAC access unit with its header: codec AAC, no flags, no
+// turn, a sequence of its own.
+func (f *framer) audio(frame []byte) error {
+	if len(frame) < 8 {
+		return nil
+	}
+	f.mu.Lock()
+	sequence := f.audioSequence
+	f.audioSequence++
+	f.mu.Unlock()
+	out := make([]byte, frameHeaderSize, frameHeaderSize+len(frame)-8)
+	out[0] = frameHeaderSize
+	out[1] = frameCodecAAC
+	binary.BigEndian.PutUint32(out[4:], sequence)
+	copy(out[8:16], frame[:8])
+	return f.send(append(out, frame[8:]...))
+}
+
+// nalFlags reads an access unit's NAL types: an IDR slice makes it a
+// keyframe, an SPS or PPS gives it the parameter sets.
+func nalFlags(unit []byte) byte {
+	var flags byte
+	for len(unit) >= 5 {
+		n := int(binary.BigEndian.Uint32(unit))
+		if n <= 0 || n > len(unit)-4 {
+			break
+		}
+		switch unit[4] & 0x1f {
+		case 5:
+			flags |= frameKeyframe
+		case 7, 8:
+			flags |= frameParameterSets
+		}
+		unit = unit[4+n:]
+	}
+	return flags
+}
+
+// childWait is how long an input child has, once its view ends, to play
+// what it was sent and exit before it is killed.
+const childWait = 3 * time.Second
+
+// endsWithInput lets cmd, made with ctx, outlive it: the child exits when
+// its input closes, after the release written there reached it, and is
+// killed only if it is still running childWait later.
+func endsWithInput(cmd *exec.Cmd) {
+	cmd.Cancel = func() error { return nil }
+	cmd.WaitDelay = childWait
+}
+
+// streamChild runs this binary again as args (simcap, screencap,
+// androidcap), passing first and then the input to it as lines, and its
+// framed output on as frames.
+func streamChild(ctx context.Context, c *controller, send func([]byte) error, input *inputQueue,
 	args []string, first []byte) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	run, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd := exec.CommandContext(run, exe, args...)
+	endsWithInput(cmd)
 	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
 	}
 	var stderr tail
 	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
 	var mu sync.Mutex
 	lines := json.NewEncoder(stdin)
-	toSimcap := func(in capture.Input) error {
+	toChild := func(in capture.Input) error {
 		mu.Lock()
 		defer mu.Unlock()
 		return lines.Encode(in)
 	}
+	defer c.open(toChild)()
+	served := make(chan struct{})
 	go func() {
+		defer close(served)
 		defer stdin.Close()
 		if first != nil {
 			if _, err := stdin.Write(append(first, '\n')); err != nil {
 				return
 			}
 		}
-		c.serve(ctx, input, toSimcap)
+		c.serve(run, input, toChild)
 	}()
-	err = pumpFrames(cmd, send, c.fromSimcap)
+	err = readFrames(out, send, c.fromSimcap)
+	// The view is over: serve releases what is held, then the child's input
+	// closes and it exits.
+	cancel()
+	<-served
+	go io.Copy(io.Discard, out)
+	cmd.Wait()
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -117,36 +689,9 @@ func streamChild(ctx context.Context, c *controller, send func([]byte) error, in
 	return err
 }
 
-// inputs passes on the valid input until ctx ends or input closes.
-func inputs(ctx context.Context, input <-chan capture.Input) <-chan capture.Input {
-	out := make(chan capture.Input)
-	go func() {
-		defer close(out)
-		for {
-			select {
-			case in, ok := <-input:
-				if !ok {
-					return
-				}
-				if !in.Valid() {
-					continue
-				}
-				select {
-				case out <- in:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return out
-}
-
 // pump runs cmd, whose stdout is Annex B H.264, sending each access unit
-// until it exits, ctx ends or send fails. cmd must stop with ctx.
-func pump(ctx context.Context, cmd *exec.Cmd, send func([]byte) error) error {
+// through framed until it exits, ctx ends or the send fails. cmd must stop with ctx.
+func pump(ctx context.Context, cmd *exec.Cmd, framed *framer) error {
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -168,14 +713,15 @@ func pump(ctx context.Context, cmd *exec.Cmd, send func([]byte) error) error {
 				return nil
 			}
 			for _, unit := range units.write(chunk) {
-				if err := send(unit); err != nil {
+				// screenrecord gives no capture time.
+				if err := framed.frame(unit, 0); err != nil {
 					return err
 				}
 			}
 			idle.Reset(idleFlush)
 		case <-idle.C:
 			for _, unit := range units.flush() {
-				if err := send(unit); err != nil {
+				if err := framed.frame(unit, 0); err != nil {
 					return err
 				}
 			}
@@ -185,25 +731,17 @@ func pump(ctx context.Context, cmd *exec.Cmd, send func([]byte) error) error {
 	}
 }
 
-// maxFrame bounds one simcap frame, so a corrupt length can't take memory;
+// maxFrame bounds one child frame, so a corrupt length can't take memory;
 // hostMessage marks a length whose message is for the host, not the phone.
 const (
 	maxFrame    = 16 << 20
 	hostMessage = 1 << 31
 )
 
-// pumpFrames runs cmd, whose stdout is simcap's framed messages, sending each
-// frame as it arrives until it exits, ctx ends or send fails. A message with
-// its length's top bit set is for the host, and goes to said.
-func pumpFrames(cmd *exec.Cmd, send func([]byte) error, said func([]byte)) error {
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	defer cmd.Wait()
+// readFrames reads out, a capture child's framed messages, passing each
+// frame on as it arrives until out ends or frame fails. A message with its
+// length's top bit set is for the host: said.
+func readFrames(out io.Reader, frame func([]byte) error, said func([]byte)) error {
 	r := bufio.NewReaderSize(out, 256<<10)
 	var length [4]byte
 	for {
@@ -214,17 +752,17 @@ func pumpFrames(cmd *exec.Cmd, send func([]byte) error, said func([]byte)) error
 		forHost := n&hostMessage != 0
 		n &^= hostMessage
 		if n == 0 || n > maxFrame {
-			return fmt.Errorf("simcap sent a %d-byte frame", n)
+			return fmt.Errorf("the capture sent a %d-byte frame", n)
 		}
-		frame := make([]byte, n)
-		if _, err := io.ReadFull(r, frame); err != nil {
+		buf := make([]byte, n)
+		if _, err := io.ReadFull(r, buf); err != nil {
 			return nil
 		}
 		if forHost {
-			said(frame)
+			said(buf)
 			continue
 		}
-		if err := send(frame); err != nil {
+		if err := frame(buf); err != nil {
 			return err
 		}
 	}

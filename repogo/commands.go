@@ -62,6 +62,22 @@ func table() []command {
 			hidden: true, run: func(ctx context.Context, _ *flag.FlagSet, _ []string) error {
 				return capture.RunScreen(ctx, os.Stdout, os.Stdin)
 			}},
+		{name: "audiocap", args: "[mute] [exclude pid]", summary: "Stream this Mac's sound as AAC (run by the host for a live view's sound)",
+			hidden: true, run: func(ctx context.Context, _ *flag.FlagSet, args []string) error {
+				mute := len(args) > 0 && args[0] == "mute"
+				exclude := 0
+				if len(args) > 1 {
+					exclude, _ = strconv.Atoi(args[1])
+				}
+				return capture.RunAudio(os.Stdout, mute, exclude)
+			}},
+		{name: "miccap", args: "<device id> <name>", summary: "Make a phone's microphone an input on this Mac (run by the host for a live view)",
+			hidden: true, run: func(ctx context.Context, _ *flag.FlagSet, args []string) error {
+				if len(args) != 2 {
+					return fmt.Errorf("usage: repogo miccap <device id> <name>")
+				}
+				return capture.RunMic(os.Stdin, os.Stdout, args[0], args[1])
+			}},
 		{name: "androidcap", args: "<console port>", summary: "Stream a running Android emulator's screen (run by the host for a live view)",
 			hidden: true, run: func(ctx context.Context, _ *flag.FlagSet, args []string) error {
 				if len(args) != 1 {

@@ -49,6 +49,11 @@ static NSArray<NSNumber *> *gScreenIDs;
 static _Atomic uint32_t gActiveScreen;
 // Writes to stdout come from the encoder and the display poll.
 static os_unfair_lock gWriteLock = OS_UNFAIR_LOCK_INIT;
+// gForceKeyframe makes the next frame a keyframe; gLastPixels is the last
+// frame of pixels (a Mac screen's, an emulator's), to encode again for one.
+static BOOL gForceKeyframe;
+static CVPixelBufferRef gLastPixels;
+static void capture(void);
 
 static int64_t nowNs(void) { return (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
@@ -99,6 +104,7 @@ static void tellHost(NSDictionary *message) {
 }
 
 // Writes one encoded frame as a message: its length (4 bytes, big-endian),
+// its capture time (8 bytes, big-endian microseconds on the uptime clock),
 // then its NAL units each behind a 4-byte length, parameter sets first on a
 // keyframe. The host passes the message on as it is, so a frame never waits
 // for the next to show it ended.
@@ -109,7 +115,11 @@ static void appendLength(NSMutableData *out, uint32_t length) {
 
 static void encoded(void *ref, void *frameRef, OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sample) {
   if (status != noErr || !sample || !CMSampleBufferDataIsReady(sample)) return;
-  NSMutableData *out = [NSMutableData dataWithLength:4];
+  NSMutableData *out = [NSMutableData dataWithLength:12];
+  CMTime pts = CMSampleBufferGetPresentationTimeStamp(sample);
+  uint64_t capturedUS = CMTIME_IS_VALID(pts) ? (uint64_t)(CMTimeGetSeconds(pts) * 1000000.0) : 0;
+  uint64_t bigTime = CFSwapInt64HostToBig(capturedUS);
+  memcpy((uint8_t *)out.mutableBytes + 4, &bigTime, 8);
   CFArrayRef attachments = CMSampleBufferGetSampleAttachmentsArray(sample, false);
   BOOL keyframe = YES;
   if (attachments && CFArrayGetCount(attachments) > 0) {
@@ -194,7 +204,13 @@ static void encodePixelBuffer(CVPixelBufferRef source) {
     CVPixelBufferRelease(source);
     frame = scaled;
   }
-  VTCompressionSessionEncodeFrame(gSession, frame, CMTimeMake(nowNs(), 1000000000), kCMTimeInvalid, NULL, NULL, NULL);
+  NSDictionary *options = nil;
+  if (gForceKeyframe) {
+    options = @{(__bridge NSString *)kVTEncodeFrameOptionKey_ForceKeyFrame: @YES};
+    gForceKeyframe = NO;
+  }
+  VTCompressionSessionEncodeFrame(gSession, frame, CMTimeMake(nowNs(), 1000000000), kCMTimeInvalid,
+                                  (__bridge CFDictionaryRef)options, NULL, NULL);
   CVPixelBufferRelease(frame);
 }
 
@@ -238,7 +254,25 @@ void simcap_encode_pixels(const void *pixels, int width, int height, int stride,
     for (int row = 0; row < height; row++) memcpy(to + row * toStride, (const uint8_t *)pixels + row * stride, width * 4);
   }
   CVPixelBufferUnlockBaseAddress(buffer, 0);
-  dispatch_sync(gQueue, ^{ encodePixelBuffer(buffer); });
+  dispatch_sync(gQueue, ^{
+    if (gLastPixels) CVPixelBufferRelease(gLastPixels);
+    gLastPixels = CVPixelBufferRetain(buffer);
+    encodePixelBuffer(buffer);
+  });
+}
+
+void simcap_keyframe(void) {
+  if (!gQueue) return;
+  dispatch_async(gQueue, ^{
+    gForceKeyframe = YES;
+    if (gDescriptors.count > 0) {
+      // A simulator: its surface, encoded again though its seed hasn't moved.
+      gHaveSeed = NO;
+      capture();
+    } else if (gLastPixels) {
+      encodePixelBuffer(CVPixelBufferRetain(gLastPixels));
+    }
+  });
 }
 
 // MARK: - Capture
@@ -513,8 +547,13 @@ int simcap_fold(const char *pose) {
   return sendControl(SSCoreDeviceOrientationData(held)) ? 0 : -4;
 }
 
-// Tells the host why an action didn't happen.
-void simcap_failed(const char *why) { tellHost(@{@"failed": @(why)}); }
+void simcap_tell(const char *json, int len) {
+  NSMutableData *out = [NSMutableData data];
+  uint32_t length = CFSwapInt32HostToBig((uint32_t)len | 0x80000000u);
+  [out appendBytes:&length length:4];
+  [out appendBytes:json length:(NSUInteger)len];
+  writeAll(out);
+}
 
 // MARK: - Displays
 

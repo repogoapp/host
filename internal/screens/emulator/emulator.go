@@ -37,21 +37,39 @@ type Endpoint struct {
 // Find reads the discovery file of the running emulator whose console port
 // is consolePort (5554 for emulator-5554).
 func Find(consolePort int) (Endpoint, error) {
+	_, values := discovery(consolePort)
+	if values == nil {
+		return Endpoint{}, errors.New("no running emulator's gRPC port found")
+	}
+	port, err := strconv.Atoi(values["grpc.port"])
+	if err != nil || port == 0 {
+		return Endpoint{}, errors.New("the emulator has no gRPC port")
+	}
+	return Endpoint{Port: port, Token: values["grpc.token"]}, nil
+}
+
+// Run names this run of the emulator on consolePort: its discovery file,
+// named for its process. Empty when it has none.
+func Run(consolePort int) string {
+	file, values := discovery(consolePort)
+	if values == nil {
+		return ""
+	}
+	return filepath.Base(file)
+}
+
+// discovery is the discovery file of the emulator on consolePort and what
+// it holds; nil values when there is none.
+func discovery(consolePort int) (file string, values map[string]string) {
 	for _, dir := range runningDirs() {
 		files, _ := filepath.Glob(filepath.Join(dir, "pid_*.ini"))
 		for _, file := range files {
-			values := readIni(file)
-			if values["port.serial"] != strconv.Itoa(consolePort) {
-				continue
+			if values := readIni(file); values["port.serial"] == strconv.Itoa(consolePort) {
+				return file, values
 			}
-			port, err := strconv.Atoi(values["grpc.port"])
-			if err != nil || port == 0 {
-				return Endpoint{}, errors.New("the emulator has no gRPC port")
-			}
-			return Endpoint{Port: port, Token: values["grpc.token"]}, nil
 		}
 	}
-	return Endpoint{}, errors.New("no running emulator's gRPC port found")
+	return "", nil
 }
 
 // runningDirs are where emulators write their discovery files: the Mac's

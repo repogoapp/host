@@ -63,11 +63,14 @@ func fold(pose string) bool {
 	return C.simcap_fold(p) == 0
 }
 
-func failed(why string) {
-	w := C.CString(why)
-	defer C.free(unsafe.Pointer(w))
-	C.simcap_failed(w)
+func tell(message []byte) {
+	if len(message) == 0 {
+		return
+	}
+	C.simcap_tell((*C.char)(unsafe.Pointer(&message[0])), C.int(len(message)))
 }
+
+func keyframe() { C.simcap_keyframe() }
 
 func caDebug(name string, on bool) {
 	n := C.CString(name)

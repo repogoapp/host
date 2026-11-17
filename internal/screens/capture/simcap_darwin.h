@@ -1,7 +1,8 @@
 #include <stdint.h>
 
 // Starts capturing the booted simulator udid, writing H.264 frames to fd out,
-// each a 4-byte big-endian length then its length-prefixed NAL units; 0 on
+// each a 4-byte big-endian length, the capture time (8 bytes, big-endian
+// microseconds), then its length-prefixed NAL units; 0 on
 // success, else a negative code with why in err.
 // universal: touches and keys go through Universal HID (iOS 27), not Indigo.
 int simcap_start(const char *developer_dir, const char *udid, int universal, int out, char *err, int err_len);
@@ -18,8 +19,11 @@ int simcap_fold(const char *pose);
 // A Mac screen's frames: start the encoder on fd out, then hand it BGRA pixels.
 void simcap_screen_start(int out, int maxShortSide, int bitRate);
 void simcap_encode_pixels(const void *pixels, int width, int height, int stride, int rgba);
-// Tells the host why an action didn't happen, on stdout beside the frames.
-void simcap_failed(const char *why);
+// Writes a JSON message for the host, on stdout beside the frames.
+void simcap_tell(const char *json, int len);
+// Makes the next frame a keyframe, and encodes the screen again even if it
+// hasn't changed, so a phone whose decoder failed recovers at once.
+void simcap_keyframe(void);
 void simcap_memory_warning(void);
 // Shows (on) or hides the on-screen keyboard; 0 on success.
 int simcap_onscreen_keyboard(int on);

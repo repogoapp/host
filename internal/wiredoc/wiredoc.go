@@ -78,7 +78,12 @@ func fill(v reflect.Value, name string, seen map[reflect.Type]bool) {
 		fill(p.Elem(), name, seen)
 		v.Set(p)
 	case t.Kind() == reflect.String:
-		v.SetString(name)
+		// An enum's example is a value it takes, which a client decodes as itself.
+		if e, ok := reflect.Zero(t).Interface().(interface{ Values() []string }); ok && len(e.Values()) > 0 {
+			v.SetString(e.Values()[0])
+		} else {
+			v.SetString(name)
+		}
 	case t.Kind() == reflect.Bool:
 		v.SetBool(true)
 	case v.CanInt():

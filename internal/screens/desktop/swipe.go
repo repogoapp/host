@@ -17,11 +17,10 @@ const (
 var ErrNoSwipe = errors.New("swipe with Control-arrow")
 
 // Swipe posts one step of the three-finger swipe between spaces, which the
-// Mac follows live, as with fingers on its trackpad. Progress is in
-// spaces, negative toward the space on the right (the fingers move left
-// to reach it). An end needs a velocity in the swipe's direction to finish
-// the move; below that it, and a cancel, slide back. The events are
-// undocumented: a macOS update can stop them moving anything.
+// Mac follows live. Progress is in spaces, negative toward the space on the
+// right (the fingers move left to reach it). An end needs a velocity in the
+// swipe's direction to finish the move; below that it, and a cancel, slide
+// back. The events are undocumented: a macOS update can stop them working.
 func Swipe(phase SwipePhase, progress, velocity float64) error {
 	if !trusted() {
 		return ErrNoSwipe

@@ -38,9 +38,10 @@ func RunAndroid(ctx context.Context, consolePort int, out *os.File, in io.Reader
 	// The last frame's size and turn, which touches are mapped through.
 	var shape atomic.Pointer[frameShape]
 	events := client.Open(ctx, "streamInputEvent")
-	defer events.Close()
 	go func() {
 		defer cancel()
+		// Closing sends what was written, the lift below too, before the view ends.
+		defer events.Close()
 		lines := bufio.NewScanner(in)
 		var player androidPlayer
 		for lines.Scan() {
@@ -48,11 +49,19 @@ func RunAndroid(ctx context.Context, consolePort int, out *os.File, in io.Reader
 			if json.Unmarshal(lines.Bytes(), &input) != nil || !input.Valid() {
 				continue
 			}
+			if input.Action == ActionKeyframe {
+				C.simcap_keyframe()
+				continue
+			}
 			for _, event := range player.events(input, shape.Load()) {
 				if events.Send(event) != nil {
 					return
 				}
 			}
+		}
+		// A view that closes mid-touch never lifts its finger.
+		if player.down {
+			events.Send(emulator.TouchInput(emulator.Touch{X: player.x, Y: player.y}))
 		}
 	}()
 	err = client.Stream(ctx, "streamScreenshot", emulator.ScreenFormat(0, 0), func(m []byte) error {
@@ -103,6 +112,7 @@ func (s frameShape) panel(fx, fy float64) (int, int) {
 // androidPlayer turns the phone's input into the emulator's input events.
 type androidPlayer struct {
 	x, y int
+	down bool
 }
 
 func (p *androidPlayer) events(in Input, shape *frameShape) [][]byte {
@@ -113,7 +123,7 @@ func (p *androidPlayer) events(in Input, shape *frameShape) [][]byte {
 		if in.Touch == "up" || in.Touch == "cancel" {
 			pressure, x, y = 0, p.x, p.y
 		}
-		p.x, p.y = x, y
+		p.x, p.y, p.down = x, y, pressure == 1
 		out = append(out, emulator.TouchInput(emulator.Touch{X: x, Y: y, Pressure: pressure}))
 	}
 	if key, ok := androidButtons[in.Button]; ok {

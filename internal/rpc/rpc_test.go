@@ -174,3 +174,25 @@ func TestSpecsKeepRegisterOrderWithinAFamily(t *testing.T) {
 		t.Fatalf("names %v, want %v", got, want)
 	}
 }
+
+// codedErr is a failure with a domain code for error.data.
+type codedErr struct{}
+
+func (codedErr) Error() string  { return "open the live view first" }
+func (codedErr) ErrorData() any { return map[string]string{"code": "not_streaming"} }
+
+// An error with data keeps its numeric code and carries the data beside it.
+func TestErrorDataRidesInTheReply(t *testing.T) {
+	r := rpc.New(slog.New(slog.DiscardHandler))
+	rpc.Add(r, "t.coded", func(context.Context, rpc.Caller, rpc.None) (rpc.Ack, error) {
+		return rpc.Ack{}, fmt.Errorf("%w", codedErr{})
+	})
+	req, err := jsonrpc.Request("1", "t.coded", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := r.Dispatch(t.Context(), remote, req)
+	if reply.Error == nil || reply.Error.Code != jsonrpc.CodeInternal || string(reply.Error.Data) != `{"code":"not_streaming"}` {
+		t.Fatalf("reply = %+v", reply.Error)
+	}
+}

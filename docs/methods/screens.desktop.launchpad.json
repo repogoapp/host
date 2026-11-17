@@ -1,0 +1,8 @@
+{
+  "apps": [
+    {
+      "bundle": "bundle",
+      "name": "name"
+    }
+  ]
+}

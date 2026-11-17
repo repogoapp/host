@@ -8,6 +8,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/repogoapp/host/internal/rpc"
+	"github.com/repogoapp/host/internal/screens"
 	"github.com/repogoapp/host/internal/wsconn"
 )
 
@@ -18,17 +19,10 @@ import (
 type StreamFunc func(ctx context.Context, c rpc.Caller, request []byte, send func([]byte) error,
 	reply func(v any) error, input <-chan []byte) error
 
-// streamInput is how many messages from the device wait for the stream; past
-// it they are dropped, as a stuck stream's touches are stale anyway.
+// streamInput is how many messages from the device wait for the stream. Past
+// it reading waits: a lift or a key-up dropped would leave it held, and the
+// stream folds stale moves itself.
 const streamInput = 256
-
-// StreamFailed is the last text message on a /stream socket: why the stream
-// ended, just before the socket closes, and a code when the client can act
-// on it (a StreamFunc error with a StreamCode method).
-type StreamFailed struct {
-	Error string `json:"error"`
-	Code  string `json:"code,omitempty"`
-}
 
 // serveStream reads the device's request, then sends the stream until the
 // device closes the socket or the stream ends. It joins open, so revoking
@@ -63,7 +57,8 @@ func (c *conn) serveStream(ctx context.Context) {
 			}
 			select {
 			case input <- b:
-			default:
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
@@ -84,12 +79,16 @@ func (c *conn) serveStream(ctx context.Context) {
 	}, input)
 	c.srv.log.Info("wsserver: stream ended", "device", c.caller.Device, "err", err)
 	if err != nil && ctx.Err() == nil {
-		failed := StreamFailed{Error: err.Error()}
+		// The last text message, just before the socket closes: why the
+		// stream ended, and a code when the client can act on it (a
+		// StreamFunc error with a StreamCode method).
+		failed := screens.StreamFailed{Error: err.Error()}
 		var coded interface{ StreamCode() string }
 		if errors.As(err, &coded) {
-			failed.Code = coded.StreamCode()
+			code := screens.ScreenError(coded.StreamCode())
+			failed.Code = &code
 		}
-		if b, merr := json.Marshal(failed); merr == nil {
+		if b, merr := json.Marshal(screens.StreamMessage{Type: "failed", Failed: &failed}); merr == nil {
 			c.ws.Write(ctx, websocket.MessageText, b)
 		}
 	}

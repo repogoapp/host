@@ -2,38 +2,15 @@ package screens
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"math"
-	"reflect"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/repogoapp/host/internal/screens/capture"
 	"github.com/repogoapp/host/internal/screens/desktop"
 )
-
-// The Mac screen's desktop actions, run by the host. Value is what each
-// acts on: a space's ID, an app's bundle ID, a window's ID, a title-bar
-// button (close, minimize, full_screen), a tile (left, top_right, fill),
-// a swipe step (parseSwipe), or bundle IDs joined by commas for icons.
-const (
-	actionSpace     = "desktop_space"
-	actionApp       = "desktop_app"
-	actionWindow    = "desktop_window"
-	actionButton    = "desktop_button"
-	actionTile      = "desktop_tile"
-	actionSwipe     = "desktop_swipe"
-	actionQuit      = "desktop_quit"
-	actionLaunchpad = "desktop_launchpad"
-	actionIcons     = "desktop_icons"
-)
-
-// isDesktopAction routes an action to the host by its prefix; actDisplay
-// refuses one it doesn't know.
-func isDesktopAction(action string) bool { return strings.HasPrefix(action, "desktop_") }
 
 // desktopEvery is how often the desktop is read while a phone watches, on
 // top of the Mac's own change notices: windows moving between spaces and
@@ -63,8 +40,7 @@ var buttonKeys = map[string][]uint32{
 }
 
 // watchDesktop sends the Mac's desktop while ctx lasts: at once, then on
-// each change the Mac reports, after each action, and every desktopEvery,
-// with each app's icon the first time it shows.
+// each change the Mac reports, after each action, and every desktopEvery.
 func (c *controller) watchDesktop(ctx context.Context) {
 	if runtime.GOOS != "darwin" {
 		return
@@ -73,20 +49,9 @@ func (c *controller) watchDesktop(ctx context.Context) {
 	defer stop()
 	ticker := time.NewTicker(desktopEvery)
 	defer ticker.Stop()
-	sent := map[string]bool{}
-	var last *desktop.Desktop
 	for {
-		if d, err := desktop.Read(ctx); err == nil && (last == nil || !reflect.DeepEqual(d, *last)) {
-			var bundles []string
-			for _, a := range d.Apps {
-				if !sent[a.Bundle] {
-					sent[a.Bundle] = true
-					bundles = append(bundles, a.Bundle)
-				}
-			}
-			c.sendIcons(bundles)
-			c.reply(Message{Desktop: &d})
-			last = &d
+		if d, err := desktop.Read(ctx); err == nil {
+			c.publishDesktop(viewOf(d))
 		}
 		select {
 		case <-ctx.Done():
@@ -100,35 +65,16 @@ func (c *controller) watchDesktop(ctx context.Context) {
 	}
 }
 
-// sendIcons sends the apps' icons in one message; an app that isn't
-// installed is left out, and the phone keeps its placeholder.
-func (c *controller) sendIcons(bundles []string) {
-	icons := map[string]string{}
-	for _, b := range bundles {
-		if png := desktop.Icon(b, iconSize); png != nil {
-			icons[b] = base64.StdEncoding.EncodeToString(png)
-		}
+// desktopAction runs an action on the Mac's desktop, which needs its live
+// view: moves between spaces, and title-bar buttons without Accessibility,
+// go through it as keys, on the same Screen Sharing path as typing.
+func (m *Manager) desktopAction(ctx context.Context, id string, act func(*controller, desktop.Desktop) error) error {
+	c, err := m.act(ctx, id, ControlDesktop)
+	if err != nil {
+		return err
 	}
-	if len(icons) > 0 {
-		c.reply(Message{Icons: icons})
-	}
-}
-
-// actDisplay runs a desktop action. Moves between spaces, and title-bar
-// buttons without Accessibility, go through forward as keys, on the same
-// Screen Sharing path as typing.
-func (c *controller) actDisplay(ctx context.Context, in capture.Input, forward func(capture.Input) error) error {
-	switch in.Action {
-	case actionLaunchpad:
-		c.reply(Message{Launchpad: desktop.Installed()})
-		return nil
-	case actionIcons:
-		bundles := strings.Split(in.Value, ",")
-		c.sendIcons(bundles[:min(len(bundles), iconsAtOnce)])
-		return nil
-	case actionSwipe:
-		// Ahead of the desktop read: a step comes with each finger move.
-		return c.swipe(ctx, in.Value, forward)
+	if !c.streaming() {
+		return ErrNotStreaming
 	}
 	defer c.refreshDesktopSettled(ctx)
 	d, err := desktop.Read(ctx)
@@ -138,49 +84,117 @@ func (c *controller) actDisplay(ctx context.Context, in capture.Input, forward f
 	if d.Locked {
 		return desktop.ErrLocked
 	}
-	switch in.Action {
-	case actionSpace:
-		id, err := strconv.ParseUint(in.Value, 10, 64)
-		if err != nil {
-			return errors.New("no space " + in.Value)
-		}
-		return c.moveTo(d, id, forward)
-	case actionApp:
-		return desktop.Open(ctx, in.Value)
-	case actionWindow:
-		id, err := strconv.ParseUint(in.Value, 10, 32)
-		if err != nil {
-			return errors.New("no window " + in.Value)
-		}
-		return c.showWindow(ctx, d, uint32(id), forward)
-	case actionButton:
-		err := desktop.Press(ctx, in.Value)
+	return act(c, d)
+}
+
+// DesktopSpace moves to the space with that id.
+func (m *Manager) DesktopSpace(ctx context.Context, id, space string) error {
+	target, err := strconv.ParseUint(space, 10, 64)
+	if err != nil {
+		return errInvalid.Errorf("no space %q", space)
+	}
+	return m.desktopAction(ctx, id, func(c *controller, d desktop.Desktop) error { return c.moveTo(d, target, c.forward) })
+}
+
+// DesktopOpenApp opens or brings forward an app.
+func (m *Manager) DesktopOpenApp(ctx context.Context, id, bundle string) error {
+	return m.desktopAction(ctx, id, func(*controller, desktop.Desktop) error { return desktop.Open(ctx, bundle) })
+}
+
+// DesktopQuitApp quits an app.
+func (m *Manager) DesktopQuitApp(ctx context.Context, id, bundle string) error {
+	return m.desktopAction(ctx, id, func(*controller, desktop.Desktop) error {
+		desktop.Quit(bundle)
+		return nil
+	})
+}
+
+// DesktopWindow shows a window: its space, raised, its app forward.
+func (m *Manager) DesktopWindow(ctx context.Context, id string, window int) error {
+	if window <= 0 || window > math.MaxUint32 {
+		return errInvalid.Errorf("no window %d", window)
+	}
+	return m.desktopAction(ctx, id, func(c *controller, d desktop.Desktop) error {
+		return c.showWindow(ctx, d, uint32(window), c.forward)
+	})
+}
+
+// DesktopButton presses the focused window's title-bar button.
+func (m *Manager) DesktopButton(ctx context.Context, id string, button WindowButton) error {
+	keys, ok := buttonKeys[string(button)]
+	if !ok {
+		return errInvalid.Errorf("unknown button %q", button)
+	}
+	return m.desktopAction(ctx, id, func(c *controller, _ desktop.Desktop) error {
+		err := desktop.Press(ctx, string(button))
 		if errors.Is(err, desktop.ErrNeedsKeys) {
-			keys, ok := buttonKeys[in.Value]
-			if !ok {
-				return errors.New("unknown button " + in.Value)
-			}
-			return chord(forward, keys...)
+			return chord(c.forward, keys...)
 		}
 		return err
-	case actionTile:
-		return desktop.Tile(ctx, in.Value)
-	case actionQuit:
-		desktop.Quit(in.Value)
-		return nil
+	})
+}
+
+// DesktopTile moves and resizes the focused window, as Window ▸ Move & Resize does.
+func (m *Manager) DesktopTile(ctx context.Context, id string, tile Tile) error {
+	return m.desktopAction(ctx, id, func(*controller, desktop.Desktop) error { return desktop.Tile(ctx, string(tile)) })
+}
+
+// Launchpad is every installed app, by name.
+func (m *Manager) Launchpad(ctx context.Context, id string) ([]App, error) {
+	if _, err := m.act(ctx, id, ControlDesktop); err != nil {
+		return nil, err
 	}
-	return errors.New("unknown desktop action " + in.Action)
+	apps := []App{}
+	for _, a := range desktop.Installed() {
+		apps = append(apps, App{Bundle: a.Bundle, Name: a.Name})
+	}
+	return apps, nil
+}
+
+// Icons are the apps' icons; an app that isn't installed is left out, and
+// the phone keeps its placeholder.
+func (m *Manager) Icons(ctx context.Context, id string, bundles []string) ([]Icon, error) {
+	if _, err := m.act(ctx, id, ControlDesktop); err != nil {
+		return nil, err
+	}
+	icons := []Icon{}
+	for _, b := range bundles[:min(len(bundles), iconsAtOnce)] {
+		if png := desktop.Icon(b, iconSize); png != nil {
+			icons = append(icons, Icon{Bundle: b, Image: png})
+		}
+	}
+	return icons, nil
 }
 
 // swipe posts one step of a live space swipe. Without Accessibility the
 // steps do nothing, and an end that would have finished the move jumps a
-// space with Control-arrow instead.
-func (c *controller) swipe(ctx context.Context, value string, forward func(capture.Input) error) error {
-	phase, progress, velocity, err := parseSwipe(value)
-	if err != nil {
-		return err
+// space with Control-arrow instead. Progress is in spaces; an end's
+// direction is -1, 1, or 0 to slide back, signed as progress is.
+func (c *controller) swipe(ctx context.Context, in SpaceSwipeInput, forward func(capture.Input) error) error {
+	clamp := func(f float64) float64 {
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0
+		}
+		return max(-8, min(8, f))
 	}
-	err = desktop.Swipe(phase, progress, velocity)
+	var phase desktop.SwipePhase
+	velocity := 0.0
+	switch in.Phase {
+	case SwipeBegan:
+		phase = desktop.SwipeBegan
+	case SwipeChanged:
+		phase = desktop.SwipeChanged
+	case SwipeEnded:
+		phase = desktop.SwipeEnded
+		if in.Direction != nil {
+			velocity = float64(max(-1, min(1, *in.Direction))) * 1000
+		}
+	case SwipeCancelled:
+		phase = desktop.SwipeCancelled
+	default:
+		return errInvalid.Errorf("unknown swipe phase %q", in.Phase)
+	}
+	err := desktop.Swipe(phase, clamp(in.Progress), velocity)
 	if phase == desktop.SwipeEnded || phase == desktop.SwipeCancelled {
 		defer c.refreshDesktopSettled(ctx)
 	}
@@ -200,43 +214,6 @@ func (c *controller) swipe(ctx context.Context, value string, forward func(captu
 		return nil
 	}
 	return c.moveTo(d, d.Spaces[next].ID, forward)
-}
-
-// parseSwipe reads a swipe step as the phone sends it: "began",
-// "changed:<progress>", "ended:<progress>:<direction>" or
-// "cancelled:<progress>". Progress is in spaces; an end's direction is
-// -1, 1, or 0 to slide back, signed as progress is. The host turns the
-// direction into the Dock's velocity.
-func parseSwipe(value string) (phase desktop.SwipePhase, progress, velocity float64, err error) {
-	name, rest, _ := strings.Cut(value, ":")
-	numbers := strings.Split(rest, ":")
-	number := func(i int) (float64, error) {
-		if rest == "" || i >= len(numbers) {
-			return 0, errors.New("swipe step " + value + " is missing a number")
-		}
-		f, err := strconv.ParseFloat(numbers[i], 64)
-		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-			return 0, errors.New("swipe step " + value + " has a bad number")
-		}
-		return max(-8, min(8, f)), nil
-	}
-	switch name {
-	case "began":
-		return desktop.SwipeBegan, 0, 0, nil
-	case "changed":
-		progress, err = number(0)
-		return desktop.SwipeChanged, progress, 0, err
-	case "ended":
-		if progress, err = number(0); err != nil {
-			return 0, 0, 0, err
-		}
-		direction, err := number(1)
-		return desktop.SwipeEnded, progress, direction * 1000, err
-	case "cancelled":
-		progress, err = number(0)
-		return desktop.SwipeCancelled, progress, 0, err
-	}
-	return 0, 0, 0, errors.New("unknown swipe step " + value)
 }
 
 // showWindow goes to the window's space, raises it, and opens its app.

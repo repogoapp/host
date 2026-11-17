@@ -1,6 +1,6 @@
 // Package simcap is `repogo simcap`: a booted iOS simulator's screen as H.264
-// on stdout, one frame per message (a 4-byte big-endian length, then the
-// frame as the phone reads it), and input from stdin, through Xcode's private
+// on stdout, one frame per message (a 4-byte big-endian length, the capture
+// time in microseconds, then the access unit), and input from stdin, through Xcode's private
 // SimulatorKit. The host runs it as a child process for each live view, so a
 // SimulatorKit that changed under an Xcode update can crash only that view.
 package capture
@@ -14,21 +14,25 @@ import (
 	"time"
 )
 
-// Input is one line on stdin, and one text message a phone sends on /stream:
-// a touch, its point a fraction of the screen (0 to 1 from the top left), a
-// button, or an action. The host turns each into its platform's command.
+// tellHost writes a message for the host beside the frames.
+func tellHost(message map[string]any) {
+	if b, err := json.Marshal(message); err == nil {
+		tell(b)
+	}
+}
+
+// Input is one line the host writes a capture child: a touch, its point a
+// fraction of the screen (0 to 1 from the top left), a button, a key, or an
+// action. An action with an ID is answered {"done":{"id","error"}}.
 type Input struct {
+	ID     int     `json:"id,omitempty"`
 	Touch  string  `json:"touch,omitempty"` // down, move, up or cancel (the phone took the finger for a pinch)
 	X      float64 `json:"x,omitempty"`
 	Y      float64 `json:"y,omitempty"`
-	Button string  `json:"button,omitempty"` // home, back, recents, lock, siri, side, volume_up, volume_down, mute
-	// Action is anything else: see the host's controls for the list. Value
-	// carries its argument (dark, extra-large, a URL, text).
-	Action string  `json:"action,omitempty"`
-	Value  string  `json:"value,omitempty"`
-	Lat    float64 `json:"lat,omitempty"`
-	Lon    float64 `json:"lon,omitempty"`
-	Bundle string  `json:"bundle,omitempty"` // push: the app; empty reads it from the payload
+	Button string  `json:"button,omitempty"` // home, back, recents, lock, siri, volume_up, volume_down
+	// Action is one of the Action constants below; Value carries its argument.
+	Action string `json:"action,omitempty"`
+	Value  string `json:"value,omitempty"`
 
 	// A Mac screen's trackpad and keyboard: the cursor where the phone keeps
 	// it with the buttons held, wheel notches at it, one key pressed or released.
@@ -73,8 +77,7 @@ func (in Input) Valid() bool {
 	return false
 }
 
-// The actions simcap carries out itself, through SimulatorKit; the host runs
-// the rest with simctl.
+// The actions a capture child carries out; the host runs the rest itself.
 const (
 	ActionRotate         = "rotate"          // Value: a UIDeviceOrientation, 1 to 4
 	ActionKeyboard       = "keyboard"        // Value: on or off, the on-screen keyboard
@@ -83,8 +86,16 @@ const (
 	ActionMemoryWarning  = "memory_warning"  //
 	ActionSlowAnimations = "slow_animations" // Value: on or off
 	ActionFold           = "fold"            // Value: closed, open, book or laptop (a foldable's pose)
-	ActionAppSwitcher    = "app_switcher"    // the swipe up from the bottom edge that pauses
+	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else the swipe
+	ActionKeyframe       = "keyframe"        // the next frame a keyframe, sent even if the screen is still
 )
+
+// Typeable reports whether a US keyboard has a key for r: the rest is
+// typed through the pasteboard.
+func Typeable(r rune) bool {
+	_, _, ok := keyFor(r)
+	return ok
+}
 
 // onscreen is whether the on-screen keyboard was last turned on.
 var onscreen bool
@@ -132,17 +143,19 @@ var buttons = map[string]func(){
 	"home":        func() { button(0x0, 0) },
 	"lock":        func() { button(0x1, 0) },
 	"siri":        func() { button(0x400002, 300) }, // a tap is ignored; a hold invokes it
-	"side":        func() { button(0xbb8, 0) },
 	"volume_up":   func() { hid(12, 233) },
 	"volume_down": func() { hid(12, 234) },
-	"mute":        func() { hid(11, 46) },
 }
+
+// SwitcherPress is ActionAppSwitcher's Value for the Home button's double
+// press, where the device takes it.
+const SwitcherPress = "press"
 
 // Run streams udid's screen to out and plays in's lines on it until in ends;
 // universal sends touches and keys through Universal HID, as iOS 27 needs.
-// Beside the frames, out carries JSON for the host behind a length with its
-// top bit set: {"display":{"screen","rotation","foldable"}} as the active
-// panel or its turn changes, {"failed":why} for a line it couldn't carry out.
+// Beside the frames, out carries JSON for the host, its length's top bit
+// set: {"display":{"screen","rotation","foldable"}} as the panel or its turn
+// changes, and {"done":{"id","error"}} for an action with an ID.
 func Run(developerDir, udid string, universal bool, out *os.File, in io.Reader) error {
 	if err := start(developerDir, udid, universal, out); err != nil {
 		return err
@@ -159,8 +172,13 @@ func Run(developerDir, udid string, universal bool, out *os.File, in io.Reader) 
 			continue
 		}
 		finger.track(input)
-		if err := play(input); err != nil {
-			failed(err.Error())
+		err := play(input)
+		if input.ID != 0 {
+			done := map[string]any{"id": input.ID}
+			if err != nil {
+				done["error"] = err.Error()
+			}
+			tellHost(map[string]any{"done": done})
 		}
 	}
 	return lines.Err()
@@ -242,24 +260,35 @@ func play(in Input) error {
 	case ActionMemoryWarning:
 		memoryWarning()
 	case ActionAppSwitcher:
-		appSwitcher()
+		appSwitcher(in.Value == SwitcherPress)
 	case ActionSlowAnimations:
 		caDebug("debug_slow_animations", in.Value == "on")
+	case ActionKeyframe:
+		keyframe()
 	}
 	return nil
 }
 
-// appSwitcher plays the gesture that opens the app switcher on a device
-// without a Home button: a swipe up from the bottom edge, a third of the
-// screen, that pauses before it lifts. Lifting while it moves would go home.
-func appSwitcher() {
-	const from, to, steps = 0.995, 0.62, 12
+// appSwitcher opens the app switcher. With press, as Simulator's own App
+// Switcher does: Home pressed twice, which iOS 26 and later ignore. Without,
+// the gesture: a slow swipe up from the bottom edge that pauses before it
+// lifts. A quick one goes home however long it pauses, and so does lifting
+// while it moves; this pace and reach held on iOS 27's iPhone and Duo, where
+// a shorter, quicker one went home on the Duo.
+func appSwitcher(press bool) {
+	if press {
+		buttons["home"]()
+		time.Sleep(120 * time.Millisecond)
+		buttons["home"]()
+		return
+	}
+	const from, to, steps = 0.995, 0.60, 50
 	touch(0, 0.5, from)
 	for i := 1; i <= steps; i++ {
 		time.Sleep(16 * time.Millisecond)
 		touch(1, 0.5, from-(from-to)*float64(i)/steps)
 	}
-	time.Sleep(450 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 	touch(2, 0.5, to)
 }
 
