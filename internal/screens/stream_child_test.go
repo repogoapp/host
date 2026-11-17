@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/repogoapp/host/internal/screens/capture"
+	"github.com/repogoapp/host/internal/testwait"
 )
 
 // TestMain lets the test binary stand in for a capture child: run as
@@ -48,16 +49,10 @@ func TestStreamChildReleasesWhatIsHeldBeforeTheChildGoes(t *testing.T) {
 	go func() {
 		done <- streamChild(ctx, c, func([]byte) error { return nil }, q, []string{"test-child", path}, nil)
 	}()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if b, _ := os.ReadFile(path); strings.Contains(string(b), `"pointer"`) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the child never took the input")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testwait.For(t, "the child to take the input", func() bool {
+		b, _ := os.ReadFile(path)
+		return strings.Contains(string(b), `"pointer"`)
+	})
 	// The socket closing ends the stream's context with the input still open.
 	cancel()
 	select {

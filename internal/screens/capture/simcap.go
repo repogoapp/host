@@ -269,12 +269,11 @@ func play(in Input) error {
 	return nil
 }
 
-// appSwitcher opens the app switcher. With press, as Simulator's own App
-// Switcher does: Home pressed twice, which iOS 26 and later ignore. Without,
-// the gesture: a slow swipe up from the bottom edge that pauses before it
-// lifts. A quick one goes home however long it pauses, and so does lifting
-// while it moves; this pace and reach held on iOS 27's iPhone and Duo, where
-// a shorter, quicker one went home on the Duo.
+// appSwitcher opens the app switcher. With press, as Simulator's own does:
+// Home twice, which iOS 26 and later ignore. Without, the gesture: a slow
+// swipe up from the bottom edge that pauses before it lifts. A quick one, or
+// lifting while it moves, goes home; this pace and reach held on iOS 27's
+// iPhone and Duo, where a shorter, quicker one went home on the Duo.
 func appSwitcher(press bool) {
 	if press {
 		buttons["home"]()
