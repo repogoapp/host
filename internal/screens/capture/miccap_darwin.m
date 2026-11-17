@@ -110,7 +110,7 @@ int miccap_run(int in, int out, const char *uid, const char *name, char *why, in
   gPending = [NSMutableData data];
   if (@available(macOS 14.2, *)) {
   } else {
-    fail(why, whyLength, @"The iPhone mic needs macOS 14.2 or later on this Mac.");
+    fail(why, whyLength, @"The phone's mic needs macOS 14.2 or later on this Mac.");
     return 1;
   }
   miccap_remove(uid);
@@ -121,7 +121,7 @@ int miccap_run(int in, int out, const char *uid, const char *name, char *why, in
   AudioUnit unit = NULL;
   AudioComponent component = AudioComponentFindNext(NULL, &description);
   if (!component || AudioComponentInstanceNew(component, &unit) != noErr) {
-    fail(why, whyLength, @"This Mac has no sound output to play the iPhone mic on.");
+    fail(why, whyLength, @"This Mac has no sound output to play the phone's mic on.");
     return 1;
   }
   AudioStreamBasicDescription format = {
@@ -134,7 +134,7 @@ int miccap_run(int in, int out, const char *uid, const char *name, char *why, in
   AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback,
                        sizeof(callback));
   if (AudioUnitInitialize(unit) != noErr || AudioOutputUnitStart(unit) != noErr) {
-    fail(why, whyLength, @"Couldn't start playing the iPhone mic.");
+    fail(why, whyLength, @"Couldn't start playing the phone's mic.");
     return 1;
   }
 
@@ -142,7 +142,7 @@ int miccap_run(int in, int out, const char *uid, const char *name, char *why, in
   // tapped, it would play aloud whenever no app is recording.
   AudioObjectID process = ownProcess();
   if (process == kAudioObjectUnknown) {
-    fail(why, whyLength, @"Couldn't find the iPhone mic's sound.");
+    fail(why, whyLength, @"Couldn't find the phone's mic's sound.");
     return 1;
   }
   CATapDescription *tap = [[CATapDescription alloc] initMonoMixdownOfProcesses:@[@(process)]];
@@ -153,7 +153,7 @@ int miccap_run(int in, int out, const char *uid, const char *name, char *why, in
   AudioObjectID tapID = kAudioObjectUnknown;
   OSStatus status = AudioHardwareCreateProcessTap(tap, &tapID);
   if (status != noErr) {
-    fail(why, whyLength, [NSString stringWithFormat:@"Couldn't make the iPhone mic (%d).", (int)status]);
+    fail(why, whyLength, [NSString stringWithFormat:@"Couldn't make the phone's mic (%d).", (int)status]);
     return 1;
   }
 
@@ -175,7 +175,7 @@ int miccap_run(int in, int out, const char *uid, const char *name, char *why, in
   status = AudioHardwareCreateAggregateDevice((__bridge CFDictionaryRef)aggregate, &device);
   if (status != noErr) {
     AudioHardwareDestroyProcessTap(tapID);
-    fail(why, whyLength, [NSString stringWithFormat:@"Couldn't add the iPhone mic to this Mac (%d).", (int)status]);
+    fail(why, whyLength, [NSString stringWithFormat:@"Couldn't add the phone's mic to this Mac (%d).", (int)status]);
     return 1;
   }
 

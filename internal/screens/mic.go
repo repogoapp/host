@@ -21,7 +21,7 @@ import (
 func micDevice(phone Phone) (uid, name string) {
 	sum := sha256.Sum256([]byte(phone.ID))
 	uid = capture.MicDevicePrefix + "." + hex.EncodeToString(sum[:6])
-	name = "RepoGo iPhone Mic"
+	name = "RepoGo Phone Mic"
 	if label := strings.TrimSpace(phone.Name); label != "" {
 		name = "RepoGo – " + label
 	}
@@ -43,8 +43,16 @@ type micIn struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	stdin  io.WriteCloser
-	pid    int
+	// audio queues the phone's PCM for the child, written by a goroutine of
+	// its own: a child that stops reading fills it and loses audio, never
+	// holding up the stream's other input.
+	audio chan []byte
+	pid   int
 }
+
+// micQueue is how many chunks wait for the child: half a second at the
+// 20 ms the phones send.
+const micQueue = 25
 
 // set starts or stops the mic, saying which on the stream.
 func (m *micIn) set(ctx context.Context, on bool) {
@@ -54,7 +62,7 @@ func (m *micIn) set(ctx context.Context, on bool) {
 		return
 	}
 	if m.c.d.Kind != KindDisplay {
-		m.say(StreamMic{Error: "The iPhone mic works only with a Mac's screen."})
+		m.say(StreamMic{Error: "The phone's mic works only with a Mac's screen."})
 		return
 	}
 	m.mu.Lock()
@@ -71,14 +79,14 @@ func (m *micIn) set(ctx context.Context, on bool) {
 		m.mu.Lock()
 		stopped := run.Err() != nil
 		if !stopped {
-			m.cancel, m.stdin, m.pid = nil, nil, 0
+			m.cancel, m.stdin, m.audio, m.pid = nil, nil, nil, 0
 		}
 		m.mu.Unlock()
 		if stopped {
 			return // stopped on purpose, or the stream ended
 		}
 		m.changed()
-		why := "The iPhone mic stopped."
+		why := "The phone's mic stopped."
 		if err != nil {
 			why = err.Error()
 		}
@@ -86,17 +94,20 @@ func (m *micIn) set(ctx context.Context, on bool) {
 	}(m.done)
 }
 
-// write passes one chunk of the phone's PCM to the child; dropped while
-// the mic is off.
+// write queues one chunk of the phone's PCM for the child; dropped while
+// the mic is off, or when the child is a half second behind.
 func (m *micIn) write(pcm []byte) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.stdin == nil || len(pcm) == 0 {
+	audio := m.audio
+	m.mu.Unlock()
+	if audio == nil || len(pcm) == 0 {
 		return
 	}
-	var length [4]byte
-	binary.BigEndian.PutUint32(length[:], uint32(len(pcm)))
-	m.stdin.Write(append(length[:], pcm...))
+	// One item with its length, so a full queue drops a whole chunk.
+	select {
+	case audio <- append(binary.BigEndian.AppendUint32(nil, uint32(len(pcm))), pcm...):
+	default:
+	}
 }
 
 // process is the child's process ID while it runs, else 0.
@@ -111,7 +122,7 @@ func (m *micIn) process() int {
 func (m *micIn) stop() {
 	m.mu.Lock()
 	cancel, done, stdin, had := m.cancel, m.done, m.stdin, m.pid != 0
-	m.cancel, m.done, m.stdin, m.pid = nil, nil, nil, 0
+	m.cancel, m.done, m.stdin, m.audio, m.pid = nil, nil, nil, nil, 0
 	m.mu.Unlock()
 	if cancel == nil {
 		return
@@ -154,6 +165,19 @@ func (m *micIn) run(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	audio := make(chan []byte, micQueue)
+	go func() {
+		for {
+			select {
+			case chunk := <-audio:
+				if _, err := stdin.Write(chunk); err != nil {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	readFrames(out, func([]byte) error { return nil }, func(message []byte) {
 		var said struct {
 			Mic *struct {
@@ -168,7 +192,7 @@ func (m *micIn) run(ctx context.Context) error {
 			m.mu.Unlock()
 			return
 		}
-		m.stdin, m.pid = stdin, said.Mic.PID
+		m.stdin, m.audio, m.pid = stdin, audio, said.Mic.PID
 		m.mu.Unlock()
 		m.changed()
 		m.say(StreamMic{On: true, Device: name})

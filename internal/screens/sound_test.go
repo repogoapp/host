@@ -45,7 +45,23 @@ func TestMicDeviceIsThePhones(t *testing.T) {
 	if !strings.HasPrefix(uid, capture.MicDevicePrefix+".") {
 		t.Fatalf("ID %q outside the prefix the host clears at start", uid)
 	}
-	if name != "RepoGo – Jerrick’s S10+" || unnamed != "RepoGo iPhone Mic" {
+	if name != "RepoGo – Jerrick’s S10+" || unnamed != "RepoGo Phone Mic" {
 		t.Fatalf("names %q, %q", name, unnamed)
 	}
+}
+
+// A mic child that stops reading loses audio but never holds up the
+// stream's input: write drops whole chunks once the queue is full.
+func TestMicWriteNeverBlocks(t *testing.T) {
+	m := &micIn{audio: make(chan []byte, micQueue)}
+	for range micQueue * 10 {
+		m.write([]byte{1, 2})
+	}
+	if len(m.audio) != micQueue {
+		t.Fatalf("queued %d chunks, want %d", len(m.audio), micQueue)
+	}
+	if chunk := <-m.audio; string(chunk) != "\x00\x00\x00\x02\x01\x02" {
+		t.Fatalf("chunk % x, want its length then the PCM", chunk)
+	}
+	(&micIn{}).write([]byte{1}) // off: dropped
 }
