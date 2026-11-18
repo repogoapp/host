@@ -59,7 +59,7 @@ type ScreenshotResult struct {
 	Image []byte `json:"image"` // JPEG
 }
 
-type SpaceParams struct {
+type SwitchSpaceParams struct {
 	Screen string `json:"screen"`
 	Space  string `json:"space"`
 }
@@ -69,17 +69,17 @@ type AppParams struct {
 	Bundle string `json:"bundle"`
 }
 
-type WindowParams struct {
+type FocusWindowParams struct {
 	Screen string `json:"screen"`
 	Window int    `json:"window"`
 }
 
-type ButtonParams struct {
+type PressWindowButtonParams struct {
 	Screen string            `json:"screen"`
 	Button core.WindowButton `json:"button"`
 }
 
-type TileParams struct {
+type TileWindowParams struct {
 	Screen string    `json:"screen"`
 	Tile   core.Tile `json:"tile"`
 }
@@ -123,12 +123,12 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "screens.memory_warning", d.memoryWarning)
 	rpc.Add(r, "screens.screenshot", d.screenshot)
 	// The Mac's desktop. Moves need its live view open; launchpad and icons don't.
-	rpc.Add(r, "screens.desktop.space", d.space)
+	rpc.Add(r, "screens.desktop.switch_space", d.switchSpace)
 	rpc.Add(r, "screens.desktop.open_app", d.openApp)
 	rpc.Add(r, "screens.desktop.quit_app", d.quitApp)
-	rpc.Add(r, "screens.desktop.window", d.window)
-	rpc.Add(r, "screens.desktop.button", d.button)
-	rpc.Add(r, "screens.desktop.tile", d.tile)
+	rpc.Add(r, "screens.desktop.focus_window", d.focusWindow)
+	rpc.Add(r, "screens.desktop.press_window_button", d.pressWindowButton)
+	rpc.Add(r, "screens.desktop.tile_window", d.tileWindow)
 	rpc.Add(r, "screens.desktop.launchpad", d.launchpad)
 	rpc.Add(r, "screens.desktop.icons", d.icons)
 }
@@ -198,7 +198,7 @@ func (d Deps) screenshot(ctx context.Context, _ rpc.Caller, p ScreenParams) (Scr
 	return ScreenshotResult{Image: image}, err
 }
 
-func (d Deps) space(ctx context.Context, _ rpc.Caller, p SpaceParams) (rpc.Ack, error) {
+func (d Deps) switchSpace(ctx context.Context, _ rpc.Caller, p SwitchSpaceParams) (rpc.Ack, error) {
 	return rpc.OK, d.Screens.DesktopSpace(ctx, p.Screen, p.Space)
 }
 
@@ -210,15 +210,15 @@ func (d Deps) quitApp(ctx context.Context, _ rpc.Caller, p AppParams) (rpc.Ack, 
 	return rpc.OK, d.Screens.DesktopQuitApp(ctx, p.Screen, p.Bundle)
 }
 
-func (d Deps) window(ctx context.Context, _ rpc.Caller, p WindowParams) (rpc.Ack, error) {
+func (d Deps) focusWindow(ctx context.Context, _ rpc.Caller, p FocusWindowParams) (rpc.Ack, error) {
 	return rpc.OK, d.Screens.DesktopWindow(ctx, p.Screen, p.Window)
 }
 
-func (d Deps) button(ctx context.Context, _ rpc.Caller, p ButtonParams) (rpc.Ack, error) {
+func (d Deps) pressWindowButton(ctx context.Context, _ rpc.Caller, p PressWindowButtonParams) (rpc.Ack, error) {
 	return rpc.OK, d.Screens.DesktopButton(ctx, p.Screen, p.Button)
 }
 
-func (d Deps) tile(ctx context.Context, _ rpc.Caller, p TileParams) (rpc.Ack, error) {
+func (d Deps) tileWindow(ctx context.Context, _ rpc.Caller, p TileWindowParams) (rpc.Ack, error) {
 	return rpc.OK, d.Screens.DesktopTile(ctx, p.Screen, p.Tile)
 }
 

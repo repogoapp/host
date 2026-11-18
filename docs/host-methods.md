@@ -1813,7 +1813,7 @@ Result:
 
 - `image` base64 (nullable)
 
-## `screens.desktop.space`
+## `screens.desktop.switch_space`
 
 Params:
 
@@ -1846,7 +1846,7 @@ Result:
 
 - `ok` bool
 
-## `screens.desktop.window`
+## `screens.desktop.focus_window`
 
 Params:
 
@@ -1857,7 +1857,7 @@ Result:
 
 - `ok` bool
 
-## `screens.desktop.button`
+## `screens.desktop.press_window_button`
 
 Params:
 
@@ -1868,7 +1868,7 @@ Result:
 
 - `ok` bool
 
-## `screens.desktop.tile`
+## `screens.desktop.tile_window`
 
 Params:
 

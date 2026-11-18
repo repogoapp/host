@@ -70,8 +70,8 @@ var methodExports = map[string]bool{
 	"screens.location": true, "screens.push": true, "screens.shake": true, "screens.memory_warning": true,
 	"screens.screenshot": true,
 
-	"screens.desktop.space": true, "screens.desktop.open_app": true, "screens.desktop.quit_app": true,
-	"screens.desktop.window": true, "screens.desktop.button": true, "screens.desktop.tile": true,
+	"screens.desktop.switch_space": true, "screens.desktop.open_app": true, "screens.desktop.quit_app": true,
+	"screens.desktop.focus_window": true, "screens.desktop.press_window_button": true, "screens.desktop.tile_window": true,
 	"screens.desktop.launchpad": true, "screens.desktop.icons": true,
 
 	"projects.list": true, "projects.detect_icon": true, "projects.rename": true, "projects.pin": true,
