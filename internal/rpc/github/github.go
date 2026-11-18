@@ -14,9 +14,6 @@ type Deps struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	// avatar is the signed-in account's picture, so a client can show whose
-	// GitHub is behind a host rather than only which machine it is.
-	rpc.Add(r, "github.avatar", d.avatar)
 	rpc.Add(r, "github.repos", d.repos)
 	// Remote-reachable: cloning picks a folder under one fixed directory.
 	// Synchronous: the reply is the completion. A job would need a progress lane.
@@ -28,10 +25,6 @@ func Register(r *rpc.Router, d Deps) {
 	// publish gives a folder with no GitHub repository one, under the host's
 	// sign-in; the client then commits and pushes with git.commit_push.
 	rpc.Add(r, "github.publish", d.publish, rpc.Detached)
-}
-
-func (d Deps) avatar(ctx context.Context, _ rpc.Caller, a AvatarParams) (ghcore.Avatar, error) {
-	return d.GitHub.Avatar(ctx, a.IfNoneMatch)
 }
 
 func (d Deps) repos(ctx context.Context, _ rpc.Caller, a ReposParams) (ReposResult, error) {

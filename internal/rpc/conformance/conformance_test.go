@@ -215,8 +215,6 @@ var unchecked = map[string]string{
 	"git.diff":  "needs a real repository; covered in internal/git",
 	"git.patch": "same",
 
-	"github.avatar": "fetches the signed-in account's picture from GitHub",
-
 	"actions.list":   "needs a real project directory; covered in the actions package",
 	"actions.run":    "runs a shell command from the project's actions.json",
 	"actions.start":  "same, detached",

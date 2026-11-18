@@ -978,18 +978,6 @@ Result:
 - `branch` string
 - `pushed` bool
 
-## `github.avatar`
-
-Params:
-
-- `if_none_match` string
-
-Result:
-
-- `login` string (omitted when empty)
-- `content_hash` string (omitted when empty)
-- `bytes` base64 (omitted when empty) (nullable)
-
 ## `github.repos`
 
 Params:

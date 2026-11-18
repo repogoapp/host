@@ -6,10 +6,6 @@ type PathParams struct {
 	Path string `json:"path"`
 }
 
-type AvatarParams struct {
-	IfNoneMatch string `json:"if_none_match"`
-}
-
 type ReposParams struct {
 	// Owner selects a user or org; empty is the signed-in account.
 	Owner string `json:"owner"`

@@ -47,26 +47,25 @@ func (s *Service) Tool() clitool.Tool {
 
 // signedIn asks GitHub who gh is signed in as.
 func signedIn(ctx context.Context, path string) (bool, string, *clitool.Account) {
-	login, _ := ghUser(ctx, path)
+	login := ghUser(ctx, path)
 	if login == "" {
 		return false, "", nil
 	}
 	return true, "gh api user", &clitool.Account{Name: login, Login: login}
 }
 
-// ghUser is the signed-in account's handle and picture; "" when signed out.
+// ghUser is the signed-in account's handle; "" when signed out.
 // `gh api user` rather than `gh auth status`, whose output is prose.
-func ghUser(ctx context.Context, path string) (login, avatarURL string) {
+func ghUser(ctx context.Context, path string) string {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "api", "user", "--jq", `[.login, .avatar_url] | @tsv`)
+	cmd := exec.CommandContext(ctx, path, "api", "user", "--jq", ".login")
 	cmd.Env = append(cmd.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1")
 	out, err := cmd.Output()
 	if err != nil {
-		return "", ""
+		return ""
 	}
-	login, avatarURL, _ = strings.Cut(strings.TrimSpace(string(out)), "\t")
-	return login, avatarURL
+	return strings.TrimSpace(string(out))
 }
 
 // setupGit points git at gh's token, which is what makes HTTPS pushes work.

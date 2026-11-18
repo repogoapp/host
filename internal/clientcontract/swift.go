@@ -51,7 +51,7 @@ var methodExports = map[string]bool{
 	"git.pull": true, "git.reset_hard": true, "git.switch_branch": true, "git.create_branch": true,
 	"git.commit_push": true,
 
-	"github.avatar": true, "github.repos": true, "github.clone": true, "github.pr_create": true,
+	"github.repos": true, "github.clone": true, "github.pr_create": true,
 	"github.publish": true,
 
 	"host.status": true, "host.setup": true, "host.update": true,
