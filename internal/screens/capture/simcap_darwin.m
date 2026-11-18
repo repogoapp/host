@@ -409,9 +409,20 @@ static void sendHID(void *message) {
       gHID, NSSelectorFromString(@"sendWithMessage:freeWhenDone:completionQueue:completion:"), message, YES, nil, nil);
 }
 
+// The edge, in the panel's native orientation, a touch starting at (x, y)
+// swipes in from: 1 left, 2 top, 3 bottom, 4 right, or 0 for none.
+static uint32_t touchEdge(double x, double y) {
+  if (y > 0.97) return 3;
+  if (x > 0.97) return 4;
+  if (x < 0.03) return 1;
+  if (y < 0.03) return 2;
+  return 0;
+}
+
 void simcap_touch(int phase, double x, double y) {
-  // A touch that starts at the very bottom is the home-indicator swipe.
-  if (phase == 0) gEdge = y > 0.97 ? 3 : 0;
+  // A touch that starts at an edge swipes in from it, as a real screen
+  // tells iOS: the bottom of a turned panel is one of its other edges.
+  if (phase == 0) gEdge = touchEdge(x, y);
   if (gDigitizer) {
     struct SSCoreDeviceTouch contact = {MIN(MAX(x, 0), 1), MIN(MAX(y, 0), 1)};
     // A panel's touch service is 0x100 plus its screen ID; the main screen's is 1.

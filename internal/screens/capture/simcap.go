@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -86,7 +87,7 @@ const (
 	ActionMemoryWarning  = "memory_warning"  //
 	ActionSlowAnimations = "slow_animations" // Value: on or off
 	ActionFold           = "fold"            // Value: closed, open, book or laptop (a foldable's pose)
-	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else the swipe
+	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else the swipe, the video's quarter turns 0 to 3
 	ActionKeyframe       = "keyframe"        // the next frame a keyframe, sent even if the screen is still
 )
 
@@ -260,7 +261,12 @@ func play(in Input) error {
 	case ActionMemoryWarning:
 		memoryWarning()
 	case ActionAppSwitcher:
-		appSwitcher(in.Value == SwitcherPress)
+		if in.Value == SwitcherPress {
+			doubleHome()
+		} else {
+			turns, _ := strconv.Atoi(in.Value)
+			appSwitcher(turns)
+		}
 	case ActionSlowAnimations:
 		caDebug("debug_slow_animations", in.Value == "on")
 	case ActionKeyframe:
@@ -269,26 +275,40 @@ func play(in Input) error {
 	return nil
 }
 
-// appSwitcher opens the app switcher. With press, as Simulator's own does:
-// Home twice, which iOS 26 and later ignore. Without, the gesture: a slow
-// swipe up from the bottom edge that pauses before it lifts. A quick one, or
-// lifting while it moves, goes home; this pace and reach held on iOS 27's
-// iPhone and Duo, where a shorter, quicker one went home on the Duo.
-func appSwitcher(press bool) {
-	if press {
-		buttons["home"]()
-		time.Sleep(120 * time.Millisecond)
-		buttons["home"]()
-		return
-	}
+// doubleHome opens the app switcher as Simulator's own does: Home twice,
+// which iOS 26 and later ignore.
+func doubleHome() {
+	buttons["home"]()
+	time.Sleep(120 * time.Millisecond)
+	buttons["home"]()
+}
+
+// appSwitcher opens the app switcher with a slow swipe up from the bottom
+// that pauses before it lifts; a quicker or shorter one went home on iOS 27's
+// Duo. turns is how far, clockwise, the phone turns the video upright, so it
+// swipes from the bottom the phone shows: the panel's own right edge at one
+// turn, its top at two, its left at three.
+func appSwitcher(turns int) {
 	const from, to, steps = 0.995, 0.60, 50
-	touch(0, 0.5, from)
+	at := func(phase int, y float64) {
+		switch turns {
+		case 1:
+			touch(phase, y, 0.5)
+		case 2:
+			touch(phase, 0.5, 1-y)
+		case 3:
+			touch(phase, 1-y, 0.5)
+		default:
+			touch(phase, 0.5, y)
+		}
+	}
+	at(0, from)
 	for i := 1; i <= steps; i++ {
 		time.Sleep(16 * time.Millisecond)
-		touch(1, 0.5, from-(from-to)*float64(i)/steps)
+		at(1, from-(from-to)*float64(i)/steps)
 	}
 	time.Sleep(600 * time.Millisecond)
-	touch(2, 0.5, to)
+	at(2, to)
 }
 
 // typeText presses each character's key, with Shift where it needs one.

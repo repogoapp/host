@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -390,10 +391,13 @@ func (c *controller) button(b HardwareButton) []item {
 	switch {
 	case b == ButtonAppSwitcher && c.d.Platform == PlatformIOS:
 		// Home pressed twice where iOS still takes the button; the swipe
-		// from iOS 26, which drops its press.
-		in := capture.Input{Action: capture.ActionAppSwitcher}
-		if iosMajor(c.d.OS.Version) < 26 {
-			in.Value = capture.SwitcherPress
+		// from iOS 26, which drops its press, up from the edge that shows
+		// at the bottom: a turned or folded panel's isn't its own.
+		in := capture.Input{Action: capture.ActionAppSwitcher, Value: capture.SwitcherPress}
+		if iosMajor(c.d.OS.Version) >= 26 {
+			c.mu.Lock()
+			in.Value = strconv.Itoa(((c.rotation/90)%4 + 4) % 4)
+			c.mu.Unlock()
 		}
 		return []item{{device: in}}
 	case b == ButtonHome && c.d.Platform == PlatformIOS && iosMajor(c.d.OS.Version) >= 26:
