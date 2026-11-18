@@ -28,7 +28,9 @@ func openApps(ctx context.Context) ([]openApp, string, error) {
 
 var (
 	appLine = regexp.MustCompile(`^\s*\d+\) "(.*)" (ASN:\S+)`)
-	pidLine = regexp.MustCompile(`^\s*pid = (\d+) type="([^"]*)"`)
+	// Other fields can sit between the pid and its type: `!signalled`, and
+	// on macOS 27 `token=[…]`.
+	pidLine = regexp.MustCompile(`^\s*pid = (\d+) .*?\btype="([^"]*)"`)
 )
 
 // parseOpenApps reads `lsappinfo list`: a numbered name line per process,

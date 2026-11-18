@@ -80,12 +80,18 @@ const lsappinfoList = ` 1) "loginwindow" ASN:0x0-0x2002:
  4) "Google Chrome" ASN:0x0-0x259c59a: 
     bundleID="com.google.Chrome"
     pid = 9120 type="Foreground" flavor=3
+ 5) "Messages" ASN:0x0-0x393393: (in front) 
+    bundleID="com.apple.MobileSMS"
+    pid = 80846 token=[sess=100002 pid=80846 uid:501,501,501 g:20,20 pV:520047] type="Foreground" flavor=3
+ 6) "Notes" ASN:0x0-0x395395: 
+    bundleID="com.apple.Notes"
+    pid = 80900 !signalled type="Foreground" flavor=3
 `
 
 // Only Dock apps (Foreground, with a bundle ID) are open apps.
 func TestParseOpenApps(t *testing.T) {
 	got := parseOpenApps([]byte(lsappinfoList))
-	if len(got) != 2 {
+	if len(got) != 4 {
 		t.Fatalf("got %+v", got)
 	}
 	if f := got[0]; f.Bundle != "com.apple.finder" || f.Name != "Finder" || f.pid != 623 || f.asn != "ASN:0x0-0x11011:" {
@@ -93,5 +99,12 @@ func TestParseOpenApps(t *testing.T) {
 	}
 	if c := got[1]; c.Bundle != "com.google.Chrome" || c.pid != 9120 {
 		t.Fatalf("chrome %+v", c)
+	}
+	// macOS 27 puts a token between the pid and its type.
+	if m := got[2]; m.Bundle != "com.apple.MobileSMS" || m.pid != 80846 || m.asn != "ASN:0x0-0x393393:" {
+		t.Fatalf("messages %+v", m)
+	}
+	if n := got[3]; n.Bundle != "com.apple.Notes" || n.pid != 80900 {
+		t.Fatalf("notes %+v", n)
 	}
 }
