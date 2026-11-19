@@ -72,6 +72,17 @@ func tell(message []byte) {
 
 func keyframe() { C.simcap_keyframe() }
 
+// pace passes the host's pacer on to the encoder: frames it may make now,
+// or a new bitrate (Input.Credit, Input.Bitrate).
+func pace(in Input) {
+	if in.Credit > 0 {
+		C.simcap_credit(C.int(in.Credit))
+	}
+	if in.Bitrate > 0 {
+		C.simcap_bitrate(C.int(in.Bitrate))
+	}
+}
+
 func caDebug(name string, on bool) {
 	n := C.CString(name)
 	defer C.free(unsafe.Pointer(n))

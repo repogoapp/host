@@ -27,8 +27,23 @@
 // over 720 px costs encode and decode time for little gain in legibility.
 // A Mac screen (simcap_screen_start) keeps more: its text is smaller.
 static int gMaxShortSide = 720;
-static const int64_t kMinFrameGapNs = 1000000000LL / 30;
+static const int64_t kMinFrameGapNs = 1000000000LL / 60;
+// The starting bitrate; the host's pacer moves it (simcap_bitrate).
 static int gBitRate = 4000000;
+
+// Motion and stillness. While the picture changes, a quantizer floor keeps
+// each frame coarse enough to cross the link quickly: on a whole-screen
+// change, about 50 KB instead of 117 KB (measured on an M3 Pro, low-latency
+// rate control at 8 Mbps). Once the picture has been still for kStillNs the
+// floor lifts and the same picture goes again, kSharpenFrames times: the
+// encoder spends about 27, 34 and 11 KB on them, refining what you read.
+static const int kMotionMinQP = 26;
+static const int64_t kStillNs = 300000000LL;
+static const int kSharpenFrames = 3;
+static int gMinQP = kMotionMinQP;  // the floor on the session now; 0 for none
+static int gSharpenLeft;
+static uint64_t gChange;            // counts new pictures, so a stale timer does nothing
+static void sharpen(uint64_t change);
 
 static dispatch_queue_t gQueue;        // every capture and encoder field below
 static int gOut = -1;
@@ -53,7 +68,13 @@ static os_unfair_lock gWriteLock = OS_UNFAIR_LOCK_INIT;
 // frame of pixels (a Mac screen's, an emulator's), to encode again for one.
 static BOOL gForceKeyframe;
 static CVPixelBufferRef gLastPixels;
+// Pacing: how many frames the host lets this encode now, -1 for every
+// frame (a host or phone that doesn't pace). At 0 the newest frame waits
+// in gHeld, replacing an older one, until the host allows another.
+static int gCredit = -1;
+static CVPixelBufferRef gHeld;
 static void capture(void);
+static IOSurfaceRef currentSurface(void);
 
 static int64_t nowNs(void) { return (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
@@ -113,8 +134,16 @@ static void appendLength(NSMutableData *out, uint32_t length) {
   [out appendBytes:&big length:4];
 }
 
+static void giveCreditBack(void);
+
 static void encoded(void *ref, void *frameRef, OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sample) {
-  if (status != noErr || !sample || !CMSampleBufferDataIsReady(sample)) return;
+  // Nothing came out (an error, or low-latency rate control dropped the
+  // frame): the host's pacer is still waiting for the frame it allowed, so
+  // the credit it spent goes back, or the stream would wait forever.
+  if (status != noErr || !sample || !CMSampleBufferDataIsReady(sample)) {
+    giveCreditBack();
+    return;
+  }
   NSMutableData *out = [NSMutableData dataWithLength:12];
   CMTime pts = CMSampleBufferGetPresentationTimeStamp(sample);
   uint64_t capturedUS = CMTIME_IS_VALID(pts) ? (uint64_t)(CMTimeGetSeconds(pts) * 1000000.0) : 0;
@@ -167,25 +196,49 @@ static BOOL ensureSession(size_t width, size_t height) {
   gTargetH = ((size_t)(height * scale)) & ~1;
   gSourceW = width;
   gSourceH = height;
-  NSDictionary *spec = @{(__bridge NSString *)kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: @YES};
+  // Low-latency rate control keeps each frame near its share of the
+  // bitrate, where the default lets one swell to several times it (half
+  // the largest scrolling frame, measured on an M3 Pro). Where the encoder
+  // doesn't offer it, the default.
+  NSDictionary *lowLatency = @{
+    (__bridge NSString *)kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: @YES,
+    (__bridge NSString *)kVTVideoEncoderSpecification_EnableLowLatencyRateControl: @YES,
+  };
+  NSDictionary *plain = @{(__bridge NSString *)kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: @YES};
+  BOOL isLowLatency = YES;
   if (VTCompressionSessionCreate(NULL, (int32_t)gTargetW, (int32_t)gTargetH, kCMVideoCodecType_H264,
-                                 (__bridge CFDictionaryRef)spec, NULL, NULL, encoded, NULL, &gSession) != noErr) {
-    gSession = NULL;
-    return NO;
+                                 (__bridge CFDictionaryRef)lowLatency, NULL, NULL, encoded, NULL, &gSession) != noErr) {
+    isLowLatency = NO;
+    if (VTCompressionSessionCreate(NULL, (int32_t)gTargetW, (int32_t)gTargetH, kCMVideoCodecType_H264,
+                                   (__bridge CFDictionaryRef)plain, NULL, NULL, encoded, NULL, &gSession) != noErr) {
+      gSession = NULL;
+      return NO;
+    }
   }
   VTSessionSetProperty(gSession, kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
   // Reordering would hold each frame for the next: latency a live screen doesn't need.
   VTSessionSetProperty(gSession, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
-  VTSessionSetProperty(gSession, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_Main_AutoLevel);
+  // Low-latency rate control takes the constrained profiles.
+  VTSessionSetProperty(gSession, kVTCompressionPropertyKey_ProfileLevel,
+                       isLowLatency ? kVTProfileLevel_H264_ConstrainedHigh_AutoLevel : kVTProfileLevel_H264_Main_AutoLevel);
   VTSessionSetProperty(gSession, kVTCompressionPropertyKey_AverageBitRate, (__bridge CFNumberRef)@(gBitRate));
-  VTSessionSetProperty(gSession, kVTCompressionPropertyKey_ExpectedFrameRate, (__bridge CFNumberRef)@30);
+  VTSessionSetProperty(gSession, kVTCompressionPropertyKey_ExpectedFrameRate, (__bridge CFNumberRef)@60);
   VTSessionSetProperty(gSession, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, (__bridge CFNumberRef)@10);
+  VTSessionSetProperty(gSession, kVTCompressionPropertyKey_MinAllowedFrameQP, (__bridge CFNumberRef)@(gMinQP));
   VTCompressionSessionPrepareToEncodeFrames(gSession);
   return YES;
 }
 
 // Encodes one BGRA frame, scaled to the session's size; consumes source.
+// Without credit from the host it's held instead, the newest only. Credit is
+// spent only on a frame handed to the encoder: one that couldn't be would
+// leave the host's pacer waiting for a frame that never comes.
 static void encodePixelBuffer(CVPixelBufferRef source) {
+  if (gCredit == 0) {
+    if (gHeld) CVPixelBufferRelease(gHeld);
+    gHeld = source;
+    return;
+  }
   size_t width = CVPixelBufferGetWidth(source), height = CVPixelBufferGetHeight(source);
   if (width == 0 || height == 0 || !ensureSession(width, height)) {
     CVPixelBufferRelease(source);
@@ -209,9 +262,26 @@ static void encodePixelBuffer(CVPixelBufferRef source) {
     options = @{(__bridge NSString *)kVTEncodeFrameOptionKey_ForceKeyFrame: @YES};
     gForceKeyframe = NO;
   }
-  VTCompressionSessionEncodeFrame(gSession, frame, CMTimeMake(nowNs(), 1000000000), kCMTimeInvalid,
-                                  (__bridge CFDictionaryRef)options, NULL, NULL);
+  if (VTCompressionSessionEncodeFrame(gSession, frame, CMTimeMake(nowNs(), 1000000000), kCMTimeInvalid,
+                                      (__bridge CFDictionaryRef)options, NULL, NULL) == noErr &&
+      gCredit > 0) {
+    gCredit--;
+  }
   CVPixelBufferRelease(frame);
+}
+
+// The encoder made nothing of a frame it was handed: its credit back, and a
+// frame held for credit goes now. Called from the encoder's thread.
+static void giveCreditBack(void) {
+  dispatch_async(gQueue, ^{
+    if (gCredit != 0) return;  // unpaced, or the host already allowed another
+    gCredit = 1;
+    if (gHeld) {
+      CVPixelBufferRef held = gHeld;
+      gHeld = NULL;
+      encodePixelBuffer(held);
+    }
+  });
 }
 
 static void encodeSurface(IOSurfaceRef surface) {
@@ -219,6 +289,59 @@ static void encodeSurface(IOSurfaceRef surface) {
   NSDictionary *attrs = @{(__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
   if (CVPixelBufferCreateWithIOSurface(NULL, surface, (__bridge CFDictionaryRef)attrs, &source) != kCVReturnSuccess) return;
   encodePixelBuffer(source);
+}
+
+// MARK: - Motion and stillness
+
+// Sets the quantizer floor, 0 for none. (Resetting the property with NULL
+// fails, kVTParameterErr, and leaves the floor on; 0 lifts it.)
+static void setMinQP(int qp) {
+  if (qp == gMinQP) return;
+  gMinQP = qp;
+  if (gSession) VTSessionSetProperty(gSession, kVTCompressionPropertyKey_MinAllowedFrameQP, (__bridge CFNumberRef)@(qp));
+}
+
+// The newest picture again, as a delta on what the phone has: a simulator's
+// surface, or a Mac's or emulator's last pixels.
+static void encodeAgain(void) {
+  if (gDescriptors.count > 0) {
+    IOSurfaceRef surface = currentSurface();
+    if (surface) encodeSurface(surface);
+  } else if (gLastPixels) {
+    encodePixelBuffer(CVPixelBufferRetain(gLastPixels));
+  }
+}
+
+// A new picture is about to be encoded: coarse, and sharpened once it's
+// been still for kStillNs. On gQueue.
+static void sawChange(void) {
+  setMinQP(kMotionMinQP);
+  gSharpenLeft = kSharpenFrames;
+  uint64_t change = ++gChange;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kStillNs), gQueue, ^{ sharpen(change); });
+}
+
+// Still since `change`: the same picture at full quality, kSharpenFrames
+// times, a frame's time apart. A newer picture cancels it.
+static void sharpen(uint64_t change) {
+  if (change != gChange || gSharpenLeft <= 0) return;
+  gSharpenLeft--;
+  setMinQP(0);
+  encodeAgain();
+  if (gSharpenLeft > 0) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kStillNs / 3), gQueue, ^{ sharpen(change); });
+  }
+}
+
+// The host's pacer sets the bitrate as the link allows.
+void simcap_bitrate(int bitsPerSecond) {
+  if (!gQueue || bitsPerSecond <= 0) return;
+  dispatch_async(gQueue, ^{
+    gBitRate = bitsPerSecond;
+    if (gSession) {
+      VTSessionSetProperty(gSession, kVTCompressionPropertyKey_AverageBitRate, (__bridge CFNumberRef)@(gBitRate));
+    }
+  });
 }
 
 // MARK: - Mac screen
@@ -237,11 +360,25 @@ void simcap_screen_start(int out, int maxShortSide, int bitRate) {
 // Encodes one frame of pixels, stride bytes a row: BGRA, or RGBA when rgba
 // (an emulator's), swapped to BGRA as they're copied.
 void simcap_encode_pixels(const void *pixels, int width, int height, int stride, int rgba) {
+  // Buffers from a pool for the frame's size, made again when it changes;
+  // only the one capture thread calls this.
+  static CVPixelBufferPoolRef pool;
+  static int poolW, poolH;
+  if (!pool || poolW != width || poolH != height) {
+    if (pool) CVPixelBufferPoolRelease(pool);
+    pool = NULL;
+    NSDictionary *attrs = @{
+      (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+      (__bridge NSString *)kCVPixelBufferWidthKey: @(width),
+      (__bridge NSString *)kCVPixelBufferHeightKey: @(height),
+      (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{},
+    };
+    if (CVPixelBufferPoolCreate(NULL, NULL, (__bridge CFDictionaryRef)attrs, &pool) != kCVReturnSuccess) return;
+    poolW = width;
+    poolH = height;
+  }
   CVPixelBufferRef buffer = NULL;
-  NSDictionary *attrs = @{(__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{}};
-  if (CVPixelBufferCreate(NULL, width, height, kCVPixelFormatType_32BGRA, (__bridge CFDictionaryRef)attrs, &buffer) !=
-      kCVReturnSuccess)
-    return;
+  if (CVPixelBufferPoolCreatePixelBuffer(NULL, pool, &buffer) != kCVReturnSuccess) return;
   CVPixelBufferLockBaseAddress(buffer, 0);
   uint8_t *to = CVPixelBufferGetBaseAddress(buffer);
   size_t toStride = CVPixelBufferGetBytesPerRow(buffer);
@@ -257,7 +394,23 @@ void simcap_encode_pixels(const void *pixels, int width, int height, int stride,
   dispatch_sync(gQueue, ^{
     if (gLastPixels) CVPixelBufferRelease(gLastPixels);
     gLastPixels = CVPixelBufferRetain(buffer);
+    sawChange();
     encodePixelBuffer(buffer);
+  });
+}
+
+// The host lets this encode `frames` more now, replacing what it allowed
+// before (so a repeated message never adds up), and starts pacing if it
+// wasn't. A frame held for credit goes at once.
+void simcap_credit(int frames) {
+  if (!gQueue || frames < 0) return;
+  dispatch_async(gQueue, ^{
+    gCredit = frames;
+    if (gHeld && gCredit > 0) {
+      CVPixelBufferRef held = gHeld;
+      gHeld = NULL;
+      encodePixelBuffer(held);
+    }
   });
 }
 
@@ -307,7 +460,7 @@ static uint32_t screenID(NSObject *descriptor) {
   return ((uint32_t (*)(id, SEL))objc_msgSend)(properties, idSel);
 }
 
-// Encodes the screen when it changed, at most 30 times a second; a change
+// Encodes the screen when it changed, at most 60 times a second; a change
 // inside the gap is encoded when the gap ends, so the last frame of an
 // animation is never lost.
 static void capture(void) {
@@ -329,6 +482,7 @@ static void capture(void) {
   gLastSeed = seed;
   gHaveSeed = YES;
   gLastEncodeNs = nowNs();
+  sawChange();
   encodeSurface(surface);
 }
 

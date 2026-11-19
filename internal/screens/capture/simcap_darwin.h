@@ -24,6 +24,8 @@ void simcap_tell(const char *json, int len);
 // Makes the next frame a keyframe, and encodes the screen again even if it
 // hasn't changed, so a phone whose decoder failed recovers at once.
 void simcap_keyframe(void);
+void simcap_credit(int frames);
+void simcap_bitrate(int bitsPerSecond);
 void simcap_memory_warning(void);
 // Shows (on) or hides the on-screen keyboard; 0 on success.
 int simcap_onscreen_keyboard(int on);

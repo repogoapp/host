@@ -23,6 +23,7 @@ func onscreenKeyboard(bool) bool  { return false }
 func fold(string) bool            { return false }
 func tell([]byte)                 {}
 func keyframe()                   {}
+func pace(Input)                  {}
 func caDebug(string, bool)        {}
 func stop()                       {}
 

@@ -16,6 +16,82 @@ package desktop
 
 extern void goChanged(void);
 
+// rectOf is an element's frame on screen.
+static bool rectOf(AXUIElementRef el, CGRect *rect) {
+	CFTypeRef v = NULL;
+	if (AXUIElementCopyAttributeValue(el, CFSTR("AXFrame"), &v) != kAXErrorSuccess || !v) return false;
+	bool ok = CFGetTypeID(v) == AXValueGetTypeID() && AXValueGetValue((AXValueRef)v, kAXValueTypeCGRect, rect);
+	CFRelease(v);
+	return ok;
+}
+
+// webAnchor is the frame of what sits at a web page's middle: it moves
+// when the page scrolls, and stays put at the page's ends.
+static bool webAnchor(AXUIElementRef system, AXUIElementRef page, CGRect *anchor) {
+	CGRect view;
+	if (!rectOf(page, &view) || view.size.height < 1) return false;
+	AXUIElementRef el = NULL;
+	if (AXUIElementCopyElementAtPosition(system, CGRectGetMidX(view), CGRectGetMidY(view), &el) != kAXErrorSuccess || !el) return false;
+	bool ok = rectOf(el, anchor);
+	CFRelease(el);
+	return ok;
+}
+
+// The vertical scroll under the cursor: its nearest scroll area that has a
+// vertical bar, read as 1 at the top, 2 at the bottom, 0 between, or -1 when
+// nothing there has one. A web page (AXWebArea, as Chrome's) has none: then
+// *anchor is the frame of what sits at its middle, for the caller to read
+// whether the page moved.
+static int scrollEdgeAtCursor(CGRect *anchor) {
+	CGEventRef event = CGEventCreate(NULL);
+	if (!event) return -1;
+	CGPoint at = CGEventGetLocation(event);
+	CFRelease(event);
+	AXUIElementRef system = AXUIElementCreateSystemWide();
+	// An app that hangs mustn't hold up the stream's input.
+	AXUIElementSetMessagingTimeout(system, 0.1);
+	AXUIElementRef el = NULL;
+	AXError err = AXUIElementCopyElementAtPosition(system, at.x, at.y, &el);
+	if (err != kAXErrorSuccess || !el) {
+		CFRelease(system);
+		return -1;
+	}
+	int edge = -1;
+	bool web = false;
+	for (int depth = 0; el && depth < 60; depth++) {
+		CFTypeRef role = NULL;
+		AXUIElementCopyAttributeValue(el, kAXRoleAttribute, &role);
+		bool area = role && CFEqual(role, kAXScrollAreaRole);
+		if (!web && role && CFEqual(role, CFSTR("AXWebArea"))) web = webAnchor(system, el, anchor);
+		if (role) CFRelease(role);
+		if (area) {
+			CFTypeRef bar = NULL;
+			double value = -1;
+			if (AXUIElementCopyAttributeValue(el, kAXVerticalScrollBarAttribute, &bar) == kAXErrorSuccess && bar) {
+				CFTypeRef v = NULL;
+				if (AXUIElementCopyAttributeValue((AXUIElementRef)bar, kAXValueAttribute, &v) == kAXErrorSuccess && v) {
+					if (CFGetTypeID(v) == CFNumberGetTypeID()) CFNumberGetValue((CFNumberRef)v, kCFNumberDoubleType, &value);
+					CFRelease(v);
+				}
+				CFRelease(bar);
+			}
+			// An area without a vertical bar doesn't scroll up and down: the
+			// one that does is further out.
+			if (value >= 0) {
+				edge = value <= 0.001 ? 1 : value >= 0.999 ? 2 : 0;
+				break;
+			}
+		}
+		CFTypeRef parent = NULL;
+		AXUIElementCopyAttributeValue(el, kAXParentAttribute, &parent);
+		CFRelease(el);
+		el = (AXUIElementRef)parent;
+	}
+	if (el) CFRelease(el);
+	CFRelease(system);
+	return edge;
+}
+
 // SkyLight's private calls, the data Mission Control draws.
 typedef int CGSConnectionID;
 extern CGSConnectionID CGSMainConnectionID(void);
@@ -485,6 +561,13 @@ import (
 
 func locked() bool  { return C.isLocked() != 0 }
 func trusted() bool { return C.isTrusted() != 0 }
+
+func scrollEdge() (int, [4]float64, bool) {
+	page := C.CGRect{size: C.CGSize{width: -1}}
+	edge := int(C.scrollEdgeAtCursor(&page))
+	anchor := [4]float64{float64(page.origin.x), float64(page.origin.y), float64(page.size.width), float64(page.size.height)}
+	return edge, anchor, page.size.width >= 0
+}
 
 func read() ([]Space, int, []rawWindow) {
 	var raw struct {

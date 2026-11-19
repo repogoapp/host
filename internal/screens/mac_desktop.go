@@ -205,10 +205,10 @@ func (c *controller) swipe(ctx context.Context, in SpaceSwipeInput, forward func
 	if err != nil || d.Locked {
 		return err
 	}
-	// Negative is toward the space on the right, as the fingers move left.
-	next := d.Current + 1
+	// Positive is toward the space on the right.
+	next := d.Current - 1
 	if velocity > 0 {
-		next = d.Current - 1
+		next = d.Current + 1
 	}
 	if next < 0 || next >= len(d.Spaces) {
 		return nil

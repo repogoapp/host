@@ -107,6 +107,8 @@ func (s *screenInput) play(c *vnc.Client, in Input) {
 		c.Pointer(s.x, s.y, s.buttons)
 	case in.Action == ActionKeyframe:
 		C.simcap_keyframe()
+	case in.Credit > 0 || in.Bitrate > 0:
+		pace(in)
 	case in.Action == ActionText:
 		for _, r := range in.Value {
 			keysym := Keysym(r)

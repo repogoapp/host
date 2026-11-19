@@ -40,6 +40,14 @@ type Input struct {
 	Pointer *Pointer `json:"pointer,omitempty"`
 	Scroll  *Scroll  `json:"scroll,omitempty"`
 	Key     *Key     `json:"key,omitempty"`
+
+	// Credit is how many frames the encoder may make now, replacing the
+	// last credit: the host's pacer sends 1 when the phone can take
+	// another. Until the first, every frame is encoded.
+	Credit int `json:"credit,omitempty"`
+	// Bitrate is the encoder's target in bits a second, as the host's pacer
+	// finds the link allows.
+	Bitrate int `json:"bitrate,omitempty"`
 }
 
 // Pointer is the cursor at a fraction of the screen, with buttons held: bit
@@ -73,7 +81,7 @@ func (in Input) Valid() bool {
 		if p := in.Pointer; p != nil {
 			return p.X >= 0 && p.X <= 1 && p.Y >= 0 && p.Y <= 1
 		}
-		return in.Button != "" || in.Action != "" || in.Scroll != nil || in.Key != nil
+		return in.Button != "" || in.Action != "" || in.Scroll != nil || in.Key != nil || in.Credit > 0 || in.Bitrate > 0
 	}
 	return false
 }
@@ -170,6 +178,10 @@ func Run(developerDir, udid string, universal bool, out *os.File, in io.Reader) 
 	for lines.Scan() {
 		var input Input
 		if json.Unmarshal(lines.Bytes(), &input) != nil || !input.Valid() {
+			continue
+		}
+		if input.Credit > 0 || input.Bitrate > 0 {
+			pace(input)
 			continue
 		}
 		finger.track(input)

@@ -47,7 +47,7 @@ func TestStreamChildReleasesWhatIsHeldBeforeTheChildGoes(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- streamChild(ctx, c, func([]byte) error { return nil }, q, []string{"test-child", path}, nil)
+		done <- streamChild(ctx, c, func([]byte) error { return nil }, nil, q, []string{"test-child", path}, nil)
 	}()
 	testwait.For(t, "the child to take the input", func() bool {
 		b, _ := os.ReadFile(path)

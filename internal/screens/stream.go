@@ -56,9 +56,41 @@ type StreamMessage struct {
 	Failed *StreamFailed `json:"failed,omitempty"`
 	Audio  *StreamAudio  `json:"audio,omitempty"`
 	Mic    *StreamMic    `json:"mic,omitempty"`
+	Edge   *StreamEdge   `json:"edge,omitempty"`
+	Pong   *StreamPong   `json:"pong,omitempty"`
+	Stats  *StreamStats  `json:"stats,omitempty"`
 }
 
 func (StreamMessage) WireUnion() {}
+
+// StreamPong answers a ping at once, with the host's time then: the phone
+// reads the round trip from it, and from the time when frames were
+// captured on the host's clock.
+type StreamPong struct {
+	ID int `json:"id"`
+	// HostUS is the host's uptime clock in microseconds, the clock frame
+	// headers' capture times use; 0 when it has none.
+	HostUS int64 `json:"host_us"`
+}
+
+// StreamStats is what the host sent, every half second once frames flow.
+type StreamStats struct {
+	// SentBytes counts every binary frame sent, video and sound, as the
+	// phone's acks do.
+	SentBytes int64 `json:"sent_bytes"`
+	// InFlightBytes is sent but not yet acked.
+	InFlightBytes int64 `json:"in_flight_bytes"`
+	// BudgetBytes is how much the pacer lets be in flight, and BitrateBps
+	// the encoder's target, while it paces.
+	BudgetBytes *int64 `json:"budget_bytes,omitempty"`
+	BitrateBps  *int   `json:"bitrate_bps,omitempty"`
+	// Frames is the video frames sent in the window, WindowMS long.
+	Frames   int `json:"frames"`
+	WindowMS int `json:"window_ms"`
+	// EncodeMS is the average from capture to send in the window, when the
+	// source stamps frames on the host's clock.
+	EncodeMS *float64 `json:"encode_ms,omitempty"`
+}
 
 // StreamReady is the version and codec the host picked; frames follow.
 type StreamReady struct {
@@ -96,6 +128,25 @@ type StreamMic struct {
 	Error string `json:"error,omitempty"`
 }
 
+// StreamEdge is where the scroll under a Mac's cursor rests, sent after
+// the phone's scrolls when it changes: reaching the top or the bottom, or
+// leaving one. Any other input (a move, a click, a key) forgets it, on both
+// sides, so the next scroll says it again.
+type StreamEdge struct {
+	Vertical ScrollEdge `json:"vertical"`
+}
+
+// ScrollEdge is a scroll's end, or none.
+type ScrollEdge string
+
+const (
+	ScrollEdgeNone   ScrollEdge = "none"
+	ScrollEdgeTop    ScrollEdge = "top"
+	ScrollEdgeBottom ScrollEdge = "bottom"
+)
+
+func (ScrollEdge) Values() []string { return []string{"none", "top", "bottom"} }
+
 // StreamFailed is why the stream ended, with a code when the phone can act on it.
 type StreamFailed struct {
 	Error string       `json:"error"`
@@ -117,9 +168,22 @@ type StreamInput struct {
 	Sound      *SoundInput      `json:"sound,omitempty"`
 	Mic        *MicInput        `json:"mic,omitempty"`
 	MicAudio   *MicAudioInput   `json:"mic_audio,omitempty"`
+	Ack        *AckInput        `json:"ack,omitempty"`
+	Ping       *PingInput       `json:"ping,omitempty"`
 }
 
 func (StreamInput) WireUnion() {}
+
+// AckInput is how many bytes of binary frames, video and sound, the phone
+// has received in all, header included; sent often while frames arrive.
+type AckInput struct {
+	Bytes int64 `json:"bytes"`
+}
+
+// PingInput asks for a pong with the same ID, to time the round trip.
+type PingInput struct {
+	ID int `json:"id"`
+}
 
 // TouchPhase is a finger's step.
 type TouchPhase string
@@ -265,7 +329,12 @@ func (m *Manager) Stream(ctx context.Context, req StreamRequest, phone Phone, se
 	}
 	sayReady := func() error { return reply(StreamMessage{Type: "ready", Ready: &ready}) }
 	queue := newInputQueue()
-	framed := &framer{c: c, send: send}
+	// Each stream's bitrate starts at its kind of screen's start: one
+	// learned on 3G and kept would start fast Wi-Fi at 0.5 Mbps.
+	pace := newPacer()
+	meter := newMeter(pace)
+	framed := &framer{c: c, pace: pace, meter: meter, send: send}
+	go reportStats(ctx, meter, reply)
 	sound := &soundOut{c: c, framed: framed, reply: reply}
 	mic := &micIn{c: c, phone: phone, reply: reply}
 	// The sound leaves out the mic's own playing, so the phone doesn't hear itself.
@@ -274,9 +343,24 @@ func (m *Manager) Stream(ctx context.Context, req StreamRequest, phone Phone, se
 	// The sound first: the mic stopping restarts a sound still running.
 	defer mic.stop()
 	defer sound.stop()
+	var edges *edgeWatch
+	if c.d.Kind == KindDisplay {
+		edges = &edgeWatch{ctx: ctx, reply: reply, read: macScrollEdge()}
+	}
 	go func() {
 		defer queue.close()
 		for in := range input {
+			switch {
+			case in.Ack != nil:
+				pace.ack(in.Ack.Bytes)
+				continue
+			case in.Ping != nil:
+				// Answered here, ahead of the queued input, so the round
+				// trip doesn't count the device's work.
+				_ = reply(StreamMessage{Type: "pong", Pong: &StreamPong{ID: in.Ping.ID, HostUS: uptimeUS()}})
+				continue
+			}
+			edges.saw(in)
 			switch {
 			case in.Sound != nil:
 				sound.set(ctx, in.Sound.On)
@@ -296,10 +380,10 @@ func (m *Manager) Stream(ctx context.Context, req StreamRequest, phone Phone, se
 	switch c.d.Kind {
 	case KindDisplay:
 		// A display says ready itself, once Screen Sharing took the password.
-		err = streamDisplay(ctx, c, req.Password, sayReady, framed.child, queue)
+		err = streamDisplay(ctx, c, req.Password, sayReady, framed, queue)
 	case KindSimulator:
 		if err = sayReady(); err == nil {
-			err = streamIOS(ctx, c, framed.child, queue)
+			err = streamIOS(ctx, c, framed, queue)
 		}
 	default:
 		if err = sayReady(); err == nil {
@@ -548,6 +632,8 @@ func (c *controller) serve(ctx context.Context, q *inputQueue, device func(captu
 // framer puts the header on each frame it sends.
 type framer struct {
 	c             *controller
+	pace          *pacer
+	meter         *meter
 	send          func([]byte) error
 	mu            sync.Mutex
 	sequence      uint32
@@ -563,6 +649,24 @@ func (f *framer) child(frame []byte) error {
 	return f.frame(frame[8:], binary.BigEndian.Uint64(frame[:8]))
 }
 
+// reportStats sends the meter's stats every statsEvery until ctx ends.
+func reportStats(ctx context.Context, m *meter, reply func(any) error) {
+	ticker := time.NewTicker(statsEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			stats, ok := m.report()
+			m.pace.tick(stats.Frames, time.Now())
+			if ok {
+				_ = reply(StreamMessage{Type: "stats", Stats: &stats})
+			}
+		}
+	}
+}
+
 // frame sends an access unit, NAL units behind 4-byte lengths, with its header.
 func (f *framer) frame(unit []byte, capturedUS uint64) error {
 	f.mu.Lock()
@@ -576,7 +680,15 @@ func (f *framer) frame(unit []byte, capturedUS uint64) error {
 	out[3] = f.c.quarterTurns()
 	binary.BigEndian.PutUint32(out[4:], sequence)
 	binary.BigEndian.PutUint64(out[8:], capturedUS)
-	return f.send(append(out, unit...))
+	out = append(out, unit...)
+	if err := f.send(out); err != nil {
+		return err
+	}
+	if f.pace != nil {
+		f.pace.wrote(len(out), true)
+		f.meter.video(capturedUS)
+	}
+	return nil
 }
 
 // audio sends one AAC access unit with its header: codec AAC, no flags, no
@@ -594,7 +706,14 @@ func (f *framer) audio(frame []byte) error {
 	out[1] = frameCodecAAC
 	binary.BigEndian.PutUint32(out[4:], sequence)
 	copy(out[8:16], frame[:8])
-	return f.send(append(out, frame[8:]...))
+	out = append(out, frame[8:]...)
+	if err := f.send(out); err != nil {
+		return err
+	}
+	if f.pace != nil {
+		f.pace.wrote(len(out), false)
+	}
+	return nil
 }
 
 // nalFlags reads an access unit's NAL types: an IDR slice makes it a
@@ -632,7 +751,7 @@ func endsWithInput(cmd *exec.Cmd) {
 // streamChild runs this binary again as args (simcap, screencap,
 // androidcap), passing first and then the input to it as lines, and its
 // framed output on as frames.
-func streamChild(ctx context.Context, c *controller, send func([]byte) error, input *inputQueue,
+func streamChild(ctx context.Context, c *controller, send func([]byte) error, pace *pacer, input *inputQueue,
 	args []string, first []byte) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -671,6 +790,12 @@ func streamChild(ctx context.Context, c *controller, send func([]byte) error, in
 			if _, err := stdin.Write(append(first, '\n')); err != nil {
 				return
 			}
+		}
+		// The pacer's credit goes straight to the child, after its first
+		// line and not through the input queue, so a slow step there
+		// (typing on iOS) never holds frames back.
+		if pace != nil {
+			defer pace.attach(toChild, bitrates(c.d.Kind))()
 		}
 		c.serve(run, input, toChild)
 	}()

@@ -206,7 +206,7 @@ func waitForAndroid(ctx context.Context, avd string) error {
 func streamAndroid(ctx context.Context, c *controller, framed *framer, input *inputQueue) error {
 	if port, ok := consolePort(c.d.serial); ok && runtime.GOOS == "darwin" {
 		if _, err := emulator.Find(port); err == nil {
-			return streamChild(ctx, c, framed.child, input, []string{"androidcap", strconv.Itoa(port)}, nil)
+			return streamChild(ctx, c, framed.child, framed.pace, input, []string{"androidcap", strconv.Itoa(port)}, nil)
 		}
 	}
 	return recordAndroid(ctx, c, framed, input)

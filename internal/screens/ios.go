@@ -99,12 +99,12 @@ func iosForm(name string) Form {
 
 // streamIOS runs `repogo simcap` for the device: this binary again, so the
 // private SimulatorKit it loads can crash only this view.
-func streamIOS(ctx context.Context, c *controller, send func([]byte) error, input *inputQueue) error {
+func streamIOS(ctx context.Context, c *controller, framed *framer, input *inputQueue) error {
 	args := []string{"simcap", c.d.ID}
 	if c.universalHID() {
 		args = append(args, "universal")
 	}
-	return streamChild(ctx, c, send, input, args, nil)
+	return streamChild(ctx, c, framed.child, framed.pace, input, args, nil)
 }
 
 // universalHID reports whether the device takes touches and keys through

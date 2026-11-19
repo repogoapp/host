@@ -53,6 +53,10 @@ func RunAndroid(ctx context.Context, consolePort int, out *os.File, in io.Reader
 				C.simcap_keyframe()
 				continue
 			}
+			if input.Credit > 0 || input.Bitrate > 0 {
+				pace(input)
+				continue
+			}
 			for _, event := range player.events(input, shape.Load()) {
 				if events.Send(event) != nil {
 					return

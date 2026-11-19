@@ -50,7 +50,7 @@ func ThisDisplay(ctx context.Context) (Screen, bool) {
 // frame, which comes only once Screen Sharing took the password: a refusal
 // is the stream's failure with no ready before it.
 func streamDisplay(ctx context.Context, c *controller, password string, ready func() error,
-	send func([]byte) error, input *inputQueue) error {
+	framed *framer, input *inputQueue) error {
 	if password == "" {
 		return newError(errkind.Denied, ErrorAuthRequired, "This display needs your login password.")
 	}
@@ -75,9 +75,9 @@ func streamDisplay(ctx context.Context, c *controller, password string, ready fu
 				return err
 			}
 		}
-		return send(b)
+		return framed.child(b)
 	}
-	err = streamChild(ctx, c, frame, input, []string{"screencap"}, first)
+	err = streamChild(ctx, c, frame, framed.pace, input, []string{"screencap"}, first)
 	if err != nil && err.Error() == vnc.ErrRefused.Error() {
 		refusedMu.Lock()
 		refusedAt = time.Now()
