@@ -127,7 +127,7 @@ func TestRevokedDeviceLosesItsSocket(t *testing.T) {
 	if err := call(t, c, "devices.list", nil, nil); err == nil {
 		t.Error("a revoked device's open socket still answered")
 	}
-	if _, err := h.dial(phone); err == nil || !strings.Contains(err.Error(), "unknown device") {
+	if _, err := h.dial(phone); !notPaired(err) {
 		t.Fatalf("a revoked device reconnected or was refused for another reason: %v", err)
 	}
 }

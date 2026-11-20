@@ -363,6 +363,10 @@ func requestToken(r *http.Request) string {
 	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 }
 
+// errNotPaired refuses a key this host doesn't hold. The phone trusts it only
+// inside TLS pinned to this host, so the relay can't forge it.
+var errNotPaired = &jsonrpc.Error{Code: jsonrpc.CodeNotPaired, Message: "this device is not paired with the host"}
+
 // authenticate accepts exactly one proof per connection and returns it as the
 // scope: a signature is the only way to assert a paired device, the token
 // pins the session to a local identity.
@@ -370,7 +374,9 @@ func (s *Server) authenticate(h *handshake.Hello, signed []byte) (rpc.Scope, err
 	// Checked first so a client that can sign is never downgraded to token trust.
 	if len(h.ChallengeSig) > 0 {
 		if err := s.cfg.Devices.Verify(device.ID(h.DeviceID), signed, h.ChallengeSig); err != nil {
-			return rpc.ScopeRemote, fmt.Errorf("device auth: %w", err)
+			// One answer for every cause, so a caller can't tell a paired id
+			// from an unknown one; the cause is only logged.
+			return rpc.ScopeRemote, fmt.Errorf("device auth: %v: %w", err, errNotPaired)
 		}
 		// A signature never grants local scope, even from a device on this machine.
 		return rpc.ScopeRemote, nil

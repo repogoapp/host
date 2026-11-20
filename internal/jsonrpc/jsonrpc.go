@@ -48,6 +48,10 @@ const (
 	CodeDenied      = -32000
 	CodeNotFound    = -32001
 	CodeUnavailable = -32002
+	// CodeNotPaired refuses a hello from a key this host doesn't hold, the
+	// one answer for an unknown device, a mismatched id or a bad signature.
+	// -32003 is the phones' own timeout code.
+	CodeNotPaired = -32004
 )
 
 func Request(id string, method string, params any) (*Message, error) {

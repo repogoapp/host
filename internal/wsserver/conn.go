@@ -63,21 +63,21 @@ func (c *conn) run(ctx context.Context) {
 	if c.bind != nil {
 		helloCtx, cancelHello = context.WithTimeout(ctx, remoteHelloTimeout)
 	}
-	h, err := c.ws.Accept(helloCtx, c.srv.cfg.ServerID, release.Version, func(h handshake.Hello, signed []byte) error {
+	h, err := c.ws.Accept(helloCtx, c.srv.cfg.ServerID, release.Version, func(h handshake.Hello, signed []byte) (bool, error) {
 		if c.bind != nil {
 			if len(h.ChallengeSig) == 0 || h.LocalToken != "" {
-				return errors.New("a remote connection authenticates by a bound signature only")
+				return false, errors.New("a remote connection authenticates by a bound signature only")
 			}
 			signed = device.BindTLS(signed, c.bind)
 			if !c.stream && c.srv.admitsStranger(h, signed) {
 				c.stranger = true
 				c.caller = rpc.Caller{Device: device.ID(h.DeviceID), Scope: rpc.ScopeRemote}
-				return nil
+				return true, nil
 			}
 		}
 		scope, err := c.srv.authenticate(&h, signed)
 		c.caller = rpc.Caller{Device: device.ID(h.DeviceID), Scope: scope}
-		return err
+		return false, err
 	})
 	cancelHello()
 	// A stranger holds its place through pairing, or one could hold many
@@ -145,7 +145,7 @@ func (c *conn) pairOnce(ctx context.Context) {
 		return
 	}
 	if !c.srv.cfg.Router.Unpaired(msg.Method) {
-		c.reply(ctx, jsonrpc.Fail(msg.ID, jsonrpc.CodeDenied, "this device is not paired with the host"))
+		c.reply(ctx, jsonrpc.Fail(msg.ID, jsonrpc.CodeNotPaired, errNotPaired.Message))
 		return
 	}
 	// Only the key that signed this hello may be paired on it.

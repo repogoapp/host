@@ -178,9 +178,10 @@ func TestRevokeRemovesAPhoneEverywhere(t *testing.T) {
 		t.Error("the lost phone's loopback socket still answered")
 	}
 
-	// (a) Its hello is refused as unknown, on loopback and through the relay.
-	if _, err := h.overLoopback(t, lost); err == nil || !strings.Contains(err.Error(), device.ErrUnknownDevice.Error()) {
-		t.Errorf("loopback hello after revoke: %v, want refused as an unknown device", err)
+	// (a) Its hello is refused as not paired, on loopback and through the relay.
+	_, err = h.overLoopback(t, lost)
+	if coded := (*jsonrpc.Error)(nil); !errors.As(err, &coded) || coded.Code != jsonrpc.CodeNotPaired {
+		t.Errorf("loopback hello after revoke: %v, want refused as not paired", err)
 	}
 	if _, err := h.overRelay(t, lost, 500*time.Millisecond); err == nil {
 		t.Error("the lost phone connected through the relay after revoke")

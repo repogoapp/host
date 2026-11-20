@@ -53,6 +53,10 @@ type Accepted struct {
 	// Deflate confirms the hello's: every message after this one, both ways,
 	// is a binary frame in wirecodec framing. Absent, frames stay plain text.
 	Deflate bool `json:"deflate,omitempty"`
+
+	// Unpaired admits a device this host doesn't hold only to pair, while a
+	// code is live: a phone that thought it was paired has been removed.
+	Unpaired bool `json:"unpaired,omitempty"`
 }
 
 type Rejected struct {

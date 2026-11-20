@@ -139,7 +139,7 @@ func (c *Conn) CloseNow()    { c.ws.CloseNow() }
 // Accept runs the server side of the handshake. check vets the hello given the
 // bytes its ChallengeSig must cover; any failure is sent to the peer as a refusal.
 func (c *Conn) Accept(ctx context.Context, serverID, version string,
-	check func(h handshake.Hello, signed []byte) error) (handshake.Hello, error) {
+	check func(h handshake.Hello, signed []byte) (unpaired bool, err error)) (handshake.Hello, error) {
 	var helloID json.RawMessage
 	h, err := func() (handshake.Hello, error) {
 		ctx, cancel := context.WithTimeout(ctx, HandshakeTimeout)
@@ -177,10 +177,13 @@ func (c *Conn) Accept(ctx context.Context, serverID, version string,
 		if err != nil {
 			return h, err
 		}
-		if err := check(h, signed); err != nil {
+		unpaired, err := check(h, signed)
+		if err != nil {
 			return h, err
 		}
-		accepted, err := jsonrpc.Result(msg.ID, handshake.Accepted{DeviceID: h.DeviceID, ServerVersion: version, Deflate: h.Deflate})
+		accepted, err := jsonrpc.Result(msg.ID, handshake.Accepted{
+			DeviceID: h.DeviceID, ServerVersion: version, Deflate: h.Deflate, Unpaired: unpaired,
+		})
 		if err != nil {
 			return h, err
 		}
@@ -255,7 +258,12 @@ func (c *Conn) Hello(ctx context.Context, hello handshake.Hello, sign func([]byt
 // notification as success; before the hello, a rejection is all there is to send.
 func (c *Conn) refuse(ctx context.Context, helloID json.RawMessage, err error) {
 	if helloID != nil {
-		_ = c.SendJSON(ctx, jsonrpc.Fail(helloID, jsonrpc.CodeDenied, err.Error()))
+		// A coded refusal sends only its own message; the cause stays in the log.
+		failure := jsonrpc.Fail(helloID, jsonrpc.CodeDenied, err.Error())
+		if coded := (*jsonrpc.Error)(nil); errors.As(err, &coded) {
+			failure = jsonrpc.Fail(helloID, coded.Code, coded.Message)
+		}
+		_ = c.SendJSON(ctx, failure)
 		_ = c.Close()
 		return
 	}
