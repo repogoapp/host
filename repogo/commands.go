@@ -346,8 +346,17 @@ func runUninstall(ctx context.Context, fs *flag.FlagSet, args []string) error {
 	}
 	unlinkFromPath()
 	fmt.Println("Background service and agent hooks removed. Pairings and chat data are kept in ~/.repogo.")
-	if power.Enabled() {
-		fmt.Println("The lid-hold sudoers rule stays; remove it with repogo keep-awake disable.")
+	if !power.Enabled() {
+		return nil
 	}
+	// Removing the rule needs sudo's password, so only with someone at the terminal.
+	if !flagBool(fs, "yes") && stdin.terminal() {
+		fmt.Println("Removing the lid-hold sudoers rule; this asks for your password.")
+		if err := power.Disable(ctx); err == nil {
+			fmt.Println("Lid hold removed. The Mac sleeps when its lid closes.")
+			return nil
+		}
+	}
+	fmt.Println("The lid-hold sudoers rule stays; remove it with repogo keep-awake disable.")
 	return nil
 }
