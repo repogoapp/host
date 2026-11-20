@@ -266,7 +266,7 @@ func TestOrientationFollowsTheDisplaySimcapReports(t *testing.T) {
 }
 
 // A view is told the turn as it opens; a rotate turns every view's frames as
-// it starts, and back, with a frame of the old shape, when it fails.
+// it starts, and back, with a frame at the previous turn, when it fails.
 func TestARotateTurnsTheViewsFrames(t *testing.T) {
 	c, _ := testController(Screen{ID: "duo", Platform: PlatformIOS, Kind: KindSimulator})
 	c.rotation = 90

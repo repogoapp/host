@@ -174,11 +174,10 @@ type controller struct {
 	// 1 portrait, 2 upside down, 3 landscape left, 4 landscape right.
 	orientation int
 	// rotation is how far, clockwise, the framebuffer turns to show the
-	// screen upright: 0, 90, 180 or -90. Each live view's simcap turns its
-	// frames by it before they're encoded, so they go out upright with no
-	// turn in their header, and picture in picture on the phone takes the
-	// screen's shape. A rotate sets it as it starts: the screen starts
-	// turning before the device answers.
+	// screen upright: 0, 90, 180 or -90. Each view's simcap turns its frames
+	// by it before encoding, so they go out upright and picture in picture
+	// on the phone takes the screen's shape. A rotate sets it as it starts:
+	// the screen starts turning before the device answers.
 	rotation int
 	// foldable is set when simcap reports two panels (iOS) or the AVD has a
 	// hinge (Android).
@@ -373,7 +372,8 @@ func (c *controller) turnInput() capture.Input {
 
 // showTurn has every open view turn its frames to the rotation and send one
 // now: a still screen (the Home screen, which doesn't turn with the device)
-// sends none of its own, and kept the old shape until something moved.
+// sends none of its own, so it would keep its unturned shape until
+// something moved.
 func (c *controller) showTurn() {
 	c.mu.Lock()
 	views := slices.Clone(c.views)
