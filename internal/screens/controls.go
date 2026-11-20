@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -172,13 +173,13 @@ type controller struct {
 	// orientation is the UIDeviceOrientation the host last turned it to:
 	// 1 portrait, 2 upside down, 3 landscape left, 4 landscape right.
 	orientation int
-	// rotation is how far, clockwise, the phone turns the video to show it
-	// upright: 0, 90, 180 or -90. It rides in each frame's header.
+	// rotation is how far, clockwise, the framebuffer turns to show the
+	// screen upright: 0, 90, 180 or -90. Each live view's simcap turns its
+	// frames by it before they're encoded, so they go out upright with no
+	// turn in their header, and picture in picture on the phone takes the
+	// screen's shape. A rotate sets it as it starts: the screen starts
+	// turning before the device answers.
 	rotation int
-	// pendingTurn is the rotation a rotate under way will end at, taken with
-	// the next frame: the screen starts turning before the device answers,
-	// and a video turned only then showed it sideways in between.
-	pendingTurn *int
 	// foldable is set when simcap reports two panels (iOS) or the AVD has a
 	// hinge (Android).
 	foldable bool
@@ -337,7 +338,11 @@ func (c *controller) open(forward func(capture.Input) error) (close func()) {
 	v := &liveView{forward: forward}
 	c.mu.Lock()
 	c.views = append(c.views, v)
+	turn := c.turnInput()
 	c.mu.Unlock()
+	if c.d.Platform == PlatformIOS && c.d.Kind == KindSimulator {
+		forward(turn)
+	}
 	return func() {
 		c.mu.Lock()
 		c.views = slices.DeleteFunc(c.views, func(x *liveView) bool { return x == v })
@@ -359,15 +364,23 @@ func (c *controller) forward(in capture.Input) error {
 	return v.forward(in)
 }
 
-// showTurn has every open view send a frame now, so the turn in its header
-// reaches the phone: a still screen (the Home screen, which doesn't turn
-// with the device) sends none of its own, and the phone kept the old turn
-// until something moved.
+func ptr[T any](v T) *T { return &v }
+
+// turnInput tells a simcap the rotation; c.mu held.
+func (c *controller) turnInput() capture.Input {
+	return capture.Input{Action: capture.ActionTurn, Value: strconv.Itoa(((c.rotation/90)%4 + 4) % 4)}
+}
+
+// showTurn has every open view turn its frames to the rotation and send one
+// now: a still screen (the Home screen, which doesn't turn with the device)
+// sends none of its own, and kept the old shape until something moved.
 func (c *controller) showTurn() {
 	c.mu.Lock()
 	views := slices.Clone(c.views)
+	turn := c.turnInput()
 	c.mu.Unlock()
 	for _, v := range views {
+		v.forward(turn)
 		v.forward(capture.Input{Action: capture.ActionKeyframe})
 	}
 }
@@ -451,18 +464,6 @@ func (c *controller) fromSimcap(message []byte) {
 		go c.showTurn()
 	}
 }
-
-// quarterTurns is the frame header's rotation: quarter turns clockwise.
-func (c *controller) quarterTurns() byte {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.pendingTurn != nil {
-		c.rotation, c.pendingTurn = *c.pendingTurn, nil
-	}
-	return byte(((c.rotation/90)%4 + 4) % 4)
-}
-
-func ptr[T any](v T) *T { return &v }
 
 func onOff(on bool) string {
 	if on {

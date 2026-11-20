@@ -56,7 +56,18 @@ static int64_t gLastEncodeNs;
 static BOOL gTrailingPending;
 static VTCompressionSessionRef gSession;
 static VTPixelTransferSessionRef gTransfer;
-static size_t gSourceW, gSourceH, gTargetW, gTargetH;
+// gScaledW and gScaledH are the source scaled, before any turn; gTargetW and
+// gTargetH are what the encoder takes, turned.
+static size_t gSourceW, gSourceH, gScaledW, gScaledH, gTargetW, gTargetH;
+// gTurn is the quarter turns, clockwise, that show the screen upright: a
+// simulator's framebuffer stays in the device's portrait while its screen
+// turns. Frames are turned before they're encoded, so the phone's video
+// is upright and picture in picture takes its shape. gSessionTurn is the
+// turn the encoder was made for.
+static int gTurn, gSessionTurn;
+static VTPixelRotationSessionRef gRotation;
+// BGRA buffers at the scaled size and at the turned one, while turned.
+static CVPixelBufferPoolRef gScalePool, gTurnPool;
 // Each framebuffer descriptor's screen ID, by its index in gDescriptors.
 static NSArray<NSNumber *> *gScreenIDs;
 // The panel CoreDevice reports active: captured, and where touches go. 0
@@ -185,17 +196,46 @@ static void endSession(void) {
     CFRelease(gSession);
     gSession = NULL;
   }
+  if (gScalePool) CVPixelBufferPoolRelease(gScalePool);
+  if (gTurnPool) CVPixelBufferPoolRelease(gTurnPool);
+  gScalePool = gTurnPool = NULL;
 }
 
-// An encoder for the source's size, scaled so its short side is at most 720 px.
+static CVPixelBufferPoolRef bgraPool(size_t width, size_t height) {
+  NSDictionary *attrs = @{
+    (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+    (__bridge NSString *)kCVPixelBufferWidthKey: @(width),
+    (__bridge NSString *)kCVPixelBufferHeightKey: @(height),
+    (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{},
+  };
+  CVPixelBufferPoolRef pool = NULL;
+  CVPixelBufferPoolCreate(NULL, NULL, (__bridge CFDictionaryRef)attrs, &pool);
+  return pool;
+}
+
+// An encoder for the source's size, scaled so its short side is at most 720
+// px, then turned by gTurn: a new size or turn starts a new one, at a keyframe.
 static BOOL ensureSession(size_t width, size_t height) {
-  if (gSession && width == gSourceW && height == gSourceH) return YES;
+  if (gSession && width == gSourceW && height == gSourceH && gTurn == gSessionTurn) return YES;
   endSession();
   double scale = MIN(1.0, (double)gMaxShortSide / (double)MIN(width, height));
-  gTargetW = ((size_t)(width * scale)) & ~1;
-  gTargetH = ((size_t)(height * scale)) & ~1;
+  gScaledW = ((size_t)(width * scale)) & ~1;
+  gScaledH = ((size_t)(height * scale)) & ~1;
+  BOOL sideways = gTurn % 2 == 1;
+  gTargetW = sideways ? gScaledH : gScaledW;
+  gTargetH = sideways ? gScaledW : gScaledH;
   gSourceW = width;
   gSourceH = height;
+  gSessionTurn = gTurn;
+  if (gTurn != 0) {
+    if (!gRotation && VTPixelRotationSessionCreate(NULL, &gRotation) != noErr) return NO;
+    CFStringRef turns[] = {kVTRotation_0, kVTRotation_CW90, kVTRotation_180, kVTRotation_CCW90};
+    VTSessionSetProperty(gRotation, kVTPixelRotationPropertyKey_Rotation, turns[gTurn]);
+    BOOL scales = gScaledW != width || gScaledH != height;
+    if (scales) gScalePool = bgraPool(gScaledW, gScaledH);
+    gTurnPool = bgraPool(gTargetW, gTargetH);
+    if (!gTurnPool || (scales && !gScalePool)) return NO;
+  }
   // Low-latency rate control keeps each frame near its share of the
   // bitrate, where the default lets one swell to several times it (half
   // the largest scrolling frame, measured on an M3 Pro). Where the encoder
@@ -245,9 +285,10 @@ static void encodePixelBuffer(CVPixelBufferRef source) {
     return;
   }
   CVPixelBufferRef frame = source;
-  if (gTargetW != width || gTargetH != height) {
+  if (gScaledW != width || gScaledH != height) {
+    // Into the encoder's own buffers when there's no turn after.
     CVPixelBufferRef scaled = NULL;
-    CVPixelBufferPoolRef pool = VTCompressionSessionGetPixelBufferPool(gSession);
+    CVPixelBufferPoolRef pool = gTurn != 0 ? gScalePool : VTCompressionSessionGetPixelBufferPool(gSession);
     if (!pool || CVPixelBufferPoolCreatePixelBuffer(NULL, pool, &scaled) != kCVReturnSuccess) {
       CVPixelBufferRelease(source);
       return;
@@ -256,6 +297,17 @@ static void encodePixelBuffer(CVPixelBufferRef source) {
     VTPixelTransferSessionTransferImage(gTransfer, source, scaled);
     CVPixelBufferRelease(source);
     frame = scaled;
+  }
+  if (gTurn != 0) {
+    CVPixelBufferRef turned = NULL;
+    if (CVPixelBufferPoolCreatePixelBuffer(NULL, gTurnPool, &turned) != kCVReturnSuccess ||
+        VTPixelRotationSessionRotateImage(gRotation, frame, turned) != noErr) {
+      if (turned) CVPixelBufferRelease(turned);
+      CVPixelBufferRelease(frame);
+      return;
+    }
+    CVPixelBufferRelease(frame);
+    frame = turned;
   }
   NSDictionary *options = nil;
   if (gForceKeyframe) {
@@ -426,6 +478,14 @@ void simcap_keyframe(void) {
       encodePixelBuffer(CVPixelBufferRetain(gLastPixels));
     }
   });
+}
+
+// Turns the frames from now on: quarter turns clockwise, 0 to 3. The next
+// picture comes at the new shape, as a keyframe; one that doesn't change
+// waits for the host's keyframe, so a turn's first frame is the screen turning.
+void simcap_turn(int turns) {
+  if (!gQueue || turns < 0 || turns > 3) return;
+  dispatch_async(gQueue, ^{ gTurn = turns; });
 }
 
 // MARK: - Capture

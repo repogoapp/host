@@ -57,21 +57,28 @@ func TestUprightTurnsLikeCoreDeviceReports(t *testing.T) {
 	}
 }
 
-// A second panel adds the pose control, and the panel's turn rides in
-// every frame's header from then on; each change sends the view.
+// turns is the turn a controller's views were last told to give their frames.
+func turns(c *controller) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return ((c.rotation/90)%4 + 4) % 4
+}
+
+// A second panel adds the pose control, and the panel's turn turns the
+// frames from then on; each change sends the view.
 func TestSimcapDisplayAddsPoseAndTurnsTheFrames(t *testing.T) {
 	c, events := testController(Screen{ID: "A", Kind: KindSimulator, Platform: PlatformIOS, OS: OS{Name: "iOS", Version: "27.1"}})
 	c.fromSimcap([]byte(`{"display":{"screen":2,"rotation":90,"foldable":true}}`))
-	if !slices.Contains(c.controls(), ControlPose) || c.quarterTurns() != 1 {
-		t.Fatalf("controls %v turns %d", c.controls(), c.quarterTurns())
+	if !slices.Contains(c.controls(), ControlPose) || turns(c) != 1 {
+		t.Fatalf("controls %v turns %d", c.controls(), turns(c))
 	}
 	view, ok := events.sent[len(events.sent)-1].(ViewChanged)
 	if !ok || !slices.Contains(view.Controls, ControlPose) || view.State == nil {
 		t.Fatalf("sent %+v, want the view with pose", events.sent)
 	}
 	c.fromSimcap([]byte(`{"display":{"screen":2,"rotation":270}}`))
-	if c.quarterTurns() != 3 {
-		t.Fatalf("turns %d, want 3", c.quarterTurns())
+	if turns(c) != 3 {
+		t.Fatalf("turns %d, want 3", turns(c))
 	}
 }
 
@@ -221,7 +228,8 @@ func TestNegotiatePicksTheNewestCommonVersion(t *testing.T) {
 	}
 }
 
-// Every frame carries its size, codec, flags, turn, sequence and time.
+// Every frame carries its size, codec, flags, turn, sequence and time; the
+// turn is 0 on a turned simulator too, its frames turned before they're sent.
 func TestFrameHeader(t *testing.T) {
 	c, _ := testController(Screen{Kind: KindSimulator, Platform: PlatformIOS})
 	c.rotation = -90
@@ -232,7 +240,7 @@ func TestFrameHeader(t *testing.T) {
 	f.frame(keyframe, 1234)
 	f.frame(nal(1), 0)
 	h := sent[0]
-	if h[0] != 16 || h[1] != 1 || h[2] != frameKeyframe|frameParameterSets || h[3] != 3 ||
+	if h[0] != 16 || h[1] != 1 || h[2] != frameKeyframe|frameParameterSets || h[3] != 0 ||
 		binary.BigEndian.Uint32(h[4:]) != 0 || binary.BigEndian.Uint64(h[8:]) != 1234 || len(h) != 16+len(keyframe) {
 		t.Fatalf("keyframe header % x", h[:16])
 	}
@@ -257,22 +265,22 @@ func TestOrientationFollowsTheDisplaySimcapReports(t *testing.T) {
 	}
 }
 
-func TestAPendingTurnIsTakenByTheNextFrame(t *testing.T) {
+// A view is told the turn as it opens; a rotate turns every view's frames as
+// it starts, and back, with a frame of the old shape, when it fails.
+func TestARotateTurnsTheViewsFrames(t *testing.T) {
 	c, _ := testController(Screen{ID: "duo", Platform: PlatformIOS, Kind: KindSimulator})
-	if got := c.quarterTurns(); got != 0 {
-		t.Fatalf("quarterTurns before a rotate = %d, want 0", got)
-	}
-	c.mu.Lock()
-	c.pendingTurn = ptr(iosRotation(3))
-	c.mu.Unlock()
-	if got := c.quarterTurns(); got != 3 {
-		t.Fatalf("quarterTurns on the first frame of a turn left = %d, want 3", got)
-	}
-	c.mu.Lock()
-	pending := c.pendingTurn
-	c.mu.Unlock()
-	if pending != nil {
-		t.Fatal("the pending turn was kept after a frame took it")
+	c.rotation = 90
+	var got []string
+	close := c.open(func(in capture.Input) error {
+		got = append(got, in.Action+":"+in.Value)
+		return nil
+	})
+	defer close()
+	was := c.aimAt(3)
+	c.missed(was)
+	want := []string{"turn:1", "turn:3", "turn:1", "keyframe:"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("view got %q, want %q", got, want)
 	}
 }
 

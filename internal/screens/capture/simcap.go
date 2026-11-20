@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,8 +24,8 @@ func tellHost(message map[string]any) {
 }
 
 // Input is one line the host writes a capture child: a touch, its point a
-// fraction of the screen (0 to 1 from the top left), a button, a key, or an
-// action. An action with an ID is answered {"done":{"id","error"}}.
+// fraction of the screen as the frames show it (0 to 1 from the top left), a
+// button, a key, or an action. An action with an ID is answered {"done":{"id","error"}}.
 type Input struct {
 	ID     int     `json:"id,omitempty"`
 	Touch  string  `json:"touch,omitempty"` // down, move, up or cancel (the phone took the finger for a pinch)
@@ -95,8 +96,9 @@ const (
 	ActionMemoryWarning  = "memory_warning"  //
 	ActionSlowAnimations = "slow_animations" // Value: on or off
 	ActionFold           = "fold"            // Value: closed, open, book or laptop (a foldable's pose)
-	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else the swipe, the video's quarter turns 0 to 3
+	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else the swipe
 	ActionKeyframe       = "keyframe"        // the next frame a keyframe, sent even if the screen is still
+	ActionTurn           = "turn"            // Value: quarter turns clockwise, 0 to 3, that show the framebuffer upright
 )
 
 // Typeable reports whether a US keyboard has a key for r: the rest is
@@ -218,20 +220,45 @@ func (f *fingerState) track(in Input) {
 
 func (f *fingerState) lift() {
 	if f.down {
-		touch(2, f.x, f.y)
+		touchAt(2, f.x, f.y)
 		f.down = false
 	}
+}
+
+// turns is the quarter turns, clockwise, the frames are turned by: what the
+// host last sent as ActionTurn.
+var turns atomic.Int32
+
+// touchAt touches a point of the screen as the frames show it, at its place
+// in the framebuffer, which stays in the device's portrait.
+func touchAt(phase int, x, y float64) {
+	x, y = framebufferPoint(x, y, int(turns.Load()))
+	touch(phase, x, y)
+}
+
+// framebufferPoint is where a point of a frame turned clockwise by quarter
+// turns lies in the framebuffer, both as fractions from the top left.
+func framebufferPoint(x, y float64, turns int) (float64, float64) {
+	switch turns {
+	case 1:
+		return y, 1 - x
+	case 2:
+		return 1 - x, 1 - y
+	case 3:
+		return 1 - y, x
+	}
+	return x, y
 }
 
 func play(in Input) error {
 	switch in.Touch {
 	case "down":
-		touch(0, in.X, in.Y)
+		touchAt(0, in.X, in.Y)
 	case "move":
-		touch(1, in.X, in.Y)
+		touchAt(1, in.X, in.Y)
 	case "up", "cancel":
 		// Indigo touches have no cancel; a lift ends it.
-		touch(2, in.X, in.Y)
+		touchAt(2, in.X, in.Y)
 	}
 	if press, ok := buttons[in.Button]; ok {
 		press()
@@ -276,13 +303,17 @@ func play(in Input) error {
 		if in.Value == SwitcherPress {
 			doubleHome()
 		} else {
-			turns, _ := strconv.Atoi(in.Value)
-			appSwitcher(turns)
+			appSwitcher()
 		}
 	case ActionSlowAnimations:
 		caDebug("debug_slow_animations", in.Value == "on")
 	case ActionKeyframe:
 		keyframe()
+	case ActionTurn:
+		if n, err := strconv.Atoi(in.Value); err == nil && n >= 0 && n <= 3 {
+			turns.Store(int32(n))
+			turn(n)
+		}
 	}
 	return nil
 }
@@ -296,24 +327,11 @@ func doubleHome() {
 }
 
 // appSwitcher opens the app switcher with a slow swipe up from the bottom
-// that pauses before it lifts; a quicker or shorter one went home on iOS 27's
-// Duo. turns is how far, clockwise, the phone turns the video upright, so it
-// swipes from the bottom the phone shows: the panel's own right edge at one
-// turn, its top at two, its left at three.
-func appSwitcher(turns int) {
+// of the upright screen that pauses before it lifts; a quicker or shorter
+// one went home on iOS 27's Duo.
+func appSwitcher() {
 	const from, to, steps = 0.995, 0.60, 50
-	at := func(phase int, y float64) {
-		switch turns {
-		case 1:
-			touch(phase, y, 0.5)
-		case 2:
-			touch(phase, 0.5, 1-y)
-		case 3:
-			touch(phase, 1-y, 0.5)
-		default:
-			touch(phase, 0.5, y)
-		}
-	}
+	at := func(phase int, y float64) { touchAt(phase, 0.5, y) }
 	at(0, from)
 	for i := 1; i <= steps; i++ {
 		time.Sleep(16 * time.Millisecond)

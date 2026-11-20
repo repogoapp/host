@@ -24,6 +24,9 @@ void simcap_tell(const char *json, int len);
 // Makes the next frame a keyframe, and encodes the screen again even if it
 // hasn't changed, so a phone whose decoder failed recovers at once.
 void simcap_keyframe(void);
+// Turns frames, from the next, by quarter turns clockwise (0 to 3) to show
+// the screen upright; touches still come as fractions of the framebuffer.
+void simcap_turn(int turns);
 void simcap_credit(int frames);
 void simcap_bitrate(int bitsPerSecond);
 void simcap_memory_warning(void);

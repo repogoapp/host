@@ -198,14 +198,14 @@ func (c *controller) rotateIOS(ctx context.Context, t Turn) error {
 	if !foldable {
 		if now, ok := deviceOrientation(ctx, c.d.ID); ok {
 			next := turn(now, t)
-			c.aimAt(next)
+			was := c.aimAt(next)
 			_, err := run(ctx, "xcrun", "devicectl", "device", "orientation", "set", "--device", c.d.ID,
 				orientationNames[next])
 			if err == nil {
 				c.turnedTo(next)
 				return nil
 			}
-			c.missed()
+			c.missed(was)
 		}
 	}
 	// Else through simcap: Device Hub's control on iOS 27, and before it
@@ -216,38 +216,43 @@ func (c *controller) rotateIOS(ctx context.Context, t Turn) error {
 	c.mu.Lock()
 	next := turn(c.orientation, t)
 	c.mu.Unlock()
-	c.aimAt(next)
+	was := c.aimAt(next)
 	if err := c.command(ctx, capture.Input{Action: capture.ActionRotate, Value: strconv.Itoa(next)}); err != nil {
-		c.missed()
+		c.missed(was)
 		return err
 	}
 	c.turnedTo(next)
 	return nil
 }
 
-// aimAt says where the video will turn to, taken by the first frame of the
-// turn; a display simcap reports says so too, later, and sets it right if not.
-func (c *controller) aimAt(orientation int) {
+// aimAt turns the video to where a rotate under way will end, from its
+// first frame, and returns the rotation it was at; a display simcap reports
+// says so too, later, and sets it right if not.
+func (c *controller) aimAt(orientation int) (was int) {
 	c.mu.Lock()
-	c.pendingTurn = ptr(iosRotation(orientation))
+	was, c.rotation = c.rotation, iosRotation(orientation)
+	views := slices.Clone(c.views)
+	turn := c.turnInput()
 	c.mu.Unlock()
+	for _, v := range views {
+		v.forward(turn)
+	}
+	return was
 }
 
-// missed forgets the turn aimed at: the rotate failed.
-func (c *controller) missed() {
+// missed turns the video back: the rotate failed.
+func (c *controller) missed(was int) {
 	c.mu.Lock()
-	c.pendingTurn = nil
+	c.rotation = was
 	c.mu.Unlock()
+	c.showTurn()
 }
 
-// turnedTo records the device's new orientation and has the phone shown it.
+// turnedTo records the device's new orientation and has the phone shown it:
+// a still screen (a Home screen that doesn't turn) sent no frame of the turn.
 func (c *controller) turnedTo(orientation int) {
 	c.mu.Lock()
 	c.orientation = orientation
-	// No frame took it: the screen is still (a Home screen that doesn't turn).
-	if c.pendingTurn != nil {
-		c.rotation, c.pendingTurn = *c.pendingTurn, nil
-	}
 	c.mu.Unlock()
 	c.showTurn()
 }

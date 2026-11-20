@@ -72,6 +72,8 @@ func tell(message []byte) {
 
 func keyframe() { C.simcap_keyframe() }
 
+func turn(turns int) { C.simcap_turn(C.int(turns)) }
+
 // pace passes the host's pacer on to the encoder: frames it may make now,
 // or a new bitrate (Input.Credit, Input.Bitrate).
 func pace(in Input) {

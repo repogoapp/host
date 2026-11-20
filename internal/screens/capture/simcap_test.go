@@ -46,3 +46,23 @@ func TestKeyForTypesAUSKeyboard(t *testing.T) {
 		t.Error("é has a key on a US keyboard")
 	}
 }
+
+// A touch on the turned frame lands where the phone's own turn put it: the
+// upright screen's top left is the framebuffer's bottom left at one turn.
+func TestFramebufferPointUndoesTheTurn(t *testing.T) {
+	for _, c := range []struct {
+		turns        int
+		x, y, fx, fy float64
+	}{
+		{0, 0.25, 0.75, 0.25, 0.75},
+		{1, 0, 0, 0, 1},
+		{1, 0.25, 0.75, 0.75, 0.75},
+		{2, 0.25, 0.75, 0.75, 0.25},
+		{3, 0, 0, 1, 0},
+		{3, 0.25, 0.75, 0.25, 0.25},
+	} {
+		if x, y := framebufferPoint(c.x, c.y, c.turns); x != c.fx || y != c.fy {
+			t.Errorf("framebufferPoint(%v, %v, %d) = %v, %v; want %v, %v", c.x, c.y, c.turns, x, y, c.fx, c.fy)
+		}
+	}
+}

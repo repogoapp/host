@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -198,8 +197,9 @@ const (
 func (TouchPhase) Values() []string { return []string{"down", "move", "up", "cancel"} }
 
 // TouchInput is a finger on the screen. X and Y are fractions of the frame
-// as sent, before the phone turns it by the header's rotation. Only finger
-// 0 is played: the devices take one finger from the host.
+// as sent, before the phone turns it by the header's rotation (always 0
+// from this host: it sends frames upright). Only finger 0 is played: the
+// devices take one finger from the host.
 type TouchInput struct {
 	Finger int        `json:"finger"`
 	Phase  TouchPhase `json:"phase"`
@@ -475,13 +475,10 @@ func (c *controller) button(b HardwareButton) []item {
 	switch {
 	case b == ButtonAppSwitcher && c.d.Platform == PlatformIOS:
 		// Home pressed twice where iOS still takes the button; the swipe
-		// from iOS 26, which drops its press, up from the edge that shows
-		// at the bottom: a turned or folded panel's isn't its own.
+		// up from the upright screen's bottom from iOS 26, which drops its press.
 		in := capture.Input{Action: capture.ActionAppSwitcher, Value: capture.SwitcherPress}
 		if iosMajor(c.d.OS.Version) >= 26 {
-			c.mu.Lock()
-			in.Value = strconv.Itoa(((c.rotation/90)%4 + 4) % 4)
-			c.mu.Unlock()
+			in.Value = ""
 		}
 		return []item{{device: in}}
 	case b == ButtonHome && c.d.Platform == PlatformIOS && iosMajor(c.d.OS.Version) >= 26:
@@ -677,7 +674,7 @@ func (f *framer) frame(unit []byte, capturedUS uint64) error {
 	out[0] = frameHeaderSize
 	out[1] = frameCodecH264
 	out[2] = nalFlags(unit)
-	out[3] = f.c.quarterTurns()
+	out[3] = 0 // no turn: frames go out upright (controller.rotation)
 	binary.BigEndian.PutUint32(out[4:], sequence)
 	binary.BigEndian.PutUint64(out[8:], capturedUS)
 	out = append(out, unit...)
