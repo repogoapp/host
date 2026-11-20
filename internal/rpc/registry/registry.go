@@ -87,6 +87,8 @@ type Config struct {
 
 	// Addr is the address a pairing invite advertises, resolved late.
 	Addr func() string
+	// PairHost is the site pairing links open on and codes are parked at.
+	PairHost string
 
 	Runner *agent.Manager
 
@@ -181,7 +183,9 @@ func New(cfg Config) (*rpc.Router, error) {
 		Runner: cfg.Runner, Usage: cfg.AgentUsage, TurnChats: cfg.Store,
 	})
 	devices.Register(r, devices.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Online: cfg.Online, PushChanged: cfg.PushChanged})
-	pairing.Register(r, pairing.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr})
+	pairing.Register(r, pairing.Deps{
+		Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr, PairHost: cfg.PairHost, Log: cfg.Log,
+	})
 	fsrpc.Register(r, fsrpc.Deps{Files: cfg.Files, Watch: cfg.Watch})
 	projectsrpc.Register(r, projectsrpc.Deps{
 		Projects: cfg.Projects, Self: cfg.Devices.Identity().ID, Store: cfg.Store, Sync: cfg.ProjectSync, Files: cfg.Files,

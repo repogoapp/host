@@ -48,6 +48,7 @@ import (
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	devicesrpc "github.com/repogoapp/host/internal/rpc/devices"
+	pairingrpc "github.com/repogoapp/host/internal/rpc/pairing"
 	"github.com/repogoapp/host/internal/rpc/registry"
 	screensrpc "github.com/repogoapp/host/internal/rpc/screens"
 	"github.com/repogoapp/host/internal/schedule"
@@ -227,6 +228,12 @@ func (h *Host) openDevices() error {
 	}
 
 	h.devices.OnRevoke(func(device.ID) { h.emitter.All(devicesrpc.Changed{}) })
+	h.pairer.OnComplete(func(inviteID string) {
+		h.emitter.All(devicesrpc.Changed{})
+		if inviteID != "" {
+			h.emitter.All(pairingrpc.Completed{InviteID: inviteID})
+		}
+	})
 
 	// Public tunnels: dialled only while one is open; every phone sees the list.
 	h.tunnels, err = tunnel.Open(tunnel.Config{
@@ -249,6 +256,7 @@ func (h *Host) openDevices() error {
 	s.Activities = stepactivity.New(h.devices, h.log)
 	// Resolved late: the listener has not picked a port yet.
 	s.Addr = func() string { addr, _ := h.invite.Load().(string); return addr }
+	s.PairHost = h.cfg.PairHost
 	s.Fetcher = forward.NewFetcher(h.log)
 	s.Pipes = forward.NewPipes(h.emitter, h.log)
 	s.Screens = screens.NewManager(h.emitter)

@@ -90,6 +90,8 @@ type Config struct {
 
 	// Label names this host to its phones.
 	Label string
+	// PairHost is the site pairing links open on and codes are parked at.
+	PairHost string
 	// Gateway is the tunnel gateway's host name, with an optional port; Plaintext skips TLS for a local one.
 	Gateway          string
 	GatewayPlaintext bool
@@ -215,6 +217,7 @@ func (c Config) validate() error {
 		{"State", c.State == ""}, {"Home", c.Home == ""}, {"Projects", c.Projects == ""},
 		{"Attachments", c.Attachments == ""}, {"Token", c.Token == ""}, {"ServerID", c.ServerID == ""},
 		{"Label", c.Label == ""}, {"Gateway", c.Gateway == ""},
+		{"PairHost", c.PairHost == ""},
 		{"Update.Version", c.Update.Version == ""}, {"Update.Root", c.Update.Root == ""},
 		{"Update.Marker", c.Update.Marker == ""}, {"Update.Latest", c.Update.Latest == nil},
 		{"Update.Stage", c.Update.Stage == nil}, {"Update.Restart", c.Update.Restart == nil},

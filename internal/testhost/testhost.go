@@ -78,7 +78,7 @@ func Config(t testing.TB) host.Config {
 		State: state, Home: dir("home"), Projects: dir("projects"), Attachments: dir("attachments"),
 		ProviderRoot: dir("providers"),
 		Token:        Token, ServerID: "testhost",
-		Label: "testhost", Gateway: "127.0.0.1:1", GatewayPlaintext: true,
+		Label: "testhost", Gateway: "127.0.0.1:1", GatewayPlaintext: true, PairHost: "http://127.0.0.1:1",
 		Update: hostupdate.Deps{
 			Version: "dev", Root: filepath.Join(state, "repogo"), Marker: filepath.Join(state, "update.json"),
 			Latest: release.Latest, Stage: release.Stage, Restart: func() {},

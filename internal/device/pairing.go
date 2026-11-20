@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -111,11 +112,15 @@ type Pairer struct {
 	store        *Store
 	reusablePath string
 
-	mu       sync.Mutex
-	code     string
-	expires  time.Time
-	reusable reusableCode
-	tlsPin   *SignedPin
+	mu      sync.Mutex
+	code    string
+	expires time.Time
+	// inviteID is the asking device's tag for code, empty for the CLI's; it
+	// moves with code so a replaced code never reports another's join.
+	inviteID  string
+	reusable  reusableCode
+	tlsPin    *SignedPin
+	completed []func(inviteID string)
 }
 
 // SetTLSPin puts the host's signed TLS pin in every invite from now on.
@@ -151,15 +156,35 @@ func OpenPairer(s *Store, reusablePath string) (*Pairer, error) {
 	return p, nil
 }
 
-// Begin issues an invite, replacing any pairing already in progress.
-func (p *Pairer) Begin(address string) (Invite, error) {
+// Begin issues an invite, replacing any pairing already in progress. A device
+// tags it with inviteID, which OnComplete's listeners hear once a device
+// joins with it; the CLI passes none.
+func (p *Pairer) Begin(address, inviteID string) (Invite, error) {
 	code := newPairingCode()
 	expires := time.Now().Add(codeTTL)
 	p.mu.Lock()
-	p.code, p.expires = code, expires
+	p.code, p.expires, p.inviteID = code, expires, inviteID
 	pin := p.tlsPin
 	p.mu.Unlock()
 	return p.invite(address, code, expires, pin), nil
+}
+
+// Cancel ends the one-time pairing if code is still the one in progress, for
+// an invite that never reached anyone; a newer one is left alone.
+func (p *Pairer) Cancel(code string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.code == code {
+		p.code, p.inviteID = "", ""
+	}
+}
+
+// OnComplete adds fn to what runs, outside the lock, once a device pairs:
+// with the one-time code's invite ID, or empty for the CLI's or the reusable.
+func (p *Pairer) OnComplete(fn func(inviteID string)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.completed = append(p.completed, fn)
 }
 
 // BeginReusable issues an invite any number of devices may join with until
@@ -271,6 +296,15 @@ func Proof(code string, pub []byte) []byte {
 // Complete admits a device that proved it saw a code and returns the host's
 // own proof, so the joiner knows it paired with the machine it scanned.
 func (p *Pairer) Complete(joiner Peer, proof []byte) ([]byte, error) {
+	hostProof, inviteID, listeners, err := p.complete(joiner, proof)
+	for _, fn := range listeners {
+		fn(inviteID)
+	}
+	return hostProof, err
+}
+
+// complete returns the listeners to tell once the lock is released.
+func (p *Pairer) complete(joiner Peer, proof []byte) ([]byte, string, []func(string), error) {
 	// Hold through persistence so simultaneous requests cannot consume one code twice.
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -281,24 +315,24 @@ func (p *Pairer) Complete(joiner Peer, proof []byte) ([]byte, error) {
 	switch {
 	case once && hmac.Equal(proof, Proof(p.code, joiner.Public)):
 		if err := p.store.Add(joiner); err != nil {
-			return nil, err
+			return nil, "", nil, err
 		}
 		// One code admits one device. Leaving it live would let anyone who
 		// photographed the screen join later, and the user has no way to know.
-		code := p.code
-		p.code = ""
-		return Proof(code, p.store.Identity().Public), nil
+		code, inviteID := p.code, p.inviteID
+		p.code, p.inviteID = "", ""
+		return Proof(code, p.store.Identity().Public), inviteID, slices.Clone(p.completed), nil
 	case reusable && hmac.Equal(proof, Proof(p.reusable.Code, joiner.Public)):
 		if err := p.store.Add(joiner); err != nil {
-			return nil, err
+			return nil, "", nil, err
 		}
-		return Proof(p.reusable.Code, p.store.Identity().Public), nil
+		return Proof(p.reusable.Code, p.store.Identity().Public), "", slices.Clone(p.completed), nil
 	case once || reusable:
-		return nil, ErrBadProof
+		return nil, "", nil, ErrBadProof
 	case p.code != "" || p.reusable.Code != "":
-		p.code = ""
-		return nil, ErrPairingExpired
+		p.code, p.inviteID = "", ""
+		return nil, "", nil, ErrPairingExpired
 	default:
-		return nil, ErrNoPairing
+		return nil, "", nil, ErrNoPairing
 	}
 }

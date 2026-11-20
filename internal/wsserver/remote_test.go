@@ -249,7 +249,7 @@ func (r *remote) pairOver(t *testing.T, id *device.Identity, code string, claim 
 
 func TestAStrangerPairsOverPassthroughWhileACodeIsLive(t *testing.T) {
 	r := newRemote(t)
-	invite, err := r.pairer.Begin("wss://relay.test/ws")
+	invite, err := r.pairer.Begin("wss://relay.test/ws", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestAStrangerPairsOverPassthroughWhileACodeIsLive(t *testing.T) {
 // built around a retired TLS key can't finish pairing.
 func TestPairCompleteIsSignedByTheHost(t *testing.T) {
 	r := newRemote(t)
-	invite, err := r.pairer.Begin("wss://relay.test/ws")
+	invite, err := r.pairer.Begin("wss://relay.test/ws", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestAStrangerIsRefusedWithoutALiveCode(t *testing.T) {
 
 func TestAStrangerGetsOnlyPairComplete(t *testing.T) {
 	r := newRemote(t)
-	invite, _ := r.pairer.Begin("wss://relay.test/ws")
+	invite, _ := r.pairer.Begin("wss://relay.test/ws", "")
 	phone, _ := device.Generate()
 	c, err := r.dial(t, phone, r.pin)
 	if err != nil {
@@ -420,7 +420,7 @@ func TestANegotiatedConnectionCarriesACompressedPage(t *testing.T) {
 func TestASilentStrangerIsDroppedAfterThePairingDeadline(t *testing.T) {
 	wsserver.ShortenTimeouts(t, 5*time.Second, 200*time.Millisecond, 64)
 	r := newRemote(t)
-	if _, err := r.pairer.Begin("wss://relay.test/ws"); err != nil {
+	if _, err := r.pairer.Begin("wss://relay.test/ws", ""); err != nil {
 		t.Fatal(err)
 	}
 	stranger, _ := device.Generate()
@@ -556,7 +556,7 @@ func TestAListenerClosesSocketsPastItsCap(t *testing.T) {
 func TestAStrangerHoldsItsPlaceWhilePairing(t *testing.T) {
 	wsserver.ShortenTimeouts(t, 5*time.Second, 15*time.Second, 1)
 	r := newRemote(t)
-	if _, err := r.pairer.Begin("wss://relay.test/ws"); err != nil {
+	if _, err := r.pairer.Begin("wss://relay.test/ws", ""); err != nil {
 		t.Fatal(err)
 	}
 	stranger, _ := device.Generate()

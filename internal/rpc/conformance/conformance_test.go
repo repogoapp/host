@@ -116,6 +116,7 @@ var unchecked = map[string]string{
 	"devices.hello":         "paired-device record update; loopback callers are denied",
 
 	"pair.complete":        "admits a device; covered over pinned TLS in internal/wsserver remote_test",
+	"pair.invite":          "parks a code on the pair host over HTTP; parking covered in internal/device park_test",
 	"limits.read":          "reads the Keychain, an undocumented endpoint, and a codex subprocess",
 	"limits.reset":         "spends a Codex reset credit; outcome parsing is in agentusage",
 	"tools.update":         "runs the user's package manager",

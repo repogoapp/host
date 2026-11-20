@@ -171,7 +171,7 @@ func hostConfig(log *slog.Logger, conf *localConf, lan bool, relay string, self 
 		// Visible in the user's home rather than under a dotfile: it holds their source.
 		Projects: projectsDir(home),
 		Port:     conf.Port, Token: conf.Token, ServerID: conf.ServerID, Relay: relay, RelayRoots: roots,
-		Label: device.Label(),
+		Label: device.Label(), PairHost: defaultPairHost,
 		// Phones on the same tailnet, and with --lan the same network, dial these before the relay.
 		DirectPort: host.DefaultDirectPort, Tailnet: !conf.NoTailscale, LAN: conf.LAN || lan,
 		Gateway: gateway, GatewayPlaintext: gatewayHost == "localhost" || gatewayHost == "127.0.0.1",

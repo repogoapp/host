@@ -69,6 +69,9 @@ const (
 	// Mac, simulators with Xcode, emulators with the Android SDK. screens.*
 	// lists, boots and stops them, and a /stream shows one.
 	CapabilityScreens = "screens"
+	// CapabilityPairInvite is a host whose pair.invite gives a paired device
+	// a code to pair another with.
+	CapabilityPairInvite = "pair_invite"
 )
 
 // Battery is the machine's last power reading.
@@ -234,7 +237,7 @@ func (s *Service) Status() Status {
 		out.Device = &device
 	}
 	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos,
-		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeCursor, CapabilityAgentTurnRows}
+		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeCursor, CapabilityAgentTurnRows, CapabilityPairInvite}
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}

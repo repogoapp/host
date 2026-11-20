@@ -205,6 +205,12 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `servers` [object{Server}]
 - `builtins` [object{Builtin}]
 
+## `pair.completed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `invite_id` string
+
 ## `plugins.data`
 
 Signal: not replayed; a missed one is recovered by refetching.

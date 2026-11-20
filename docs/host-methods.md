@@ -1205,6 +1205,18 @@ Result:
 
 - `pending` bool
 
+## `pair.invite`
+
+Params:
+
+- `invite_id` string
+
+Result:
+
+- `code` string
+- `link` string
+- `expires_at` int
+
 ## `pair.reusable`
 
 Local only: refused to a paired device.

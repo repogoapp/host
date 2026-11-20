@@ -47,7 +47,7 @@ func TestInviteCarriesThePin(t *testing.T) {
 	host := p.store.Identity()
 	pin, _ := host.SignPin(sha256.Sum256([]byte("spki")), 1)
 	p.SetTLSPin(pin)
-	invite, err := p.Begin("wss://relay.test/ws")
+	invite, err := p.Begin("wss://relay.test/ws", "")
 	if err != nil {
 		t.Fatal(err)
 	}

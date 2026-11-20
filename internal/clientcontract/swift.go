@@ -61,6 +61,8 @@ var methodExports = map[string]bool{
 	"mcp.list": true, "mcp.rename": true, "mcp.set_enabled": true, "mcp.remove": true,
 	"mcp.call": true,
 
+	"pair.invite": true,
+
 	"plugins.logs": true, "plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
 
 	"ports.list": true, "ports.kill": true,
@@ -946,6 +948,7 @@ var EventExports = map[string]string{
 	"tools.accounts_changed":  "Tools.AccountsChanged",
 	"tunnels.changed":         "Tunnels.Changed",
 	"devices.changed":         "Devices.Changed",
+	"pair.completed":          "Pair.Completed",
 	"projects.changed":        "Projects.Changed",
 	"schedules.changed":       "Schedules.Changed",
 	"actions.changed":         "Actions.Changed",

@@ -61,7 +61,7 @@ func TestOneTimePairingBesideReusable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	once, err := p.Begin("addr")
+	once, err := p.Begin("addr", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestAcceptingWithOnlyAReusableInvite(t *testing.T) {
 	if p.Accepting() {
 		t.Fatal("accepting after the reusable invite expired")
 	}
-	if _, err := p.Begin("addr"); err != nil {
+	if _, err := p.Begin("addr", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !p.Accepting() {
@@ -171,11 +171,54 @@ func TestReusableInviteBounds(t *testing.T) {
 // environment it is about to join.
 func TestInviteCarriesTheHostLabel(t *testing.T) {
 	p, _ := openPairer(t)
-	invite, err := p.Begin("ws://127.0.0.1:1/ws")
+	invite, err := p.Begin("ws://127.0.0.1:1/ws", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if invite.Label == "" || invite.Label != Label() {
 		t.Fatalf("invite label %q, want the host's %q", invite.Label, Label())
+	}
+}
+
+// A join reports the invite ID its code was tagged with; a code the CLI
+// began after it carries none, so the replaced phone's sheet never hears one.
+func TestCompleteReportsInviteID(t *testing.T) {
+	p, _ := openPairer(t)
+	var heard []string
+	p.OnComplete(func(id string) { heard = append(heard, id) })
+
+	tagged, err := p.Begin("addr", "sheet-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := newJoiner(t, "iPad")
+	if _, err := p.Complete(first, Proof(tagged.Code, first.Public)); err != nil {
+		t.Fatal(err)
+	}
+
+	p.Begin("addr", "sheet-2")
+	untagged, _ := p.Begin("addr", "")
+	second := newJoiner(t, "iPhone")
+	if _, err := p.Complete(second, Proof(untagged.Code, second.Public)); err != nil {
+		t.Fatal(err)
+	}
+	if len(heard) != 2 || heard[0] != "sheet-1" || heard[1] != "" {
+		t.Fatalf("heard %q, want [sheet-1 \"\"]", heard)
+	}
+}
+
+// Cancel ends only the code it names: one the CLI began since is left live.
+func TestCancelLeavesNewerCode(t *testing.T) {
+	p, _ := openPairer(t)
+	stale, _ := p.Begin("addr", "sheet")
+	p.Begin("addr", "")
+	p.Cancel(stale.Code)
+	if pending, _ := p.Pending(); !pending {
+		t.Fatal("cancelling a replaced code ended the newer one")
+	}
+	current, _ := p.Begin("addr", "sheet")
+	p.Cancel(current.Code)
+	if pending, _ := p.Pending(); pending {
+		t.Fatal("cancel left its own code live")
 	}
 }

@@ -1,11 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -22,14 +19,11 @@ func printPairingQR(ctx context.Context, payload, pairHost string, reusable bool
 		return err
 	}
 
-	pairingCode, err := registerInvite(pairHost, payload, invite, reusable)
+	pairingCode, err := device.ParkInvite(pairHost, payload, invite, reusable)
 	if err != nil {
 		return fmt.Errorf("register pairing code at %s: %w", pairHost, err)
 	}
-	// The code rides in the fragment, which a browser never sends: a link that
-	// opens on the web keeps it off the pair host and its logs. Apps older than
-	// PairLink's `/p#` support read only `/<code>`.
-	link := strings.TrimRight(pairHost, "/") + "/p#" + pairingCode
+	link := device.CodeLink(pairHost, pairingCode)
 
 	code, err := qrcode.New(link, qrcode.Medium)
 	if err != nil {
@@ -45,46 +39,6 @@ func printPairingQR(ctx context.Context, payload, pairHost string, reusable bool
 	fmt.Printf("  Code    %s\n", pairingCode)
 	fmt.Printf("  Link    %s\n\n", link)
 	return nil
-}
-
-// registerInvite parks the invite on the pair host for its own lifetime and
-// returns the code. The host gets only the code's hash and the invite sealed
-// under the code; the code itself lives in the QR.
-func registerInvite(pairHost, payload string, invite device.Invite, reusable bool) (string, error) {
-	code := device.NewCode()
-	sealed, err := device.SealInvite(code, payload)
-	if err != nil {
-		return "", err
-	}
-	body := map[string]any{"lookup": device.CodeLookup(code), "sealed": sealed}
-	if reusable {
-		body["reusable"] = true
-		body["ttlMs"] = time.Until(time.UnixMilli(invite.ExpiresAt)).Milliseconds()
-	}
-	encoded, _ := json.Marshal(body)
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Post(strings.TrimRight(pairHost, "/")+"/api/pair", "application/json", bytes.NewReader(encoded))
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status %s", resp.Status)
-	}
-	if !reusable {
-		return code, nil
-	}
-	// A pair host that predates reusable invites parks it for two minutes, once.
-	var parked struct {
-		ExpiresAt time.Time `json:"expiresAt"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&parked); err != nil {
-		return "", err
-	}
-	if parked.ExpiresAt.Before(time.UnixMilli(invite.ExpiresAt).Add(-time.Minute)) {
-		return "", fmt.Errorf("%s does not keep reusable invites", pairHost)
-	}
-	return code, nil
 }
 
 // pairReusable opens a reusable invite for days ("14d") or hours ("36h"), or
