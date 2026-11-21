@@ -143,8 +143,11 @@ func TestCodexReleaseNamesTheTarget(t *testing.T) {
 	if _, member, _ := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Release(t.Context(), "darwin", "amd64"); member != "codex-x86_64-apple-darwin" {
 		t.Fatalf("darwin: %s", member)
 	}
-	if _, _, err := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Release(t.Context(), "windows", "amd64"); err == nil {
-		t.Fatal("windows has a release")
+	if _, member, _ := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Release(t.Context(), "windows", "amd64"); member != "codex-x86_64-pc-windows-msvc.exe" {
+		t.Fatalf("windows: %s", member)
+	}
+	if _, _, err := codex.New(agent.Dependencies{}).Definition().Tool.Spec.Release(t.Context(), "freebsd", "amd64"); err == nil {
+		t.Fatal("freebsd has a release")
 	}
 }
 

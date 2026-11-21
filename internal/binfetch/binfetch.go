@@ -170,9 +170,9 @@ func Install(ctx context.Context, url, member, name string) (string, error) {
 	return dest, os.Rename(tmp.Name(), dest)
 }
 
-// InstallTree downloads a .tar.gz whose sha256 is sum (hex) and unpacks all of
-// it at dest, without its top-level folder, replacing what was there only once
-// the whole tree is out.
+// InstallTree downloads a .tar.gz or .zip whose sha256 is sum (hex) and unpacks
+// all of it at dest, without its top-level folder, replacing what was there
+// only once the whole tree is out.
 func InstallTree(ctx context.Context, url, sum, dest string) error {
 	return installTree(ctx, url, sum, dest, true)
 }
@@ -199,7 +199,11 @@ func installTree(ctx context.Context, url, sum, dest string, strip bool) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	if err := untar(archive, tmp, strip); err != nil {
+	unpack := untar
+	if strings.HasSuffix(url, ".zip") {
+		unpack = unzip
+	}
+	if err := unpack(archive, tmp, strip); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(dest); err != nil {
@@ -271,6 +275,57 @@ func untar(archive []byte, dir string, strip bool) error {
 			return err
 		}
 	}
+}
+
+// unzip is untar for a .zip, as Windows releases ship (Node's win-x64.zip).
+// Only folders and regular files come out; a zip's links are skipped.
+func unzip(archive []byte, dir string, strip bool) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return err
+	}
+	for _, f := range zr.File {
+		rel, ok := strings.TrimPrefix(f.Name, "./"), true
+		if strip {
+			_, rel, ok = strings.Cut(rel, "/")
+		}
+		if !ok || rel == "" || rel == "." {
+			continue
+		}
+		rel = filepath.Clean(rel)
+		if !filepath.IsLocal(rel) {
+			return fmt.Errorf("binfetch: %s leaves the archive", f.Name)
+		}
+		switch mode := f.Mode(); {
+		case mode.IsDir():
+			err = root.MkdirAll(rel, 0o755)
+		case mode.IsRegular():
+			err = unzipFile(root, rel, f)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unzipFile(root *os.Root, rel string, f *zip.File) error {
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	// Zips made on Windows carry no Unix modes; such a file is still read and run.
+	mode := f.Mode().Perm()
+	if mode == 0 {
+		mode = 0o755
+	}
+	return writeFile(root, rel, rc, mode)
 }
 
 func writeFile(root *os.Root, path string, r io.Reader, mode os.FileMode) error {

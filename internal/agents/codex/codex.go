@@ -34,8 +34,9 @@ func definition() agent.Provider {
 				Formula:   "codex",
 				AuthPaths: []string{"auth.json"},
 				Account:   codexAccount,
-				// Where codexRelease puts it; that build updates by fetching again.
-				NativePaths: []string{".local/bin/codex"},
+				// Where codexPackage links it (on Windows through the junction
+				// clitool makes beside the versions); it updates by fetching again.
+				NativePaths: []string{".local/bin/codex", ".local/share/codex-current/bin/codex"},
 				Release:     codexRelease,
 				Package:     codexPackage,
 				// ChatGPT's device code, which Codex polls for like gh does.
@@ -63,14 +64,18 @@ func snakeCase(s string) string {
 }
 
 // codexRelease is Codex's own build for a system: one binary named after its
-// target, in codex-<target>.tar.gz on the latest release.
+// target, in codex-<target>.tar.gz on the latest release (on Windows
+// codex-<target>.exe.tar.gz, holding codex-<target>.exe).
 func codexRelease(_ context.Context, goos, goarch string) (string, string, error) {
 	arch := map[string]string{"arm64": "aarch64", "amd64": "x86_64"}[goarch]
-	system := map[string]string{"linux": "unknown-linux-musl", "darwin": "apple-darwin"}[goos]
+	system := map[string]string{"linux": "unknown-linux-musl", "darwin": "apple-darwin", "windows": "pc-windows-msvc"}[goos]
 	if arch == "" || system == "" {
 		return "", "", fmt.Errorf("%w: codex on %s/%s", binfetch.ErrUnsupported, goos, goarch)
 	}
 	name := "codex-" + arch + "-" + system
+	if goos == "windows" {
+		name += ".exe"
+	}
 	return binfetch.Base + "/openai/codex/releases/latest/download/" + name + ".tar.gz", name, nil
 }
 
@@ -88,7 +93,7 @@ func codexPackage(ctx context.Context, goos, goarch string) (clitool.Package, er
 	if err != nil {
 		return clitool.Package{}, err
 	}
-	asset := "codex-package-" + strings.TrimPrefix(target, "codex-") + ".tar.gz"
+	asset := "codex-package-" + strings.TrimSuffix(strings.TrimPrefix(target, "codex-"), ".exe") + ".tar.gz"
 	url := binfetch.Base + "/" + repo + "/releases/download/" + tag + "/" + asset
 	sum, err := binfetch.Digest(ctx, repo, tag, asset)
 	if err != nil {

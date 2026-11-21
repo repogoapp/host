@@ -35,7 +35,7 @@ func Ensure(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bin := filepath.Join(dir, "bin")
+	bin := binDir(dir, runtime.GOOS)
 	if major(ctx, filepath.Join(bin, "node")) >= minMajor {
 		return bin, nil
 	}
@@ -193,11 +193,25 @@ func checksum(ctx context.Context, version, name string) (string, error) {
 	return "", fmt.Errorf("nodejs: no checksum for %s", name)
 }
 
-// asset is the release archive for a system: node-v24.21.0-linux-arm64.tar.gz.
+// asset is the release archive for a system: node-v24.21.0-linux-arm64.tar.gz,
+// or on Windows node-v24.21.0-win-x64.zip.
 func asset(version, goos, goarch string) (string, error) {
 	arch := map[string]string{"arm64": "arm64", "amd64": "x64"}[goarch]
-	if arch == "" || (goos != "linux" && goos != "darwin") {
-		return "", fmt.Errorf("%w: node on %s/%s", binfetch.ErrUnsupported, goos, goarch)
+	switch {
+	case arch == "":
+	case goos == "linux" || goos == "darwin":
+		return "node-" + version + "-" + goos + "-" + arch + ".tar.gz", nil
+	case goos == "windows":
+		return "node-" + version + "-win-" + arch + ".zip", nil
 	}
-	return "node-" + version + "-" + goos + "-" + arch + ".tar.gz", nil
+	return "", fmt.Errorf("%w: node on %s/%s", binfetch.ErrUnsupported, goos, goarch)
+}
+
+// binDir is where an unpacked Node keeps node, npm and npx: bin/, except on
+// Windows, whose build has node.exe and npm.cmd at its top.
+func binDir(dir, goos string) string {
+	if goos == "windows" {
+		return dir
+	}
+	return filepath.Join(dir, "bin")
 }

@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/repogoapp/host/internal/agent"
@@ -43,5 +44,22 @@ func TestCodexIgnoresInstructionsAndMirroredProse(t *testing.T) {
 		if got := session.Parse(p, []byte(line)); len(got) != 0 {
 			t.Fatalf("unexpected events: %+v", got)
 		}
+	}
+}
+
+func TestCodexReleaseNamesWindowsBuilds(t *testing.T) {
+	for sys, want := range map[[2]string][2]string{
+		{"darwin", "arm64"}:  {"codex-aarch64-apple-darwin.tar.gz", "codex-aarch64-apple-darwin"},
+		{"linux", "amd64"}:   {"codex-x86_64-unknown-linux-musl.tar.gz", "codex-x86_64-unknown-linux-musl"},
+		{"windows", "amd64"}: {"codex-x86_64-pc-windows-msvc.exe.tar.gz", "codex-x86_64-pc-windows-msvc.exe"},
+		{"windows", "arm64"}: {"codex-aarch64-pc-windows-msvc.exe.tar.gz", "codex-aarch64-pc-windows-msvc.exe"},
+	} {
+		url, member, err := codexRelease(t.Context(), sys[0], sys[1])
+		if err != nil || !strings.HasSuffix(url, "/latest/download/"+want[0]) || member != want[1] {
+			t.Errorf("%v: %q %q %v", sys, url, member, err)
+		}
+	}
+	if _, _, err := codexRelease(t.Context(), "freebsd", "amd64"); err == nil {
+		t.Error("freebsd: no error")
 	}
 }

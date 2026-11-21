@@ -156,15 +156,29 @@ func fileExists(path string) bool {
 
 func TestAssetNames(t *testing.T) {
 	for sys, want := range map[[2]string]string{
-		{"linux", "arm64"}:  "node-v24.21.0-linux-arm64.tar.gz",
-		{"linux", "amd64"}:  "node-v24.21.0-linux-x64.tar.gz",
-		{"darwin", "arm64"}: "node-v24.21.0-darwin-arm64.tar.gz",
+		{"linux", "arm64"}:   "node-v24.21.0-linux-arm64.tar.gz",
+		{"linux", "amd64"}:   "node-v24.21.0-linux-x64.tar.gz",
+		{"darwin", "arm64"}:  "node-v24.21.0-darwin-arm64.tar.gz",
+		{"windows", "amd64"}: "node-v24.21.0-win-x64.zip",
+		{"windows", "arm64"}: "node-v24.21.0-win-arm64.zip",
 	} {
 		if got, err := asset("v24.21.0", sys[0], sys[1]); err != nil || got != want {
 			t.Fatalf("%v: %q, %v", sys, got, err)
 		}
 	}
-	if _, err := asset("v24.21.0", "windows", "amd64"); !errors.Is(err, binfetch.ErrUnsupported) {
-		t.Fatalf("windows: %v", err)
+	if _, err := asset("v24.21.0", "freebsd", "amd64"); !errors.Is(err, binfetch.ErrUnsupported) {
+		t.Fatalf("freebsd: %v", err)
+	}
+	if _, err := asset("v24.21.0", "windows", "386"); !errors.Is(err, binfetch.ErrUnsupported) {
+		t.Fatalf("windows/386: %v", err)
+	}
+}
+
+func TestBinDir(t *testing.T) {
+	if got := binDir(filepath.Join("h", "node"), "windows"); got != filepath.Join("h", "node") {
+		t.Fatalf("windows: %q", got)
+	}
+	if got := binDir(filepath.Join("h", "node"), "linux"); got != filepath.Join("h", "node", "bin") {
+		t.Fatalf("linux: %q", got)
 	}
 }

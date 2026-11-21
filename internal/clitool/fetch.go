@@ -36,12 +36,11 @@ func fetchBuild(ctx context.Context, s Spec) (string, error) {
 	if err != nil {
 		return p.URL, err
 	}
-	link := filepath.Join(bin, s.Command)
-	previous, _ := filepath.EvalSymlinks(link)
+	link, previous := packageLink(bin, s.Command, p)
 	if err := binfetch.InstallPackage(ctx, p.URL, p.SHA256, p.Dir); err != nil {
 		return p.URL, err
 	}
-	if err := relink(link, filepath.Join(p.Dir, p.Entry)); err != nil {
+	if err := linkPackage(link, p); err != nil {
 		return p.URL, err
 	}
 	prune(filepath.Dir(p.Dir), p.Dir, previous)
@@ -67,7 +66,8 @@ func relink(link, target string) error {
 }
 
 // prune removes the older versions under parent, keeping current and the one
-// the link named before, which a running copy may still spawn helpers from.
+// the link named before (that version's folder, or a file in it), which a
+// running copy may still spawn helpers from.
 func prune(parent, current, previous string) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
@@ -75,7 +75,7 @@ func prune(parent, current, previous string) {
 	}
 	for _, e := range entries {
 		dir := filepath.Join(parent, e.Name())
-		if !e.IsDir() || dir == current || strings.HasPrefix(e.Name(), ".") ||
+		if !e.IsDir() || dir == current || strings.HasPrefix(e.Name(), ".") || previous == dir ||
 			(previous != "" && strings.HasPrefix(previous, dir+string(filepath.Separator))) {
 			continue
 		}

@@ -164,6 +164,44 @@ func TestInstallTreeUnpacksWithoutTheTopFolder(t *testing.T) {
 	}
 }
 
+func TestInstallTreeUnpacksAZip(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	zw.Create("node-v24-win-x64/")
+	w, _ := zw.Create("node-v24-win-x64/node.exe")
+	w.Write([]byte("node"))
+	w, _ = zw.Create("node-v24-win-x64/node_modules/npm/bin/npm-cli.js")
+	w.Write([]byte("npm"))
+	zw.Close()
+	archive := buf.Bytes()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(archive) }))
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "node")
+
+	if err := InstallTree(context.Background(), srv.URL+"/node.zip", sum(archive), dest); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "node.exe")); string(b) != "node" {
+		t.Fatalf("node.exe reads %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "node_modules", "npm", "bin", "npm-cli.js")); string(b) != "npm" {
+		t.Fatalf("npm-cli.js reads %q", b)
+	}
+}
+
+func TestInstallTreeRefusesAZipEscape(t *testing.T) {
+	archive := zipped(t, "pkg/../../evil", "x")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(archive) }))
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "pkg")
+	if err := InstallTree(context.Background(), srv.URL+"/x.zip", sum(archive), dest); err == nil {
+		t.Fatal("unpacked")
+	}
+	if _, err := os.Stat(dest); err == nil {
+		t.Fatalf("left %s behind", dest)
+	}
+}
+
 func TestInstallTreeRefusesEscapes(t *testing.T) {
 	for name, h := range map[string]*tar.Header{
 		"dotdot":        {Name: "pkg/../../evil", Typeflag: tar.TypeReg, Mode: 0o644},
