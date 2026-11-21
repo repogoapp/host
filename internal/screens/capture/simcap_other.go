@@ -28,10 +28,7 @@ func pace(Input)                  {}
 func caDebug(string, bool)        {}
 func stop()                       {}
 
-// RunScreen needs macOS.
-func RunScreen(context.Context, *os.File, io.Reader) error {
-	return errors.New("screen capture needs macOS")
-}
+func serviceButton(int, int, int) bool { return false }
 
 // RunAndroid needs macOS, for its encoder.
 func RunAndroid(context.Context, int, *os.File, io.Reader) error {

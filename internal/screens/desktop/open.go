@@ -3,28 +3,10 @@ package desktop
 import (
 	"bufio"
 	"bytes"
-	"context"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
-
-// openApps lists the open apps the Dock shows (Launch Services'
-// "Foreground" type), windows or not, and which is in front, from
-// `lsappinfo`: no permission, and no run loop, which NSWorkspace's
-// running apps need to stay current in a process like the host.
-func openApps(ctx context.Context) ([]openApp, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	list, err := exec.CommandContext(ctx, "lsappinfo", "list").Output()
-	if err != nil {
-		return nil, "", err
-	}
-	front, _ := exec.CommandContext(ctx, "lsappinfo", "front").Output()
-	return parseOpenApps(list), strings.TrimSpace(string(front)), nil
-}
 
 var (
 	appLine = regexp.MustCompile(`^\s*\d+\) "(.*)" (ASN:\S+)`)

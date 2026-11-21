@@ -150,11 +150,12 @@ func (t *transitionSet) overlay(screens []Screen) {
 }
 
 // Supported reports whether this machine can have live screens at all: a
-// Mac shows its own display, and any machine with Xcode's or the Android
-// SDK's tools has simulators or emulators. screens.list says which are there.
+// Mac or Windows PC shows its own display, and any machine with Xcode's or
+// the Android SDK's tools has simulators or emulators. screens.list says
+// which are there.
 func Supported() bool {
 	ios, android := Available()
-	return runtime.GOOS == "darwin" || ios || android
+	return hasOwnDisplay || ios || android
 }
 
 // Available reports which platforms' tools this machine has, read once: a

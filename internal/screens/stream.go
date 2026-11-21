@@ -474,8 +474,9 @@ func (c *controller) button(b HardwareButton) []item {
 	}
 	switch {
 	case b == ButtonAppSwitcher && c.d.Platform == PlatformIOS:
-		// Home pressed twice where iOS still takes the button; the swipe
-		// up from the upright screen's bottom from iOS 26, which drops its press.
+		// Home pressed twice where iOS still takes Indigo's button; from
+		// iOS 26, which drops it, Home twice through dtuhidd, or the swipe up
+		// from the upright screen's bottom where the simulator has none.
 		in := capture.Input{Action: capture.ActionAppSwitcher, Value: capture.SwitcherPress}
 		if iosMajor(c.d.OS.Version) >= 26 {
 			in.Value = ""

@@ -12,6 +12,10 @@ void simcap_touch(int phase, double x, double y);
 // side, 0x3f0 software keyboard), held hold_ms before release.
 void simcap_button(int source, int hold_ms);
 void simcap_hid(int page, int usage);
+// A hardware button by its HID page and usage, through the simulator's
+// dtuhidd (Xcode 27), held hold_ms before release; 0 on success, negative
+// where the simulator has no dtuhidd.
+int simcap_service_button(int page, int usage, int hold_ms);
 void simcap_key(int usage, int down);
 int simcap_rotate(int orientation);
 // A foldable's pose: closed, open, book or laptop. 0 on success.

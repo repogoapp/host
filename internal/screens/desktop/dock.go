@@ -2,25 +2,9 @@ package desktop
 
 import (
 	"bytes"
-	"context"
 	"encoding/xml"
-	"os/exec"
 	"strings"
-	"time"
 )
-
-// dockApps reads the Dock's pinned apps from its preferences, in order.
-// `plutil -convert json` refuses this plist (it holds <data> and <date>),
-// so it's read as XML.
-func dockApps(ctx context.Context) ([]App, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	raw, err := exec.CommandContext(ctx, "defaults", "export", "com.apple.dock", "-").Output()
-	if err != nil {
-		return nil, err
-	}
-	return parseDock(raw)
-}
 
 func parseDock(raw []byte) ([]App, error) {
 	var plist struct {

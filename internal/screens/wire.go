@@ -29,9 +29,10 @@ const (
 	PlatformIOS     Platform = "ios"
 	PlatformAndroid Platform = "android"
 	PlatformMacOS   Platform = "macos"
+	PlatformWindows Platform = "windows"
 )
 
-func (Platform) Values() []string { return []string{"ios", "android", "macos"} }
+func (Platform) Values() []string { return []string{"ios", "android", "macos", "windows"} }
 
 // ScreenState is whether a screen is running, or on its way.
 type ScreenState string

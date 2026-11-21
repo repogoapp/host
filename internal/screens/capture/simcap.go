@@ -96,7 +96,7 @@ const (
 	ActionMemoryWarning  = "memory_warning"  //
 	ActionSlowAnimations = "slow_animations" // Value: on or off
 	ActionFold           = "fold"            // Value: closed, open, book or laptop (a foldable's pose)
-	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else the swipe
+	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else Home twice through dtuhidd, else the swipe
 	ActionKeyframe       = "keyframe"        // the next frame a keyframe, sent even if the screen is still
 	ActionTurn           = "turn"            // Value: quarter turns clockwise, 0 to 3, that show the framebuffer upright
 )
@@ -300,9 +300,10 @@ func play(in Input) error {
 	case ActionMemoryWarning:
 		memoryWarning()
 	case ActionAppSwitcher:
-		if in.Value == SwitcherPress {
+		switch {
+		case in.Value == SwitcherPress:
 			doubleHome()
-		} else {
+		case !serviceDoubleHome():
 			appSwitcher()
 		}
 	case ActionSlowAnimations:
@@ -324,6 +325,21 @@ func doubleHome() {
 	buttons["home"]()
 	time.Sleep(120 * time.Millisecond)
 	buttons["home"]()
+}
+
+// Home's HID page and usage (Consumer, Menu), as dtuhidd takes the button.
+const consumerPage, menuUsage = 0x0C, 0x40
+
+// serviceDoubleHome opens the app switcher with Home pressed twice through
+// dtuhidd, which takes the press where iOS 26 and later drop Indigo's. False,
+// pressing nothing, where the simulator has no dtuhidd.
+func serviceDoubleHome() bool {
+	if !serviceButton(consumerPage, menuUsage, 50) {
+		return false
+	}
+	time.Sleep(120 * time.Millisecond)
+	serviceButton(consumerPage, menuUsage, 50)
+	return true
 }
 
 // appSwitcher opens the app switcher with a slow swipe up from the bottom

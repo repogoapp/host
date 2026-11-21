@@ -2,7 +2,8 @@
 // Control and a window's title bar give it: the spaces in swipe order, the
 // open and pinned apps with their windows, the front app's focused window
 // and its buttons, every installed app for a Launchpad, and app icons. The
-// Mac screen's live view sends it to the phone.
+// Mac screen's live view sends it to the phone. On Windows the same shapes
+// come from the taskbar's windows and the Start menu (desktop_windows.go).
 //
 // Each app is listed once, in Apps, in the Dock's order; the front app and
 // a full-screen space name apps by bundle ID. Spaces come from SkyLight's
@@ -60,7 +61,11 @@ type Window struct {
 
 // ErrLocked refuses a move while the session is locked, where it would
 // silently do nothing.
-var ErrLocked = errors.New("The Mac is locked. Sign in to it first.")
+var ErrLocked = errors.New(lockedMessage)
+
+// Locked reports whether the session is locked, or otherwise not showing
+// its desktop (Windows: the sign-in screen, a UAC prompt, no screen).
+func Locked() bool { return locked() }
 
 // Read reads the desktop now.
 func Read(ctx context.Context) (Desktop, error) {
@@ -111,10 +116,11 @@ type rawWindow struct {
 	Space  uint64
 }
 
-// merge lists each app once, in the Dock's order (Finder, the pinned apps,
-// then open apps that aren't pinned), each with its windows.
+// merge lists each app once, in the Dock's order (Finder, or File Explorer
+// on Windows, then the pinned apps and open apps that aren't pinned), each
+// with its windows.
 func merge(pinned []App, open []openApp, windows []rawWindow) []App {
-	apps := append([]App{{Bundle: finder, Name: "Finder"}}, pinned...)
+	apps := append([]App{homeApp}, pinned...)
 	index := map[string]int{}
 	add := func(a App) int {
 		if i, ok := index[a.Bundle]; ok {

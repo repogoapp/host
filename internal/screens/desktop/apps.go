@@ -1,28 +1,8 @@
 package desktop
 
 import (
-	"context"
-	"errors"
-	"os/exec"
-	"strings"
 	"sync"
-	"time"
 )
-
-// Open opens the app, or brings it forward with its windows, as a click in
-// the Dock does.
-func Open(ctx context.Context, bundle string) error {
-	if bundle == "" || strings.ContainsAny(bundle, " /") {
-		return errors.New("No app with that bundle ID.")
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "open", "-b", bundle).CombinedOutput()
-	if err != nil {
-		return errors.New(strings.TrimSpace(string(out)))
-	}
-	return nil
-}
 
 // Raise brings one window to the front of its app when the host has
 // Accessibility, before the app is opened; without it, opening the app

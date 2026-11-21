@@ -55,7 +55,7 @@ func TestMerge(t *testing.T) {
 	for _, a := range apps {
 		order = append(order, a.Bundle)
 	}
-	want := []string{"com.apple.finder", "com.google.Chrome", "com.apple.Preview", "com.example.Notes"}
+	want := []string{homeApp.Bundle, "com.google.Chrome", "com.apple.Preview", "com.example.Notes"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("order %v", order)
 	}

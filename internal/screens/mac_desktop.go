@@ -42,7 +42,7 @@ var buttonKeys = map[string][]uint32{
 // watchDesktop sends the Mac's desktop while ctx lasts: at once, then on
 // each change the Mac reports, after each action, and every desktopEvery.
 func (c *controller) watchDesktop(ctx context.Context) {
-	if runtime.GOOS != "darwin" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
 		return
 	}
 	changes, stop := desktop.Changes()

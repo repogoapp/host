@@ -19,6 +19,7 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <unistd.h>
+#import <xpc/xpc.h>
 
 #include "simcap_darwin.h"
 #include "uhid_darwin.h"
@@ -666,6 +667,104 @@ void simcap_hid(int page, int usage) {
   sendHID(gArbitrary(0x32, (uint32_t)page, (uint32_t)usage, 2));
 }
 
+// MARK: - Buttons through dtuhidd
+
+// Xcode 27 runs dtuhidd in every simulator. It takes a hardware button as its
+// HID page and usage, where iOS 26 and later drop Indigo's button events. The
+// link is plain XPC to its digitizer service, made from the port the
+// simulator looks up; marked sim-to-host, or dtuhidd sees the peer but never
+// a message. One link serves the capture's life, opened as it starts so a
+// slow first answer (seconds, at times, on Xcode 27.2) doesn't delay a press.
+static const char *const kDigitizerService = "com.apple.coredevice.feature.remote.hid.digitizer";
+typedef xpc_object_t __attribute__((ns_returns_retained)) (*EndpointForPortFn)(mach_port_t, uint64_t, uint64_t);
+typedef void (*Sim2HostFn)(xpc_connection_t);
+// gButtonLink is only touched on gButtonQueue.
+static dispatch_queue_t gButtonQueue;
+static xpc_connection_t gButtonLink;
+// The link's generation, and whether that generation's link has closed: an
+// old link's closing must not mark the new one.
+static atomic_int gButtonLinkGeneration;
+static atomic_bool gButtonLinkClosed;
+
+// Whether dtuhidd answers a barrier within two seconds: proof the link
+// reaches it, not that iOS acted on anything.
+static BOOL buttonLinkAnswers(xpc_connection_t link) {
+  xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0);
+  xpc_dictionary_set_bool(request, "isBarrier", true);
+  dispatch_semaphore_t answered = dispatch_semaphore_create(0);
+  __block atomic_bool ok = false;
+  xpc_connection_send_message_with_reply(link, request, dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0),
+                                         ^(xpc_object_t reply) {
+                                           atomic_store(&ok, xpc_get_type(reply) == XPC_TYPE_DICTIONARY);
+                                           dispatch_semaphore_signal(answered);
+                                         });
+  long late = dispatch_semaphore_wait(answered, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+  return late == 0 && atomic_load(&ok);
+}
+
+// The open link to dtuhidd, opened on first use and again after it closes;
+// nil where the simulator has none.
+static xpc_connection_t buttonLink(void) {
+  if (gButtonLink && !atomic_load(&gButtonLinkClosed)) return gButtonLink;
+  if (gButtonLink) xpc_connection_cancel(gButtonLink);
+  gButtonLink = nil;
+  EndpointForPortFn endpointForPort = (EndpointForPortFn)dlsym(RTLD_DEFAULT, "xpc_endpoint_create_mach_port_4sim");
+  Sim2HostFn sim2host = (Sim2HostFn)dlsym(RTLD_DEFAULT, "xpc_connection_enable_sim2host_4sim");
+  if (!gDevice || !endpointForPort || !sim2host) return nil;
+  NSError *error = nil;
+  mach_port_t port = ((mach_port_t (*)(id, SEL, NSString *, NSError **))objc_msgSend)(
+      gDevice, NSSelectorFromString(@"lookup:error:"), @(kDigitizerService), &error);
+  if (port == MACH_PORT_NULL) return nil;
+  xpc_object_t endpoint = endpointForPort(port, 0, 0);
+  xpc_connection_t link = endpoint ? xpc_connection_create_from_endpoint((xpc_endpoint_t)endpoint) : nil;
+  if (!link) return nil;
+  sim2host(link);
+  int generation = atomic_fetch_add(&gButtonLinkGeneration, 1) + 1;
+  atomic_store(&gButtonLinkClosed, false);
+  xpc_connection_set_event_handler(link, ^(xpc_object_t event) {
+    if (xpc_get_type(event) == XPC_TYPE_ERROR && atomic_load(&gButtonLinkGeneration) == generation)
+      atomic_store(&gButtonLinkClosed, true);
+  });
+  xpc_connection_resume(link);
+  if (!buttonLinkAnswers(link)) {
+    fprintf(stderr, "simcap: dtuhidd didn't answer; buttons stay on Indigo\n");
+    xpc_connection_cancel(link);
+    return nil;
+  }
+  gButtonLink = link;
+  return link;
+}
+
+static void sendButtonState(xpc_connection_t link, int page, int usage, uint64_t state) {
+  xpc_object_t payload = xpc_dictionary_create(NULL, NULL, 0);
+  xpc_dictionary_set_uint64(payload, "usagePage", (uint64_t)page);
+  xpc_dictionary_set_uint64(payload, "usageCode", (uint64_t)usage);
+  xpc_dictionary_set_uint64(payload, "state", state);
+  xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+  xpc_dictionary_set_string(message, "messageType", "IndigoButtonEvent");
+  xpc_dictionary_set_bool(message, "isBarrier", false);
+  xpc_dictionary_set_string(message, "featureIdentifier", kDigitizerService);
+  xpc_dictionary_set_value(message, "payload", payload);
+  xpc_connection_send_message(link, message);
+}
+
+static void openButtonLink(void) {
+  gButtonQueue = dispatch_queue_create("app.repogo.simcap.buttons", dispatch_queue_attr_make_with_qos_class(
+                                                                       DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
+  dispatch_async(gButtonQueue, ^{ buttonLink(); });
+}
+
+int simcap_service_button(int page, int usage, int hold_ms) {
+  if (!gButtonQueue) return -1;
+  __block xpc_connection_t link;
+  dispatch_sync(gButtonQueue, ^{ link = buttonLink(); });
+  if (!link) return -1;
+  sendButtonState(link, page, usage, 1);  // down; dtuhidd's states start at 1
+  if (hold_ms > 0) usleep((useconds_t)hold_ms * 1000);
+  sendButtonState(link, page, usage, 2);  // up
+  return atomic_load(&gButtonLinkClosed) ? -2 : 0;
+}
+
 // One keyboard key by its HID usage (page 7), pressed or released.
 void simcap_key(int usage, int down) {
   if (gKeyboard) {
@@ -892,6 +991,7 @@ int simcap_start(const char *developer_dir, const char *udid, int universal, int
     if (code != 0) return code;
     setUpHID(device);
     if (universal) setUpUniversalHID(udid);
+    openButtonLink();
     return 0;
   }
 }

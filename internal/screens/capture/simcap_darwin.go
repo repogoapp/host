@@ -37,6 +37,10 @@ func button(source, holdMS int) { C.simcap_button(C.int(source), C.int(holdMS)) 
 
 func hid(page, usage int) { C.simcap_hid(C.int(page), C.int(usage)) }
 
+func serviceButton(page, usage, holdMS int) bool {
+	return C.simcap_service_button(C.int(page), C.int(usage), C.int(holdMS)) == 0
+}
+
 func key(usage int, down bool) {
 	d := 0
 	if down {
