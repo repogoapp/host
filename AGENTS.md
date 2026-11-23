@@ -80,7 +80,7 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `schedule` | The user's schedules: validates them, computes each next run, and on a minute ticker starts every due one as a new chat; rows in `state.db` through `store` | writing SQL itself |
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
 | `git`, `github` | Git reporting and shipping, `gh` wrapper and PRs. One git runner in `git` | a second `exec.Command("git"` |
-| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`, `projectagent`, `reminder`, `screens`, `simulators`, `stepactivity`, `uploads`) | One resource each | |
+| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`, `projectagent`, `reminder`, `remotehost`, `screens`, `simulators`, `stepactivity`, `uploads`) | One resource each | |
 | `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing | resolving provider homes itself |
 | `emit`, `errkind`, `outcome`, `par`, `sqlitedb`, `syscmd`, `proctree`, `redact`, `idempotency`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, what a plugin method or MCP tool answers, fan-out, SQLite pragmas, short system tools, a command as the head of its own process tree, masking secrets in text the host keeps or shows, running a request a caller may send again once, `~/.repogo`, dev log copies | a second way to do the same |
 | `wiredoc`, `clientcontract`, `lint`, `testwait` | Development only: the generated wire docs and the clients' contracts (Swift, Kotlin and TypeScript), the code standards as tests, polling in tests | imported by production code |
@@ -99,6 +99,51 @@ family with many keeps them in `types.go`. `rpc.Local` and `rpc.Paired` declare
 who may call; `rpc.Detached` marks a mutation that must finish if the caller
 leaves; `rpc.Tool` offers it to agents and cards, and `rpc.Plugins` lets a
 plugin's `ctx.host` call it without that (`mcp.call` behind `ctx.mcp`). Changing a method's types means `go test ./internal/rpc/conformance -update`.
+
+Handlers and core packages: a handler translates and makes one call; the
+work lives in the core package any surface can call (`rpc/hosts` and
+`remotehost`, `rpc/tunnels` and `tunnel`).
+
+| Code | Lives in | Example |
+| --- | --- | --- |
+| Params, results, `Register`, handlers | `rpc/<family>/`; `types.go` once there are many | `hosts.list`, `hosts.call` |
+| Wire-only helpers: the caller, idempotency, the answer's shape | Below the handlers, unexported | `keyScope`, `from` (`rpc/chats`) |
+| Domain logic | The core package, exported | `remotehost.Service.Refresh`, `repogomcp.Server.RemoteCall` |
+| Parsing and decisions | The core package, unexported and pure, tested with plain inputs | `remotehost.classify`, `merge` |
+| Side effects (exec, network, files) | Behind the core package's `Deps`, the real ones in one constructor | `remotehost.System` |
+
+A handler turns the caller and params into the core call's inputs, makes one
+core call, and shapes the result: no loops over data, no exec, SQL or file
+access, and no rules about who may do what. Logic `repogo call`, an MCP tool
+or a plugin would need too is in the wrong place. A core file reads top to
+bottom: the types callers see, `Deps`, the exported entry points, then the
+unexported helpers, with the real `Deps` last.
+
+Tools and commands: one host method, reached three ways (the phone over RPC,
+agents over MCP, people over the `repogo` CLI), as `repogo screens` does.
+
+1. The method is the only behaviour. The MCP tool and the CLI command call it
+   and add none: parse, call, print.
+2. MCP names are the method with each `.` as `_`: `screens.open_url` is
+   `screens_open_url`. Model APIs refuse `.` and `/` in tool names, and a
+   rename breaks shipped prompts and users' permission rules, so the names
+   stay. Map a tool back through the tool list (`hostTool`), never by
+   reversing the name: method names hold `_` too.
+3. CLI commands are the method with each `.` as a word and `_` as `-`:
+   `repogo screens open-url`, `repogo screens recording start`. A shorter
+   alias may sit beside that name, not instead of it. `screens fold`
+   (`screens.set`) and `screens screenshot` (`screens.save_screenshot`) came
+   before this rule; add the full names when next touched.
+4. Params are flags of the same name, `_` as `-`: `screen` is `--screen`,
+   `from_x` is `--from-x`. Positional shortcuts (`tap 120 340`) may be added,
+   never instead.
+5. One answer: the CLI prints text by default, and `--json` prints the
+   method's result exactly, as the MCP tool returns it.
+6. Effects carry over: a destructive method asks in the CLI unless `--yes`,
+   as it asks for approval over MCP.
+7. Every `rpc.Tool` method should have a command; a tool without one is a
+   gap to fill, not a choice. Commands about the host itself (`start`, `stop`,
+   `install`, `pair`) need no tool.
 
 Order: a family's `Register` is the one place its methods are ordered, grouped
 by purpose: reads first, then mutations. `Router.Specs()` lists families by
