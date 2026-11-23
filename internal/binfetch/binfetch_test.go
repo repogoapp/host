@@ -248,7 +248,7 @@ func TestUntarRejectsComposedSymlinkEscape(t *testing.T) {
 		if withFile {
 			headers = append(headers, &tar.Header{Name: "pkg/b/file", Typeflag: tar.TypeReg, Mode: 0o644})
 		}
-		if err := Untar(tree(t, headers...), dest); err == nil {
+		if err := untar(tree(t, headers...), dest, true); err == nil {
 			t.Fatalf("withFile=%v: accepted escape", withFile)
 		}
 		if got, err := os.ReadFile(victim); err != nil || string(got) != "untouched" {

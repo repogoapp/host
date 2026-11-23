@@ -3,19 +3,31 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
 // turnState is one prompt's updates on their way to the phone and the
 // transcript. Text streams live as deltas and is written once per message;
 // updates and permission requests arrive on different goroutines.
 type turnState struct {
+	// ctx is the turn's: it ends when the turn is stopped.
+	ctx  context.Context
 	io   agent.TurnIO
 	file *transcript
+	// workdir is where the agent runs, for labels naming a file in it.
+	workdir string
+	// allows reports a tool the turn runs without asking.
+	allows func(tool string) bool
+	// label is the Config's, when the agent's tools are named by their own
+	// names rather than each call's title.
+	label func(tool string, input json.RawMessage) (toollabel.Label, map[string]any, bool)
 
 	mu        sync.Mutex
 	text      strings.Builder
@@ -24,16 +36,50 @@ type turnState struct {
 	// order is the tool calls by when they were first seen.
 	order []string
 	usage agent.Usage
+	// steers is the prompts sent into the turn, oldest first, not yet waited
+	// on; sealed is set once the turn has its last answer and takes no more.
+	steers []<-chan promptAnswer
+	sealed bool
+}
+
+// steer records a prompt sent into the turn and sends it, under the lock, so
+// the turn can't end between the two.
+func (t *turnState) steer(text string, send func() <-chan promptAnswer) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.sealed {
+		return errors.New("the turn has ended")
+	}
+	t.flushReasoning()
+	t.flushText()
+	t.write(agent.Event{Kind: agent.EventUserMessage, Text: text})
+	t.steers = append(t.steers, send())
+	return nil
+}
+
+// seal takes the prompts steered in since the last call; none seals the
+// turn, so a late steer is sent as a turn of its own.
+func (t *turnState) seal() []<-chan promptAnswer {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	next := t.steers
+	t.steers = nil
+	if len(next) == 0 {
+		t.sealed = true
+	}
+	return next
 }
 
 // toolState is what the agent has said about one tool call so far: ACP sends
 // a call, then updates carrying only what changed.
 type toolState struct {
-	call      agent.ToolCall
-	title     string
-	name      string
-	kind      string
-	status    string
+	call   agent.ToolCall
+	title  string
+	name   string
+	kind   string
+	status string
+	// path is the first file the call names, from its locations.
+	path      string
 	announced bool
 	done      bool
 }
@@ -77,10 +123,16 @@ func (t *turnState) tool(u update) {
 	set(&st.name, u.Name)
 	set(&st.kind, u.Kind)
 	set(&st.status, u.Status)
+	if len(u.Locations) > 0 && u.Locations[0].Path != "" {
+		st.path = u.Locations[0].Path
+	}
 	if present(u.RawInput) {
 		st.call.Input = u.RawInput
 	}
-	st.call.Name = st.label()
+	st.call.Name = st.label(t.workdir)
+	if t.label != nil && st.name != "" {
+		st.call.Name = st.name
+	}
 	finished := st.status == statusCompleted || st.status == statusFailed
 	if !st.announced && (len(st.call.Input) > 0 || st.status != statusPending || finished) {
 		t.flushText()
@@ -104,8 +156,17 @@ func set(field *string, value *string) {
 }
 
 // label is what the phone calls a tool: the agent's title for this call,
-// else its tool name, else its kind.
-func (st *toolState) label() string {
+// else its tool name, else its kind. An edit whose title climbs out of the
+// folder ("File ../../tmp/a.txt", as Antigravity writes them) is named by the
+// file it changes instead.
+func (st *toolState) label(workdir string) string {
+	if st.kind == "edit" && st.path != "" && strings.Contains(st.title, "..") {
+		path := st.path
+		if rel, err := filepath.Rel(workdir, path); err == nil && !strings.HasPrefix(rel, "..") {
+			path = rel
+		}
+		return "Edit " + path
+	}
 	for _, s := range []string{st.title, st.name, st.kind} {
 		if s != "" {
 			return s
@@ -120,8 +181,21 @@ func (t *turnState) permission(ctx context.Context, p permissionParams) (string,
 	t.mu.Lock()
 	t.tool(p.ToolCall)
 	st := t.tools[p.ToolCall.ToolCallID]
-	approval := agent.Approval{CallID: p.ToolCall.ToolCallID, Title: st.label(), Kind: st.kind, Input: st.call.Input}
+	approval := agent.Approval{CallID: p.ToolCall.ToolCallID, Title: st.label(t.workdir), Kind: st.kind, Input: st.call.Input}
+	if t.label != nil {
+		if l, _, ok := t.label(st.name, st.call.Input); ok {
+			approval.Title = l.Labels.Active
+		}
+	}
+	name := st.name
 	t.mu.Unlock()
+	if t.allows != nil && t.allows(name) {
+		for _, o := range p.Options {
+			if strings.HasPrefix(o.Kind, "allow") {
+				return o.OptionID, true
+			}
+		}
+	}
 	if approval.Kind == "" {
 		approval.Kind = "other"
 	}
@@ -190,6 +264,31 @@ func (t *turnState) finish() {
 	defer t.mu.Unlock()
 	t.flushReasoning()
 	t.flushText()
+}
+
+// name keeps the agent's title for its chat when the chat has none yet, so
+// it is named as Claude's and Codex's are, and a rename stays the user's.
+func (t *turnState) name(title string) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return
+	}
+	if info, err := readInfo(t.file.path); err == nil && info.Title == "" {
+		_ = t.file.append(line{Type: lineTitle, Title: title})
+	}
+}
+
+// count adds a prompt's tokens to the turn's.
+func (t *turnState) count(u *promptUsage) {
+	if u == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.usage.InputTokens += u.InputTokens
+	t.usage.OutputTokens += u.OutputTokens
+	t.usage.CacheReadTokens += u.CachedReadTokens
+	t.usage.CacheCreationTokens += u.CachedWriteTokens
 }
 
 func (t *turnState) result(stopReason string) agent.Result {

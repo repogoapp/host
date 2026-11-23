@@ -8,6 +8,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/agentcatalog"
 	"github.com/repogoapp/host/internal/agents/acp"
+	"github.com/repogoapp/host/internal/agents/antigravity"
 	"github.com/repogoapp/host/internal/agents/claude"
 	"github.com/repogoapp/host/internal/agents/codex"
 	"github.com/repogoapp/host/internal/agentusage"
@@ -27,6 +28,7 @@ type Factory func(agent.Dependencies) agent.Identity
 var factories = []Factory{
 	func(d agent.Dependencies) agent.Identity { return claude.New(d) },
 	func(d agent.Dependencies) agent.Identity { return codex.New(d) },
+	func(d agent.Dependencies) agent.Identity { return antigravity.New(d) },
 	func(d agent.Dependencies) agent.Identity { return acp.New(d) },
 }
 

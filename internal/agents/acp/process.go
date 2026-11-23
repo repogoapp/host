@@ -1,11 +1,13 @@
 package acp
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +18,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/stdiorpc"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
 // Starting an agent can install it first (npx) or boot a dev server (eve).
@@ -59,15 +62,21 @@ type agentProcess struct {
 // chatSession is one chat's session in its agent's process.
 type chatSession struct {
 	id   string
+	key  string
+	proc *agentProcess
 	file *transcript
 	turn *turnState
+	// release ends RepoGo's tools for the session, when it was given them.
+	release func()
 	// loading is set while session/load replays history the file already has.
 	loading bool
 	// replay hands the chat so far to the first prompt of a session that
 	// could not be reopened.
 	replay bool
-	// models is the session's model option as the agent last reported it.
-	models agentModels
+	// models is the session's model option as the agent last reported it,
+	// options all of its options.
+	models  agentModels
+	options []configOption
 }
 
 // start runs the agent and agrees on the protocol; sessions open per chat.
@@ -115,8 +124,9 @@ func executable(m projectagent.Manifest) string {
 
 // session is the chat's session in this process, opening one when it has
 // none: the chat's own again when the agent can load it, else a new one that
-// is told the conversation so far.
-func (proc *agentProcess) session(ctx context.Context, c chat, servers []mcpServer) (*chatSession, error) {
+// is told the conversation so far. servers is the MCP servers a session
+// opens with, and meta what session/new adds as _meta.
+func (proc *agentProcess) session(ctx context.Context, c chat, servers func(*chatSession) []mcpServer, meta any) (*chatSession, error) {
 	proc.mu.Lock()
 	cs := proc.chats[c.key()]
 	proc.mu.Unlock()
@@ -125,9 +135,10 @@ func (proc *agentProcess) session(ctx context.Context, c chat, servers []mcpServ
 	}
 	open, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
-	params := sessionParams{Cwd: proc.workdir, MCPServers: servers}
+	cs = &chatSession{key: c.key(), proc: proc, file: c.file}
+	params := sessionParams{Cwd: proc.workdir, MCPServers: servers(cs), Meta: meta}
 	if c.session != "" && proc.caps.LoadSession {
-		cs = &chatSession{id: c.session, file: c.file, loading: true}
+		cs.id, cs.loading = c.session, true
 		proc.register(c, cs)
 		params.SessionID = c.session
 		var loaded sessionResult
@@ -136,36 +147,63 @@ func (proc *agentProcess) session(ctx context.Context, c chat, servers []mcpServ
 		cs.loading = false
 		proc.mu.Unlock()
 		if err == nil {
-			proc.setModels(cs, loaded.ConfigOptions)
+			proc.setOptions(cs, loaded.ConfigOptions)
 			return cs, nil
 		}
-		proc.forget(c, cs)
+		proc.unregister(c, cs)
 		params.SessionID = ""
 	}
 	var opened newSessionResult
 	if err := proc.client.Call(open, methodNewSession, params, &opened); err != nil {
+		cs.end()
 		return nil, failure{name: proc.name, step: "couldn't open a chat", err: err}
 	}
-	cs = &chatSession{id: opened.SessionID, file: c.file, replay: c.session != "" || c.hasHistory()}
+	cs.id, cs.replay = opened.SessionID, c.session != "" || c.hasHistory()
 	if err := c.file.append(line{Type: lineSession, Session: cs.id}); err != nil {
+		cs.end()
 		return nil, err
 	}
 	proc.register(c, cs)
-	proc.setModels(cs, opened.ConfigOptions)
+	proc.setOptions(cs, opened.ConfigOptions)
 	return cs, nil
 }
 
-// setModels takes a session's options as the agent reported them, keeping
+// end releases what the session holds outside the agent: RepoGo's tools.
+func (cs *chatSession) end() {
+	if cs.release != nil {
+		cs.release()
+		cs.release = nil
+	}
+}
+
+// Running is the turn the session is on, for RepoGo's tools.
+func (cs *chatSession) Running() (agent.RunningTurn, bool) {
+	cs.proc.mu.Lock()
+	t := cs.turn
+	cs.proc.mu.Unlock()
+	if t == nil {
+		return agent.RunningTurn{}, false
+	}
+	return agent.RunningTurn{Ctx: t.ctx, TurnID: t.io.TurnID, ChatID: cs.key, Cwd: cs.proc.workdir,
+		Device: t.io.Device, Config: t.io.Config, Parent: t.io.Parent, Ask: t.io.Ask}, true
+}
+
+// setOptions takes a session's options as the agent reported them, keeping
 // its model option for the picker.
-func (proc *agentProcess) setModels(cs *chatSession, options []configOption) {
-	models, ok := modelOption(options)
-	if !ok {
+func (proc *agentProcess) setOptions(cs *chatSession, options []configOption) {
+	if len(options) == 0 {
 		return
 	}
+	models, ok := modelOption(options)
 	proc.mu.Lock()
-	cs.models = models
+	cs.options = options
+	if ok {
+		cs.models = models
+	}
 	proc.mu.Unlock()
-	proc.report(models)
+	if ok {
+		proc.report(models)
+	}
 }
 
 // useModel switches a session to the model a turn asks for, when the agent
@@ -185,8 +223,52 @@ func (proc *agentProcess) useModel(ctx context.Context, cs *chatSession, model s
 	if err != nil {
 		return failure{name: proc.name, step: "couldn't switch to " + model, err: err}
 	}
-	proc.setModels(cs, set.ConfigOptions)
+	proc.setOptions(cs, set.ConfigOptions)
 	return nil
+}
+
+// useSettings sets the session's options a turn asks for, by category: the
+// first value of each that the agent offers, unless it is already set.
+func (proc *agentProcess) useSettings(ctx context.Context, cs *chatSession, want map[string][]string) error {
+	for _, category := range slices.Sorted(maps.Keys(want)) {
+		proc.mu.Lock()
+		option, ok := optionIn(cs.options, category)
+		proc.mu.Unlock()
+		if !ok {
+			continue
+		}
+		offered := choices(option.Options)
+		i := slices.IndexFunc(want[category], func(v string) bool {
+			return v != "" && slices.ContainsFunc(offered, func(m projectagent.ProjectAgentModel) bool { return m.ID == v })
+		})
+		if i < 0 || option.CurrentValue == want[category][i] {
+			continue
+		}
+		value := want[category][i]
+		var set sessionResult
+		err := proc.client.Call(ctx, methodSetConfig, setConfigParams{SessionID: cs.id, ConfigID: option.ID, Value: value}, &set)
+		if err != nil {
+			return failure{name: proc.name, step: "couldn't set " + strings.ToLower(cmp.Or(option.Name, option.ID)), err: err}
+		}
+		proc.setOptions(cs, set.ConfigOptions)
+	}
+	return nil
+}
+
+// optionIn is the option of a category among a session's options, else the
+// one with that id.
+func optionIn(options []configOption, category string) (configOption, bool) {
+	for _, o := range options {
+		if o.Category == category {
+			return o, true
+		}
+	}
+	for _, o := range options {
+		if o.ID == category {
+			return o, true
+		}
+	}
+	return configOption{}, false
 }
 
 // modelInUse is the model a session's next turn runs on and its display
@@ -225,28 +307,52 @@ func (proc *agentProcess) register(c chat, cs *chatSession) {
 	proc.chats[c.key()], proc.bySession[cs.id] = cs, cs
 }
 
-func (proc *agentProcess) forget(c chat, cs *chatSession) {
+func (proc *agentProcess) unregister(c chat, cs *chatSession) {
 	proc.mu.Lock()
 	defer proc.mu.Unlock()
 	delete(proc.chats, c.key())
 	delete(proc.bySession, cs.id)
 }
 
-// mcpServers is RepoGo's servers for the project, for an agent that takes
-// HTTP servers; ACP requires the list, so it is empty rather than absent.
-func (p *Provider) mcpServers(ctx context.Context, c chat, caps agentCapabilities) []mcpServer {
-	out := []mcpServer{}
-	if !caps.MCPCapabilities.HTTP || p.deps.MCP == nil {
+// servers is what a chat's sessions open with: the project's MCP servers,
+// for an agent that takes HTTP ones, and RepoGo's own when the Config gives
+// them. ACP requires the list, so it is empty rather than absent.
+func (p *Provider) servers(ctx context.Context, c chat, proc *agentProcess, req agent.TurnRequest) func(*chatSession) []mcpServer {
+	return func(cs *chatSession) []mcpServer {
+		out := []mcpServer{}
+		if !proc.caps.MCPCapabilities.HTTP && !p.cfg.MCPOverHTTP {
+			return out
+		}
+		var list []agent.MCPServer
+		if p.deps.MCP != nil {
+			list = p.deps.MCP(ctx, c.manifest.Project)
+		}
+		if p.cfg.OwnTools && p.deps.Tools != nil && p.deps.Tools.On(req.Cwd) {
+			entry, release := p.deps.Tools.Attach(cs, req)
+			cs.release = release
+			list = append(list, entry)
+		}
+		for _, server := range list {
+			headers := []header{}
+			for _, h := range server.Headers {
+				headers = append(headers, header{Name: h.Name, Value: h.Value})
+			}
+			out = append(out, mcpServer{Type: "http", Name: server.Name, URL: server.URL, Headers: headers})
+		}
 		return out
 	}
-	for _, server := range p.deps.MCP(ctx, c.manifest.Project) {
-		headers := []header{}
-		for _, h := range server.Headers {
-			headers = append(headers, header{Name: h.Name, Value: h.Value})
-		}
-		out = append(out, mcpServer{Type: "http", Name: server.Name, URL: server.URL, Headers: headers})
+}
+
+// meta is what a new session's _meta carries: RepoGo's instructions, for an
+// agent whose Config says how it takes them.
+func (p *Provider) meta(req agent.TurnRequest) any {
+	if !p.cfg.OwnTools || p.cfg.SessionMeta == nil || p.deps.Instructions == nil {
+		return nil
 	}
-	return out
+	if text := p.deps.Instructions(req); text != "" {
+		return p.cfg.SessionMeta(text)
+	}
+	return nil
 }
 
 // hasHistory reports whether the chat had turns before this one started.
@@ -261,8 +367,10 @@ func (c chat) hasHistory() bool {
 }
 
 // prompt runs one turn in a chat's session. Stopping sends session/cancel and
-// waits for the agent to confirm; one that doesn't is ended.
-func (proc *agentProcess) prompt(ctx context.Context, cs *chatSession, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
+// waits for the agent to confirm; one that doesn't is ended. A prompt steered
+// into the turn takes it over: the turn ends when the newest one answers.
+func (proc *agentProcess) prompt(ctx context.Context, cs *chatSession, req agent.TurnRequest, io agent.TurnIO, allows func(string) bool,
+	label func(string, json.RawMessage) (toollabel.Label, map[string]any, bool)) (agent.Result, error) {
 	proc.mu.Lock()
 	replay := cs.replay
 	proc.mu.Unlock()
@@ -270,7 +378,7 @@ func (proc *agentProcess) prompt(ctx context.Context, cs *chatSession, req agent
 	if err != nil {
 		return agent.Result{}, err
 	}
-	t := &turnState{io: io, file: cs.file, tools: map[string]*toolState{}}
+	t := &turnState{ctx: ctx, io: io, file: cs.file, workdir: proc.workdir, allows: allows, label: label, tools: map[string]*toolState{}}
 	proc.mu.Lock()
 	if cs.turn != nil {
 		proc.mu.Unlock()
@@ -284,39 +392,84 @@ func (proc *agentProcess) prompt(ctx context.Context, cs *chatSession, req agent
 		proc.mu.Unlock()
 	}()
 
-	type answer struct {
-		result promptResult
-		err    error
-	}
-	done := make(chan answer, 1)
 	// The call outlives ctx: a stopped turn still waits for the agent's reply.
 	call := context.WithoutCancel(ctx)
-	go func() {
-		var r promptResult
-		err := proc.client.Call(call, methodPrompt, promptParams{SessionID: cs.id, Prompt: blocks}, &r)
-		done <- answer{r, err}
-	}()
-
-	var got answer
-	select {
-	case got = <-done:
-	case <-ctx.Done():
-		_ = proc.client.Notify(call, methodCancel, cancelParams{SessionID: cs.id})
-		timer := time.NewTimer(cancelGrace)
-		defer timer.Stop()
+	wait := proc.send(call, cs.id, blocks)
+	var got promptAnswer
+	for {
 		select {
-		case got = <-done:
-		case <-timer.C:
-			proc.close()
+		case got = <-wait:
+			t.count(got.result.Usage)
+		case <-ctx.Done():
+			_ = proc.client.Notify(call, methodCancel, cancelParams{SessionID: cs.id})
+			timer := time.NewTimer(cancelGrace)
+			defer timer.Stop()
+			for _, w := range append([]<-chan promptAnswer{wait}, t.seal()...) {
+				select {
+				case a := <-w:
+					t.count(a.result.Usage)
+				case <-timer.C:
+					proc.close()
+				}
+			}
+			t.finish()
+			return t.result(stopCancelled), ctx.Err()
 		}
-		t.finish()
-		return t.result(stopCancelled), ctx.Err()
+		next := t.seal()
+		if len(next) == 0 {
+			break
+		}
+		// Every prompt steered in answers once the turn ends; the newest is
+		// the one the turn ends with.
+		for _, w := range next[:len(next)-1] {
+			go func() { t.count((<-w).result.Usage) }()
+		}
+		wait = next[len(next)-1]
 	}
 	t.finish()
 	if got.err != nil {
 		return t.result(""), failure{name: proc.name, step: "couldn't answer", err: got.err}
 	}
 	return t.result(got.result.StopReason), nil
+}
+
+// promptAnswer is what a session/prompt call came back with.
+type promptAnswer struct {
+	result promptResult
+	err    error
+}
+
+// send calls session/prompt; the answer arrives on the channel.
+func (proc *agentProcess) send(ctx context.Context, session string, blocks []contentBlock) <-chan promptAnswer {
+	done := make(chan promptAnswer, 1)
+	go func() {
+		var r promptResult
+		err := proc.client.Call(ctx, methodPrompt, promptParams{SessionID: session, Prompt: blocks}, &r)
+		done <- promptAnswer{r, err}
+	}()
+	return done
+}
+
+// steer sends req into the chat's running turn, which then lasts until its
+// answer; an error means the turn had ended, or wasn't turnID.
+func (proc *agentProcess) steer(chatKey, turnID string, req agent.TurnRequest) error {
+	proc.mu.Lock()
+	cs := proc.chats[chatKey]
+	var t *turnState
+	if cs != nil {
+		t = cs.turn
+	}
+	proc.mu.Unlock()
+	if t == nil || t.io.TurnID != turnID {
+		return errors.New("no turn to steer")
+	}
+	blocks, err := proc.blocks(cs, req, turnID, false)
+	if err != nil {
+		return err
+	}
+	return t.steer(req.Prompt, func() <-chan promptAnswer {
+		return proc.send(context.WithoutCancel(t.ctx), cs.id, blocks)
+	})
 }
 
 // blocks is the prompt as ACP content: the text, each image the agent can
@@ -397,7 +550,13 @@ func (proc *agentProcess) notify(n stdiorpc.Notification) error {
 		cs := proc.bySession[p.SessionID]
 		proc.mu.Unlock()
 		if cs != nil {
-			proc.setModels(cs, p.Update.ConfigOptions)
+			proc.setOptions(cs, p.Update.ConfigOptions)
+		}
+		return nil
+	}
+	if p.Update.SessionUpdate == updateInfo {
+		if t := proc.running(p.SessionID); t != nil && p.Update.Title != nil {
+			t.name(*p.Update.Title)
 		}
 		return nil
 	}
@@ -464,6 +623,10 @@ func (proc *agentProcess) isClosed() bool { proc.mu.Lock(); defer proc.mu.Unlock
 func (proc *agentProcess) close() {
 	proc.mu.Lock()
 	proc.closed = true
+	sessions := slices.Collect(maps.Values(proc.chats))
 	proc.mu.Unlock()
+	for _, cs := range sessions {
+		cs.end()
+	}
 	_ = proc.client.Close()
 }

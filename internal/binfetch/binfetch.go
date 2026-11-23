@@ -10,6 +10,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -183,12 +184,24 @@ func InstallPackage(ctx context.Context, url, sum, dest string) error {
 	return installTree(ctx, url, sum, dest, false)
 }
 
+// Matches reports whether data has the hex digest sum: SHA-256, or SHA-512
+// for a release that publishes that (Antigravity's).
+func Matches(data []byte, sum string) bool {
+	sum = strings.ToLower(sum)
+	if len(sum) == sha512.Size*2 {
+		got := sha512.Sum512(data)
+		return hex.EncodeToString(got[:]) == sum
+	}
+	got := sha256.Sum256(data)
+	return hex.EncodeToString(got[:]) == sum
+}
+
 func installTree(ctx context.Context, url, sum, dest string, strip bool) error {
 	archive, err := Fetch(ctx, url)
 	if err != nil {
 		return err
 	}
-	if got := sha256.Sum256(archive); hex.EncodeToString(got[:]) != strings.ToLower(sum) {
+	if !Matches(archive, sum) {
 		return fmt.Errorf("binfetch: %s does not match its checksum", url)
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
@@ -212,12 +225,8 @@ func installTree(ctx context.Context, url, sum, dest string, strip bool) error {
 	return os.Rename(tmp, dest)
 }
 
-// Untar writes every entry below its first path component into dir. An entry
-// or link that would land outside dir is refused rather than cleaned.
-func Untar(archive []byte, dir string) error {
-	return untar(archive, dir, true)
-}
-
+// untar writes every entry into dir, below its first path component when strip
+// is set. An entry or link that would land outside dir is refused, not cleaned.
 func untar(archive []byte, dir string, strip bool) error {
 	root, err := os.OpenRoot(dir)
 	if err != nil {

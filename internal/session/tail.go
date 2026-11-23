@@ -129,6 +129,7 @@ func tail(ctx context.Context, path string, p Provider, sessionID string, out ch
 		offset int64
 		seq    uint64
 	)
+	fix := streamNormalizer(p)
 
 	emit := func(events []agent.Event) bool {
 		for _, e := range events {
@@ -149,7 +150,7 @@ func tail(ctx context.Context, path string, p Provider, sessionID string, out ch
 	if len(events) > 0 {
 		seq = events[len(events)-1].Seq
 	}
-	if !emit(events) {
+	if !emit(fix(events)) {
 		return
 	}
 
@@ -174,6 +175,7 @@ func tail(ctx context.Context, path string, p Provider, sessionID string, out ch
 				// Truncated or replaced. Re-read from the top rather than
 				// seeking into the middle of a different file.
 				offset, seq = 0, 0
+				fix = streamNormalizer(p)
 			}
 
 			events, next, err := ReadFile(path, offset, p, sessionID, seq)
@@ -184,9 +186,17 @@ func tail(ctx context.Context, path string, p Provider, sessionID string, out ch
 			if len(events) > 0 {
 				seq = events[len(events)-1].Seq
 			}
-			if !emit(events) {
+			if !emit(fix(events)) {
 				return
 			}
 		}
 	}
+}
+
+// streamNormalizer is p's fixer for one watch, or one that changes nothing.
+func streamNormalizer(p Provider) func([]agent.Event) []agent.Event {
+	if n, ok := p.(StreamNormalizer); ok {
+		return n.NewStreamNormalizer()
+	}
+	return func(events []agent.Event) []agent.Event { return events }
 }

@@ -302,10 +302,29 @@ func parseDrop(d drop, providers []Provider) (Notice, bool) {
 		ToolInput        json.RawMessage `json:"tool_input"`
 		Prompt           string          `json:"prompt"`
 		Model            string          `json:"model"`
+		// Antigravity's spellings: its conversation, the tool call a tool
+		// event is about, the model, and why a Stop stopped.
+		ConversationID    string `json:"conversationId"`
+		ModelName         string `json:"modelName"`
+		TerminationReason string `json:"terminationReason"`
+		ToolCall          *struct {
+			ID   string          `json:"id"`
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		} `json:"toolCall"`
 	}
 	_ = json.Unmarshal(d.Payload, &p)
+	if c := p.ToolCall; c != nil {
+		p.ToolName, p.ToolUseID = cmp.Or(p.ToolName, c.Name), cmp.Or(p.ToolUseID, c.ID)
+		if len(p.ToolInput) == 0 {
+			p.ToolInput = c.Args
+		}
+	}
+	p.Model = cmp.Or(p.Model, p.ModelName)
+	// A Stop's reason is what says how Antigravity's turn ended.
+	p.NotificationType = cmp.Or(p.NotificationType, p.TerminationReason)
 
-	n.SessionID = cmp.Or(p.SessionID, p.SessionID2, p.ThreadID, p.ThreadID2)
+	n.SessionID = cmp.Or(p.SessionID, p.SessionID2, p.ThreadID, p.ThreadID2, p.ConversationID)
 	n.Cwd = cmp.Or(p.Cwd, p.Workspace)
 	n.PromptID = p.PromptID
 	n.TurnID = cmp.Or(p.TurnID, p.TurnID2)

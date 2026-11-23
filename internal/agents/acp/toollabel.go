@@ -8,10 +8,16 @@ import (
 
 // ToolRow labels a call with the title the agent gave it ("Search Tesla
 // news"), the one name every ACP agent sends; tools differ per agent, so
-// only the icon is read from what the input names.
+// only the icon is read from what the input names. An agent whose Config
+// labels its own tools is labelled by them.
 func (p *Provider) ToolRow(call agent.ToolCall) chatwire.Tool {
 	if call.Name == "" {
 		return chatwire.Tool{}
+	}
+	if p.cfg.Label != nil {
+		if l, args, ok := p.cfg.Label(call.Name, call.Input); ok {
+			return chatwire.Labeled(call.Name, l, args)
+		}
 	}
 	args, _ := toollabel.Input(call.Input)
 	return chatwire.Labeled(call.Name, label(call.Name, args), args)

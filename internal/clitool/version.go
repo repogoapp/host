@@ -62,10 +62,13 @@ func probeVersion(ctx context.Context, path string) string {
 var registryClient = &http.Client{Timeout: latestTimeout}
 
 // latestVersion asks the npm registry, or GitHub's latest release for a CLI
-// not on npm, cached for an hour. Any failure is an empty string: no network
+// not on npm, or the CLI's own Latest, cached for an hour. Any failure is an empty string: no network
 // is a normal condition, not a failed listing.
 func (in *Inventory) latestVersion(ctx context.Context, s Spec) string {
 	key := cmp.Or(s.Pkg, s.ReleaseRepo)
+	if key == "" && s.Latest != nil {
+		key = s.Command
+	}
 	if key == "" {
 		return ""
 	}
@@ -81,7 +84,11 @@ func (in *Inventory) latestVersion(ctx context.Context, s Spec) string {
 	defer cancel()
 
 	version := ""
-	if s.Pkg == "" {
+	if s.Pkg == "" && s.Latest != nil {
+		if v, err := s.Latest(ctx); err == nil {
+			version = strings.TrimPrefix(v, "v")
+		}
+	} else if s.Pkg == "" {
 		if tag, err := binfetch.Latest(ctx, s.ReleaseRepo); err == nil {
 			version = strings.TrimPrefix(tag, "v")
 		}

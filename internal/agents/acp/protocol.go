@@ -68,6 +68,7 @@ type sessionParams struct {
 	SessionID  string      `json:"sessionId,omitempty"`
 	Cwd        string      `json:"cwd"`
 	MCPServers []mcpServer `json:"mcpServers"`
+	Meta       any         `json:"_meta,omitempty"`
 }
 
 // mcpServer is an HTTP server as ACP names one; agent.MCPServer has the
@@ -84,9 +85,12 @@ type header struct {
 	Value string `json:"value"`
 }
 
+// newSessionResult's Meta is what the agent adds about the session, in its
+// own shape (Antigravity names the account's plan there).
 type newSessionResult struct {
-	SessionID     string         `json:"sessionId"`
-	ConfigOptions []configOption `json:"configOptions"`
+	SessionID     string          `json:"sessionId"`
+	ConfigOptions []configOption  `json:"configOptions"`
+	Meta          json.RawMessage `json:"_meta"`
 }
 
 // sessionResult is what session/load answers: the reopened session's options.
@@ -142,8 +146,18 @@ const (
 	stopRefusal   = "refusal"
 )
 
+// promptResult's Usage is the prompt's tokens, where the agent counts them
+// (Antigravity does; ACP has it as an unstable field).
 type promptResult struct {
-	StopReason string `json:"stopReason"`
+	StopReason string       `json:"stopReason"`
+	Usage      *promptUsage `json:"usage"`
+}
+
+type promptUsage struct {
+	InputTokens       int64 `json:"inputTokens"`
+	OutputTokens      int64 `json:"outputTokens"`
+	CachedReadTokens  int64 `json:"cachedReadTokens"`
+	CachedWriteTokens int64 `json:"cachedWriteTokens"`
 }
 
 type cancelParams struct {
@@ -164,10 +178,12 @@ const (
 	updateTool     = "tool_call_update"
 	updateUsage    = "usage_update"
 	updateConfig   = "config_option_update"
+	updateInfo     = "session_info_update"
 )
 
 // update is one session/update. A message chunk fills Content; a tool call
-// or its update fills the tool fields; usage fills Used, Size and Cost.
+// or its update fills the tool fields; usage fills Used, Size and Cost; the
+// session's info fills Title, its name for the chat.
 type update struct {
 	SessionUpdate string `json:"sessionUpdate"`
 
@@ -180,12 +196,18 @@ type update struct {
 	Status     *string         `json:"status"`
 	RawInput   json.RawMessage `json:"rawInput"`
 	RawOutput  json.RawMessage `json:"rawOutput"`
+	Locations  []location      `json:"locations"`
 
 	Used int64 `json:"used"`
 	Size int64 `json:"size"`
 	Cost *cost `json:"cost"`
 
 	ConfigOptions []configOption `json:"configOptions"`
+}
+
+// location is a file a tool call works on.
+type location struct {
+	Path string `json:"path"`
 }
 
 type cost struct {

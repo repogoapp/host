@@ -47,17 +47,25 @@ func fakeAgent() {
 	}
 	// session is the one the prompt being answered names. With
 	// REPOGO_FAKE_ACP_MODELS=1 each session offers a model option.
+	// With REPOGO_FAKE_ACP_MODES=1 each offers a mode option too.
 	session, sessions := "", 0
-	models := map[string]string{}
+	models, modes := map[string]string{}, map[string]string{}
 	options := func(id string) []any {
-		if os.Getenv("REPOGO_FAKE_ACP_MODELS") != "1" {
-			return nil
+		var out []any
+		if os.Getenv("REPOGO_FAKE_ACP_MODELS") == "1" {
+			out = append(out, map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select",
+				"currentValue": models[id], "options": []any{
+					map[string]string{"value": "fast", "name": "Fast"},
+					map[string]any{"group": "more", "name": "More", "options": []any{map[string]string{"value": "smart", "name": "Smart"}}},
+				}})
 		}
-		return []any{map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select",
-			"currentValue": models[id], "options": []any{
-				map[string]string{"value": "fast", "name": "Fast"},
-				map[string]any{"group": "more", "name": "More", "options": []any{map[string]string{"value": "smart", "name": "Smart"}}},
-			}}}
+		if os.Getenv("REPOGO_FAKE_ACP_MODES") == "1" {
+			out = append(out, map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select",
+				"currentValue": modes[id], "options": []any{
+					map[string]string{"value": "default", "name": "Default"}, map[string]string{"value": "plan", "name": "Plan"},
+				}})
+		}
+		return out
 	}
 	update := func(u map[string]any) {
 		send(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": session, "update": u}})
@@ -87,12 +95,16 @@ func fakeAgent() {
 		case "session/new":
 			sessions++
 			id := fmt.Sprintf("s%d", sessions)
-			models[id] = "fast"
+			models[id], modes[id] = "fast", "default"
 			reply(f.ID, map[string]any{"sessionId": id, "configOptions": options(id)})
 		case "session/set_config_option":
 			var p setConfigParams
 			_ = json.Unmarshal(f.Params, &p)
-			models[p.SessionID] = p.Value
+			if p.ConfigID == "mode" {
+				modes[p.SessionID] = p.Value
+			} else {
+				models[p.SessionID] = p.Value
+			}
 			reply(f.ID, map[string]any{"configOptions": options(p.SessionID)})
 		case "session/load":
 			var p sessionParams
@@ -113,6 +125,7 @@ func fakeAgent() {
 			_, _ = os.Stdout.WriteString("fake: thinking\n")
 			switch {
 			case text == "hello":
+				update(map[string]any{"sessionUpdate": "session_info_update", "title": "Greeting"})
 				chunk("Hel")
 				chunk("lo")
 				update(map[string]any{"sessionUpdate": "usage_update", "used": 10, "size": 100})
@@ -152,6 +165,19 @@ func fakeAgent() {
 				continue
 			case text == "model":
 				chunk(models[session] + os.Getenv("FAKE_MODEL"))
+			case text == "mode":
+				chunk(modes[session])
+			case text == "steer":
+				// Like agy, a prompt sent during the turn ends the first prompt
+				// and the turn goes on under the new one.
+				chunk("counting")
+				steer := next("", "session/prompt")
+				var sp promptParams
+				_ = json.Unmarshal(steer.Params, &sp)
+				reply(f.ID, map[string]any{"stopReason": "end_turn"})
+				chunk(" then " + sp.Prompt[0].Text)
+				reply(steer.ID, map[string]any{"stopReason": "end_turn"})
+				continue
 			case text == "wait":
 				chunk("waiting")
 				next("", "session/cancel")

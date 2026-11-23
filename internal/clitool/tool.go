@@ -57,8 +57,10 @@ type Tool struct {
 
 // Package is one release of a CLI shipped as a whole tree.
 type Package struct {
-	URL    string
-	SHA256 string // hex, checked before anything is unpacked
+	URL string
+	// SHA256 is the archive's hex digest, checked before anything is
+	// unpacked; a 128-digit one is SHA-512.
+	SHA256 string
 	// Dir is where the tree goes, one per version so a running copy keeps its
 	// helpers while the next is unpacked: ~/.local/share/codex/rust-v0.167.0.
 	Dir string
@@ -79,6 +81,10 @@ type Spec struct {
 	// GitHub repository whose latest release is the latest version, for a
 	// CLI that is not on npm.
 	ReleaseRepo string
+
+	// Latest is the newest version, for a CLI that publishes it neither on
+	// npm nor as a GitHub release (Antigravity's own manifest).
+	Latest func(ctx context.Context) (string, error)
 
 	// Homebrew formula, when the CLI ships one. Empty means a binary under a
 	// Homebrew prefix is reported but not updated through brew.

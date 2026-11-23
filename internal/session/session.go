@@ -361,6 +361,13 @@ type Normalizer interface {
 	Normalize([]agent.Event) []agent.Event
 }
 
+// StreamNormalizer is a Provider that fixes up rows as a watched session
+// streams them, which Normalize can't: each watch gets its own, which keeps
+// what it needs across reads (calls still waiting for their results).
+type StreamNormalizer interface {
+	NewStreamNormalizer() func([]agent.Event) []agent.Event
+}
+
 // SnapshotReader exports non-JSONL native stores through their owning CLI.
 type SnapshotReader interface {
 	Snapshot(Meta) ([]agent.Event, error)

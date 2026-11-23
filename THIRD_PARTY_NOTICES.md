@@ -4,7 +4,7 @@ The RepoGo Host includes the following third-party software. Each is listed with
 
 Generated from the Go modules compiled into `repogo` and the JavaScript bundled into its plugin runtime. Regenerate when dependencies change; source adapted from other projects is listed by hand at the end.
 
-## github.com/bytedance/gopkg v0.1.3
+## github.com/bytedance/gopkg v0.1.4
 
 ```
                                  Apache License
@@ -210,7 +210,7 @@ Generated from the Go modules compiled into `repogo` and the JavaScript bundled 
    limitations under the License.
 ```
 
-## github.com/bytedance/sonic v1.15.4
+## github.com/bytedance/sonic v1.15.5
 
 ```
                                  Apache License
@@ -416,7 +416,7 @@ Generated from the Go modules compiled into `repogo` and the JavaScript bundled 
    limitations under the License.
 ```
 
-## github.com/coder/websocket v1.8.12
+## github.com/coder/websocket v1.8.15
 
 ```
 Copyright (c) 2023 Anmol Sethi <hi@nhooyr.io>
@@ -462,7 +462,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## github.com/fxamacker/cbor/v2 v2.9.6
+## github.com/fxamacker/cbor/v2 v2.10.0
 
 ```
 MIT License
@@ -487,7 +487,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.```
 
-## github.com/golang-jwt/jwt/v4 v4.4.1
+## github.com/golang-jwt/jwt/v4 v4.5.2
 
 ```
 Copyright (c) 2012 Dave Grijalva
@@ -533,7 +533,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## github.com/mattn/go-sqlite3 v1.14.52
+## github.com/mattn/go-sqlite3 v1.14.53
 
 ```
 The MIT License (MIT)
@@ -637,7 +637,7 @@ SOFTWARE.
 
 ```
 
-## golang.org/x/arch v0.0.0-20210923205945-b76863e36670
+## golang.org/x/arch v0.33.0
 
 ```
 Copyright (c) 2015 The Go Authors. All rights reserved.
@@ -669,7 +669,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## golang.org/x/crypto v0.57.0
+## golang.org/x/crypto v0.59.0
 
 ```
 Copyright 2009 The Go Authors.
@@ -701,7 +701,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## golang.org/x/net v0.60.0
+## golang.org/x/net v0.63.0
 
 ```
 Copyright 2009 The Go Authors.
@@ -733,7 +733,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## golang.org/x/sys v0.48.0
+## golang.org/x/sys v0.50.0
 
 ```
 Copyright 2009 The Go Authors.
@@ -765,7 +765,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## golang.org/x/text v0.42.0
+## golang.org/x/text v0.44.0
 
 ```
 Copyright 2009 The Go Authors.

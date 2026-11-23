@@ -57,6 +57,13 @@ type Provider interface {
 	NewUsageParser() func([]byte) *Record
 }
 
+// FileParser is a Provider whose parser needs the file it reads, used in
+// place of NewUsageParser: one that names the chat only by the file's folder,
+// or writes copies of a transcript beside it that must not count twice.
+type FileParser interface {
+	NewFileUsageParser(path string) func([]byte) *Record
+}
+
 // Positive is a JSON token count as an integer; anything else counts as zero.
 func Positive(v any) int64 {
 	n, ok := v.(float64)

@@ -160,3 +160,33 @@ func (testHooks) Ensure(string) (AgentStatus, error)                 { return Ag
 func (testHooks) Remove(string) error                                { return nil }
 func (testHooks) HookStatus(string, string, string) agent.ChatStatus { return agent.ChatCompleted }
 func (testHooks) Displays() bool                                     { return true }
+
+// recordingHooks keeps what HookStatus was asked, to see a payload's fields
+// reach it.
+type recordingHooks struct {
+	testHooks
+	asked *[3]string
+}
+
+func (h recordingHooks) HookStatus(event, notification, tool string) agent.ChatStatus {
+	*h.asked = [3]string{event, notification, tool}
+	return agent.ChatWorking
+}
+
+// Antigravity spells its fields its own way: its conversation, the tool call
+// and the model, and why a Stop stopped.
+func TestAntigravityPayloadsAreRead(t *testing.T) {
+	var asked [3]string
+	hooks := recordingHooks{asked: &asked}
+	tool := drop{Agent: "claude", Event: "PreToolUse", Payload: json.RawMessage(`{"conversationId":"c1","cwd":"/w","hookEventName":"PreToolUse","modelName":"gemini-4-neon-high",
+		"toolCall":{"id":"call_1","name":"run_command","args":{"CommandLine":"ls"}}}`)}
+	n, ok := parseDrop(tool, []Provider{hooks})
+	if !ok || n.SessionID != "c1" || n.Cwd != "/w" || n.ToolName != "run_command" || n.ToolUseID != "call_1" ||
+		string(n.ToolInput) != `{"CommandLine":"ls"}` || n.Model != "gemini-4-neon-high" || asked[2] != "run_command" {
+		t.Fatalf("notice %+v asked %v", n, asked)
+	}
+	stop := drop{Agent: "claude", Event: "Stop", Payload: json.RawMessage(`{"conversationId":"c1","cwd":"/w","terminationReason":"ERROR","error":"boom"}`)}
+	if n, ok := parseDrop(stop, []Provider{hooks}); !ok || n.Error != "boom" || asked[1] != "ERROR" {
+		t.Fatalf("stop %+v asked %v", n, asked)
+	}
+}

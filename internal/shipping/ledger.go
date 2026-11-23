@@ -364,6 +364,9 @@ func parseFile(f transcript) ([]Record, error) {
 
 	var records []Record
 	parse := f.source.NewUsageParser()
+	if fp, ok := f.source.(FileParser); ok {
+		parse = fp.NewFileUsageParser(f.path)
+	}
 	reader := bufio.NewReaderSize(handle, 1<<20)
 	var long []byte
 	for {

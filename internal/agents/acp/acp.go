@@ -1,14 +1,17 @@
-// Package acp runs the environment's own agents in any project: a program
-// that speaks the Agent Client Protocol over stdio, named by an agent.json in
-// a plugin folder of ~/.repogo/plugins. A repo's own agent.json never runs.
-// The host keeps each chat's transcript itself, so history never depends on
-// what the agent remembers.
+// Package acp runs agents that speak the Agent Client Protocol over stdio:
+// the environment's own, named by an agent.json in a plugin folder of
+// ~/.repogo/plugins (a repo's own agent.json never runs), and ones the host
+// ships, such as Antigravity, through a Config of their own. The host keeps
+// each chat's transcript itself, so history never depends on what the agent
+// remembers.
 package acp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,19 +22,61 @@ import (
 	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/session"
+	"github.com/repogoapp/host/internal/toollabel"
 )
 
-// home is the provider's folder in the host's state: chat transcripts and the
-// models agents reported.
-const home = "acp"
+// Config is one kind of agent this runner serves: what differs between the
+// environment's own agents and one the host ships.
+type Config struct {
+	Kind agent.Kind
+	Name string
+	// Home is its folder in the host's state: chat transcripts and the
+	// models its agents reported.
+	Home string
+	// Find is the agent a chat in cwd runs; id names one of the environment's
+	// own agents, and is empty for a shipped agent.
+	Find func(cwd, id string) (projectagent.Manifest, error)
+
+	// Settings is what a turn sets before its prompt, by session option
+	// category (mode, thought_level): RepoGo's config in the agent's words,
+	// most wanted first. The first value the option offers is set; none
+	// leaves it alone.
+	Settings func(agent.TurnConfig) map[string][]string
+	// Allows reports a tool call a turn runs without asking, by the agent's
+	// name for the tool.
+	Allows func(cfg agent.TurnConfig, tool string) bool
+	// OwnTools hands sessions RepoGo's own MCP server and RepoGo's
+	// instructions, as Claude and Codex get them; SessionMeta is how the
+	// agent takes the instructions, as session/new's _meta.
+	OwnTools    bool
+	SessionMeta func(instructions string) any
+	// Steers is set for an agent that takes a prompt sent during a turn into
+	// that turn.
+	Steers bool
+	// MCPOverHTTP is set for an agent that takes HTTP MCP servers though its
+	// initialize doesn't say so.
+	MCPOverHTTP bool
+	// Label names a tool call by the agent's own name for the tool and its
+	// input: the row's icon and lines, and the input as the shared labels read
+	// it (path, command, url). Set, calls are recorded under the tool's name
+	// and labelled by it; unset, by the title the agent gave each call.
+	Label func(tool string, input json.RawMessage) (toollabel.Label, map[string]any, bool)
+	// Adopt finds a chat the agent started outside RepoGo (in a terminal), by
+	// the agent's own session id: the folder it ran in. A turn sent to one
+	// makes it RepoGo's, reopening the agent's session.
+	Adopt func(session string) (cwd string, ok bool)
+}
 
 // Provider is this host's ACP runner and the transcripts it writes.
 type Provider struct {
 	deps agent.Dependencies
+	cfg  Config
 	// pool is each agent's process by its manifest's Key; starting holds one
 	// start per Key at a time, since a second instance would refuse to run.
 	pool     agent.SessionPool[*agentProcess]
 	starting sync.Map
+	// live is the process each running turn is on, by chat key, for a steer.
+	live     sync.Map
 	sessions *Sessions
 	reported *reported
 	// plugins is the environment's plugins folder, whose agents every
@@ -39,25 +84,43 @@ type Provider struct {
 	plugins string
 }
 
-// New builds this host's provider. A Root in deps (tests, the hermetic test
-// host) keeps its transcripts and reported models under it.
+// home is the environment agents' folder in the host's state.
+const home = "acp"
+
+// New builds this host's runner for the environment's own agents. A Root in
+// deps (tests, the hermetic test host) keeps its files under it.
 func New(deps agent.Dependencies) *Provider {
-	dir := filepath.Join(deps.Root, home)
 	plugins := filepath.Join(deps.Root, projectagent.PluginsFolder)
 	if deps.Root == "" {
-		dir, _ = apphome.Path(home)
 		plugins, _ = apphome.Path(projectagent.PluginsFolder)
+	}
+	p := NewWith(deps, Config{Kind: agent.KindProject, Name: "Project agent", Home: home,
+		Find: func(cwd, id string) (projectagent.Manifest, error) {
+			if id == "" {
+				return projectagent.Manifest{}, errors.New("choose one of the project's agents")
+			}
+			return projectagent.Find(cwd, plugins, id)
+		}})
+	p.plugins = plugins
+	return p
+}
+
+// NewWith builds a runner for one kind of agent.
+func NewWith(deps agent.Dependencies, cfg Config) *Provider {
+	dir := filepath.Join(deps.Root, cfg.Home)
+	if deps.Root == "" {
+		dir, _ = apphome.Path(cfg.Home)
 	}
 	return &Provider{
 		deps:     deps,
-		sessions: newSessions(filepath.Join(dir, "chats")),
+		cfg:      cfg,
+		sessions: newSessions(filepath.Join(dir, "chats"), cfg.Kind),
 		reported: &reported{path: filepath.Join(dir, "models.json")},
-		plugins:  plugins,
 	}
 }
 
-func (p *Provider) Kind() agent.Kind { return agent.KindProject }
-func (p *Provider) Name() string     { return "Project agent" }
+func (p *Provider) Kind() agent.Kind { return p.cfg.Kind }
+func (p *Provider) Name() string     { return p.cfg.Name }
 
 // Available is true wherever the host runs: each project brings its own
 // agents, and one that can't start says why in its turn.
@@ -71,6 +134,9 @@ func (p *Provider) Available() error {
 // Sessions reads the transcripts of this host's ACP chats.
 func (p *Provider) Sessions() session.Provider { return p.sessions }
 
+// Chats is the same transcripts, for a shipped agent's own history reader.
+func (p *Provider) Chats() *Sessions { return p.sessions }
+
 func (p *Provider) Close() { p.pool.Close() }
 
 // chat is the one a turn runs in: its id, agent and transcript.
@@ -80,9 +146,10 @@ type chat struct {
 	file     *transcript
 	// session is the agent's own id from an earlier process, if any.
 	session string
+	kind    agent.Kind
 }
 
-func (c chat) key() string { return agent.ChatID(agent.KindProject, c.id) }
+func (c chat) key() string { return agent.ChatID(c.kind, c.id) }
 
 // Send runs one turn on the chat's agent process, starting one if needed.
 func (p *Provider) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
@@ -114,6 +181,8 @@ func (p *Provider) run(ctx context.Context, c chat, req agent.TurnRequest, io ag
 		return agent.Result{}, err
 	}
 	defer p.pool.Release(proc.key, proc)
+	p.live.Store(c.key(), proc)
+	defer p.live.Delete(c.key())
 	result, err := p.turn(ctx, proc, c, req, io)
 	if err != nil {
 		var f failure
@@ -130,12 +199,17 @@ func (p *Provider) run(ctx context.Context, c chat, req agent.TurnRequest, io ag
 // turn opens the chat's session in the process, on the model asked for, and
 // runs the prompt.
 func (p *Provider) turn(ctx context.Context, proc *agentProcess, c chat, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
-	cs, err := proc.session(ctx, c, p.mcpServers(ctx, c, proc.caps))
+	cs, err := proc.session(ctx, c, p.servers(ctx, c, proc, req), p.meta(req))
 	if err != nil {
 		return agent.Result{}, err
 	}
 	if err := proc.useModel(ctx, cs, req.Config.Model); err != nil {
 		return agent.Result{}, err
+	}
+	if p.cfg.Settings != nil {
+		if err := proc.useSettings(ctx, cs, p.cfg.Settings(req.Config)); err != nil {
+			return agent.Result{}, err
+		}
 	}
 	if id, name := proc.modelInUse(cs, c.manifest); id != "" {
 		_ = c.file.append(line{Type: lineModel, Model: id, ModelName: name})
@@ -143,7 +217,21 @@ func (p *Provider) turn(ctx context.Context, proc *agentProcess, c chat, req age
 			io.Session(c.id, id)
 		}
 	}
-	return proc.prompt(ctx, cs, req, io)
+	return proc.prompt(ctx, cs, req, io, func(tool string) bool {
+		return p.cfg.Allows != nil && p.cfg.Allows(req.Config, tool)
+	}, p.cfg.Label)
+}
+
+// Steer sends req into its chat's running turn, for an agent that takes one.
+func (p *Provider) Steer(_ context.Context, turnID string, req agent.TurnRequest) error {
+	if !p.cfg.Steers {
+		return fmt.Errorf("%s takes no message during a turn", p.cfg.Name)
+	}
+	v, ok := p.live.Load(req.ChatID)
+	if !ok {
+		return errors.New("no turn to steer")
+	}
+	return v.(*agentProcess).steer(req.ChatID, turnID, req)
 }
 
 // open finds the chat a turn belongs to. A new one gets its id and file here,
@@ -152,10 +240,15 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 	if req.SessionID != "" {
 		path := p.sessions.path(req.SessionID)
 		info, err := readInfo(path)
+		if errors.Is(err, os.ErrNotExist) && p.cfg.Adopt != nil {
+			if cwd, ok := p.cfg.Adopt(req.SessionID); ok {
+				info, err = p.adopt(req.SessionID, cwd)
+			}
+		}
 		if err != nil {
 			return chat{}, fmt.Errorf("open chat: %w", err)
 		}
-		m, err := projectagent.Find(info.Cwd, p.plugins, info.Agent)
+		m, err := p.cfg.Find(info.Cwd, p.agentID(info.Agent))
 		if err != nil {
 			return chat{}, err
 		}
@@ -163,12 +256,9 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 		if io.Session != nil {
 			io.Session(req.SessionID, "")
 		}
-		return chat{id: req.SessionID, manifest: m, file: &transcript{path: path}, session: info.Session}, nil
+		return chat{id: req.SessionID, manifest: m, file: &transcript{path: path}, session: info.Session, kind: p.cfg.Kind}, nil
 	}
-	if req.ProjectAgent == "" {
-		return chat{}, errors.New("choose one of the project's agents")
-	}
-	m, err := projectagent.Find(req.Cwd, p.plugins, req.ProjectAgent)
+	m, err := p.cfg.Find(req.Cwd, req.ProjectAgent)
 	if err != nil {
 		return chat{}, err
 	}
@@ -180,7 +270,25 @@ func (p *Provider) open(req agent.TurnRequest, io agent.TurnIO) (chat, error) {
 	if io.Session != nil {
 		io.Session(id, "")
 	}
-	return chat{id: id, manifest: m, file: file}, nil
+	return chat{id: id, manifest: m, file: file, kind: p.cfg.Kind}, nil
+}
+
+// adopt starts the host's file for a chat the agent began on its own, under
+// the agent's id for it, so its next turn reopens that session.
+func (p *Provider) adopt(session, cwd string) (chatInfo, error) {
+	if _, err := p.sessions.Adopt(session, cwd); err != nil {
+		return chatInfo{}, err
+	}
+	return readInfo(p.sessions.path(session))
+}
+
+// agentID is the agent a chat's file names, as Find takes it: a shipped
+// agent's Find takes none.
+func (p *Provider) agentID(recorded string) string {
+	if p.cfg.Kind != agent.KindProject {
+		return ""
+	}
+	return recorded
 }
 
 // acquire returns the agent's running process, or starts one: it outlives
