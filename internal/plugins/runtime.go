@@ -4,9 +4,10 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
-	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // bundled is the SDK's runtime, bundled into runtime/ before a release build.
@@ -42,23 +43,14 @@ func Unpack(dir string) (string, error) {
 		return "", err
 	}
 	// Executors first: run.js present means the folder is complete.
-	if err := writeFile(filepath.Join(folder, "workflow-executor.js"), executor); err != nil {
+	if err := apphome.WriteFile(filepath.Join(folder, "workflow-executor.js"), executor, 0o600); err != nil {
 		return "", err
 	}
-	if err := writeFile(filepath.Join(folder, "worker.js"), worker); err != nil {
+	if err := apphome.WriteFile(filepath.Join(folder, "worker.js"), worker, 0o600); err != nil {
 		return "", err
 	}
-	if err := writeFile(entry, run); err != nil {
+	if err := apphome.WriteFile(entry, run, 0o600); err != nil {
 		return "", err
 	}
 	return entry, nil
-}
-
-// writeFile writes through a temporary name, so a crash never leaves half a file.
-func writeFile(path string, data []byte) error {
-	partial := path + ".partial"
-	if err := os.WriteFile(partial, data, fs.FileMode(0o600)); err != nil {
-		return err
-	}
-	return os.Rename(partial, path)
 }

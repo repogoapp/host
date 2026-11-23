@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // A repo's own Claude settings can run hooks and widen what runs unasked. A
@@ -179,26 +180,7 @@ func markTrusted(configFile, dir string) error {
 	if err := encoder.Encode(config); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(configFile), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(configFile), ".claude.json.*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), configFile)
+	return apphome.WriteFile(configFile, out.Bytes(), mode)
 }
 
 // projectSettings names what dir's own Claude settings would do: the hooks

@@ -89,6 +89,9 @@ func promptWords(text string) string {
 func questionAnswers(text string) string {
 	const open, close = "<send_user_message_question_reply>", "</send_user_message_question_reply>"
 	body, ok := strings.CutPrefix(strings.TrimSpace(text), open)
+	if !ok {
+		return ""
+	}
 	if body, ok = strings.CutSuffix(body, close); !ok {
 		return ""
 	}

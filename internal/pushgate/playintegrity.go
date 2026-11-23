@@ -14,12 +14,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // Play Integrity is Android's App Attest: Google vouches that a grant was
@@ -218,19 +219,7 @@ func (v *verdicts) add(hash string, until, now time.Time) {
 		return
 	}
 	raw, _ := json.Marshal(v.until)
-	if err := writeFile(v.path, raw); err != nil {
+	if err := apphome.WriteFile(v.path, raw, 0o600); err != nil {
 		v.log.Warn("playintegrity: could not save verdicts", "err", err)
 	}
-}
-
-// writeFile replaces path whole, so a crash leaves the old file or the new.
-func writeFile(path string, raw []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }

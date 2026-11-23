@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // A user's images (a URL, or pasted base64 stored once in the attachment store)
@@ -59,13 +60,7 @@ func inlineImagePath(mediaType, data string) string {
 	if err != nil || len(raw) > agent.MaxUploadBytes {
 		return ""
 	}
-	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
-		return ""
-	}
-	// Written beside and renamed, so a reader never sees half an image.
-	tmp := path + ".tmp"
-	if os.WriteFile(tmp, raw, 0o600) != nil || os.Rename(tmp, path) != nil {
-		_ = os.Remove(tmp)
+	if apphome.WriteFile(path, raw, 0o600) != nil {
 		return ""
 	}
 	return path

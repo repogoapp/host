@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/repogoapp/host/internal/apphome"
 )
 
 // The AWS CLI has no command to rename or remove a profile, so the host edits
@@ -89,11 +91,7 @@ func editAWSFile(path string, edit func(string) (string, bool)) error {
 	if err := os.WriteFile(backup, before, 0o600); err != nil {
 		return err
 	}
-	tmp := path + ".repogo.tmp"
-	if err := os.WriteFile(tmp, []byte(after), info.Mode().Perm()); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return apphome.WriteFile(path, []byte(after), info.Mode().Perm())
 }
 
 // Remove signs the profile out and removes its sections: from the config

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild the host and restart it in the background, then return.
 #
-# `dev.sh --host` does the same but stays attached to the log; this one exits
-# once the new host is listening, so it can run from an action button.
+# It exits once the new host is listening, so it can run from an action button.
 #
 #   scripts/restart.sh        rebuild + restart
 #   scripts/restart.sh -v     extra args go to `serve`

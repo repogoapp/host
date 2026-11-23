@@ -126,10 +126,10 @@ func TestAChangedFileIsRefusedNotOverwritten(t *testing.T) {
 }
 
 func TestScopeHoldsToOneFolderAndOneKind(t *testing.T) {
-	svc, root, _ := project(t)
+	_, root, _ := project(t)
 	other := filepath.Join(filepath.Dir(root), "other")
 	write(t, filepath.Join(other, "secret.md"), "other project")
-	svc = files.New(files.Config{Roots: files.StaticRoots{root, other}})
+	svc := files.New(files.Config{Roots: files.StaticRoots{root, other}})
 	write(t, filepath.Join(root, "config.json"), "{}")
 	if err := os.Symlink(filepath.Join(root, "config.json"), filepath.Join(root, "notes.md")); err != nil {
 		t.Fatal(err)
@@ -173,10 +173,10 @@ func TestOnlyAScopedWriteIsHeldToTheReadLimit(t *testing.T) {
 }
 
 func TestListFilesStaysWithinItsProject(t *testing.T) {
-	svc, root, _ := project(t)
+	_, root, _ := project(t)
 	other := filepath.Join(filepath.Dir(root), "other")
 	write(t, filepath.Join(other, "secret.md"), "other project")
-	svc = files.New(files.Config{Roots: files.StaticRoots{root, other}})
+	svc := files.New(files.Config{Roots: files.StaticRoots{root, other}})
 	if err := os.Symlink(other, filepath.Join(root, "linked")); err != nil {
 		t.Fatal(err)
 	}

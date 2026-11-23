@@ -28,6 +28,9 @@ func (c *Sessions) Children(meta session.Meta) ([]session.Child, error) {
 	var out []session.Child
 	for _, e := range entries {
 		id, ok := strings.CutPrefix(e.Name(), "agent-")
+		if !ok {
+			continue
+		}
 		if id, ok = strings.CutSuffix(id, ".meta.json"); ok {
 			if child, ok := subagentChild(dir, id); ok {
 				out = append(out, child)

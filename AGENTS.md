@@ -11,7 +11,10 @@ one small relay is the point; keep it that way.
 
 - Do not build or test unless asked; say what you changed and what you did not run.
 - Do not read, print, or echo env files, secrets, or credentials.
-- Do not add legacy shims, compat layers, or migrations. Build forward.
+- Do not break a shipped phone or a released host: a phone talks to hosts older and newer than
+  itself, so every change to a method or event must work in both directions
+  (`HOST-MIGRATIONS.md`, "The wire"). Inside the host, replace the old path and delete it; no
+  shim outlives the phones that need it.
 - Do not rename or retype a `state.db` column: `openState` refuses to start on a column whose
   shape differs from `state.sql`, and a rename leaves the old rows in a column nothing reads.
   Add only nullable columns (it adds them on start); fix a misleading name in code and its
@@ -77,9 +80,9 @@ them; comments explain why, in one line, only where it isn't obvious.
 | `schedule` | The user's schedules: validates them, computes each next run, and on a minute ticker starts every due one as a new chat; rows in `state.db` through `store` | writing SQL itself |
 | `chatsync`, `chatlive`, `projectwatch`, `projectsync` | Triggers that call `store.Sync`; the store's one listener announces chat rows. No parsing | a caller publishing a chat row itself |
 | `git`, `github` | Git reporting and shipping, `gh` wrapper and PRs. One git runner in `git` | a second `exec.Command("git"` |
-| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`, `projectagent`, `reminder`, `simulators`, `stepactivity`, `uploads`) | One resource each | |
+| leaf services (`files`, `device`, `notify`, `push`, `liveactivity`, `ports`, `forward`, `terminal`, `actions`, `envsource`, `connect`, `mcp`, `repogomcp`, `plugins`, `tunnel`, `handoff`, `power`, `procscan`, `project`, `projectagent`, `reminder`, `screens`, `simulators`, `stepactivity`, `uploads`) | One resource each | |
 | `shipping` | The usage ledger (`usage.db`, one row per API request, kept after transcripts go; not disposable, a `user_version` bump re-reads every file) and its history and yearly report; provider folders own transcript token parsing | resolving provider homes itself |
-| `emit`, `errkind`, `outcome`, `par`, `sqlitedb`, `syscmd`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, what a plugin method or MCP tool answers, fan-out, SQLite pragmas, short system tools, `~/.repogo`, dev log copies | a second way to do the same |
+| `emit`, `errkind`, `outcome`, `par`, `sqlitedb`, `syscmd`, `proctree`, `redact`, `idempotency`, `apphome`, `devlog` | Shared plumbing, one way each: device events, error kinds, what a plugin method or MCP tool answers, fan-out, SQLite pragmas, short system tools, a command as the head of its own process tree, masking secrets in text the host keeps or shows, running a request a caller may send again once, `~/.repogo`, dev log copies | a second way to do the same |
 | `wiredoc`, `clientcontract`, `lint`, `testwait` | Development only: the generated wire docs and the clients' contracts (Swift, Kotlin and TypeScript), the code standards as tests, polling in tests | imported by production code |
 
 Errors: a core sentinel says its kind with `errkind.New` (invalid, not found,

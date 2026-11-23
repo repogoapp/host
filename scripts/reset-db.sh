@@ -3,7 +3,7 @@
 set -euo pipefail
 
 cache_dir="${REPOGO_HOME:-$HOME/.repogo}"
-db="$cache_dir/chats.db"
+db="$cache_dir/cache.db"
 port="${REPOGO_PORT:-51999}"
 service="gui/$(id -u)/app.repogo.host"
 

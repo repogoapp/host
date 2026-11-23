@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/envsource"
 	"github.com/repogoapp/host/internal/errkind"
 )
@@ -78,7 +79,7 @@ func writeKey(path, name, line string) error {
 	if !replaced {
 		lines = append(lines, line)
 	}
-	return writeFile(path, []byte(strings.Join(lines, "\n")+"\n"))
+	return apphome.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
 }
 
 // removeKey drops every line that sets name from path and keeps the rest; a
@@ -107,7 +108,7 @@ func removeKey(path, name string) error {
 	if out != "" {
 		out += "\n"
 	}
-	return writeFile(path, []byte(out))
+	return apphome.WriteFile(path, []byte(out), 0o600)
 }
 
 // setsKey is whether a line sets name, as envsource.Parse reads it.
@@ -130,29 +131,4 @@ func readEnv(path string) ([]byte, error) {
 		return nil, errRefused.Errorf("%s is too large", filepath.Base(path))
 	}
 	return os.ReadFile(path)
-}
-
-// writeFile replaces path through a temporary file beside it, so a reader
-// never sees half a file.
-func writeFile(path string, b []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".connect-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }
