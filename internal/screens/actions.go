@@ -162,7 +162,7 @@ func (m *Manager) Screenshot(ctx context.Context, id string) ([]byte, error) {
 	if c.d.Platform == PlatformIOS {
 		shot, err = c.screenshotIOS(ctx)
 	} else {
-		shot, err = run(ctx, c.adb, "-s", c.d.serial, "exec-out", "screencap", "-p")
+		shot, err = c.screencapAndroid(ctx)
 	}
 	if err != nil {
 		return nil, err

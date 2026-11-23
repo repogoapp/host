@@ -168,9 +168,12 @@ var Available = sync.OnceValues(func() (ios, android bool) {
 	return ios, androidTool("emulator", "emulator") != ""
 })
 
-// DeveloperDir is the Xcode `xcode-select` points at, whose SimulatorKit
-// simcap loads.
+// DeveloperDir is the Xcode whose SimulatorKit simcap loads: DEVELOPER_DIR
+// when set, as xcrun takes it, else the one `xcode-select` points at.
 func DeveloperDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("DEVELOPER_DIR")); dir != "" {
+		return dir, nil
+	}
 	out, err := exec.Command("xcode-select", "-p").Output()
 	if err != nil {
 		return "", err

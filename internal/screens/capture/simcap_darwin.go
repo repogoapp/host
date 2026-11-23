@@ -4,9 +4,10 @@ package capture
 
 /*
 #cgo CFLAGS: -fobjc-arc
-#cgo LDFLAGS: -framework Foundation -framework CoreGraphics -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework IOSurface -framework IOKit -framework Carbon -framework Accelerate
+#cgo LDFLAGS: -framework AppKit -framework Foundation -framework CoreGraphics -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework IOSurface -framework IOKit -framework Carbon -framework Accelerate
 #include <stdlib.h>
 #include "simcap_darwin.h"
+#include "simax_darwin.h"
 */
 import "C"
 
@@ -16,7 +17,7 @@ import (
 	"unsafe"
 )
 
-func start(developerDir, udid string, universal bool, out *os.File) error {
+func start(developerDir, udid string, universal, headless bool, out *os.File) error {
 	cDir, cUDID := C.CString(developerDir), C.CString(udid)
 	defer C.free(unsafe.Pointer(cDir))
 	defer C.free(unsafe.Pointer(cUDID))
@@ -24,8 +25,12 @@ func start(developerDir, udid string, universal bool, out *os.File) error {
 	if universal {
 		u = 1
 	}
+	h := 0
+	if headless {
+		h = 1
+	}
 	var why [256]C.char
-	if C.simcap_start(cDir, cUDID, C.int(u), C.int(out.Fd()), &why[0], C.int(len(why))) != 0 {
+	if C.simcap_start(cDir, cUDID, C.int(u), C.int(h), C.int(out.Fd()), &why[0], C.int(len(why))) != 0 {
 		return errors.New(C.GoString(&why[0]))
 	}
 	return nil
@@ -97,6 +102,17 @@ func caDebug(name string, on bool) {
 		enabled = 1
 	}
 	C.simcap_ca_debug(n, C.int(enabled))
+}
+
+// elements is what's on the screen as simax_elements' JSON, sized as the
+// frames are turned.
+func elements() []byte {
+	answer := C.simax_elements(C.simcap_active_screen(), C.int(turns.Load()%2))
+	if answer == nil {
+		return nil
+	}
+	defer C.free(unsafe.Pointer(answer))
+	return []byte(C.GoString(answer))
 }
 
 func stop() { C.simcap_stop() }

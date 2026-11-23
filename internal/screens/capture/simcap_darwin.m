@@ -23,6 +23,7 @@
 
 #include "simcap_darwin.h"
 #include "uhid_darwin.h"
+#include "simax_darwin.h"
 
 // The stream's shape: the old host's tuning for remote control. A short side
 // over 720 px costs encode and decode time for little gain in legibility.
@@ -882,8 +883,12 @@ void simcap_tell(const char *json, int len) {
 // MARK: - Displays
 
 // Reads the panels' mounting rotations from the device type's displays.
+// Each integrated panel's size in points, upright, by screen ID.
+static NSDictionary<NSNumber *, NSValue *> *gPanelSizes;
+
 static void readPanels(NSObject *device) {
   NSMutableDictionary *rotations = [NSMutableDictionary dictionary];
+  NSMutableDictionary *sizes = [NSMutableDictionary dictionary];
   NSUInteger integrated = 0;
   SEL typeSel = NSSelectorFromString(@"deviceType"), capsSel = NSSelectorFromString(@"capabilities");
   if ([device respondsToSelector:typeSel]) {
@@ -896,8 +901,14 @@ static void readPanels(NSObject *device) {
       if (![screen isKindOfClass:NSNumber.class]) continue;
       integrated++;
       rotations[screen] = [rotation isKindOfClass:NSNumber.class] ? rotation : @0;
+      NSNumber *width = display[@"width"], *height = display[@"height"], *scale = display[@"scale"];
+      if ([width isKindOfClass:NSNumber.class] && [height isKindOfClass:NSNumber.class] && scale.doubleValue > 0) {
+        sizes[screen] = [NSValue valueWithSize:NSMakeSize(width.doubleValue / scale.doubleValue,
+                                                          height.doubleValue / scale.doubleValue)];
+      }
     }
   }
+  gPanelSizes = sizes;
   gNativeRotations = rotations;
   gIntegratedPanels = integrated;
 }
@@ -948,7 +959,8 @@ static void setUpUniversalHID(const char *udid) {
   if (SSCoreDeviceDisplayAvailable()) watchDisplays();
 }
 
-int simcap_start(const char *developer_dir, const char *udid, int universal, int out, char *err, int err_len) {
+int simcap_start(const char *developer_dir, const char *udid, int universal, int headless, int out, char *err,
+                 int err_len) {
   @autoreleasepool {
     NSString *developerDir = @(developer_dir);
     if (!dlopen("/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator", RTLD_NOW))
@@ -983,17 +995,40 @@ int simcap_start(const char *developer_dir, const char *udid, int universal, int
       atomic_store(&gActiveScreen, screen);
       tellHost(@{@"display": @{@"screen": @(screen), @"rotation": @(rotation), @"foldable": gIntegratedPanels == 2 ? @YES : @NO}});
     }
-    __block int code = 0;
-    dispatch_sync(gQueue, ^{
-      code = wireFramebuffer(err, err_len);
-      if (code == 0) capture();  // the first frame, before anything changes
-    });
-    if (code != 0) return code;
+    // Headless, for an agent's input with no one watching: no frames, so
+    // nothing is encoded, and the rest (input, the panel's turn) as a view has.
+    if (!headless) {
+      __block int code = 0;
+      dispatch_sync(gQueue, ^{
+        code = wireFramebuffer(err, err_len);
+        if (code == 0) capture();  // the first frame, before anything changes
+      });
+      if (code != 0) return code;
+    }
+    // Reading the screen is best-effort: a view still streams without it.
+    if (simax_start((__bridge void *)device, developer_dir) != 0)
+      fprintf(stderr, "simcap: can't read this simulator's screen by label\n");
     setUpHID(device);
     if (universal) setUpUniversalHID(udid);
     openButtonLink();
     return 0;
   }
+}
+
+uint32_t simcap_active_screen(void) { return atomic_load(&gActiveScreen); }
+
+int simcap_panel_size(uint32_t screen, double *width, double *height) {
+  NSValue *size = gPanelSizes[@(screen)];
+  // Before CoreDevice says which panel shows: the largest, the main screen.
+  if (!size && screen == 0) {
+    for (NSValue *v in gPanelSizes.allValues) {
+      if (!size || v.sizeValue.width * v.sizeValue.height > size.sizeValue.width * size.sizeValue.height) size = v;
+    }
+  }
+  if (!size) return -1;
+  *width = size.sizeValue.width;
+  *height = size.sizeValue.height;
+  return 0;
 }
 
 void simcap_stop(void) {

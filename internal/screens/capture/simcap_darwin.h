@@ -5,7 +5,14 @@
 // microseconds), then its length-prefixed NAL units; 0 on
 // success, else a negative code with why in err.
 // universal: touches and keys go through Universal HID (iOS 27), not Indigo.
-int simcap_start(const char *developer_dir, const char *udid, int universal, int out, char *err, int err_len);
+// headless: no frames, only input and the screen's elements.
+int simcap_start(const char *developer_dir, const char *udid, int universal, int headless, int out, char *err,
+                 int err_len);
+// The panel CoreDevice reports active, by screen ID; 0 until it says.
+uint32_t simcap_active_screen(void);
+// A panel's size in points, upright, from the device type; 0 on success.
+// Screen 0 is the largest.
+int simcap_panel_size(uint32_t screen, double *width, double *height);
 // phase: 0 down, 1 move, 2 up. x and y are fractions of the screen.
 void simcap_touch(int phase, double x, double y);
 // An Indigo button by its event source (0 home, 1 lock, 0x400002 Siri, 0xbb8

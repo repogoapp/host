@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-func start(string, string, bool, *os.File) error {
+func start(string, string, bool, bool, *os.File) error {
 	return errors.New("simulator capture needs macOS")
 }
 
@@ -27,6 +27,7 @@ func turn(int)                    {}
 func pace(Input)                  {}
 func caDebug(string, bool)        {}
 func stop()                       {}
+func elements() []byte            { return nil }
 
 func serviceButton(int, int, int) bool { return false }
 

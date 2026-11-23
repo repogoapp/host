@@ -733,6 +733,292 @@
     }
   },
   {
+    "name": "screens_list",
+    "method": "screens.list",
+    "description": "This environment's iOS simulators and Android emulators, and its display: each id, name, platform, OS, form and whether it's booted. Booted ones take the other screens_ tools.",
+    "read_only": true,
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_boot",
+    "method": "screens.boot",
+    "description": "Boot a simulator or emulator and wait until it's ready (an Android cold boot takes up to a minute). `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_shutdown",
+    "method": "screens.shutdown",
+    "description": "Shut a simulator or emulator down. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_set",
+    "method": "screens.set",
+    "description": "Change a simulator's or emulator's settings, only those given: appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose (closed, open, book, laptop) to fold a foldable. Answers the settings after. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "appearance": {
+          "type": "string"
+        },
+        "content_size": {
+          "type": "string"
+        },
+        "contrast": {
+          "type": "boolean"
+        },
+        "onscreen_keyboard": {
+          "type": "boolean"
+        },
+        "pose": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        },
+        "slow_animations": {
+          "type": "boolean"
+        },
+        "status_bar": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_rotate",
+    "method": "screens.rotate",
+    "description": "Turn a simulator or emulator a quarter, turn left or right. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        },
+        "turn": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_open_url",
+    "method": "screens.open_url",
+    "description": "Open a link on a simulator or emulator, in whichever app takes it: a web page, or an app's own URL scheme to open the app. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_elements",
+    "method": "screens.elements",
+    "description": "What's on a simulator's or emulator's screen now: each element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size. Points on iOS, pixels on Android, as screens_elements reports them. Refs (e7.12) name elements for screens_tap until the next read, fold or rotation. Read again after acting: actions don't wait for the app to redraw. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": true,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_tap",
+    "method": "screens.tap",
+    "description": "Tap a simulator or emulator: one of ref (from screens_elements), label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y. Points on iOS, pixels on Android, as screens_elements reports them. Answers where it tapped. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_swipe",
+    "method": "screens.swipe",
+    "description": "Drag one finger across a simulator or emulator, from from_x, from_y to to_x, to_y over ms (300 by default): scroll, swipe back, pull to refresh. Points on iOS, pixels on Android, as screens_elements reports them. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "from_x": {
+          "type": "number"
+        },
+        "from_y": {
+          "type": "number"
+        },
+        "ms": {
+          "type": "integer"
+        },
+        "screen": {
+          "type": "string"
+        },
+        "to_x": {
+          "type": "number"
+        },
+        "to_y": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_type",
+    "method": "screens.type",
+    "description": "Type text into the field that has focus on a simulator or emulator: tap the field first. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_key",
+    "method": "screens.key",
+    "description": "Press a key on a simulator or emulator: return, delete, forward_delete, tab, escape, space, left, up, right or down. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_button",
+    "method": "screens.button",
+    "description": "Press a hardware button on a simulator or emulator: home, back, recents, app_switcher, lock, siri, volume_up or volume_down, as the screen takes them (an error lists which). `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "button": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_launch",
+    "method": "screens.launch",
+    "description": "Open an app on a simulator or emulator, or bring it to the front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "app": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_save_screenshot",
+    "method": "screens.save_screenshot",
+    "description": "Save a simulator's or emulator's screen as a PNG and answer its path, to open and look at. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_recording_start",
+    "method": "screens.recording.start",
+    "description": "Start recording a simulator's or emulator's screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after 10 minutes. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_recording_stop",
+    "method": "screens.recording.stop",
+    "description": "Stop recording a simulator's or emulator's screen and answer the video's path: an MP4 on iOS, a WebM on Android. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "input_schema": {
+      "properties": {
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "tunnels_list",
     "method": "tunnels.list",
     "description": "The open tunnels: each public URL and the local port it reaches.",

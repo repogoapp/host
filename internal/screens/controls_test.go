@@ -85,11 +85,16 @@ func TestSimcapDisplayAddsPoseAndTurnsTheFrames(t *testing.T) {
 // An action simcap reports done, failed or not, answers the one waiting for it.
 func TestSimcapDoneAnswersItsCommand(t *testing.T) {
 	c, _ := testController(Screen{ID: "A", Kind: KindSimulator, Platform: PlatformIOS})
-	done := make(chan error, 1)
+	done := make(chan commandDone, 1)
 	c.commands[7] = done
 	c.fromSimcap([]byte(`{"done":{"id":7,"error":"couldn't fold to tent"}}`))
-	if err := <-done; err == nil || err.Error() != "couldn't fold to tent" {
-		t.Fatalf("err = %v", err)
+	if d := <-done; d.err == nil || d.err.Error() != "couldn't fold to tent" {
+		t.Fatalf("err = %v", d.err)
+	}
+	c.commands[8] = done
+	c.fromSimcap([]byte(`{"done":{"id":8,"data":{"width":402}}}`))
+	if d := <-done; d.err != nil || string(d.data) != `{"width":402}` {
+		t.Fatalf("done = %v %s", d.err, d.data)
 	}
 }
 

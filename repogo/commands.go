@@ -44,6 +44,8 @@ func table() []command {
 		}, run: keysCommand},
 		{name: "tls", args: "[rotate [--yes]]", summary: "Show the TLS key phones pin, or make a new one", flags: withYes, run: tlsCommand},
 		{name: "keep-awake", args: "[status|enable|disable]", summary: "Keep a Mac awake with its lid closed", run: keepAwakeCommand},
+		{name: "screens", args: "<command> [--screen ID]", summary: "Drive a simulator or emulator: read its screen, tap, type, fold, screenshot, record",
+			details: screensCommands, flags: screensFlags, run: screensCommand},
 
 		{name: "install", args: "[--lan] [--tailscale=false]", summary: "Reinstall the background service and start it", gap: true, flags: withDirect(nil), run: setup("install")},
 		{name: "uninstall", args: "[--yes]", summary: "Remove the service and agent hooks; keeps ~/.repogo", flags: withYes, run: runUninstall},
@@ -56,7 +58,7 @@ func table() []command {
 			return nil
 		}},
 		{name: "help", args: "[command]", summary: "This list, or one command's flags", run: runHelp},
-		{name: "simcap", args: "<udid> [universal]", summary: "Stream a booted iOS simulator's screen (run by the host for a live view)",
+		{name: "simcap", args: "<udid> [universal] [headless]", summary: "Stream a booted iOS simulator's screen (run by the host for a live view)",
 			hidden: true, run: simcapCommand},
 		{name: "screencap", summary: "Stream this Mac's screen from Screen Sharing (run by the host for a live view)",
 			hidden: true, run: func(ctx context.Context, _ *flag.FlagSet, _ []string) error {
@@ -93,16 +95,29 @@ func table() []command {
 }
 
 // simcapCommand is the child process the host starts for each live view of
-// an iOS simulator: H.264 on stdout, touches on stdin.
+// an iOS simulator, H.264 on stdout and touches on stdin, and headless for
+// an agent's input with no view open.
 func simcapCommand(_ context.Context, _ *flag.FlagSet, args []string) error {
-	if len(args) < 1 || len(args) > 2 || (len(args) == 2 && args[1] != "universal") {
-		return fmt.Errorf("usage: repogo simcap <udid> [universal]")
+	usage := fmt.Errorf("usage: repogo simcap <udid> [universal] [headless]")
+	if len(args) < 1 || len(args) > 3 {
+		return usage
+	}
+	var universal, headless bool
+	for _, a := range args[1:] {
+		switch a {
+		case "universal":
+			universal = true
+		case "headless":
+			headless = true
+		default:
+			return usage
+		}
 	}
 	dir, err := screens.DeveloperDir()
 	if err != nil {
 		return err
 	}
-	return capture.Run(dir, args[0], len(args) == 2, os.Stdout, os.Stdin)
+	return capture.Run(dir, args[0], universal, headless, os.Stdout, os.Stdin)
 }
 
 func withYes(fs *flag.FlagSet) { fs.Bool("yes", false, "don't ask first") }

@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -517,6 +518,7 @@ var androidKeycodes = map[uint32]string{
 
 var androidKeys = map[string]string{
 	"home": "KEYCODE_HOME", "back": "KEYCODE_BACK", "recents": "KEYCODE_APP_SWITCH", "lock": "KEYCODE_POWER",
+	"volume_up": "KEYCODE_VOLUME_UP", "volume_down": "KEYCODE_VOLUME_DOWN",
 }
 
 func (c *controller) readAndroid(ctx context.Context) State {
@@ -557,6 +559,23 @@ func hasHinge(avd string) bool {
 	config, err := readFile(iniValue(ini, "path"), "config.ini")
 	return err == nil && iniValue(config, "hw.sensor.hinge") == "yes"
 }
+
+// screencapAndroid is the emulator's screen as a PNG. A foldable's
+// screencap warns that it has several displays on the same output, ahead
+// of the picture, so the PNG starts where its signature does.
+func (c *controller) screencapAndroid(ctx context.Context) ([]byte, error) {
+	out, err := run(ctx, c.adb, "-s", c.d.serial, "exec-out", "screencap", "-p")
+	if err != nil {
+		return nil, err
+	}
+	at := bytes.Index(out, pngSignature)
+	if at < 0 {
+		return nil, fmt.Errorf("the emulator's screenshot isn't a picture: %.120s", out)
+	}
+	return out[at:], nil
+}
+
+var pngSignature = []byte("\x89PNG\r\n\x1a\n")
 
 func (c *controller) shell(ctx context.Context, command string) ([]byte, error) {
 	return run(ctx, c.adb, "-s", c.d.serial, "shell", command)

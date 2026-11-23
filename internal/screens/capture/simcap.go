@@ -99,6 +99,7 @@ const (
 	ActionAppSwitcher    = "app_switcher"    // the app switcher; Value SwitcherPress presses Home twice, else Home twice through dtuhidd, else the swipe
 	ActionKeyframe       = "keyframe"        // the next frame a keyframe, sent even if the screen is still
 	ActionTurn           = "turn"            // Value: quarter turns clockwise, 0 to 3, that show the framebuffer upright
+	ActionElements       = "elements"        // what's on the screen by label, answered as the done message's data
 )
 
 // Typeable reports whether a US keyboard has a key for r: the rest is
@@ -163,12 +164,12 @@ var buttons = map[string]func(){
 const SwitcherPress = "press"
 
 // Run streams udid's screen to out and plays in's lines on it until in ends;
-// universal sends touches and keys through Universal HID, as iOS 27 needs.
-// Beside the frames, out carries JSON for the host, its length's top bit
-// set: {"display":{"screen","rotation","foldable"}} as the panel or its turn
-// changes, and {"done":{"id","error"}} for an action with an ID.
-func Run(developerDir, udid string, universal bool, out *os.File, in io.Reader) error {
-	if err := start(developerDir, udid, universal, out); err != nil {
+// universal sends input through Universal HID (iOS 27), and headless sends no
+// frames. Beside the frames, out carries JSON for the host, its length's top
+// bit set: {"display":{"screen","rotation","foldable"}} as the panel or its
+// turn changes, and {"done":{"id","error","data"}} for an action with an ID.
+func Run(developerDir, udid string, universal, headless bool, out *os.File, in io.Reader) error {
+	if err := start(developerDir, udid, universal, headless, out); err != nil {
 		return err
 	}
 	defer stop()
@@ -187,11 +188,22 @@ func Run(developerDir, udid string, universal bool, out *os.File, in io.Reader) 
 			continue
 		}
 		finger.track(input)
-		err := play(input)
+		var data json.RawMessage
+		var err error
+		if input.Action == ActionElements {
+			if data = elements(); data == nil {
+				err = fmt.Errorf("this simulator's screen can't be read by label")
+			}
+		} else {
+			err = play(input)
+		}
 		if input.ID != 0 {
 			done := map[string]any{"id": input.ID}
 			if err != nil {
 				done["error"] = err.Error()
+			}
+			if data != nil {
+				done["data"] = data
 			}
 			tellHost(map[string]any{"done": done})
 		}

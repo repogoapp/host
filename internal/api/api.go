@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/jsonrpc"
@@ -21,7 +22,9 @@ func New(router *rpc.Router, self device.ID) *API {
 }
 
 func (a *API) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/rpc/{family}/{method}", a.call)
+	// The method's dots are the path's slashes, as many as it has:
+	// screens.recording.start is /v1/rpc/screens/recording/start.
+	mux.HandleFunc("POST /v1/rpc/{method...}", a.call)
 }
 
 // call is the entire JSON surface. Scope is local: only the loopback listener
@@ -35,7 +38,7 @@ func (a *API) call(w http.ResponseWriter, r *http.Request) {
 
 	out, err := a.router.Call(r.Context(),
 		rpc.Caller{Device: a.self, Scope: rpc.ScopeLocal},
-		r.PathValue("family")+"."+r.PathValue("method"), payload)
+		strings.ReplaceAll(r.PathValue("method"), "/", "."), payload)
 	if err != nil {
 		writeErr(w, statusFor(err), err)
 		return

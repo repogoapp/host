@@ -304,6 +304,11 @@ func (c *controller) pushIOS(ctx context.Context, payload []byte, bundle string)
 }
 
 func (c *controller) screenshotIOS(ctx context.Context) ([]byte, error) {
+	return c.screenshotIOSAs(ctx, "jpeg")
+}
+
+// screenshotIOSAs is the active panel's screenshot as kind: jpeg or png.
+func (c *controller) screenshotIOSAs(ctx context.Context, kind string) ([]byte, error) {
 	// simctl takes "-" for stdout but writes a file named "-", so it
 	// writes a temporary file instead.
 	dir, err := os.MkdirTemp("", "simshot")
@@ -311,10 +316,10 @@ func (c *controller) screenshotIOS(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	path := filepath.Join(dir, "shot.jpg")
+	path := filepath.Join(dir, "shot."+kind)
 	// The panel the stream shows: left to simctl, a foldable's shot is
 	// its outer screen, black while it's open.
-	args := []string{"io", c.d.ID, "screenshot", "--type=jpeg"}
+	args := []string{"io", c.d.ID, "screenshot", "--type=" + kind}
 	c.mu.Lock()
 	if c.activeScreen != 0 {
 		args = append(args, "--display="+strconv.FormatUint(uint64(c.activeScreen), 10))

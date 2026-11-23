@@ -1664,6 +1664,8 @@ Result:
 
 ## `screens.list`
 
+Tool (read): This environment's iOS simulators and Android emulators, and its display: each id, name, platform, OS, form and whether it's booted. Booted ones take the other screens_ tools.
+
 Params:
 
 - none
@@ -1676,6 +1678,8 @@ Result:
 
 Detached: runs to completion if the caller disconnects.
 
+Tool (write): Boot a simulator or emulator and wait until it's ready (an Android cold boot takes up to a minute). `screen` is an id from screens_list (a booted simulator or emulator).
+
 Params:
 
 - `screen` string
@@ -1685,6 +1689,8 @@ Result:
 - `ok` bool
 
 ## `screens.shutdown`
+
+Tool (write): Shut a simulator or emulator down. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -1717,6 +1723,8 @@ Result:
 
 ## `screens.set`
 
+Tool (write): Change a simulator's or emulator's settings, only those given: appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose (closed, open, book, laptop) to fold a foldable. Answers the settings after. `screen` is an id from screens_list (a booted simulator or emulator).
+
 Params:
 
 - `screen` string
@@ -1740,6 +1748,8 @@ Result:
 
 ## `screens.rotate`
 
+Tool (write): Turn a simulator or emulator a quarter, turn left or right. `screen` is an id from screens_list (a booted simulator or emulator).
+
 Params:
 
 - `screen` string
@@ -1750,6 +1760,8 @@ Result:
 - `ok` bool
 
 ## `screens.open_url`
+
+Tool (write): Open a link on a simulator or emulator, in whichever app takes it: a web page, or an app's own URL scheme to open the app. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -1812,6 +1824,121 @@ Params:
 Result:
 
 - `image` base64 (nullable)
+
+## `screens.elements`
+
+Tool (read): What's on a simulator's or emulator's screen now: each element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size. Points on iOS, pixels on Android, as screens_elements reports them. Refs (e7.12) name elements for screens_tap until the next read, fold or rotation. Read again after acting: actions don't wait for the app to redraw. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `screen` string
+- `app` string (omitted when empty)
+- `width` number
+- `height` number
+- `unit` string
+- `elements` [object{Element}]
+
+## `screens.tap`
+
+Tool (write): Tap a simulator or emulator: one of ref (from screens_elements), label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y. Points on iOS, pixels on Android, as screens_elements reports them. Answers where it tapped. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `ref` string (omitted when empty)
+- `label` string (omitted when empty)
+- `x` number (omitted when empty) (nullable)
+- `y` number (omitted when empty) (nullable)
+
+Result:
+
+- `x` number
+- `y` number
+
+## `screens.swipe`
+
+Tool (write): Drag one finger across a simulator or emulator, from from_x, from_y to to_x, to_y over ms (300 by default): scroll, swipe back, pull to refresh. Points on iOS, pixels on Android, as screens_elements reports them. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `from_x` number
+- `from_y` number
+- `to_x` number
+- `to_y` number
+- `ms` int (omitted when empty)
+
+Result:
+
+- `ok` bool
+
+## `screens.type`
+
+Tool (write): Type text into the field that has focus on a simulator or emulator: tap the field first. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `text` string
+
+Result:
+
+- `ok` bool
+
+## `screens.key`
+
+Tool (write): Press a key on a simulator or emulator: return, delete, forward_delete, tab, escape, space, left, up, right or down. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `key` string
+
+Result:
+
+- `ok` bool
+
+## `screens.button`
+
+Tool (write): Press a hardware button on a simulator or emulator: home, back, recents, app_switcher, lock, siri, volume_up or volume_down, as the screen takes them (an error lists which). `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `button` string
+
+Result:
+
+- `ok` bool
+
+## `screens.launch`
+
+Tool (write): Open an app on a simulator or emulator, or bring it to the front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `app` string
+
+Result:
+
+- `ok` bool
+
+## `screens.save_screenshot`
+
+Tool (write): Save a simulator's or emulator's screen as a PNG and answer its path, to open and look at. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `path` string
 
 ## `screens.desktop.switch_space`
 
@@ -1899,6 +2026,30 @@ Params:
 Result:
 
 - `icons` [object{Icon}]
+
+## `screens.recording.start`
+
+Tool (write): Start recording a simulator's or emulator's screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after 10 minutes. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `ok` bool
+
+## `screens.recording.stop`
+
+Tool (write): Stop recording a simulator's or emulator's screen and answer the video's path: an MP4 on iOS, a WebM on Android. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+
+Result:
+
+- `path` string
 
 ## `terminals.create`
 

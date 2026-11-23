@@ -22,6 +22,7 @@ var sleeps = map[string]string{}
 // backgrounds lets non-main code start a context that no caller owns, keyed
 // "path:Func"; every entry says why the work outlives the request.
 var backgrounds = map[string]string{
+	"internal/screens/agent.go:controller.startHeadless":       "an agent's input view outlives the action that started it; idle or a shutdown ends it",
 	"internal/power/power.go:Keeper.Release":                   "runs at shutdown, after the host's context has ended",
 	"internal/agent/manager.go:Manager.newTurn":                "a turn outlives the call that queued it; Stop cancels it",
 	"internal/clilogin/clilogin.go:launch":                     "a sign-in CLI outlives the call that started it; its timeout ends it",

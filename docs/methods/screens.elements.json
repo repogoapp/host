@@ -1,0 +1,21 @@
+{
+  "screen": "screen",
+  "app": "app",
+  "width": 1.5,
+  "height": 1.5,
+  "unit": "unit",
+  "elements": [
+    {
+      "ref": "ref",
+      "role": "role",
+      "label": "label",
+      "value": "value",
+      "id": "id",
+      "x": 1.5,
+      "y": 1.5,
+      "w": 1.5,
+      "h": 1.5,
+      "selected": true
+    }
+  ]
+}

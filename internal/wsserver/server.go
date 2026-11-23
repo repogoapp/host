@@ -356,7 +356,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 // /v1/rpc/<family>/<method>: the router says which, guarded by the pairing code.
 func (s *Server) tokenExempt(path string) bool {
 	name, ok := strings.CutPrefix(path, "/v1/rpc/")
-	return ok && s.cfg.Router.Unpaired(strings.Replace(name, "/", ".", 1))
+	return ok && s.cfg.Router.Unpaired(strings.ReplaceAll(name, "/", "."))
 }
 
 func requestToken(r *http.Request) string {

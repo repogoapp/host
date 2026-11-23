@@ -20,9 +20,11 @@ type command struct {
 	// hidden keeps it out of the list; `repogo help <name>` still shows it.
 	hidden bool
 	// gap puts a blank line before it in the list.
-	gap   bool
-	flags func(*flag.FlagSet)
-	run   func(ctx context.Context, fs *flag.FlagSet, args []string) error
+	gap bool
+	// details follow the summary in `repogo help <name>`: a command's own commands.
+	details string
+	flags   func(*flag.FlagSet)
+	run     func(ctx context.Context, fs *flag.FlagSet, args []string) error
 }
 
 // commands is `repogo help`, in its order; run in commands.go.
@@ -140,6 +142,9 @@ func printHelp(w io.Writer) {
 // printCommand is `repogo help <command>`: its line and each of its flags.
 func printCommand(w io.Writer, c command) {
 	fmt.Fprintf(w, "Usage: %s\n\n%s\n", strings.TrimSpace(commandName(c.name)+" "+c.args), c.summary)
+	if c.details != "" {
+		fmt.Fprintf(w, "\n%s\n", c.details)
+	}
 	fs := flag.NewFlagSet(commandName(c.name), flag.ContinueOnError)
 	if c.flags != nil {
 		c.flags(fs)

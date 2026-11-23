@@ -48,6 +48,7 @@ App Clip opens so you can pair and start chatting right away.
 | `repogo tls` | Show the TLS key phones pin, and its counter |
 | `repogo tls rotate` | Replace the host's TLS key, for one that may have leaked; every paired device pairs again |
 | `repogo tunnels` / `tunnels close <slug>` | List the public URLs open to your local servers, or close one |
+| `repogo screens <command>` | Drive this machine's iOS simulators and Android emulators: `elements` reads what's on screen by label, then `tap`, `swipe`, `type`, `key`, `button`, `rotate`, `fold`, `open-url`, `launch`, `screenshot` and `recording start` / `stop`. Agents get the same as `screens_*` tools; `repogo help screens` lists them all |
 | `repogo urls [<plugin>]` | List the plugin methods that answer plain HTTP: each URL, this machine's or the public one, and whether it needs a key |
 | `repogo keys <plugin>` | Print a plugin's key for its HTTP methods that take one, making it the first time; `--new` replaces it, `--delete` removes it, and `repogo keys` lists every plugin's |
 | `repogo uninstall` | Remove the background service; keeps your pairings and data in `~/.repogo` |

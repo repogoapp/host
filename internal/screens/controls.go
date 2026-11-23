@@ -114,8 +114,12 @@ func runOf(d Screen) string {
 // forget drops a screen's controller: it shut down.
 func (m *Manager) forget(id string) {
 	m.mu.Lock()
+	c := m.controllers[id]
 	delete(m.controllers, id)
 	m.mu.Unlock()
+	if c != nil {
+		c.closeAgent()
+	}
 }
 
 // ViewResult is screens.view's reply: the room's view and desktop as the
@@ -193,7 +197,10 @@ type controller struct {
 	views []*liveView
 	// commands are simcap actions waiting for it to say they're done.
 	nextCommand int
-	commands    map[int]chan error
+	commands    map[int]chan commandDone
+
+	// agent is what an agent or the CLI drives the screen with: see agent.go.
+	agent agentState
 
 	// desktopMu orders desktop pushes; lastDesktop is the last one sent.
 	desktopMu   sync.Mutex
@@ -213,7 +220,7 @@ type liveView struct {
 }
 
 func newController(d Screen, m *Manager) *controller {
-	c := &controller{d: d, m: m, orientation: 1, commands: map[int]chan error{},
+	c := &controller{d: d, m: m, orientation: 1, commands: map[int]chan commandDone{},
 		restart: make(chan struct{}, 1), refresh: make(chan struct{}, 1)}
 	if d.Platform == PlatformAndroid {
 		c.adb = androidTool("platform-tools", "adb")
@@ -390,10 +397,23 @@ const commandWait = 10 * time.Second
 
 // command sends an action to simcap and waits for it to say it's done.
 func (c *controller) command(ctx context.Context, in capture.Input) error {
+	_, err := c.commandVia(ctx, c.forward, in)
+	return err
+}
+
+// commandDone is simcap's answer to an action: its error, and its data.
+type commandDone struct {
+	err  error
+	data json.RawMessage
+}
+
+// commandVia sends an action to simcap through one input path and waits for
+// its answer.
+func (c *controller) commandVia(ctx context.Context, path func(capture.Input) error, in capture.Input) (json.RawMessage, error) {
 	c.mu.Lock()
 	c.nextCommand++
 	in.ID = c.nextCommand
-	done := make(chan error, 1)
+	done := make(chan commandDone, 1)
 	c.commands[in.ID] = done
 	c.mu.Unlock()
 	defer func() {
@@ -401,16 +421,16 @@ func (c *controller) command(ctx context.Context, in capture.Input) error {
 		delete(c.commands, in.ID)
 		c.mu.Unlock()
 	}()
-	if err := c.forward(in); err != nil {
-		return err
+	if err := path(in); err != nil {
+		return nil, err
 	}
 	select {
-	case err := <-done:
-		return err
+	case d := <-done:
+		return d.data, d.err
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	case <-time.After(commandWait):
-		return errors.New("the simulator didn't answer")
+		return nil, errors.New("the simulator didn't answer")
 	}
 }
 
@@ -424,8 +444,9 @@ func (c *controller) fromSimcap(message []byte) {
 			Foldable bool   `json:"foldable"`
 		} `json:"display"`
 		Done *struct {
-			ID    int    `json:"id"`
-			Error string `json:"error"`
+			ID    int             `json:"id"`
+			Error string          `json:"error"`
+			Data  json.RawMessage `json:"data"`
 		} `json:"done"`
 	}
 	if json.Unmarshal(message, &m) != nil {
@@ -440,7 +461,7 @@ func (c *controller) fromSimcap(message []byte) {
 			if d.Error != "" {
 				err = errors.New(d.Error)
 			}
-			done <- err
+			done <- commandDone{err: err, data: d.Data}
 		}
 		return
 	}
@@ -449,6 +470,10 @@ func (c *controller) fromSimcap(message []byte) {
 	}
 	turned := false
 	c.change(func() {
+		if c.activeScreen != m.Display.Screen || c.rotation != upright(m.Display.Rotation) {
+			// A fold or turn moved everything: the last read's refs are gone.
+			c.agent.read = nil
+		}
 		c.foldable = c.foldable || m.Display.Foldable
 		c.displayed = true
 		c.activeScreen = m.Display.Screen
