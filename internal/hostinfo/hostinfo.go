@@ -13,6 +13,12 @@ import (
 // Status is this running host's health. Whether a newer release is out is
 // Release, which host.setup carries.
 type Status struct {
+	// HostID is this host's device identity, the id phones pair with; it
+	// tells one host apart when it's reached by two names. Optional on the
+	// wire: an older host doesn't send it.
+	HostID string `json:"host_id,omitempty"`
+	// Name is what this host is called: device.Label. Optional, as HostID.
+	Name           string `json:"name,omitempty"`
 	Version        string `json:"version"`
 	Uptime         int64  `json:"uptime_seconds"`
 	RelayConnected bool   `json:"relay_connected"`
@@ -80,7 +86,9 @@ type Battery interface {
 }
 
 type Deps struct {
-	Power Battery
+	// HostID and Name are what Status reports as host_id and name.
+	HostID, Name string
+	Power        Battery
 	// Relay reports whether the relay link is attached; false on a host without one.
 	Relay func() bool
 	// UpdateFailed is why the last update was rolled back, reported until the host restarts.
@@ -217,6 +225,8 @@ func (s *Service) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := Status{
+		HostID:         s.d.HostID,
+		Name:           s.d.Name,
 		Version:        release.Version,
 		Uptime:         int64(time.Since(s.started).Seconds()),
 		UpdateFailed:   s.d.UpdateFailed,

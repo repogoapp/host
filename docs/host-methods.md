@@ -1061,6 +1061,8 @@ Params:
 
 Result:
 
+- `host_id` string (omitted when empty)
+- `name` string (omitted when empty)
 - `version` string
 - `uptime_seconds` int
 - `relay_connected` bool

@@ -22,7 +22,9 @@ func table() []command {
 		{name: "pair", summary: "Show a pairing code for another device", flags: withPairHost(func(fs *flag.FlagSet) {
 			fs.String("reusable", "", "an invite many devices may join with, for days or hours (14d, 36h), or off")
 		}), run: runPair},
-		{name: "status", summary: "Whether the host is running, and its version", run: simple("status", printStatus)},
+		{name: "status", args: "[--json]", summary: "Whether the host is running, its name and version", flags: func(fs *flag.FlagSet) {
+			fs.Bool("json", false, "print the host's answer as JSON")
+		}, run: statusCommand},
 
 		{name: "start", args: "[--lan] [--tailscale=false]", summary: "Start the background host; the network flags are saved", gap: true, flags: withDirect(nil), run: setup("start")},
 		{name: "stop", summary: "Stop the background host", run: runStop},

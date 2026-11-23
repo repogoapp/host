@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -91,6 +92,21 @@ func peers(ctx context.Context) ([]devices.Device, error) {
 	return out.Devices, err
 }
 
+// statusCommand prints host.status, as text or, with --json, exactly as the host answers it.
+func statusCommand(ctx context.Context, fs *flag.FlagSet, args []string) error {
+	if err := noArgs("status", args); err != nil {
+		return err
+	}
+	if flagBool(fs, "json") {
+		var status json.RawMessage
+		if err := call(ctx, "host.status", nil, &status); err != nil {
+			return err
+		}
+		return printJSON(status)
+	}
+	return printStatus(ctx)
+}
+
 func printStatus(ctx context.Context) error {
 	var status hostinfo.Status
 	if err := call(ctx, "host.status", nil, &status); err != nil {
@@ -100,7 +116,8 @@ func printStatus(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("repogo %s · up %s · relay connected: %t\n", status.Version, (time.Duration(status.Uptime) * time.Second).String(), status.RelayConnected)
+	fmt.Printf("%s · repogo %s · up %s · relay connected: %t\n", status.Name, status.Version, (time.Duration(status.Uptime) * time.Second).String(), status.RelayConnected)
+	fmt.Printf("  host id: %s\n", status.HostID)
 	if n := status.Network; n.LANPort != 0 {
 		fmt.Printf("  local network: serving %s:%d (repogo start --lan=false turns it off)\n", n.LANIP, n.LANPort)
 	}

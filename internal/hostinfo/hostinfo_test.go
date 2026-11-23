@@ -37,6 +37,15 @@ func TestStatusCarriesTheBatteryOnceRead(t *testing.T) {
 	}
 }
 
+func TestStatusNamesTheHost(t *testing.T) {
+	s := New(Deps{HostID: "h1", Name: "Studio", Power: reading{}, Relay: func() bool { return false },
+		ReadDevice: func() Device { return studio }})
+	raw, _ := json.Marshal(s.Status())
+	if !strings.Contains(string(raw), `"host_id":"h1","name":"Studio"`) {
+		t.Fatalf("status %s, want host_id h1 and name Studio", raw)
+	}
+}
+
 func TestStatusCarriesTheNetworkWithoutWaitingOnTheLookup(t *testing.T) {
 	lookedUp := make(chan struct{})
 	s := New(Deps{Power: reading{}, Relay: func() bool { return false },

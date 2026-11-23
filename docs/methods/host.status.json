@@ -1,4 +1,6 @@
 {
+  "host_id": "host_id",
+  "name": "name",
   "version": "version",
   "uptime_seconds": 1,
   "relay_connected": true,

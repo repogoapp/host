@@ -210,6 +210,7 @@ func (h *Host) openDevices() error {
 	}
 	h.onClose(h.keeper.Release)
 	h.info = hostinfo.New(hostinfo.Deps{
+		HostID: string(h.devices.Identity().ID), Name: h.cfg.Label,
 		Power: h.keeper, Relay: h.relayLinked, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
 		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "", TLSKey: h.tlsKey,
 		Screens: screens.Supported,
