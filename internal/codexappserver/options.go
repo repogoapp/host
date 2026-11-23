@@ -1,4 +1,5 @@
-// Package codexappserver speaks `codex app-server`'s JSON-RPC over stdio: the
+// Package codexappserver speaks `codex app-server`'s JSON-RPC, over stdio to a
+// process it starts or over the socket of Codex's background server: the
 // calls the host makes, the notifications Codex streams, and the requests it
 // sends back when it needs a person. It knows nothing of RepoGo's types.
 package codexappserver

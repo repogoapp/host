@@ -328,7 +328,7 @@ func (p *Provider) servers(ctx context.Context, c chat, proc *agentProcess, req 
 			list = p.deps.MCP(ctx, c.manifest.Project)
 		}
 		if p.cfg.OwnTools && p.deps.Tools != nil && p.deps.Tools.On(req.Cwd) {
-			entry, release := p.deps.Tools.Attach(cs, req)
+			entry, release := p.deps.Tools.Attach(cs, req, "")
 			cs.release = release
 			list = append(list, entry)
 		}

@@ -160,8 +160,16 @@ func New(deps agent.Dependencies) *Provider {
 		home = filepath.Join(deps.Root, string(agent.KindCodex))
 	}
 	account := filepath.Join(home, "auth.json")
+	r := &runner{deps: deps, executable: executable, home: home, tokens: &toolTokens{}}
+	if deps.State != "" {
+		r.tokens.path = filepath.Join(deps.State, "codex-tool-tokens.json")
+	}
+	// A test host's fake Codex has no background server to join.
+	if deps.Root == "" {
+		r.background = &background{home: home, executable: executable, log: deps.Log}
+	}
 	return &Provider{
-		runner: &runner{deps: deps, executable: executable, home: home},
+		runner: r,
 		home:   home, accountPath: account, sessions: NewSessions(home),
 	}
 }
@@ -182,4 +190,4 @@ func (p *Provider) Definition() agent.Provider {
 func (p *Provider) Sessions() session.Provider { return p.sessions }
 
 // Hooks wires the helper into hooks.json in this host's Codex home.
-func (p *Provider) Hooks() notify.Provider { return Hooks{Home: p.home} }
+func (p *Provider) Hooks() notify.Provider { return Hooks{Home: p.home, owns: p.runner.ownsTurn} }

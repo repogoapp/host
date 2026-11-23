@@ -38,6 +38,18 @@ type HookSource interface {
 }
 
 // find is the provider registered under kind, or nil.
+// TurnOwner is a provider that can tell a hook fired in a turn this host
+// runs, for an agent whose turns run in a process the host shares with the
+// terminal (Codex's background server), where REPOGO_ORIGIN can't mark them.
+type TurnOwner interface {
+	Owns(sessionID, turnID string) bool
+}
+
+func owns(p Provider, sessionID, turnID string) bool {
+	owner, ok := p.(TurnOwner)
+	return ok && owner.Owns(sessionID, turnID)
+}
+
 func find(providers []Provider, kind agent.Kind) Provider {
 	for _, p := range providers {
 		if p.Kind() == kind {

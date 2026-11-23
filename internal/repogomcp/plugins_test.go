@@ -62,7 +62,7 @@ func attachIn(t *testing.T, s *Server, cwd string) string {
 func attachAsking(t *testing.T, s *Server, cwd string, cfg agent.TurnConfig, ask func(context.Context, agent.Approval) (json.RawMessage, error)) string {
 	t.Helper()
 	turn := agent.RunningTurn{Ctx: context.Background(), TurnID: "t1", ChatID: "claude:s1", Cwd: cwd, Device: "phone", Config: cfg, Ask: ask}
-	entry, release := s.Attach(&fakeSession{turn: turn}, agent.TurnRequest{Cwd: cwd})
+	entry, release := s.Attach(&fakeSession{turn: turn}, agent.TurnRequest{Cwd: cwd}, "")
 	t.Cleanup(release)
 	return strings.TrimPrefix(entry.Headers[0].Value, "Bearer ")
 }

@@ -75,10 +75,12 @@ func (s *Server) On(cwd string) bool { return s.cfg.On(cwd) }
 
 // Attach mints the bearer that names one session. It never leaves this
 // machine: the agent process gets it as a header, and it dies with the session.
-func (s *Server) Attach(session agent.ToolSession, req agent.TurnRequest) (agent.MCPServer, func()) {
-	b := make([]byte, 32)
-	_, _ = rand.Read(b)
-	token := hex.EncodeToString(b)
+func (s *Server) Attach(session agent.ToolSession, req agent.TurnRequest, token string) (agent.MCPServer, func()) {
+	if token == "" {
+		b := make([]byte, 32)
+		_, _ = rand.Read(b)
+		token = hex.EncodeToString(b)
+	}
 	s.mu.Lock()
 	s.sessions[token] = attached{session: session, cwd: req.Cwd, child: req.Parent != ""}
 	s.mu.Unlock()

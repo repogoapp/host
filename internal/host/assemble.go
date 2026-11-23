@@ -77,6 +77,7 @@ func (h *Host) openAgents() error {
 	h.agents, err = h.cfg.Agents(agent.Dependencies{
 		Context: h.ctx,
 		Root:    h.cfg.ProviderRoot,
+		State:   h.state("agents"),
 		Env:     []string{notify.OriginEnv + "=" + string(notify.OriginApp)},
 		// h.mcps is opened below; a turn cannot start before New returns.
 		MCP: h.mcpForTurn,

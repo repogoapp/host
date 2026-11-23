@@ -352,5 +352,8 @@ func parseDrop(d drop, providers []Provider) (Notice, bool) {
 		// Without a session id there is nothing to attach the state to.
 		return Notice{}, false
 	}
+	if n.Origin == OriginCLI && owns(provider, n.SessionID, n.TurnID) {
+		n.Origin = OriginApp
+	}
 	return n, true
 }

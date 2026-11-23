@@ -1,7 +1,8 @@
 # agents/codex
 
 Everything the host knows about OpenAI Codex. Live turns talk to the CLI
-through `internal/codexappserver`, the `codex app-server` JSON-RPC client; the
+through `internal/codexappserver`, the `codex app-server` JSON-RPC client, over
+stdio or the background server's socket; the
 rest reads Codex's files on disk or runs a throwaway app server. Shared code in
 `internal/agent` never sees Codex's shapes: this package converts them to
 `agent.Event`, `agent.Approval` and `agent.Question`.
@@ -13,12 +14,15 @@ same names there.
 
 | File | What it does |
 | --- | --- |
-| `runner.go` | The `agent.Adapter`. `Send` gets the chat's app server from the `SessionPool` (new or reused), then starts or resumes the chat's thread and runs the turn. |
-| `session.go` | One live `codex app-server` holding one thread (`liveSession`), alive across the chat's turns. `send` runs `turn/start` with the turn's model, effort, sandbox and approval policy and waits for `turn/completed`, the process exiting or a stop; `stop` sends `turn/interrupt`, then closes the process after a grace period. |
+| `runner.go` | The `agent.Adapter`. `Send` gets the chat's session from the `SessionPool` (new or reused), then starts or resumes the chat's thread and runs the turn. |
+| `background.go` | Codex's background app server, which the terminal and desktop app share (Codex 0.169 and later, `daemon_auto_start` on). A chat joins it over its socket, starting it first when it isn't running, so the chat is open in the terminal and on the phone at once; without it the chat gets an app server of its own. |
+| `shared.go` | What a chat on the shared server needs: the RepoGo tools token each thread opened with, kept on disk because the server holds a thread past RepoGo's session and across host restarts, and the Codex turns RepoGo ran, so their hooks count as the app's without `REPOGO_ORIGIN`. |
+| `session.go` | One chat's thread (`liveSession`), alive across its turns, on an app server of its own or the shared one. On the shared one, a request while no RepoGo turn is bound is another client's and is left to it. `send` runs `turn/start` with the turn's model, effort, sandbox and approval policy and waits for `turn/completed`, the process exiting or a stop; `stop` sends `turn/interrupt`, then closes the process after a grace period. |
 | `events.go` | Codex's notifications (message and reasoning deltas, `item/started`, `item/completed`, token usage) become `agent.Event`s. Only the chat's own thread speaks; a subagent's prose stays in its own rollout. |
 | `permission.go` | Answers Codex's command and file-change approvals. RepoGo's own tools are allowed; the rest become an `agent.Approval` for the phone, with Codex's decisions (`accept`, `acceptForSession`, `decline`, …) as the options. |
 | `ask.go` | Codex's `request_user_input` and MCP question forms, as `agent.Question`s. |
-| `writerlock.go` | Codex lets one process write a thread at a time, through a lock file under `~/.codex/thread-writer-locks`. Before resuming, `startSession` checks that lock, so a chat open in a terminal or the desktop app fails at once with "open in Codex on your environment" instead of after starting an app server. |
+| `queue.go` | A chat another Codex app holds on a server of its own (the desktop app) gets the turn's prompt through `codex queue`, which that app reads; the answer reaches the phone from the rollout. A turn with files can't be queued and says where the chat is open. |
+| `writerlock.go` | Codex lets one process write a thread at a time, through a lock file under `~/.codex/thread-writer-locks`. Before resuming on an app server of its own, `startSession` checks that lock, so a chat open in a terminal or the desktop app fails at once with "open in Codex on your environment" instead of after starting an app server. |
 
 ## History on disk
 

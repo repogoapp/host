@@ -18,8 +18,11 @@ const ToolsServer = "repogo"
 type Tools interface {
 	On(cwd string) bool
 	// Attach is the entry for a session opened by req's turn and what to call
-	// when it closes; its cwd and parent pick the tools it is offered.
-	Attach(session ToolSession, req TurnRequest) (MCPServer, func())
+	// when it closes; its cwd and parent pick the tools it is offered. token
+	// is "" for a new entry, or one an earlier Attach made, for an agent whose
+	// thread outlives the session and keeps the entry it opened with (Codex's
+	// background server).
+	Attach(session ToolSession, req TurnRequest, token string) (MCPServer, func())
 }
 
 // ToolSession is one agent process as the tools see it.

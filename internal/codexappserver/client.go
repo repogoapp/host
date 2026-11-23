@@ -19,8 +19,18 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error
 	if err != nil {
 		return nil, err
 	}
-	client, err := stdiorpc.Start(ctx, stdiorpc.Options{Executable: opts.Executable, Cwd: opts.Cwd, Args: args, Env: opts.Env}, stdiorpc.Handlers{
-		Request: handlers.Request,
+	client, err := stdiorpc.Start(ctx, stdiorpc.Options{Executable: opts.Executable, Cwd: opts.Cwd, Args: args, Env: opts.Env}, handlers.rpc())
+	if err != nil {
+		return nil, err
+	}
+	return &Client{Client: client}, nil
+}
+
+// rpc answers Codex's requests with Request, and withdraws one when Codex
+// says it was resolved: by a stop, or by another client of a shared server.
+func (h Handlers) rpc() stdiorpc.Handlers {
+	return stdiorpc.Handlers{
+		Request: h.Request,
 		Resolved: func(method string, raw json.RawMessage) json.RawMessage {
 			if method != MethodServerRequestResolved {
 				return nil
@@ -31,9 +41,5 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error
 			}
 			return p.RequestID
 		},
-	})
-	if err != nil {
-		return nil, err
 	}
-	return &Client{Client: client}, nil
 }

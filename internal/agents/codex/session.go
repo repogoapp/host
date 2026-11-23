@@ -23,15 +23,22 @@ type turnOutcome struct {
 	err    error
 }
 
-// liveSession is one `codex app-server` holding one thread, alive across the
-// chat's turns. A turn binds itself for as long as it runs and receives
-// everything the thread emits meanwhile; anything outside a turn is dropped.
+// liveSession is one chat's thread, alive across its turns: on a
+// `codex app-server` of its own, or on Codex's background server, which the
+// terminal and desktop app share (shared). A turn binds itself for as long
+// as it runs and receives everything the thread emits meanwhile; anything
+// outside a turn is dropped, and the rollout shows it.
 type liveSession struct {
 	client                    *codexappserver.Client
 	log                       *slog.Logger
 	id, key, cwd, fingerprint string
 	release                   func()
 	consumed                  chan struct{}
+	shared                    bool
+	// The RepoGo tools token the thread was opened with.
+	toolToken string
+	// Records the Codex turns this session runs, for the hooks they fire.
+	owned *ownedTurns
 
 	mu     sync.Mutex
 	closed bool
@@ -97,6 +104,9 @@ func (s *liveSession) send(ctx context.Context, req agent.TurnRequest, io agent.
 	turn, err := s.client.TurnStart(turnCtx, params)
 	if err != nil {
 		return agent.Result{SessionID: s.id}, fmt.Errorf("start Codex turn: %w", withStderr(err, s.client))
+	}
+	if s.owned != nil {
+		s.owned.add(turn.ID)
 	}
 	s.mu.Lock()
 	s.turnID = turn.ID
@@ -278,6 +288,14 @@ func (s *liveSession) close() {
 	if s.release != nil {
 		s.release()
 	}
+}
+
+// othersTurn reports a shared session with no turn of its own bound: what
+// the thread does now, another client of the server started.
+func (s *liveSession) othersTurn() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shared && s.io == nil
 }
 
 func (s *liveSession) isClosed() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.closed }

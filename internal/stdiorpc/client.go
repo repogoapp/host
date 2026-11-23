@@ -1,4 +1,5 @@
-// Package stdiorpc owns a child process speaking newline-delimited JSON-RPC.
+// Package stdiorpc speaks newline-delimited JSON-RPC to a child process it
+// owns, or over a connection to a server that is already running.
 package stdiorpc
 
 import (
@@ -56,7 +57,8 @@ type response struct {
 	err    *Error
 }
 
-// Client is one running JSON-RPC process.
+// Client is one JSON-RPC peer: a child process, or a connection to a server
+// already running (Connect).
 type Client struct {
 	cmd           *exec.Cmd
 	stdin         io.WriteCloser
@@ -77,6 +79,13 @@ type Client struct {
 	stderr        []byte
 	failure       error
 	closeOnce     sync.Once
+}
+
+func newClient(ctx context.Context, cancel context.CancelFunc, stdin io.WriteCloser, handlers Handlers, version string, logLines bool) *Client {
+	return &Client{stdin: stdin, cancel: cancel, ctx: ctx, handlers: handlers, version: version, logLines: logLines,
+		notifications: make(chan Notification, notificationBuffer), done: make(chan struct{}),
+		exited: make(chan struct{}), writes: make(chan struct{}, 1),
+		pending: map[int64]chan response{}, requests: map[string]context.CancelFunc{}}
 }
 
 // Start runs the server in its own process group, so closing it also ends
@@ -121,13 +130,17 @@ func Start(ctx context.Context, opts Options, handlers Handlers) (*Client, error
 	}
 	outWriter.Close()
 	errWriter.Close()
-	c := &Client{cmd: cmd, stdin: stdin, cancel: cancel, ctx: procCtx, handlers: handlers, version: opts.Version, logLines: opts.LogLines,
-		notifications: make(chan Notification, notificationBuffer), done: make(chan struct{}),
-		exited: make(chan struct{}), writes: make(chan struct{}, 1),
-		pending: map[int64]chan response{}, requests: map[string]context.CancelFunc{}}
+	c := newClient(procCtx, cancel, stdin, handlers, opts.Version, opts.LogLines)
+	c.cmd = cmd
 	var drains sync.WaitGroup
 	drains.Add(2)
-	go func() { defer drains.Done(); defer stdout.Close(); c.readMessages(stdout) }()
+	go func() {
+		defer drains.Done()
+		defer stdout.Close()
+		if c.readMessages(stdout) {
+			c.awaitExit()
+		}
+	}()
 	go func() { defer drains.Done(); defer stderr.Close(); c.readStderr(stderr) }()
 	go func() {
 		err := cmd.Wait()
@@ -210,7 +223,8 @@ type envelope struct {
 	Error  *Error          `json:"error,omitempty"`
 }
 
-func (c *Client) readMessages(r io.Reader) {
+// readMessages reads until r ends; true is a clean end of stream.
+func (c *Client) readMessages(r io.Reader) bool {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64<<10), maxLine)
 	for scanner.Scan() {
@@ -221,7 +235,7 @@ func (c *Client) readMessages(r io.Reader) {
 				continue
 			}
 			c.fail(fmt.Errorf("stdiorpc: malformed stdout frame: %w", err))
-			return
+			return false
 		}
 		switch {
 		case m.Method != "" && len(m.ID) > 0:
@@ -235,7 +249,7 @@ func (c *Client) readMessages(r io.Reader) {
 			if c.handlers.Notification != nil {
 				if err := c.handlers.Notification(Notification{Method: m.Method, Params: m.Params}); err != nil {
 					c.fail(err)
-					return
+					return false
 				}
 				continue
 			}
@@ -243,20 +257,25 @@ func (c *Client) readMessages(r io.Reader) {
 			case c.notifications <- Notification{Method: m.Method, Params: m.Params}:
 			default:
 				c.fail(errors.New("stdiorpc: notification buffer exhausted"))
-				return
+				return false
 			}
 		case len(m.ID) > 0:
 			c.answer(m)
 		default:
 			c.fail(errors.New("stdiorpc: stdout frame is neither a message nor a reply"))
-			return
+			return false
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		c.fail(fmt.Errorf("stdiorpc: stdout: %w", err))
-		return
+		return false
 	}
-	// EOF can precede Wait; give a normal exit time to retain its real status.
+	return true
+}
+
+// awaitExit follows stdout's end: EOF can precede Wait, so a normal exit gets
+// time to retain its real status.
+func (c *Client) awaitExit() {
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	select {

@@ -22,6 +22,10 @@ type Dependencies struct {
 	// config directories, so a test host never reads a real account.
 	Root string
 
+	// State is a directory a provider may keep its own files in, each under a
+	// name of its own; "" keeps them in memory.
+	State string
+
 	// Env is added to every agent process the host spawns.
 	Env []string
 

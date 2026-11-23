@@ -152,7 +152,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, newID 
 		r.adopt(s.key, s.cwd)
 	}
 	if own {
-		entry, release := r.deps.Tools.Attach(s, req)
+		entry, release := r.deps.Tools.Attach(s, req, "")
 		s.release = release
 		servers = append(slices.Clone(servers), entry)
 	}

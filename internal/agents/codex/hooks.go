@@ -21,7 +21,16 @@ var codexTimeouts = map[string]int{
 
 // Hooks edits Codex's user hooks.json. Codex runs a hook only once the user
 // has trusted it (`/hooks` in the TUI), so an install reports nothing until then.
-type Hooks struct{ Home string }
+type Hooks struct {
+	Home string
+	owns func(threadID, turnID string) bool
+}
+
+// Owns reports a hook that fired in a turn RepoGo runs on Codex's background
+// server, whose hooks can't carry REPOGO_ORIGIN.
+func (c Hooks) Owns(threadID, turnID string) bool { return c.owns != nil && c.owns(threadID, turnID) }
+
+var _ notify.TurnOwner = Hooks{}
 
 // Kind is the agent name the helper is registered under.
 func (Hooks) Kind() agent.Kind { return agent.KindCodex }

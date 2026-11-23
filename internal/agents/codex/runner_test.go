@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +20,11 @@ import (
 
 func TestMain(m *testing.M) {
 	if os.Getenv("REPOGO_FAKE_CODEX") == "1" {
+		// `codex queue` leaves what it queued in Codex's home.
+		if len(os.Args) > 1 && os.Args[1] == "queue" {
+			_ = os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "queued"), []byte(strings.Join(os.Args[1:], " ")), 0o600)
+			os.Exit(0)
+		}
 		fakeAppServer()
 		os.Exit(0)
 	}
@@ -240,9 +246,25 @@ func TestResumeFailureIsAnErrorNotAFork(t *testing.T) {
 	}
 }
 
-func TestResumeRefusedByAnotherWriterSaysWhere(t *testing.T) {
+// A chat another Codex app holds gets the prompt through Codex's queue,
+// which that app reads.
+func TestResumeRefusedByAnotherWriterQueues(t *testing.T) {
 	r := testRunner(t)
-	_, _, _, err := turnOf(t, r, agent.TurnRequest{ChatID: "codex:locked", SessionID: "locked", Cwd: t.TempDir(), Prompt: "hello"}, nil)
+	result, _, _, err := turnOf(t, r, agent.TurnRequest{ChatID: "codex:locked", SessionID: "locked", Cwd: t.TempDir(), Prompt: "hello there"}, nil)
+	if err != nil || result.StopReason != "queued" || result.SessionID != "locked" {
+		t.Fatalf("got %#v, %v", result, err)
+	}
+	queued, err := os.ReadFile(filepath.Join(r.home, "queued"))
+	if err != nil || string(queued) != "queue --thread locked --message hello there" {
+		t.Fatalf("queued %q: %v", queued, err)
+	}
+}
+
+// The queue takes text only, so a turn with files still says where the chat is.
+func TestResumeRefusedWithAttachmentsSaysWhere(t *testing.T) {
+	r := testRunner(t)
+	_, _, _, err := turnOf(t, r, agent.TurnRequest{ChatID: "codex:locked", SessionID: "locked", Cwd: t.TempDir(), Prompt: "look",
+		Attachments: []agent.Attachment{{Name: "a.png", Path: "/tmp/a.png"}}}, nil)
 	if !errors.Is(err, errOpenElsewhere) {
 		t.Fatalf("got %v", err)
 	}

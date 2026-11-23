@@ -29,6 +29,10 @@ type runner struct {
 	pool       agent.SessionPool[*liveSession]
 	executable func() string
 	home       string
+	// background is Codex's shared app server; nil on a test host.
+	background *background
+	tokens     *toolTokens
+	owned      ownedTurns
 }
 
 func (r *runner) Kind() agent.Kind { return agent.KindCodex }
@@ -48,6 +52,9 @@ func (r *runner) Close() { r.pool.Close() }
 // provider's prompt cache survives.
 func (r *runner) Send(ctx context.Context, req agent.TurnRequest, io agent.TurnIO) (agent.Result, error) {
 	s, err := r.acquireSession(ctx, req)
+	if errors.Is(err, errOpenElsewhere) {
+		return r.queue(ctx, req)
+	}
 	if err != nil {
 		return agent.Result{}, err
 	}
@@ -95,6 +102,11 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 		s.mu.Lock()
 		matches := s.cwd == req.Cwd && (req.SessionID == "" || req.SessionID == s.id)
 		same := matches && s.fingerprint == fingerprint && !s.closed
+		// A chat on its own app server moves to the background server once
+		// that runs, so the terminal can open the thread too.
+		if same && !s.shared && r.background != nil && r.background.running() {
+			same = false
+		}
 		busy := s.busyLocked()
 		s.mu.Unlock()
 		if same {
@@ -125,44 +137,76 @@ func (r *runner) acquireSession(ctx context.Context, req agent.TurnRequest) (*li
 	go func() {
 		<-s.client.Done()
 		exit := s.client.Exit()
+		if s.shared {
+			r.deps.Log.Info("Codex background server connection closed", "chat", s.key, "expected", s.isClosed(), "error", exit.Err)
+			r.pool.Retire(s.key, s)
+			return
+		}
 		r.deps.Log.Info("Codex process exited", "chat", s.key, "code", exit.Code, "signal", exit.Signal, "expected", s.isClosed(), "error", exit.Err, "stderr", lastLine(exit.Stderr))
 		r.pool.Retire(s.key, s)
 	}()
 	return s, nil
 }
 
-// startSession starts an app server and opens the thread the chat names, or a
-// new one. A resume that fails is the turn's error: a fresh thread would
-// answer in a different conversation than the one on the user's screen.
+// startSession joins Codex's background server, or starts an app server of
+// the chat's own, and opens the thread the chat names, or a new one. A resume
+// that fails is the turn's error: a fresh thread would answer in a different
+// conversation than the one on the user's screen.
 func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, servers []agent.MCPServer, own bool, instructions string) (*liveSession, error) {
-	if req.SessionID != "" && threadOpenElsewhere(r.home, req.SessionID) {
+	s := newLiveSession(req.Cwd, r.deps.Log)
+	s.owned = &r.owned
+	handlers := codexappserver.Handlers{Request: s.respond}
+	if r.background != nil {
+		s.client, s.shared = r.background.dial(r.deps.Context, handlers)
+	}
+	// On the background server the server itself holds the writer lock, so
+	// only a resume it refuses says another app has the thread.
+	if !s.shared && req.SessionID != "" && threadOpenElsewhere(r.home, req.SessionID) {
 		return nil, errOpenElsewhere
 	}
-	s := newLiveSession(req.Cwd, r.deps.Log)
+	projectEnv := r.deps.ProjectEnvFor(req.Cwd)
 	if own {
-		entry, release := r.deps.Tools.Attach(s, req)
-		s.release = release
+		// The shared server keeps a thread's entry while it holds the thread,
+		// so a thread it may hold answers to the token it opened with.
+		var token string
+		if s.shared && req.SessionID != "" {
+			token = r.tokens.get(req.SessionID)
+		}
+		entry, release := r.deps.Tools.Attach(s, req, token)
+		s.release, s.toolToken = release, bearer(entry)
 		servers = append(slices.Clone(servers), entry)
 	}
-	client, err := codexappserver.Start(r.deps.Context, codexappserver.Options{
-		Executable: r.executable(), Cwd: req.Cwd, Env: append(r.environment(), r.deps.ProjectEnvFor(req.Cwd)...),
-	}, codexappserver.Handlers{Request: s.respond})
-	if err != nil {
-		if s.release != nil {
-			s.release()
+	if !s.shared {
+		client, err := codexappserver.Start(r.deps.Context, codexappserver.Options{
+			Executable: r.executable(), Cwd: req.Cwd, Env: append(r.environment(), projectEnv...),
+		}, handlers)
+		if err != nil {
+			if s.release != nil {
+				s.release()
+			}
+			return nil, err
 		}
-		return nil, err
+		s.client = client
 	}
-	s.client = client
+	client := s.client
 	go s.consume()
 	open, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
-	if err = client.Initialize(open); err != nil {
+	if err := client.Initialize(open); err != nil {
 		s.close()
 		return nil, fmt.Errorf("initialize Codex: %w", withStderr(err, client))
 	}
 	params := threadParams(req, servers, instructions)
+	if s.shared {
+		if env := shellEnv(projectEnv); env != nil {
+			if params.Config == nil {
+				params.Config = map[string]any{}
+			}
+			params.Config["shell_environment_policy"] = env
+		}
+	}
 	var thread codexappserver.ThreadResponse
+	var err error
 	if req.SessionID == "" {
 		thread, err = client.ThreadStart(open, params)
 	} else {
@@ -185,6 +229,9 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, server
 	}
 	s.id = thread.Thread.ID
 	s.key = agent.ChatID(agent.KindCodex, s.id)
+	if s.shared {
+		r.tokens.put(s.id, s.toolToken)
+	}
 	s.model = thread.Model
 	if thread.ReasoningEffort != nil {
 		s.effort = *thread.ReasoningEffort

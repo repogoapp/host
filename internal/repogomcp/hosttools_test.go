@@ -169,7 +169,7 @@ func TestAChildCantStartOrMessageChats(t *testing.T) {
 	s := hostToolsServer(t, hostRouter(t, calls))
 	cwd := t.TempDir()
 	turn := agent.RunningTurn{Ctx: t.Context(), TurnID: "t1", ChatID: "codex:child", Cwd: cwd, Device: "phone", Parent: "claude:parent"}
-	entry, release := s.Attach(&fakeSession{turn: turn}, agent.TurnRequest{Cwd: cwd, Parent: "claude:parent"})
+	entry, release := s.Attach(&fakeSession{turn: turn}, agent.TurnRequest{Cwd: cwd, Parent: "claude:parent"}, "")
 	defer release()
 	token := strings.TrimPrefix(entry.Headers[0].Value, "Bearer ")
 

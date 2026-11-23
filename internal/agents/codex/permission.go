@@ -11,10 +11,15 @@ import (
 	"github.com/repogoapp/host/internal/codexappserver"
 )
 
-// respond answers what Codex asks of a person. A subagent's request comes
-// on the same connection and is answered through the chat's turn, since the
-// work it blocks is that turn's.
+// respond answers what Codex asks of a person; a subagent's request is
+// answered through the chat's turn, whose work it blocks. On the shared
+// server, a request while no RepoGo turn is bound is another client's turn
+// asking: that client answers, and Codex withdraws it from this one.
 func (s *liveSession) respond(ctx context.Context, r codexappserver.Request) (any, error) {
+	if s.othersTurn() {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	switch r.Method {
 	case codexappserver.MethodCommandApproval:
 		var p codexappserver.CommandApproval

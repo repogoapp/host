@@ -190,3 +190,24 @@ func TestAntigravityPayloadsAreRead(t *testing.T) {
 		t.Fatalf("stop %+v asked %v", n, asked)
 	}
 }
+
+// ownerHooks owns turn "mine": a turn the host runs where its hooks can't
+// carry REPOGO_ORIGIN.
+type ownerHooks struct{ testHooks }
+
+func (ownerHooks) Owns(_, turnID string) bool { return turnID == "mine" }
+
+func TestHookFromAnOwnedTurnIsTheApps(t *testing.T) {
+	for turn, want := range map[string]Origin{"mine": OriginApp, "terminal": OriginCLI} {
+		d := drop{Agent: "claude", Event: "Stop", Payload: json.RawMessage(`{"session_id":"s1","turn_id":"` + turn + `"}`)}
+		n, ok := parseDrop(d, []Provider{ownerHooks{}})
+		if !ok || n.Origin != want {
+			t.Fatalf("turn %s: origin %q, want %q", turn, n.Origin, want)
+		}
+		frame, ok := parseDisplay(drop{Agent: "claude", Event: displayEvent,
+			Payload: json.RawMessage(`{"session_id":"s1","message_id":"m","turn_id":"` + turn + `"}`)}, []Provider{ownerHooks{}})
+		if !ok || frame.Origin != want {
+			t.Fatalf("display for turn %s: origin %q, want %q", turn, frame.Origin, want)
+		}
+	}
+}

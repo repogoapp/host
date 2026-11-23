@@ -51,8 +51,12 @@ func parseDisplay(d drop, providers []Provider) (DisplayFrame, bool) {
 	if provider := find(providers, kind); provider == nil || !provider.Displays() {
 		return DisplayFrame{}, false
 	}
+	origin := d.origin()
+	if origin == OriginCLI && owns(find(providers, kind), p.SessionID, p.TurnID) {
+		origin = OriginApp
+	}
 	return DisplayFrame{
-		Agent: kind, SessionID: p.SessionID, Cwd: p.Cwd, Origin: d.origin(),
+		Agent: kind, SessionID: p.SessionID, Cwd: p.Cwd, Origin: origin,
 		PromptID: p.PromptID, TurnID: p.TurnID, MessageID: p.MessageID,
 		Index: p.Index, Final: p.Final, Delta: p.Delta, At: d.time(),
 	}, true
