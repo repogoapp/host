@@ -22,6 +22,19 @@ static dispatch_queue_t gAXQueue;
 // gSwitchedOnAt is when accessibility was last switched on: each app
 // launched after starts with it off again.
 static CFAbsoluteTime gSwitchedOnAt;
+// gDeadline ends the read under way, whatever is left: the tree, the probe,
+// switching accessibility on.
+static CFAbsoluteTime gDeadline;
+static const CFAbsoluteTime kReadBudget = 6;
+
+static BOOL late(void) { return CFAbsoluteTimeGetCurrent() > gDeadline; }
+
+// waitFor waits on a semaphore no longer than the read has left, nor limit.
+static BOOL waitFor(dispatch_semaphore_t s, double limit) {
+  double left = MIN(limit, gDeadline - CFAbsoluteTimeGetCurrent());
+  if (left <= 0) return NO;
+  return dispatch_semaphore_wait(s, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(left * NSEC_PER_SEC))) == 0;
+}
 
 // The translator's bridge: it asks, the device answers.
 @interface RGAXBridge : NSObject
@@ -38,7 +51,7 @@ static CFAbsoluteTime gSwitchedOnAt;
           response = r;
           dispatch_semaphore_signal(done);
         });
-    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC));
+    waitFor(done, 3);
     if (response) return response;
     Class empty = NSClassFromString(@"AXPTranslatorResponse");
     return ((id (*)(id, SEL))objc_msgSend)(empty, NSSelectorFromString(@"emptyResponse"));
@@ -106,7 +119,7 @@ static BOOL switchOn(void) {
     session = s;
     dispatch_semaphore_signal(got);
   });
-  if (dispatch_semaphore_wait(got, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) != 0 || !session) return NO;
+  if (!waitFor(got, 3) || !session) return NO;
   SEL enable = NSSelectorFromString(@"enableAutomationModeWithError:");
   if ([session respondsToSelector:enable]) {
     NSError *error = nil;
@@ -116,11 +129,11 @@ static BOOL switchOn(void) {
   if (![session respondsToSelector:load]) return NO;
   __block BOOL loaded = NO;
   dispatch_semaphore_t done = dispatch_semaphore_create(0);
-  ((void (*)(id, SEL, double, id))objc_msgSend)(session, load, 5.0, ^(BOOL ok, NSError *e) {
+  ((void (*)(id, SEL, double, id))objc_msgSend)(session, load, 3.0, ^(BOOL ok, NSError *e) {
     loaded = ok;
     dispatch_semaphore_signal(done);
   });
-  dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC));
+  waitFor(done, 3.5);
   SEL invalidate = NSSelectorFromString(@"invalidate");
   if ([session respondsToSelector:invalidate]) ((void (*)(id, SEL))objc_msgSend)(session, invalidate);
   return loaded;
@@ -203,7 +216,7 @@ static void add(Read *r, NSAccessibilityElement *e, NSString *source) {
 // come back as one group with no children, their tabs reachable only by point.
 static void walk(Read *r, NSAccessibilityElement *e, int depth, NSMutableArray<NSValue *> *covering,
                  NSMutableArray<NSValue *> *hollow) {
-  if (!e || depth > 64 || r->found.count > 2000) return;
+  if (!e || depth > 64 || r->found.count > 2000 || late()) return;
   add(r, e, @"tree");
   NSArray *children = e.accessibilityChildren;
   if (!children.count) children = attribute(e, @"AXChildrenInNavigationOrder");
@@ -240,7 +253,7 @@ static BOOL inAny(CGPoint p, NSArray<NSValue *> *rects) {
 // empty group, then the cells of a grid nothing covered.
 static void probe(Read *r, NSMutableArray<NSValue *> *covering, NSArray<NSValue *> *hollow, uint32_t display) {
   const CGFloat cell = 40;
-  CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 0.8;
+  CFAbsoluteTime deadline = MIN(CFAbsoluteTimeGetCurrent() + 0.8, gDeadline);
   NSMutableArray<NSValue *> *known = [NSMutableArray array];
   for (NSValue *v in hollow) {
     NSRect g = NSIntersectionRect(v.rectValue, NSMakeRect(0, 0, r->size.width, r->size.height));
@@ -291,16 +304,18 @@ static NSDictionary *readScreen(uint32_t display, int sideways, BOOL *empty) {
 }
 
 char *simax_elements(uint32_t display, int sideways) {
+  // Without the frameworks (simax_start failed) there's nothing to read with.
+  if (!gAXQueue || !gTranslator) return NULL;
   __block char *answer = NULL;
   dispatch_sync(gAXQueue, ^{
     @autoreleasepool {
-      if (!gTranslator) return;
+      gDeadline = CFAbsoluteTimeGetCurrent() + kReadBudget;
       BOOL empty = NO;
       NSDictionary *screen = readScreen(display, sideways, &empty);
       // An empty tree: an app launched since accessibility was switched on,
       // or one still launching. Switch it on (not more than every few
       // seconds), then give the app a moment.
-      for (int attempt = 0; empty && attempt < 3; attempt++) {
+      for (int attempt = 0; empty && attempt < 3 && !late(); attempt++) {
         if (CFAbsoluteTimeGetCurrent() - gSwitchedOnAt > 3) {
           gSwitchedOnAt = CFAbsoluteTimeGetCurrent();
           switchOn();

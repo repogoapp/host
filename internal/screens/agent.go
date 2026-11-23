@@ -71,6 +71,11 @@ type agentState struct {
 	// read is the last read, and reads how many there have been; c.mu.
 	read  *Elements
 	reads int
+	// generation counts the screen's changes (an action, a fold or turn, the
+	// phone's input): a read is kept only if none came while it ran; c.mu.
+	generation int
+	// closed is set when the screen shut down: nothing new starts; c.mu.
+	closed bool
 	// headless is the input path started for agents when no live view was
 	// open (iOS); c.mu.
 	headless *headlessView
@@ -99,6 +104,19 @@ func (m *Manager) agentController(ctx context.Context, id string) (*controller, 
 		return nil, errInvalid.Errorf("%s is this Mac's display: only simulators and emulators take these", id)
 	}
 	return c, nil
+}
+
+// screenChanged forgets the last read: the screen may no longer be it.
+func (c *controller) screenChanged() {
+	c.mu.Lock()
+	c.screenChangedLocked()
+	c.mu.Unlock()
+}
+
+// screenChangedLocked is screenChanged with c.mu held.
+func (c *controller) screenChangedLocked() {
+	c.agent.generation++
+	c.agent.read = nil
 }
 
 // Elements reads what's on the screen now, numbering each element for the
@@ -228,10 +246,7 @@ func (m *Manager) press(ctx context.Context, id string, inputs ...StreamInput) e
 			}
 		}
 	}
-	// The read before may no longer be the screen.
-	c.mu.Lock()
-	c.agent.read = nil
-	c.mu.Unlock()
+	c.screenChanged()
 	return nil
 }
 
@@ -250,9 +265,7 @@ func (m *Manager) Launch(ctx context.Context, id, app string) error {
 	} else {
 		_, err = c.shell(ctx, "monkey -p "+app+" -c android.intent.category.LAUNCHER 1")
 	}
-	c.mu.Lock()
-	c.agent.read = nil
-	c.mu.Unlock()
+	c.screenChanged()
 	return err
 }
 
@@ -291,6 +304,9 @@ var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 func (c *controller) readElements(ctx context.Context) (Elements, error) {
 	var e Elements
 	var err error
+	c.mu.Lock()
+	generation := c.agent.generation
+	c.mu.Unlock()
 	if c.d.Platform == PlatformIOS {
 		e, err = c.readIOSElements(ctx)
 	} else {
@@ -308,8 +324,11 @@ func (c *controller) readElements(ctx context.Context) (Elements, error) {
 	for i := range e.Elements {
 		e.Elements[i].Ref = fmt.Sprintf("e%d.%d", c.agent.reads, i+1)
 	}
-	kept := e
-	c.agent.read = &kept
+	// A read the screen changed under isn't kept: its refs could tap the wrong thing.
+	if c.agent.generation == generation {
+		kept := e
+		c.agent.read = &kept
+	}
 	c.mu.Unlock()
 	return e, nil
 }
@@ -437,11 +456,16 @@ func (c *controller) gesture(ctx context.Context, points []Point, ms int) error 
 	if err != nil {
 		return err
 	}
-	touch := func(phase TouchPhase, p Point) error {
-		x, y := p.X/size.X, p.Y/size.Y
-		if x < 0 || x > 1 || y < 0 || y > 1 {
+	// Every point is checked before the finger goes down, so none is left down.
+	for _, p := range points {
+		if x, y := p.X/size.X, p.Y/size.Y; x < 0 || x > 1 || y < 0 || y > 1 {
 			return errInvalid.Errorf("%.0f, %.0f is off the %.0f×%.0f screen", p.X, p.Y, size.X, size.Y)
 		}
+	}
+	at := points[0]
+	touch := func(phase TouchPhase, p Point) error {
+		at = p
+		x, y := p.X/size.X, p.Y/size.Y
 		for _, it := range c.translate(StreamInput{Touch: &TouchInput{Phase: phase, X: x, Y: y}}) {
 			if err := path(it.device); err != nil {
 				return err
@@ -461,15 +485,13 @@ func (c *controller) gesture(ctx context.Context, points []Point, ms int) error 
 			time.Sleep(time.Duration(ms/steps) * time.Millisecond)
 			f := float64(i) / float64(steps)
 			if err := touch(TouchMove, Point{X: from.X + (to.X-from.X)*f, Y: from.Y + (to.Y-from.Y)*f}); err != nil {
-				touch(TouchUp, to)
+				touch(TouchUp, at)
 				return err
 			}
 		}
 	}
 	err = touch(TouchUp, points[len(points)-1])
-	c.mu.Lock()
-	c.agent.read = nil
-	c.mu.Unlock()
+	c.screenChanged()
 	return err
 }
 
@@ -500,6 +522,10 @@ func (c *controller) inputPath(ctx context.Context) (func(capture.Input) error, 
 		return c.androidPath(ctx), nil
 	}
 	c.mu.Lock()
+	if c.agent.closed {
+		c.mu.Unlock()
+		return nil, ErrNotRunning
+	}
 	h := c.agent.headless
 	open := len(c.views)
 	if open == 0 && h == nil {
@@ -575,11 +601,17 @@ func (c *controller) startHeadless() *headlessView {
 	return h
 }
 
-// closeAgent stops what agents started on the screen: it shut down.
+// closeAgent stops what agents started on the screen: it shut down. It
+// waits for an action under way, so what that starts is stopped too, and
+// nothing starts after.
 func (c *controller) closeAgent() {
+	c.agent.lock.Lock()
+	defer c.agent.lock.Unlock()
 	c.mu.Lock()
+	c.agent.closed = true
 	h, r := c.agent.headless, c.agent.recording
-	c.agent.headless, c.agent.recording, c.agent.read = nil, nil, nil
+	c.agent.headless, c.agent.recording = nil, nil
+	c.screenChangedLocked()
 	c.mu.Unlock()
 	if r != nil {
 		r.stop()
@@ -587,12 +619,10 @@ func (c *controller) closeAgent() {
 	if h != nil {
 		h.cancel()
 	}
-	c.agent.lock.Lock()
 	if c.agent.android != nil {
 		c.agent.android.close()
 		c.agent.android = nil
 	}
-	c.agent.lock.Unlock()
 }
 
 // androidPath runs the device input as the emulator's `input` command.
@@ -646,8 +676,6 @@ func (c *controller) androidGesture(ctx context.Context, points []Point, ms int)
 		command = fmt.Sprintf("input swipe %d %d %d %d %d", x1, y1, x2, y2, ms)
 	}
 	_, err = c.shell(ctx, command)
-	c.mu.Lock()
-	c.agent.read = nil
-	c.mu.Unlock()
+	c.screenChanged()
 	return err
 }

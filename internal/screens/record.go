@@ -46,8 +46,11 @@ func (m *Manager) RecordStart(ctx context.Context, id string) error {
 	c.agent.lock.Lock()
 	defer c.agent.lock.Unlock()
 	c.mu.Lock()
-	busy := c.agent.recording != nil
+	busy, closed := c.agent.recording != nil, c.agent.closed
 	c.mu.Unlock()
+	if closed {
+		return ErrNotRunning
+	}
 	if busy {
 		return errInvalid.Errorf("%s is already recording: stop it first", id)
 	}
@@ -74,7 +77,17 @@ func (m *Manager) RecordStart(ctx context.Context, id string) error {
 	c.mu.Lock()
 	c.agent.recording = r
 	c.mu.Unlock()
-	time.AfterFunc(recordLimit, func() { r.stop() })
+	// Stopped, it stays the screen's recording until RecordStop collects it.
+	time.AfterFunc(recordLimit, func() {
+		c.agent.lock.Lock()
+		defer c.agent.lock.Unlock()
+		c.mu.Lock()
+		current := c.agent.recording == r
+		c.mu.Unlock()
+		if current {
+			r.stop()
+		}
+	})
 	return nil
 }
 
@@ -84,14 +97,20 @@ func (m *Manager) RecordStop(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Held while the recorder finishes, so a start can't begin another meanwhile.
+	c.agent.lock.Lock()
+	defer c.agent.lock.Unlock()
 	c.mu.Lock()
 	r := c.agent.recording
-	c.agent.recording = nil
 	c.mu.Unlock()
 	if r == nil {
 		return "", errInvalid.Errorf("%s isn't recording", id)
 	}
-	if err := r.stop(); err != nil {
+	err = r.stop()
+	c.mu.Lock()
+	c.agent.recording = nil
+	c.mu.Unlock()
+	if err != nil {
 		return "", err
 	}
 	return r.path, nil

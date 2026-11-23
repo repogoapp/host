@@ -395,9 +395,15 @@ func (c *controller) showTurn() {
 // commandWait is how long simcap may take to carry out an action.
 const commandWait = 10 * time.Second
 
-// command sends an action to simcap and waits for it to say it's done.
+// command sends an action to simcap and waits for it to say it's done:
+// through the newest live view, or a headless one when none is open (a
+// fold from the CLI or an agent).
 func (c *controller) command(ctx context.Context, in capture.Input) error {
-	_, err := c.commandVia(ctx, c.forward, in)
+	path, err := c.inputPath(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.commandVia(ctx, path, in)
 	return err
 }
 
@@ -472,7 +478,7 @@ func (c *controller) fromSimcap(message []byte) {
 	c.change(func() {
 		if c.activeScreen != m.Display.Screen || c.rotation != upright(m.Display.Rotation) {
 			// A fold or turn moved everything: the last read's refs are gone.
-			c.agent.read = nil
+			c.screenChangedLocked()
 		}
 		c.foldable = c.foldable || m.Display.Foldable
 		c.displayed = true

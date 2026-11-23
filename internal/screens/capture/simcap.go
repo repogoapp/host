@@ -188,27 +188,36 @@ func Run(developerDir, udid string, universal, headless bool, out *os.File, in i
 			continue
 		}
 		finger.track(input)
-		var data json.RawMessage
-		var err error
 		if input.Action == ActionElements {
-			if data = elements(); data == nil {
-				err = fmt.Errorf("this simulator's screen can't be read by label")
-			}
-		} else {
-			err = play(input)
+			// A read takes up to seconds: off this loop, so touches don't wait.
+			go func(id int) {
+				data := elements()
+				var err error
+				if data == nil {
+					err = fmt.Errorf("this simulator's screen can't be read by label")
+				}
+				answer(id, err, data)
+			}(input.ID)
+			continue
 		}
-		if input.ID != 0 {
-			done := map[string]any{"id": input.ID}
-			if err != nil {
-				done["error"] = err.Error()
-			}
-			if data != nil {
-				done["data"] = data
-			}
-			tellHost(map[string]any{"done": done})
-		}
+		answer(input.ID, play(input), nil)
 	}
 	return lines.Err()
+}
+
+// answer tells the host an action with an ID is done: its error, its data.
+func answer(id int, err error, data json.RawMessage) {
+	if id == 0 {
+		return
+	}
+	done := map[string]any{"id": id}
+	if err != nil {
+		done["error"] = err.Error()
+	}
+	if data != nil {
+		done["data"] = data
+	}
+	tellHost(map[string]any{"done": done})
 }
 
 // fingerState is whether the simulator has a finger down, and where, so a

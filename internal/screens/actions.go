@@ -37,6 +37,13 @@ func (m *Manager) Set(ctx context.Context, id string, s Settings) (State, error)
 	if err != nil {
 		return State{}, err
 	}
+	// Whether a simulator folds is known once a view has reported its panels:
+	// a fold asked for before any (from the CLI or an agent) starts one first.
+	if s.Pose != nil && c.d.Platform == PlatformIOS {
+		if err := c.knowPanel(ctx); err != nil {
+			return State{}, err
+		}
+	}
 	checks := []struct {
 		given   bool
 		control Control
@@ -60,6 +67,9 @@ func (m *Manager) Set(ctx context.Context, id string, s Settings) (State, error)
 		if err := c.supports(check.control); err != nil {
 			return State{}, err
 		}
+	}
+	if s.Pose != nil {
+		defer c.screenChanged()
 	}
 	if c.d.Platform == PlatformIOS {
 		err = c.setIOS(ctx, s)
@@ -85,6 +95,7 @@ func (m *Manager) Rotate(ctx context.Context, id string, t Turn) error {
 	if err != nil {
 		return err
 	}
+	defer c.screenChanged()
 	if c.d.Platform == PlatformIOS {
 		return c.rotateIOS(ctx, t)
 	}
@@ -100,6 +111,7 @@ func (m *Manager) OpenURL(ctx context.Context, id, link string) error {
 	if err != nil {
 		return err
 	}
+	defer c.screenChanged()
 	if c.d.Platform == PlatformIOS {
 		_, err = c.simctl(ctx, "openurl", c.d.ID, link)
 		return err

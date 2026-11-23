@@ -372,6 +372,9 @@ func (m *Manager) Stream(ctx context.Context, req StreamRequest, phone Phone, se
 				mic.write(in.MicAudio.PCM)
 				continue
 			}
+			if changesScreen(in) {
+				c.screenChanged()
+			}
 			for _, it := range c.translate(in) {
 				queue.push(it)
 			}
@@ -407,6 +410,16 @@ type Phone struct {
 type item struct {
 	device capture.Input
 	host   func(ctx context.Context, device func(capture.Input) error) error
+}
+
+// changesScreen is whether a phone's input may change what's on the
+// screen, so an agent's last read of it goes: a lift, a button, typing or
+// a key, not each move of a finger.
+func changesScreen(in StreamInput) bool {
+	if t := in.Touch; t != nil {
+		return t.Phase == TouchUp || t.Phase == TouchCancel
+	}
+	return in.Button != nil || in.Text != nil || in.Key != nil
 }
 
 // translate turns a phone's input into what the device takes.

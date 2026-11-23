@@ -79,3 +79,46 @@ func TestScreencapSkipsAWarningAheadOfThePNG(t *testing.T) {
 		t.Fatalf("signature at %d", at)
 	}
 }
+
+// The phone's lift, button, typing or key forgets the last read; a finger's
+// move doesn't.
+func TestPhoneInputThatChangesTheScreenForgetsTheRead(t *testing.T) {
+	for _, tc := range []struct {
+		in   StreamInput
+		want bool
+	}{
+		{StreamInput{Touch: &TouchInput{Phase: TouchMove}}, false},
+		{StreamInput{Touch: &TouchInput{Phase: TouchUp}}, true},
+		{StreamInput{Button: &ButtonInput{Button: ButtonHome}}, true},
+		{StreamInput{Text: &TextInput{Text: "a"}}, true},
+		{StreamInput{Ping: &PingInput{}}, false},
+	} {
+		if got := changesScreen(tc.in); got != tc.want {
+			t.Fatalf("changesScreen(%+v) = %v", tc.in, got)
+		}
+	}
+}
+
+// A change while a read runs keeps it from becoming the last read.
+func TestAReadTheScreenChangedUnderIsNotKept(t *testing.T) {
+	c, _ := testController(Screen{ID: "A", Kind: KindSimulator, Platform: PlatformIOS})
+	c.mu.Lock()
+	generation := c.agent.generation
+	c.mu.Unlock()
+	c.screenChanged() // as a fold would, mid-read
+	c.mu.Lock()
+	kept := c.agent.generation == generation
+	c.mu.Unlock()
+	if kept {
+		t.Fatal("the generation didn't move")
+	}
+}
+
+// A shut-down screen starts nothing new for agents.
+func TestAClosedScreenStartsNoInput(t *testing.T) {
+	c, _ := testController(Screen{ID: "A", Kind: KindSimulator, Platform: PlatformIOS})
+	c.closeAgent()
+	if _, err := c.inputPath(context.Background()); err == nil {
+		t.Fatal("a closed screen started input")
+	}
+}
