@@ -49,9 +49,21 @@ const (
 	TooOld       State = "too_old"
 )
 
-// statusCommand runs on the other host. A non-interactive SSH session's PATH
-// lacks ~/.repogo/bin, so the path is spelled out.
-const statusCommand = "~/.repogo/bin/repogo status --json"
+// HostBinFile names, under ~/.repogo, the file a serving host writes its own
+// executable's path to: a development host runs from elsewhere than the
+// release's ~/.repogo/bin/repogo, and the check must ask the host that runs.
+const HostBinFile = "host-bin"
+
+// Repogo runs the other host's repogo command: the running host's own
+// binary, else the release's. A non-interactive SSH session's PATH lacks
+// ~/.repogo/bin, so paths are spelled out, and sh runs it whatever the
+// login shell is. No exec: macOS sh answers 126, not 127, for a missing file.
+func Repogo(args string) string {
+	return `sh -c 'b=$(cat ~/.repogo/` + HostBinFile + ` 2>/dev/null); [ -x "$b" ] || b=~/.repogo/bin/repogo; "$b" ` + args + `'`
+}
+
+// statusCommand runs on the other host.
+var statusCommand = Repogo("status --json")
 
 // checkTimeout bounds one host's SSH call, login included.
 const checkTimeout = 5 * time.Second

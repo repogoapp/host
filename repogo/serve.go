@@ -76,6 +76,9 @@ func run(ctx context.Context, log *slog.Logger, port int, lan bool, relayFlag *s
 		return err
 	}
 	h.Start()
+	if err := recordHostBin(); err != nil {
+		log.Warn("record this host's binary for other hosts", "err", err)
+	}
 
 	log.Info("runtime listening", "addr", addr.String(), "conf", confPath)
 	// Serving is a start that counts: a rollback is only for a release that cannot get here.
@@ -221,4 +224,22 @@ func pluginsSDK() string {
 		return ""
 	}
 	return os.Getenv("REPOGO_PLUGINS_SDK")
+}
+
+// recordHostBin writes this binary's path where another host's discovery
+// reads it over SSH (remotehost.Repogo), so it asks the host that is serving,
+// a development build included, rather than the release's command.
+func recordHostBin() error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	path, err := apphome.Path(remotehost.HostBinFile)
+	if err != nil {
+		return err
+	}
+	return apphome.WriteFile(path, []byte(self+"\n"), 0o600)
 }
