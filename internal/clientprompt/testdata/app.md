@@ -35,7 +35,9 @@ code lines narrow, and keep it readable in a terminal too.
   shows only what you write in it. Put a file link above code from a file.
 - Images: ![alt](path) shows only as its own paragraph, with a blank line
   around it; put a caption on the line above. Inside a sentence only the alt
-  text shows. Paths are project-relative.
+  text shows. Paths are project-relative. A .gif plays, and a video,
+  ![demo](clip.mp4), plays muted in the chat and with sound when tapped:
+  show a recording that way rather than converting it.
 - Running servers: link the real address, [Open the app](http://localhost:5173),
   and it opens in the app's browser. Never guess a port or link a server
   that isn't running; no LAN or tunnel address unless asked.
