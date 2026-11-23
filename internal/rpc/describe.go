@@ -59,13 +59,17 @@ func (r *Router) Examples() (map[string][]byte, error) {
 	return out, nil
 }
 
-// ToolDef is one Tool method as the repogo MCP offers it to agents.
+// ToolDef is one Tool method: what the catalog lists, and, marked MCP, what
+// the repogo MCP offers agents.
 type ToolDef struct {
-	Name        string         `json:"name"`
-	Method      string         `json:"method"`
-	Description string         `json:"description"`
-	ReadOnly    bool           `json:"read_only"`
-	InputSchema map[string]any `json:"input_schema"`
+	Name         string         `json:"name"`
+	Method       string         `json:"method"`
+	Description  string         `json:"description"`
+	ReadOnly     bool           `json:"read_only"`
+	MCP          bool           `json:"mcp,omitempty"`
+	NotFromChild bool           `json:"not_from_child,omitempty"`
+	NotRemote    bool           `json:"not_remote,omitempty"`
+	InputSchema  map[string]any `json:"input_schema"`
 }
 
 // ToolName is a method's tool name: MCP clients take letters, digits, _ and -.
@@ -80,7 +84,8 @@ func (r *Router) ToolDefs() []ToolDef {
 		}
 		defs = append(defs, ToolDef{
 			Name: ToolName(s.Name), Method: s.Name, Description: s.Tool,
-			ReadOnly: s.Effect == Reads, InputSchema: forAgents(wiredoc.Schema(s.Params)),
+			ReadOnly: s.Effect == Reads, MCP: s.MCP, NotFromChild: s.NotFromChild, NotRemote: s.NotRemote,
+			InputSchema: forAgents(wiredoc.Schema(s.Params)),
 		})
 	}
 	return defs

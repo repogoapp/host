@@ -80,14 +80,14 @@ type KeyParams struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "plugins.logs", d.logs, rpc.Tool("The console lines plugins wrote, newest first, each with the plugin, "+
+	rpc.Add(r, "plugins.logs", d.logs, rpc.MCP, rpc.NotRemote, rpc.Tool("The console lines plugins wrote, newest first, each with the plugin, "+
 		"the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves. "+
 		"An agent reads the text of lines its own chat's calls wrote; a line from another caller (a card, a cron, another chat) "+
 		"keeps its plugin, method, level and time but not its text. Secrets are masked."),
 		rpc.Read, rpc.LiveOn("plugins.logged"))
 	// Not offered to agents or plugins: a key opens a plugin to the internet.
 	rpc.Add(r, "plugins.keys", d.keys)
-	rpc.Add(r, "plugins.urls", d.urls, rpc.Tool("The environment's plugin methods that answer plain HTTP: each URL, "+
+	rpc.Add(r, "plugins.urls", d.urls, rpc.MCP, rpc.Tool("The environment's plugin methods that answer plain HTTP: each URL, "+
 		"device (this machine and its containers) or public (the internet), and whether it needs the plugin's key, "+
 		"which the user prints with repogo keys <plugin>."), rpc.Read)
 	rpc.Add(r, "plugins.call", d.call)

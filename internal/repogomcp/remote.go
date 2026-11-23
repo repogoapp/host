@@ -21,11 +21,6 @@ type RemoteAgent struct {
 	Child bool `json:"child,omitempty"`
 }
 
-// remoteDenied waits on the remote-parent columns: a chat started or messaged
-// from another host would be stored with that host's chat ID as a parent on
-// this one, which phones read as a local parent and hide.
-var remoteDenied = []string{"chats.start", "chats.send"}
-
 // RemoteCall runs one host tool for an agent on another host, through the
 // same allowlist and limits as this host's own agents.
 func (s *Server) RemoteCall(ctx context.Context, from RemoteAgent, method string, params json.RawMessage) (json.RawMessage, error) {
@@ -40,11 +35,9 @@ func (s *Server) RemoteCall(ctx context.Context, from RemoteAgent, method string
 	if i < 0 {
 		return nil, errkind.New(errkind.Invalid, method+" isn't a tool agents may call")
 	}
-	if slices.Contains(remoteDenied, method) {
-		return nil, errkind.New(errkind.Unavailable, method+" from another host isn't supported yet")
-	}
 	caller := rpc.Caller{Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{
 		ChatID: from.ChatID, PermissionMode: from.PermissionMode, Mode: from.Mode,
+		HostID: from.HostID, Child: from.Child,
 	}}
-	return runHostTool(ctx, router, caller, from.Child, hostTools[i], params)
+	return runHostTool(ctx, router, caller, hostTools[i], params)
 }

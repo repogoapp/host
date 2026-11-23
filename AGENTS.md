@@ -97,8 +97,21 @@ Methods: `rpc.Add(r, "family.method", d.handler, opts...)` with a handler
 exported types (`<Method>Params`, `<Method>Result`, `rpc.None`, `rpc.Ack`); a
 family with many keeps them in `types.go`. `rpc.Local` and `rpc.Paired` declare
 who may call; `rpc.Detached` marks a mutation that must finish if the caller
-leaves; `rpc.Tool` offers it to agents and cards, and `rpc.Plugins` lets a
+leaves; `rpc.Tool` describes it to cards and plugins, and `rpc.Plugins` lets a
 plugin's `ctx.host` call it without that (`mcp.call` behind `ctx.mcp`). Changing a method's types means `go test ./internal/rpc/conformance -update`.
+
+Who may call a method is said once, on its `rpc.Add` line, and checked once,
+in `Spec.allows` on the router's path: no other package keeps a list of
+method names. `rpc.MCP` offers a Tool to agents as an MCP tool, this host's
+and other hosts' through `hosts.call`; a Tool without it is for cards and
+plugins only (actions, git, limits). `rpc.NotFromChild` refuses it to a chat
+another chat started; `rpc.NotRemote` refuses it to another host's agent, for
+a method that reads the caller's chat ID as one on this host. The host sets
+the caller's `Agent` (`ChatID`, `HostID`, `Child`) and `Plugin`, never from
+params. A check that needs the params, such as an agent messaging its own
+chat, is the handler's. RepoGo's own four MCP tools (`browser`, `plugins`,
+`plugin_call`, `mcp_tools`) aren't host methods and check themselves; they are
+the only exception, so anything new an agent calls is a method with `rpc.MCP`.
 
 Handlers and core packages: a handler translates and makes one call; the
 work lives in the core package any surface can call (`rpc/hosts` and

@@ -51,6 +51,12 @@ type AgentCaller struct {
 	ChatID         string
 	PermissionMode string
 	Mode           string
+	// HostID is the host the chat is on when it isn't this one: an agent on
+	// another host calling through hosts.call. ChatID is that host's.
+	HostID string
+	// Child is a chat another chat's agent started: it may not start or
+	// message chats, so delegation stays one level deep.
+	Child bool
 }
 
 // The router's errors are errkind's roots, so a core package's own sentinel
@@ -107,9 +113,19 @@ type Spec struct {
 	// Plugins lets a plugin's ctx.host call it without offering it to agents and cards as a Tool.
 	Plugins bool
 
-	// Tool is what an agent or a card is told the method does; empty keeps it
-	// from both. Effect and LiveOn only mean something on a Tool method.
-	Tool   string
+	// Tool is what a card, a plugin or an agent is told the method does;
+	// empty keeps it from all three. Effect and LiveOn only mean something on
+	// a Tool method.
+	Tool string
+	// MCP offers a Tool to agents as an MCP tool: this host's, and another
+	// host's through hosts.call. Without it a Tool is for cards and plugins.
+	MCP bool
+	// NotFromChild refuses an MCP tool to a chat another chat's agent started.
+	NotFromChild bool
+	// NotRemote refuses an MCP tool to another host's agent, for a method
+	// that would read its chat ID as one on this host.
+	NotRemote bool
+
 	Effect Effect
 	// LiveOn is the events after which a Read may answer differently, so a
 	// card showing it reloads.
@@ -147,6 +163,10 @@ var (
 	Unpaired Option = func(s *Spec) { s.Unpaired = true }
 	Plugins  Option = func(s *Spec) { s.Plugins = true }
 
+	MCP          Option = func(s *Spec) { s.MCP = true }
+	NotFromChild Option = func(s *Spec) { s.NotFromChild = true }
+	NotRemote    Option = func(s *Spec) { s.NotRemote = true }
+
 	Read  Option = func(s *Spec) { s.Effect = Reads }
 	Write Option = func(s *Spec) { s.Effect = Writes }
 )
@@ -170,7 +190,36 @@ func (s Spec) check() {
 		panic("rpc: Tool " + s.Name + " is limited to local or paired callers")
 	case len(s.LiveOn) > 0 && s.Effect != Reads:
 		panic("rpc: " + s.Name + " is LiveOn but not a Read")
+	case s.MCP && s.Tool == "":
+		panic("rpc: " + s.Name + " is MCP without Tool")
+	case (s.NotFromChild || s.NotRemote) && !s.MCP:
+		panic("rpc: " + s.Name + " has an agent rule without MCP")
 	}
+}
+
+// errChild is the refusal a chat another chat started gets.
+var errChild = errkind.New(errkind.Denied, "another chat started this one, so it can't start or message chats")
+
+// allows is the one place that says who may call a method; every surface
+// reaches the router, so none keeps a list of its own. The host sets the
+// caller's Agent and Plugin, never params.
+func (s Spec) allows(c Caller) error {
+	agent := c.Agent
+	switch {
+	case s.Access == LocalOnly && c.Scope != ScopeLocal:
+		return fmt.Errorf("%w: %s", ErrLocalOnly, s.Name)
+	case s.Access == PairedOnly && c.Scope != ScopeRemote:
+		return fmt.Errorf("%w: %s", ErrPairedOnly, s.Name)
+	case c.Plugin != "" && s.Tool == "" && !s.Plugins:
+		return fmt.Errorf("%w: %s", ErrToolOnly, s.Name)
+	case agent != nil && !s.MCP:
+		return errkind.New(errkind.Invalid, s.Name+" isn't a tool agents may call")
+	case agent != nil && agent.Child && s.NotFromChild:
+		return errChild
+	case agent != nil && agent.HostID != "" && s.NotRemote:
+		return errkind.New(errkind.Unavailable, s.Name+" from another host isn't supported yet")
+	}
+	return nil
 }
 
 type handler func(context.Context, Caller, json.RawMessage) (any, error)
@@ -254,13 +303,8 @@ func (r *Router) Call(ctx context.Context, c Caller, name string, params json.Ra
 	if !ok {
 		return nil, fmt.Errorf("%w %s", ErrUnsupported, name)
 	}
-	switch {
-	case m.Access == LocalOnly && c.Scope != ScopeLocal:
-		return nil, fmt.Errorf("%w: %s", ErrLocalOnly, name)
-	case m.Access == PairedOnly && c.Scope != ScopeRemote:
-		return nil, fmt.Errorf("%w: %s", ErrPairedOnly, name)
-	case c.Plugin != "" && m.Tool == "" && !m.Plugins:
-		return nil, fmt.Errorf("%w: %s", ErrToolOnly, name)
+	if err := m.allows(c); err != nil {
+		return nil, err
 	}
 	if m.Detached {
 		ctx = context.WithoutCancel(ctx)

@@ -41,16 +41,16 @@ type Deps struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "chats.list", d.list, rpc.Tool("List the chats on this environment, newest activity first, "+
+	rpc.Add(r, "chats.list", d.list, rpc.MCP, rpc.Tool("List the chats on this environment, newest activity first, "+
 		"filtered and sorted like the chat drawer. Empty cwd is every project."),
 		rpc.Read, rpc.LiveOn("chats.changed", "chats.removed"))
 	// info is one chat's row without its transcript, for refreshing a snapshot
 	// from chats.list without refetching fifty.
-	rpc.Add(r, "chats.info", d.info, rpc.Tool("One chat's row: title, project, status, last reply."),
+	rpc.Add(r, "chats.info", d.info, rpc.MCP, rpc.Tool("One chat's row: title, project, status, last reply."),
 		rpc.Read, rpc.LiveOn("chats.changed", "chats.removed"))
 	// sync keeps the phone's copy of every chat row current from a cursor.
 	rpc.Add(r, "chats.sync", d.sync)
-	rpc.Add(r, "chats.messages", d.messages, rpc.Tool("A page of one chat's messages. "+
+	rpc.Add(r, "chats.messages", d.messages, rpc.MCP, rpc.Tool("A page of one chat's messages. "+
 		"tail with a limit reads the newest; before_index pages older."),
 		rpc.Read, rpc.LiveOn("chats.changed"))
 	// Every prompt's index, so the scrubber reaches prompts not yet paged in.
@@ -59,23 +59,23 @@ func Register(r *rpc.Router, d Deps) {
 	// A tool sheet's calls whole, and each again as its rows land while open.
 	rpc.Add(r, "chats.tools_subscribe", d.toolsSubscribe)
 	rpc.Add(r, "chats.tools_unsubscribe", d.toolsUnsubscribe)
-	rpc.Add(r, "chats.send", d.send, rpc.Tool("Send a message to a chat. It starts a turn, or queues "+
+	rpc.Add(r, "chats.send", d.send, rpc.MCP, rpc.NotFromChild, rpc.NotRemote, rpc.Tool("Send a message to a chat. It starts a turn, or queues "+
 		"behind the running one; steer adds it to the running turn where the agent allows it."), rpc.Write)
 	// Remote-reachable: the caller names a project the host resolves through
 	// Contain, not an arbitrary directory.
-	rpc.Add(r, "chats.start", d.start, rpc.Detached, rpc.Tool("Start a new chat in a project with "+
+	rpc.Add(r, "chats.start", d.start, rpc.Detached, rpc.MCP, rpc.NotFromChild, rpc.NotRemote, rpc.Tool("Start a new chat in a project with "+
 		"its first message. Started by an agent, it runs under the calling chat, out of the drawer, "+
 		"with no broader permissions; child false opens a normal chat for the user instead."), rpc.Write)
-	rpc.Add(r, "chats.wait", d.wait, rpc.Tool("Wait for a turn chats.start or chats.send returned to end, "+
+	rpc.Add(r, "chats.wait", d.wait, rpc.MCP, rpc.Tool("Wait for a turn chats.start or chats.send returned to end, "+
 		"then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again."), rpc.Read)
-	rpc.Add(r, "chats.resolve", d.resolve, rpc.Tool("Resolve a chat (moves it to the done pile) or unresolve it."), rpc.Write)
-	rpc.Add(r, "chats.pin", d.pin, rpc.Tool("Pin a chat to the top of the drawer, or unpin it."), rpc.Write)
-	rpc.Add(r, "chats.update", d.update, rpc.Tool("Rename a chat. The title is written to the agent's own "+
+	rpc.Add(r, "chats.resolve", d.resolve, rpc.MCP, rpc.Tool("Resolve a chat (moves it to the done pile) or unresolve it."), rpc.Write)
+	rpc.Add(r, "chats.pin", d.pin, rpc.MCP, rpc.Tool("Pin a chat to the top of the drawer, or unpin it."), rpc.Write)
+	rpc.Add(r, "chats.update", d.update, rpc.MCP, rpc.Tool("Rename a chat. The title is written to the agent's own "+
 		"files, so its CLI shows it too."), rpc.Write)
 	rpc.Add(r, "chats.delete", d.delete)
 	// stop is Stop on a chat rather than a turn, for a caller that knows the
 	// chat is running but not which turn.
-	rpc.Add(r, "chats.stop", d.stop, rpc.Tool("Stop a chat's running turn and the turns of the chats its agent started."), rpc.Write)
+	rpc.Add(r, "chats.stop", d.stop, rpc.MCP, rpc.Tool("Stop a chat's running turn and the turns of the chats its agent started."), rpc.Write)
 	rpc.Add(r, "chats.subscribe", d.subscribe)
 	rpc.Add(r, "chats.unsubscribe", d.unsubscribe)
 	// One chat's queued turns, fetched when its row's queue_revision moves: the row
@@ -158,6 +158,9 @@ func (d Deps) toolsUnsubscribe(_ context.Context, c rpc.Caller, a ToolsUnsubscri
 }
 
 func (d Deps) send(ctx context.Context, c rpc.Caller, a SendParams) (SendResult, error) {
+	if ownChat(c, string(a.ChatID)) {
+		return SendResult{}, errOwnChat
+	}
 	key := a.IdempotencyKey
 	a.IdempotencyKey = ""
 	request := a
@@ -209,6 +212,15 @@ func (d Deps) start(ctx context.Context, c rpc.Caller, a StartParams) (StartResu
 	}
 	out, _, err = idempotency.Do(ctx, d.Keys, scope, "chats.start", key, request, run)
 	return out, err
+}
+
+// errOwnChat refuses an agent messaging or stopping the chat its turn runs in.
+var errOwnChat = errkind.New(errkind.Denied, "that is this chat; it can't message or stop itself")
+
+// ownChat reports whether chatID is the calling agent's own chat. Another
+// host's chat IDs are that host's, so they never match one here.
+func ownChat(c rpc.Caller, chatID string) bool {
+	return c.Agent != nil && c.Agent.HostID == "" && c.Agent.ChatID == chatID
 }
 
 // keyScope is whose idempotency key a call carries: a device's, never an
@@ -286,7 +298,10 @@ func (d Deps) delete(_ context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, er
 	return rpc.OK, d.Chats.Delete(a.ChatID)
 }
 
-func (d Deps) stop(_ context.Context, _ rpc.Caller, a ChatParams) (rpc.Ack, error) {
+func (d Deps) stop(_ context.Context, c rpc.Caller, a ChatParams) (rpc.Ack, error) {
+	if ownChat(c, string(a.ChatID)) {
+		return rpc.Ack{}, errOwnChat
+	}
 	return rpc.OK, d.Chats.Stop(a.ChatID)
 }
 

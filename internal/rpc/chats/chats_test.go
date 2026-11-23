@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/chat"
+	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/rpc/chats"
 	"github.com/repogoapp/host/internal/session"
@@ -241,6 +243,32 @@ func TestStartFromAnAgentMakesAChild(t *testing.T) {
 	}
 	if got := start(rpc.Caller{Device: "phone", Scope: rpc.ScopeRemote}, true); got != "" {
 		t.Errorf("a device's start has parent %q, want none", got)
+	}
+}
+
+// An agent can't message or stop the chat its turn runs in, and nothing is
+// sent; another chat, or the same ID from another host's agent, isn't its own.
+func TestAnAgentCantMessageOrStopItsOwnChat(t *testing.T) {
+	r, rec, _ := recordingRouter(t)
+	self := rpc.Caller{Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{ChatID: "claude:s1"}}
+	for _, method := range []string{"chats.send", "chats.stop"} {
+		b, _ := json.Marshal(map[string]any{"chat_id": "claude:s1", "turn": map[string]any{"prompt": "hi"}})
+		if _, err := r.Call(context.Background(), self, method, b); !errors.Is(err, errkind.ErrDenied) || !strings.Contains(err.Error(), "this chat") {
+			t.Fatalf("%s to its own chat: err %v, want denied", method, err)
+		}
+	}
+	if rec.last.Prompt != "" {
+		t.Fatalf("sent %+v to its own chat", rec.last)
+	}
+	// No chats are cached here, so these may answer not found: never "this chat".
+	other, _ := json.Marshal(map[string]any{"chat_id": "claude:s2", "turn": map[string]any{"prompt": "hi"}})
+	if _, err := r.Call(context.Background(), self, "chats.send", other); err != nil && strings.Contains(err.Error(), "this chat") {
+		t.Fatalf("another chat read as the caller's own: %v", err)
+	}
+	remote := rpc.Caller{Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{ChatID: "claude:s1", HostID: "H-OTHER"}}
+	same, _ := json.Marshal(map[string]any{"chat_id": "claude:s1"})
+	if _, err := r.Call(context.Background(), remote, "chats.stop", same); err != nil && strings.Contains(err.Error(), "this chat") {
+		t.Fatalf("another host's chat ID read as the caller's own: %v", err)
 	}
 }
 

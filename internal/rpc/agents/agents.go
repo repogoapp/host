@@ -61,7 +61,7 @@ type AgentModel struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "agents.list", d.list, rpc.Tool("The agents a chat in a project can start with, "+
+	rpc.Add(r, "agents.list", d.list, rpc.MCP, rpc.Tool("The agents a chat in a project can start with, "+
 		"for chats.start: each one's models, default model, the efforts (reasoning_level) each "+
 		"model accepts, and its modes and permission modes."), rpc.Read)
 }

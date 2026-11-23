@@ -92,6 +92,7 @@
     "method": "agents.list",
     "description": "The agents a chat in a project can start with, for chats.start: each one's models, default model, the efforts (reasoning_level) each model accepts, and its modes and permission modes.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "project": {
@@ -107,6 +108,7 @@
     "method": "chats.list",
     "description": "List the chats on this environment, newest activity first, filtered and sorted like the chat drawer. Empty cwd is every project.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "agent": {
@@ -165,6 +167,7 @@
     "method": "chats.info",
     "description": "One chat's row: title, project, status, last reply.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "chat_id": {
@@ -180,6 +183,7 @@
     "method": "chats.messages",
     "description": "A page of one chat's messages. tail with a limit reads the newest; before_index pages older.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "before_index": {
@@ -211,6 +215,9 @@
     "method": "chats.send",
     "description": "Send a message to a chat. It starts a turn, or queues behind the running one; steer adds it to the running turn where the agent allows it.",
     "read_only": false,
+    "mcp": true,
+    "not_from_child": true,
+    "not_remote": true,
     "input_schema": {
       "properties": {
         "chat_id": {
@@ -283,6 +290,9 @@
     "method": "chats.start",
     "description": "Start a new chat in a project with its first message. Started by an agent, it runs under the calling chat, out of the drawer, with no broader permissions; child false opens a normal chat for the user instead.",
     "read_only": false,
+    "mcp": true,
+    "not_from_child": true,
+    "not_remote": true,
     "input_schema": {
       "properties": {
         "agent": {
@@ -366,6 +376,7 @@
     "method": "chats.wait",
     "description": "Wait for a turn chats.start or chats.send returned to end, then return its state, its chat_id and the agent's last message. A timeout leaves it running; wait again.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "timeout_ms": {
@@ -385,6 +396,7 @@
     "method": "chats.resolve",
     "description": "Resolve a chat (moves it to the done pile) or unresolve it.",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "chat_id": {
@@ -404,6 +416,7 @@
     "method": "chats.pin",
     "description": "Pin a chat to the top of the drawer, or unpin it.",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "chat_id": {
@@ -423,6 +436,7 @@
     "method": "chats.update",
     "description": "Rename a chat. The title is written to the agent's own files, so its CLI shows it too.",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "chat_id": {
@@ -442,6 +456,7 @@
     "method": "chats.stop",
     "description": "Stop a chat's running turn and the turns of the chats its agent started.",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "chat_id": {
@@ -457,6 +472,7 @@
     "method": "connect.list",
     "description": "Whether each target is connected on this environment: an env key (env:NAME with its scope), an MCP server (mcp:\u003curl\u003e) or a CLI's sign-in (cli:\u003ctool\u003e); never with what. When you need a key, token, password or sign-in, draw a Connect card, even when the user says \"ask me\" or \"send it here\": never ask for one in chat or to paste it there.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "project": {
@@ -489,6 +505,7 @@
     "method": "connect.get",
     "description": "A connect flow the user was shown: waiting, or how it ended. When you need a key, token, password or sign-in, draw a Connect card, even when the user says \"ask me\" or \"send it here\": never ask for one in chat or to paste it there.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "flow_id": {
@@ -562,6 +579,8 @@
     "method": "plugins.logs",
     "description": "The console lines plugins wrote, newest first, each with the plugin, the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves. An agent reads the text of lines its own chat's calls wrote; a line from another caller (a card, a cron, another chat) keeps its plugin, method, level and time but not its text. Secrets are masked.",
     "read_only": true,
+    "mcp": true,
+    "not_remote": true,
     "input_schema": {
       "properties": {
         "level": {
@@ -601,6 +620,7 @@
     "method": "plugins.urls",
     "description": "The environment's plugin methods that answer plain HTTP: each URL, device (this machine and its containers) or public (the internet), and whether it needs the plugin's key, which the user prints with repogo keys \u003cplugin\u003e.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "plugin": {
@@ -616,6 +636,7 @@
     "method": "projects.list",
     "description": "The projects on this environment, with each one's folder (the cwd chats take), name, pin and changed files.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {},
       "type": "object"
@@ -626,6 +647,7 @@
     "method": "projects.rename",
     "description": "Rename a project, by its folder as projects.list gives it. A blank name clears the rename, back to the repository or folder name.",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "name": {
@@ -646,6 +668,7 @@
     "method": "projects.pin",
     "description": "Pin a project, or unpin it, by its folder as projects.list gives it.",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "path": {
@@ -666,6 +689,7 @@
     "method": "reminders.list",
     "description": "The pending reminders on this environment, soonest first.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "path": {
@@ -681,6 +705,8 @@
     "method": "reminders.create",
     "description": "Notify the user's phones at a set time; a tap opens this chat. Set one only when the user asks for it or agrees to it.",
     "read_only": false,
+    "mcp": true,
+    "not_remote": true,
     "input_schema": {
       "properties": {
         "chat_id": {
@@ -712,6 +738,7 @@
     "method": "reminders.delete",
     "description": "Cancel a pending reminder.",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "id": {
@@ -727,6 +754,7 @@
     "method": "schedules.list",
     "description": "The scheduled prompts on this environment, with each one's project, agent and next run.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {},
       "type": "object"
@@ -737,6 +765,7 @@
     "method": "screens.list",
     "description": "This environment's iOS simulators and Android emulators, and its display: each id, name, platform, OS, form and whether it's booted. Booted ones take the other screens_ tools.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {},
       "type": "object"
@@ -747,6 +776,7 @@
     "method": "screens.boot",
     "description": "Boot a simulator or emulator and wait until it's ready (an Android cold boot takes up to a minute). `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -761,6 +791,7 @@
     "method": "screens.shutdown",
     "description": "Shut a simulator or emulator down. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -775,6 +806,7 @@
     "method": "screens.set",
     "description": "Change a simulator's or emulator's settings, only those given: appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose (closed, open, book, laptop) to fold a foldable. Answers the settings after. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "appearance": {
@@ -810,6 +842,7 @@
     "method": "screens.rotate",
     "description": "Turn a simulator or emulator a quarter, turn left or right. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -827,6 +860,7 @@
     "method": "screens.open_url",
     "description": "Open a link on a simulator or emulator, in whichever app takes it: a web page, or an app's own URL scheme to open the app. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -844,6 +878,7 @@
     "method": "screens.elements",
     "description": "What's on a simulator's or emulator's screen now: each element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size. Points on iOS, pixels on Android, as screens_elements reports them. Refs (e7.12) name elements for screens_tap until the next read, fold or rotation. Read again after acting: actions don't wait for the app to redraw. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -858,6 +893,7 @@
     "method": "screens.tap",
     "description": "Tap a simulator or emulator: one of ref (from screens_elements), label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y. Points on iOS, pixels on Android, as screens_elements reports them. Answers where it tapped. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "label": {
@@ -884,6 +920,7 @@
     "method": "screens.swipe",
     "description": "Drag one finger across a simulator or emulator, from from_x, from_y to to_x, to_y over ms (300 by default): scroll, swipe back, pull to refresh. Points on iOS, pixels on Android, as screens_elements reports them. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "from_x": {
@@ -913,6 +950,7 @@
     "method": "screens.type",
     "description": "Type text into the field that has focus on a simulator or emulator: tap the field first. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -930,6 +968,7 @@
     "method": "screens.key",
     "description": "Press a key on a simulator or emulator: return, delete, forward_delete, tab, escape, space, left, up, right or down. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "key": {
@@ -947,6 +986,7 @@
     "method": "screens.button",
     "description": "Press a hardware button on a simulator or emulator: home, back, recents, app_switcher, lock, siri, volume_up or volume_down, as the screen takes them (an error lists which). `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "button": {
@@ -964,6 +1004,7 @@
     "method": "screens.launch",
     "description": "Open an app on a simulator or emulator, or bring it to the front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "app": {
@@ -981,6 +1022,7 @@
     "method": "screens.save_screenshot",
     "description": "Save a simulator's or emulator's screen as a PNG and answer its path, to open and look at. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -995,6 +1037,7 @@
     "method": "screens.recording.start",
     "description": "Start recording a simulator's or emulator's screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after 10 minutes. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -1009,6 +1052,7 @@
     "method": "screens.recording.stop",
     "description": "Stop recording a simulator's or emulator's screen and answer the video's path: an MP4 on iOS, a WebM on Android. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
+    "mcp": true,
     "input_schema": {
       "properties": {
         "screen": {
@@ -1023,6 +1067,7 @@
     "method": "tunnels.list",
     "description": "The open tunnels: each public URL and the local port it reaches.",
     "read_only": true,
+    "mcp": true,
     "input_schema": {
       "properties": {},
       "type": "object"

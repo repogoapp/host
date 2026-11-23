@@ -67,15 +67,15 @@ type PinParams struct {
 
 // Remote-reachable: every project listed is a folder fs.* would already serve.
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "projects.list", d.list, rpc.Tool("The projects on this environment, with each one's folder "+
+	rpc.Add(r, "projects.list", d.list, rpc.MCP, rpc.Tool("The projects on this environment, with each one's folder "+
 		"(the cwd chats take), name, pin and changed files."), rpc.Read, rpc.LiveOn("projects.changed"))
 	rpc.Add(r, "projects.detect_icon", d.detectIcon)
 	// The user's marks on a listed project. Each answers the project's row and,
 	// when it was written, sends it to every other device as projects.changed;
 	// one older than what the host holds is ignored.
-	rpc.Add(r, "projects.rename", d.rename, rpc.Tool("Rename a project, by its folder as projects.list gives it. "+
+	rpc.Add(r, "projects.rename", d.rename, rpc.MCP, rpc.Tool("Rename a project, by its folder as projects.list gives it. "+
 		"A blank name clears the rename, back to the repository or folder name."), rpc.Write)
-	rpc.Add(r, "projects.pin", d.pin, rpc.Tool("Pin a project, or unpin it, by its folder as projects.list gives it."), rpc.Write)
+	rpc.Add(r, "projects.pin", d.pin, rpc.MCP, rpc.Tool("Pin a project, or unpin it, by its folder as projects.list gives it."), rpc.Write)
 	// add is the folder picker's Select, making a folder it could only see a root.
 	// add and create answer the new project's row, listed at once.
 	rpc.Add(r, "projects.add", d.add)

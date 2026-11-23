@@ -28,10 +28,10 @@ type DeleteParams struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "reminders.list", d.list, rpc.Tool("The pending reminders on this environment, soonest first."), rpc.Read)
-	rpc.Add(r, "reminders.create", d.create, rpc.Tool("Notify the user's phones at a set time; a tap opens "+
+	rpc.Add(r, "reminders.list", d.list, rpc.MCP, rpc.Tool("The pending reminders on this environment, soonest first."), rpc.Read)
+	rpc.Add(r, "reminders.create", d.create, rpc.MCP, rpc.NotRemote, rpc.Tool("Notify the user's phones at a set time; a tap opens "+
 		"this chat. Set one only when the user asks for it or agrees to it."), rpc.Write)
-	rpc.Add(r, "reminders.delete", d.delete, rpc.Tool("Cancel a pending reminder."), rpc.Write)
+	rpc.Add(r, "reminders.delete", d.delete, rpc.MCP, rpc.Tool("Cancel a pending reminder."), rpc.Write)
 }
 
 func (d Deps) list(_ context.Context, _ rpc.Caller, a ListParams) (ListResult, error) {

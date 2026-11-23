@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/repogoapp/host/internal/agent"
-	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/rpc"
 )
 
@@ -27,39 +26,25 @@ const hostToolsInstructions = " The `chats_*` tools list, read, rename, pin, res
 //go:embed hosttools.json
 var hostToolsFile []byte
 
+// hostTools is the methods marked rpc.MCP; a Tool without it (actions, git,
+// limits) is for cards and plugins only.
 var hostTools = func() []rpc.ToolDef {
 	var defs []rpc.ToolDef
 	if err := json.Unmarshal(hostToolsFile, &defs); err != nil {
 		panic("repogomcp: hosttools.json: " + err.Error())
 	}
-	return slices.DeleteFunc(defs, func(d rpc.ToolDef) bool { return slices.Contains(agentDenied, d.Method) })
+	return slices.DeleteFunc(defs, func(d rpc.ToolDef) bool { return !d.MCP })
 }()
-
-// agentDenied are rpc.Tool methods agents don't get, though a plugin may by
-// ctx.host. These tools run unasked, and an action runs actions.json's
-// command, which a repo or the agent can write: the user runs actions. Git,
-// the action list and limits an agent reads in its shell, under the chat's mode.
-var agentDenied = []string{
-	"actions.run", "actions.start", "actions.stop", "actions.list",
-	"git.status", "git.changes", "git.diff",
-	"limits.read",
-}
 
 // HostToolsFile is the embedded file, for the conformance test that writes it.
 func HostToolsFile() []byte { return hostToolsFile }
 
-// ownChatMethods would act on the calling chat itself: a turn messaging or
-// stopping its own thread.
-var ownChatMethods = []string{"chats.send", "chats.stop"}
-
-// childDenied is what a chat another chat's agent started may not do: start
-// or message chats, so delegation stays one level deep.
-var childDenied = []string{"chats.start", "chats.send"}
-
+// hostToolList is what a session is offered: a child isn't offered what the
+// router would refuse it (rpc.NotFromChild).
 func hostToolList(child bool) []tool {
 	out := make([]tool, 0, len(hostTools))
 	for _, d := range hostTools {
-		if child && slices.Contains(childDenied, d.Method) {
+		if child && d.NotFromChild {
 			continue
 		}
 		t := tool{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema}
@@ -82,9 +67,9 @@ func hostTool(name string) (rpc.ToolDef, bool) {
 // callHost runs one host method for the turn, as the phone that sent it would.
 func callHost(router *rpc.Router, turn agent.RunningTurn, child bool, def rpc.ToolDef, args json.RawMessage) toolResult {
 	caller := rpc.Caller{Device: turn.Device, Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{
-		ChatID: turn.ChatID, PermissionMode: string(turn.Config.PermissionMode), Mode: turn.Config.Mode,
+		ChatID: turn.ChatID, PermissionMode: string(turn.Config.PermissionMode), Mode: turn.Config.Mode, Child: child,
 	}}
-	out, err := runHostTool(turn.Ctx, router, caller, child, def, args)
+	out, err := runHostTool(turn.Ctx, router, caller, def, args)
 	if err != nil {
 		return failed("RepoGo " + def.Method + ": " + err.Error())
 	}
@@ -92,22 +77,10 @@ func callHost(router *rpc.Router, turn agent.RunningTurn, child bool, def rpc.To
 }
 
 // runHostTool is every agent's way onto the router, this host's and another's
-// (RemoteCall): the embedded list is the allowlist, and nothing else on the
-// router is reachable.
-func runHostTool(ctx context.Context, router *rpc.Router, caller rpc.Caller, child bool, def rpc.ToolDef, args json.RawMessage) (json.RawMessage, error) {
+// (RemoteCall). The router decides what the caller may call (rpc.Spec.allows).
+func runHostTool(ctx context.Context, router *rpc.Router, caller rpc.Caller, def rpc.ToolDef, args json.RawMessage) (json.RawMessage, error) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage("{}")
-	}
-	if child && slices.Contains(childDenied, def.Method) {
-		return nil, errkind.New(errkind.Denied, "another chat started this one, so it can't start or message chats")
-	}
-	if slices.Contains(ownChatMethods, def.Method) {
-		var p struct {
-			ChatID string `json:"chat_id"`
-		}
-		if json.Unmarshal(args, &p) == nil && p.ChatID == caller.Agent.ChatID {
-			return nil, errkind.New(errkind.Denied, "that is this chat; it can't message or stop itself")
-		}
 	}
 	return router.Call(ctx, caller, def.Method, args)
 }

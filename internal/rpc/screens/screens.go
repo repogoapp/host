@@ -156,24 +156,24 @@ func init() {
 func Register(r *rpc.Router, d Deps) {
 	// list is every simulator and emulator here, iOS first; a platform
 	// without its tools lists none.
-	rpc.Add(r, "screens.list", list, rpc.Tool("This environment's iOS simulators and Android emulators, and its "+
+	rpc.Add(r, "screens.list", list, rpc.MCP, rpc.Tool("This environment's iOS simulators and Android emulators, and its "+
 		"display: each id, name, platform, OS, form and whether it's booted. Booted ones take the other screens_ tools."),
 		rpc.Read)
 	// boot answers once the device is ready; an Android cold boot takes up to a minute.
-	rpc.Add(r, "screens.boot", d.boot, rpc.Detached, rpc.Tool("Boot a simulator or emulator and wait until it's "+
+	rpc.Add(r, "screens.boot", d.boot, rpc.Detached, rpc.MCP, rpc.Tool("Boot a simulator or emulator and wait until it's "+
 		"ready (an Android cold boot takes up to a minute)."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.shutdown", d.shutdown, rpc.Tool("Shut a simulator or emulator down."+toolScreen), rpc.Write)
+	rpc.Add(r, "screens.shutdown", d.shutdown, rpc.MCP, rpc.Tool("Shut a simulator or emulator down."+toolScreen), rpc.Write)
 	// view joins the screen's room and answers its view and desktop;
 	// screens.view_changed and screens.desktop_changed follow.
 	rpc.Add(r, "screens.view", d.view)
 	rpc.Add(r, "screens.leave", d.leave)
 	// set changes the settings given and answers the state after.
-	rpc.Add(r, "screens.set", d.set, rpc.Tool("Change a simulator's or emulator's settings, only those given: "+
+	rpc.Add(r, "screens.set", d.set, rpc.MCP, rpc.Tool("Change a simulator's or emulator's settings, only those given: "+
 		"appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose "+
 		"(closed, open, book, laptop) to fold a foldable. Answers the settings after."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.rotate", d.rotate, rpc.Tool("Turn a simulator or emulator a quarter, turn left or right."+
+	rpc.Add(r, "screens.rotate", d.rotate, rpc.MCP, rpc.Tool("Turn a simulator or emulator a quarter, turn left or right."+
 		toolScreen), rpc.Write)
-	rpc.Add(r, "screens.open_url", d.openURL, rpc.Tool("Open a link on a simulator or emulator, in whichever app "+
+	rpc.Add(r, "screens.open_url", d.openURL, rpc.MCP, rpc.Tool("Open a link on a simulator or emulator, in whichever app "+
 		"takes it: a web page, or an app's own URL scheme to open the app."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.location", d.location)
 	rpc.Add(r, "screens.push", d.push)
@@ -181,31 +181,31 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "screens.memory_warning", d.memoryWarning)
 	rpc.Add(r, "screens.screenshot", d.screenshot)
 	// Driving a simulator or emulator by what's on its screen, for agents and `repogo sim`.
-	rpc.Add(r, "screens.elements", d.elements, rpc.Tool("What's on a simulator's or emulator's screen now: each "+
+	rpc.Add(r, "screens.elements", d.elements, rpc.MCP, rpc.Tool("What's on a simulator's or emulator's screen now: each "+
 		"element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size."+toolUnits+
 		" Refs (e7.12) name elements for screens_tap until the next read, fold or rotation. Read again after acting: "+
 		"actions don't wait for the app to redraw."+toolScreen), rpc.Read)
-	rpc.Add(r, "screens.tap", d.tap, rpc.Tool("Tap a simulator or emulator: one of ref (from screens_elements), "+
+	rpc.Add(r, "screens.tap", d.tap, rpc.MCP, rpc.Tool("Tap a simulator or emulator: one of ref (from screens_elements), "+
 		"label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y."+
 		toolUnits+" Answers where it tapped."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.swipe", d.swipe, rpc.Tool("Drag one finger across a simulator or emulator, from from_x, "+
+	rpc.Add(r, "screens.swipe", d.swipe, rpc.MCP, rpc.Tool("Drag one finger across a simulator or emulator, from from_x, "+
 		"from_y to to_x, to_y over ms (300 by default): scroll, swipe back, pull to refresh."+toolUnits+toolScreen),
 		rpc.Write)
-	rpc.Add(r, "screens.type", d.typeText, rpc.Tool("Type text into the field that has focus on a simulator or "+
+	rpc.Add(r, "screens.type", d.typeText, rpc.MCP, rpc.Tool("Type text into the field that has focus on a simulator or "+
 		"emulator: tap the field first."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.key", d.key, rpc.Tool("Press a key on a simulator or emulator: return, delete, "+
+	rpc.Add(r, "screens.key", d.key, rpc.MCP, rpc.Tool("Press a key on a simulator or emulator: return, delete, "+
 		"forward_delete, tab, escape, space, left, up, right or down."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.button", d.button, rpc.Tool("Press a hardware button on a simulator or emulator: home, "+
+	rpc.Add(r, "screens.button", d.button, rpc.MCP, rpc.Tool("Press a hardware button on a simulator or emulator: home, "+
 		"back, recents, app_switcher, lock, siri, volume_up or volume_down, as the screen takes them (an error lists "+
 		"which)."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.launch", d.launch, rpc.Tool("Open an app on a simulator or emulator, or bring it to the "+
+	rpc.Add(r, "screens.launch", d.launch, rpc.MCP, rpc.Tool("Open an app on a simulator or emulator, or bring it to the "+
 		"front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app)."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.recording.start", d.recordStart, rpc.Tool("Start recording a simulator's or emulator's "+
+	rpc.Add(r, "screens.recording.start", d.recordStart, rpc.MCP, rpc.Tool("Start recording a simulator's or emulator's "+
 		"screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after "+
 		"10 minutes."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.recording.stop", d.recordStop, rpc.Tool("Stop recording a simulator's or emulator's screen "+
+	rpc.Add(r, "screens.recording.stop", d.recordStop, rpc.MCP, rpc.Tool("Stop recording a simulator's or emulator's screen "+
 		"and answer the video's path: an MP4 on iOS, a WebM on Android."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.save_screenshot", d.saveScreenshot, rpc.Tool("Save a simulator's or emulator's screen as a "+
+	rpc.Add(r, "screens.save_screenshot", d.saveScreenshot, rpc.MCP, rpc.Tool("Save a simulator's or emulator's screen as a "+
 		"PNG and answer its path, to open and look at."+toolScreen), rpc.Write)
 	// The Mac's desktop. Moves need its live view open; launchpad and icons don't.
 	rpc.Add(r, "screens.desktop.switch_space", d.switchSpace)

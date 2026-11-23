@@ -15,19 +15,24 @@ type pinParams struct {
 	Pinned bool   `json:"pinned"`
 }
 
-// hostRouter serves chats.pin and chats.send as the chats family does, and
-// fs.delete, which is not a Tool; calls records each method's caller.
+// hostRouter serves chats.pin, chats.send and chats.start as the chats family
+// declares them, and fs.delete, which is not a Tool; calls records each
+// method's caller.
 func hostRouter(t *testing.T, calls map[string]rpc.Caller) *rpc.Router {
 	t.Helper()
 	r := rpc.New(nil)
 	rpc.Add(r, "chats.pin", func(_ context.Context, c rpc.Caller, p pinParams) (pinParams, error) {
 		calls["chats.pin"] = c
 		return p, nil
-	}, rpc.Tool("Pin a chat."), rpc.Write)
+	}, rpc.MCP, rpc.Tool("Pin a chat."), rpc.Write)
 	rpc.Add(r, "chats.send", func(_ context.Context, c rpc.Caller, p pinParams) (rpc.Ack, error) {
 		calls["chats.send"] = c
 		return rpc.OK, nil
-	}, rpc.Tool("Send a message."), rpc.Write)
+	}, rpc.MCP, rpc.NotFromChild, rpc.NotRemote, rpc.Tool("Send a message."), rpc.Write)
+	rpc.Add(r, "chats.start", func(_ context.Context, c rpc.Caller, p pinParams) (rpc.Ack, error) {
+		calls["chats.start"] = c
+		return rpc.OK, nil
+	}, rpc.MCP, rpc.NotFromChild, rpc.NotRemote, rpc.Tool("Start a chat."), rpc.Write)
 	rpc.Add(r, "fs.delete", func(_ context.Context, c rpc.Caller, _ rpc.None) (rpc.Ack, error) {
 		calls["fs.delete"] = c
 		return rpc.OK, nil
@@ -118,23 +123,6 @@ func TestAgentsCantRunActions(t *testing.T) {
 	}
 }
 
-// A turn can't message its own chat, and the method never runs; another chat is fine.
-func TestHostToolsRefuseTheCallingChat(t *testing.T) {
-	calls := map[string]rpc.Caller{}
-	s := hostToolsServer(t, hostRouter(t, calls))
-	token := attachIn(t, s, t.TempDir())
-	got := callTool(t, s, token, "chats_send", map[string]any{"chat_id": "claude:s1"})
-	if !got.IsError || !strings.Contains(got.Content[0].Text, "this chat") {
-		t.Fatalf("own chat answered %+v", got)
-	}
-	if _, ran := calls["chats.send"]; ran {
-		t.Fatal("chats.send ran for its own chat")
-	}
-	if got := callTool(t, s, token, "chats_send", map[string]any{"chat_id": "claude:s2"}); got.IsError {
-		t.Fatalf("another chat refused: %+v", got)
-	}
-}
-
 // A host without the router (still assembling) offers none of them.
 func TestHostToolsNeedTheRouter(t *testing.T) {
 	s := hostToolsServer(t, nil)
@@ -162,8 +150,8 @@ func TestHostToolsNameTheCallingChat(t *testing.T) {
 }
 
 // A chat another chat's agent started can't start or message chats: neither
-// tool is listed, and a call by name is refused before the method runs. It
-// keeps the rest.
+// tool is listed, and the router refuses a call by name before the method
+// runs (rpc.NotFromChild). It keeps the rest.
 func TestAChildCantStartOrMessageChats(t *testing.T) {
 	calls := map[string]rpc.Caller{}
 	s := hostToolsServer(t, hostRouter(t, calls))
@@ -183,8 +171,10 @@ func TestAChildCantStartOrMessageChats(t *testing.T) {
 			t.Fatalf("%s from a child answered %+v", name, got)
 		}
 	}
-	if _, ran := calls["chats.send"]; ran {
-		t.Fatal("chats.send ran for a child")
+	for _, method := range []string{"chats.send", "chats.start"} {
+		if _, ran := calls[method]; ran {
+			t.Fatalf("%s ran for a child", method)
+		}
 	}
 	if got := callTool(t, s, token, "chats_pin", map[string]any{"chat_id": "claude:other", "pinned": true}); got.IsError {
 		t.Fatalf("a child's other tools: %+v", got)

@@ -19,7 +19,7 @@ type DeleteParams struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "schedules.list", d.list, rpc.Tool("The scheduled prompts on this environment, with "+
+	rpc.Add(r, "schedules.list", d.list, rpc.MCP, rpc.Tool("The scheduled prompts on this environment, with "+
 		"each one's project, agent and next run."), rpc.Read, rpc.LiveOn("schedules.changed"))
 	rpc.Add(r, "schedules.save", d.save)
 	rpc.Add(r, "schedules.delete", d.delete)
