@@ -19,6 +19,7 @@ import (
 	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/release"
+	"github.com/repogoapp/host/internal/remotehost"
 	"github.com/repogoapp/host/internal/rpc/registry"
 )
 
@@ -95,7 +96,16 @@ func Config(t testing.TB) host.Config {
 			return noPower{}, nil
 		},
 		PublicIP: func(context.Context) (string, error) { return "", nil },
-		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		// No ~/.ssh/config and no tailnet: a test host never dials another machine.
+		Discovery: func(self string) remotehost.Deps {
+			return remotehost.Deps{
+				Self: self, SSHConfig: func() []byte { return nil },
+				Resolve: func(context.Context, string) string { return "" },
+				Tailnet: func(context.Context) []byte { return nil },
+				Run:     func(context.Context, string, string) ([]byte, []byte, int) { return nil, nil, -1 },
+			}
+		},
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 

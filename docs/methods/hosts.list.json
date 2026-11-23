@@ -1,0 +1,13 @@
+{
+  "hosts": [
+    {
+      "id": "id",
+      "host_id": "host_id",
+      "name": "name",
+      "version": "version",
+      "state": "state",
+      "reason": "reason"
+    }
+  ],
+  "checked_at": 1
+}

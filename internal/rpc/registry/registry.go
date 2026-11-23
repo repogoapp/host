@@ -33,6 +33,7 @@ import (
 	"github.com/repogoapp/host/internal/projectagent"
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/reminder"
+	"github.com/repogoapp/host/internal/remotehost"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	actionsrpc "github.com/repogoapp/host/internal/rpc/actions"
@@ -49,6 +50,7 @@ import (
 	gitrpc "github.com/repogoapp/host/internal/rpc/git"
 	ghrpc "github.com/repogoapp/host/internal/rpc/github"
 	"github.com/repogoapp/host/internal/rpc/host"
+	hostsrpc "github.com/repogoapp/host/internal/rpc/hosts"
 	mcprpc "github.com/repogoapp/host/internal/rpc/mcp"
 	"github.com/repogoapp/host/internal/rpc/pairing"
 	pluginsrpc "github.com/repogoapp/host/internal/rpc/plugins"
@@ -159,6 +161,10 @@ type Config struct {
 
 	// Tunnels serves this host's public URLs.
 	Tunnels *tunnel.Service
+	// Hosts is the other RepoGo hosts this one reaches over SSH.
+	Hosts *remotehost.Service
+	// AgentTools is RepoGo's MCP server, which runs other hosts' agents' calls.
+	AgentTools *repogomcp.Server
 
 	// Schedules is the prompts this host starts as new chats at set times.
 	Schedules *schedule.Scheduler
@@ -218,6 +224,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	envrpc.Register(r, envrpc.Deps{Sources: cfg.EnvSources})
 	connectrpc.Register(r, connectrpc.Deps{Connect: cfg.Connect})
 	tunnelsrpc.Register(r, tunnelsrpc.Deps{Tunnels: cfg.Tunnels})
+	hostsrpc.Register(r, hostsrpc.Deps{Hosts: cfg.Hosts, Tools: cfg.AgentTools})
 	schedulesrpc.Register(r, schedulesrpc.Deps{Schedules: cfg.Schedules})
 	remindersrpc.Register(r, remindersrpc.Deps{Reminders: cfg.Reminders})
 	activitiesrpc.Register(r, activitiesrpc.Deps{Activities: cfg.Activities})

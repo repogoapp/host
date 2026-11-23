@@ -46,6 +46,7 @@ import (
 	"github.com/repogoapp/host/internal/push"
 	"github.com/repogoapp/host/internal/redact"
 	"github.com/repogoapp/host/internal/reminder"
+	"github.com/repogoapp/host/internal/remotehost"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/rpc/registry"
@@ -113,6 +114,9 @@ type Config struct {
 	Power func(log *slog.Logger, wanted func() bool, onBattery func(power.Battery)) (Keeper, error)
 	// PublicIP looks up this machine's public address for host.status: hostinfo.LookupPublicIP.
 	PublicIP func(context.Context) (string, error)
+	// Discovery is how the host finds the others it reaches over SSH, for
+	// this host's ID: remotehost.System.
+	Discovery func(self string) remotehost.Deps
 
 	Log *slog.Logger
 }
@@ -222,7 +226,7 @@ func (c Config) validate() error {
 		{"Update.Marker", c.Update.Marker == ""}, {"Update.Latest", c.Update.Latest == nil},
 		{"Update.Stage", c.Update.Stage == nil}, {"Update.Restart", c.Update.Restart == nil},
 		{"Agents", c.Agents == nil}, {"InstallHooks", c.InstallHooks == nil}, {"Power", c.Power == nil},
-		{"PublicIP", c.PublicIP == nil}, {"Log", c.Log == nil},
+		{"PublicIP", c.PublicIP == nil}, {"Discovery", c.Discovery == nil}, {"Log", c.Log == nil},
 	} {
 		if f.unset {
 			missing = append(missing, f.name)
@@ -260,6 +264,7 @@ func (h *Host) Start() {
 	h.spawn(h.mgr.Watch)
 	h.spawn(h.keeper.Run)
 	h.spawn(h.info.WatchPublicIP)
+	h.spawn(h.Services.Hosts.Run)
 	h.spawn(h.watch.Run)
 	h.spawn(func(ctx context.Context) { h.live.WatchNotices(ctx, h.bridge) })
 	h.spawn(h.syncer.Run)

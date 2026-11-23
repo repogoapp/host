@@ -38,6 +38,11 @@ func table() []command {
 			fs.Bool("all", false, "revoke: every paired device; pair again with repogo pair")
 			fs.Bool("yes", false, "revoke --all: don't ask first")
 		}, run: devicesCommand},
+		{name: "call", args: "<method> < params.json", summary: "Run one host method, params on stdin, and print its result", run: callCommand},
+		{name: "hosts", args: "[list] [--refresh] [--json]", summary: "List the other RepoGo hosts you reach over SSH", flags: func(fs *flag.FlagSet) {
+			fs.Bool("refresh", false, "look again now rather than answer the last look")
+			fs.Bool("json", false, "print the host's answer as JSON")
+		}, run: hostsCommand},
 		{name: "tunnels", args: "[close <slug>]", summary: "List open public tunnels, or close one", run: tunnelsCommand},
 		{name: "urls", args: "[<plugin>]", summary: "List the plugin methods that answer plain HTTP and their URLs", run: urlsCommand},
 		{name: "keys", args: "[<plugin> [--new | --delete]]", summary: "Show a plugin's key for its HTTP methods, making it if needed", flags: func(fs *flag.FlagSet) {

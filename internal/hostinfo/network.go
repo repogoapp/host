@@ -162,16 +162,16 @@ func tailnetCandidate() string {
 	return ""
 }
 
-// tailscaleCLIs is where the tailscale command may be: a service's PATH can
+// TailscaleCLIs is where the tailscale command may be: a service's PATH can
 // lack Homebrew's, and the Mac app carries its own.
-var tailscaleCLIs = []string{
+var TailscaleCLIs = []string{
 	"tailscale", "/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale",
 	"/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 }
 
 // cliTailnetIP is the IPv4 address the tailscale CLI reports; empty without one.
 func cliTailnetIP() string {
-	for _, cli := range tailscaleCLIs {
+	for _, cli := range TailscaleCLIs {
 		path, err := exec.LookPath(cli)
 		if err != nil {
 			continue

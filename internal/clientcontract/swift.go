@@ -486,6 +486,9 @@ var typeFamilies = map[string]string{
 	"github.com/repogoapp/host/internal/rpc/reminders": "reminders",
 	"github.com/repogoapp/host/internal/reminder":      "reminders",
 
+	"github.com/repogoapp/host/internal/rpc/hosts":  "hosts",
+	"github.com/repogoapp/host/internal/remotehost": "hosts",
+
 	"github.com/repogoapp/host/internal/rpc/uploads":  "uploads",
 	"github.com/repogoapp/host/internal/rpc/pairing":  "pair",
 	"github.com/repogoapp/host/internal/stepactivity": "activities",

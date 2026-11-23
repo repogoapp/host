@@ -1,11 +1,13 @@
 package repogomcp
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"slices"
 
 	"github.com/repogoapp/host/internal/agent"
+	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/rpc"
 )
 
@@ -78,28 +80,34 @@ func hostTool(name string) (rpc.ToolDef, bool) {
 }
 
 // callHost runs one host method for the turn, as the phone that sent it would.
-// The embedded list is the allowlist: nothing else on the router is reachable.
 func callHost(router *rpc.Router, turn agent.RunningTurn, child bool, def rpc.ToolDef, args json.RawMessage) toolResult {
+	caller := rpc.Caller{Device: turn.Device, Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{
+		ChatID: turn.ChatID, PermissionMode: string(turn.Config.PermissionMode), Mode: turn.Config.Mode,
+	}}
+	out, err := runHostTool(turn.Ctx, router, caller, child, def, args)
+	if err != nil {
+		return failed("RepoGo " + def.Method + ": " + err.Error())
+	}
+	return succeeded(out)
+}
+
+// runHostTool is every agent's way onto the router, this host's and another's
+// (RemoteCall): the embedded list is the allowlist, and nothing else on the
+// router is reachable.
+func runHostTool(ctx context.Context, router *rpc.Router, caller rpc.Caller, child bool, def rpc.ToolDef, args json.RawMessage) (json.RawMessage, error) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage("{}")
 	}
 	if child && slices.Contains(childDenied, def.Method) {
-		return failed("RepoGo " + def.Method + ": another chat started this one, so it can't start or message chats")
+		return nil, errkind.New(errkind.Denied, "another chat started this one, so it can't start or message chats")
 	}
 	if slices.Contains(ownChatMethods, def.Method) {
 		var p struct {
 			ChatID string `json:"chat_id"`
 		}
-		if json.Unmarshal(args, &p) == nil && p.ChatID == turn.ChatID {
-			return failed("RepoGo " + def.Method + ": that is this chat; it can't message or stop itself")
+		if json.Unmarshal(args, &p) == nil && p.ChatID == caller.Agent.ChatID {
+			return nil, errkind.New(errkind.Denied, "that is this chat; it can't message or stop itself")
 		}
 	}
-	caller := rpc.Caller{Device: turn.Device, Scope: rpc.ScopeLocal, Agent: &rpc.AgentCaller{
-		ChatID: turn.ChatID, PermissionMode: string(turn.Config.PermissionMode), Mode: turn.Config.Mode,
-	}}
-	out, err := router.Call(turn.Ctx, caller, def.Method, args)
-	if err != nil {
-		return failed("RepoGo " + def.Method + ": " + err.Error())
-	}
-	return succeeded(out)
+	return router.Call(ctx, caller, def.Method, args)
 }

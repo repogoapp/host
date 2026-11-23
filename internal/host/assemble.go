@@ -45,6 +45,7 @@ import (
 	"github.com/repogoapp/host/internal/projectwatch"
 	"github.com/repogoapp/host/internal/push"
 	"github.com/repogoapp/host/internal/reminder"
+	"github.com/repogoapp/host/internal/remotehost"
 	"github.com/repogoapp/host/internal/repogomcp"
 	"github.com/repogoapp/host/internal/rpc"
 	devicesrpc "github.com/repogoapp/host/internal/rpc/devices"
@@ -266,6 +267,8 @@ func (h *Host) openDevices() error {
 	// one killed with the last host (a restart) left its device behind.
 	go capture.RemoveMicDevices()
 	s.Tunnels = h.tunnels
+	s.Hosts = remotehost.NewService(h.cfg.Discovery(string(h.devices.Identity().ID)))
+	s.AgentTools = h.tools
 	return nil
 }
 

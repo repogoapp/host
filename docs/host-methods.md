@@ -1115,6 +1115,31 @@ Result:
 - `counter` int
 - `signature` base64 (nullable)
 
+## `hosts.list`
+
+Params:
+
+- `refresh` bool (omitted when empty)
+
+Result:
+
+- `hosts` [object{Host}] (nullable)
+- `checked_at` int
+
+## `hosts.call`
+
+Local only: refused to a paired device.
+
+Params:
+
+- `method` string
+- `params` json (omitted when empty) (nullable)
+- `from` object{From}
+
+Result:
+
+- `result` json (nullable)
+
 ## `limits.read`
 
 Tool (read): Each agent's plan and how much of each rate-limit window is used, with when it resets.

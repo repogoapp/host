@@ -76,6 +76,8 @@ func vocabulary(root string) []check {
 		{method: "mcp.set_enabled", params: map[string]any{"id": "missing", "project": root, "enabled": true}, key: "ok"},
 		{method: "mcp.remove", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "tunnels.list", key: "tunnels"},
+		// A test host has no ~/.ssh/config or tailnet, so a refresh answers at once.
+		{method: "hosts.list", params: map[string]any{"refresh": true}, key: "hosts"},
 		{method: "schedules.list", key: "schedules"},
 		{method: "schedules.delete", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "reminders.list", key: "reminders"},
@@ -101,7 +103,7 @@ func vocabulary(root string) []check {
 
 // localOnly must be refused to every caller that did not prove it is on this
 // machine. Listed here so the refusal is asserted rather than assumed.
-var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reusable_revoke"}
+var localOnly = []string{"pair.begin", "pair.status", "pair.reusable", "pair.reusable_revoke", "hosts.call"}
 
 // unchecked is the vocabulary this suite deliberately does not drive, each with
 // a reason. Anything else new fails TestEveryMethodIsAccountedFor, which is the
