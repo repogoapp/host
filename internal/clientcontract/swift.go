@@ -44,7 +44,7 @@ var methodExports = map[string]bool{
 	"forward.fetch": true, "forward.pipe_open": true, "forward.pipe_send": true,
 	"forward.pipe_close": true,
 
-	"fs.list": true, "fs.watch": true, "fs.unwatch": true, "fs.read": true, "fs.write": true,
+	"fs.list": true, "fs.watch": true, "fs.unwatch": true, "fs.read": true, "fs.read_range": true, "fs.write": true,
 	"fs.replace": true, "fs.search": true, "fs.delete": true, "fs.rename": true, "fs.mkdir": true,
 
 	"git.status": true, "git.changes": true, "git.branches": true, "git.diff": true, "git.patch": true,

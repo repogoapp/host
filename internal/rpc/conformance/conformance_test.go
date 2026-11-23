@@ -56,6 +56,7 @@ func vocabulary(root string) []check {
 		{method: "terminals.list", key: "sessions"},
 		{method: "fs.list", params: map[string]any{"path": root}, key: "entries"},
 		{method: "fs.read", params: map[string]any{"path": file}, key: "content"},
+		{method: "fs.read_range", params: map[string]any{"path": file, "offset": 0, "length": 4}, key: "content"},
 		{method: "fs.write", params: map[string]any{"path": file, "content": []byte("hello")}, key: "mod_time"},
 		{method: "fs.replace", params: map[string]any{"path": file, "old": "hello", "new": "hello"}, key: "mod_time"},
 		{method: "fs.search", params: map[string]any{"path": root, "query": "hello", "mode": "content"}, key: "results"},

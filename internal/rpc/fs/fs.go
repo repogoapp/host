@@ -53,6 +53,25 @@ type ReadResult struct {
 	Unchanged bool `json:"unchanged"`
 }
 
+// ReadRangeParams reads Length bytes of a file from Offset, at most
+// files.MaxRangeBytes: a file past fs.read's limit, in pieces.
+type ReadRangeParams struct {
+	Path   string `json:"path"`
+	Offset int64  `json:"offset"`
+	Length int64  `json:"length"`
+	files.Scope
+}
+
+// ReadRangeResult is one piece, empty past the end. Size and ModTime are the
+// whole file's: a ModTime that changes between pieces means the file did.
+type ReadRangeResult struct {
+	Path    string `json:"path"`
+	Offset  int64  `json:"offset"`
+	Content []byte `json:"content" wire:"array"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"mod_time"`
+}
+
 // ListParams lists one folder: inside a root all of it, and past the roots
 // the pickers' names under home, starting there when path is empty.
 type ListParams struct {
@@ -127,6 +146,7 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "fs.watch", d.watch)
 	rpc.Add(r, "fs.unwatch", d.unwatch)
 	rpc.Add(r, "fs.read", d.read)
+	rpc.Add(r, "fs.read_range", d.readRange)
 	rpc.Add(r, "fs.write", d.write)
 	rpc.Add(r, "fs.replace", d.replace)
 	rpc.Add(r, "fs.search", d.search)
@@ -150,6 +170,11 @@ func (d Deps) list(_ context.Context, _ rpc.Caller, a ListParams) (ListResult, e
 func (d Deps) read(_ context.Context, _ rpc.Caller, a ReadParams) (ReadResult, error) {
 	file, changed, err := d.Files.ReadChanged(a.Path, a.Scope, a.ModTime)
 	return ReadResult{File: file, Unchanged: err == nil && !changed}, err
+}
+
+func (d Deps) readRange(_ context.Context, _ rpc.Caller, a ReadRangeParams) (ReadRangeResult, error) {
+	file, err := d.Files.ReadRange(a.Path, a.Scope, a.Offset, a.Length)
+	return ReadRangeResult{Path: file.Path, Offset: a.Offset, Content: file.Content, Size: file.Size, ModTime: file.ModTime}, err
 }
 
 func (d Deps) write(_ context.Context, _ rpc.Caller, a WriteParams) (WriteResult, error) {

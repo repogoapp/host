@@ -24,6 +24,10 @@ const (
 	// Base64 of it still fits jsonrpc.MaxMessageBytes.
 	MaxFileBytes = 4 << 20
 
+	// MaxRangeBytes bounds one ReadRange piece, sized like a whole read so
+	// base64 of it fits a message too.
+	MaxRangeBytes = MaxFileBytes
+
 	// MaxEntries bounds one directory listing. `node_modules` has tens of
 	// thousands of entries and nobody scrolls them.
 	MaxEntries = 2000
@@ -241,27 +245,12 @@ func (s *Service) Read(path string) (File, error) {
 }
 
 func (s *Service) read(path string, scope Scope, modTime int64) (File, bool, error) {
-	p, err := s.filePath(path, scope, false)
+	p, f, info, err := s.openRegular(path, scope)
 	if err != nil {
 		return File{}, false, err
 	}
 	defer p.root.Close()
-	// Resolution already followed the final link; a replacement must not redirect the read.
-	f, err := p.open()
-	if err != nil {
-		return File{}, false, wrap(err)
-	}
 	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return File{}, false, wrap(err)
-	}
-	if info.IsDir() {
-		return File{}, false, fmt.Errorf("%w: %s", ErrIsDirectory, path)
-	}
-	if !info.Mode().IsRegular() {
-		return File{}, false, fmt.Errorf("%w: not a regular file", ErrInvalidOperation)
-	}
 	file := File{Path: p.full, Size: info.Size(), ModTime: info.ModTime().UnixMilli()}
 	if modTime != 0 && file.ModTime == modTime {
 		return file, false, nil
@@ -278,6 +267,63 @@ func (s *Service) read(path string, scope Scope, modTime int64) (File, bool, err
 	}
 	file.Content, file.Binary = content, isBinary(content)
 	return file, true, nil
+}
+
+// ReadRange reads up to length bytes of path from offset, at most
+// MaxRangeBytes, for a file past Read's limit: a video plays and a large file
+// downloads piece by piece. Size and ModTime are the whole file's, so a caller
+// notices one that changed between pieces; past the end, Content is empty.
+func (s *Service) ReadRange(path string, scope Scope, offset, length int64) (File, error) {
+	if offset < 0 || length <= 0 {
+		return File{}, fmt.Errorf("%w: offset %d, length %d", ErrInvalidOperation, offset, length)
+	}
+	p, f, info, err := s.openRegular(path, scope)
+	if err != nil {
+		return File{}, err
+	}
+	defer p.root.Close()
+	defer f.Close()
+	file := File{Path: p.full, Size: info.Size(), ModTime: info.ModTime().UnixMilli()}
+	if offset >= file.Size {
+		return file, nil
+	}
+	content := make([]byte, min(length, MaxRangeBytes, file.Size-offset))
+	n, err := f.ReadAt(content, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return File{}, wrap(err)
+	}
+	file.Content = content[:n]
+	return file, nil
+}
+
+// openRegular opens path for reading, refusing a folder or anything but a
+// regular file. The caller closes both the file and p.root.
+func (s *Service) openRegular(path string, scope Scope) (rootedPath, *os.File, os.FileInfo, error) {
+	p, err := s.filePath(path, scope, false)
+	if err != nil {
+		return rootedPath{}, nil, nil, err
+	}
+	// Resolution already followed the final link; a replacement must not redirect the read.
+	f, err := p.open()
+	if err != nil {
+		p.root.Close()
+		return rootedPath{}, nil, nil, wrap(err)
+	}
+	info, err := f.Stat()
+	switch {
+	case err != nil:
+		err = wrap(err)
+	case info.IsDir():
+		err = fmt.Errorf("%w: %s", ErrIsDirectory, path)
+	case !info.Mode().IsRegular():
+		err = fmt.Errorf("%w: not a regular file", ErrInvalidOperation)
+	}
+	if err != nil {
+		f.Close()
+		p.root.Close()
+		return rootedPath{}, nil, nil, err
+	}
+	return p, f, info, nil
 }
 
 // Write replaces a file's contents through a temp file and rename, so a running

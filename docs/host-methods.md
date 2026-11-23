@@ -767,6 +767,24 @@ Result:
 - `binary` bool
 - `unchanged` bool
 
+## `fs.read_range`
+
+Params:
+
+- `path` string
+- `offset` int
+- `length` int
+- `within` string
+- `extensions` [string] (nullable)
+
+Result:
+
+- `path` string
+- `offset` int
+- `content` base64
+- `size` int
+- `mod_time` int
+
 ## `fs.write`
 
 Params:
