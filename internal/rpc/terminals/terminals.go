@@ -53,7 +53,8 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "terminals.create", d.create)
 	// list is one project's tabs, or every session when no project is named.
 	rpc.Add(r, "terminals.list", d.list)
-	// subscribe keeps a tab strip live; renewing is calling it again.
+	// subscribe keeps a tab strip live, or every project's when no project is
+	// named; renewing is calling it again.
 	rpc.Add(r, "terminals.subscribe", d.subscribe)
 	rpc.Add(r, "terminals.unsubscribe", d.unsubscribe)
 	// attach subscribes and replays scrollback in the reply, so it cannot

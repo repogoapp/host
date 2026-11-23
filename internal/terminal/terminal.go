@@ -54,10 +54,12 @@ var (
 	ErrNoProject = errkind.New(errkind.Invalid, "terminal: a project directory is required")
 )
 
-// Info is one session on the wire: its id and when it opened, which is the
-// tab order. The phone sizes the PTY itself and keeps names locally.
+// Info is one session on the wire: its id, its project folder and when it
+// opened, which is the tab order. The phone sizes the PTY itself and keeps
+// names locally.
 type Info struct {
 	SessionID string `json:"session_id"`
+	Cwd       string `json:"cwd,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -76,8 +78,9 @@ type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 
-	// watch is who wants a project's tab set, keyed by project directory. Separate
-	// from session watchers because a client shows the tab strip before attaching.
+	// watch is who wants a project's tab set, keyed by project directory, and
+	// under "" who wants every project's. Separate from session watchers
+	// because a client shows the tab strip before attaching.
 	watch map[string]map[device.ID]time.Time
 }
 
@@ -241,11 +244,12 @@ func (m *Manager) List(cwd string) []Info {
 	return out
 }
 
-// Subscribe asks to be told when a project's tab set changes, and renews the
-// lease. Calling it again with the same project is how a client stays
-// subscribed — same shape as internal/projectwatch, for the same reason.
+// Subscribe asks to be told when a project's tab set changes, or with an
+// empty cwd when any project's does, and renews the lease. Calling it again
+// with the same project is how a client stays subscribed — same shape as
+// internal/projectwatch, for the same reason.
 func (m *Manager) Subscribe(caller device.ID, cwd string) error {
-	dir, err := m.paths.Contain(cwd)
+	dir, err := m.watchKey(cwd)
 	if err != nil {
 		return err
 	}
@@ -259,7 +263,7 @@ func (m *Manager) Subscribe(caller device.ID, cwd string) error {
 }
 
 func (m *Manager) Unsubscribe(caller device.ID, cwd string) {
-	dir, err := m.paths.Contain(cwd)
+	dir, err := m.watchKey(cwd)
 	if err != nil {
 		return
 	}
@@ -271,24 +275,40 @@ func (m *Manager) Unsubscribe(caller device.ID, cwd string) {
 	}
 }
 
-// changed pushes a project's whole tab set to its watchers; a snapshot cannot
-// drift the way a replayed delta can.
-func (m *Manager) changed(cwd string) {
-	sessions := m.List(cwd)
+// watchKey is the watch map's key: the contained project folder, or "" for
+// every project.
+func (m *Manager) watchKey(cwd string) (string, error) {
+	if cwd == "" {
+		return "", nil
+	}
+	return m.paths.Contain(cwd)
+}
 
+// changed pushes a project's whole tab set to its watchers, and every
+// session to those watching every project; a snapshot cannot drift the way
+// a replayed delta can.
+func (m *Manager) changed(cwd string) {
+	m.announce(cwd)
+	m.announce("")
+}
+
+func (m *Manager) announce(key string) {
 	m.mu.Lock()
 	now := time.Now()
-	watchers := make([]device.ID, 0, len(m.watch[cwd]))
-	for id, expiry := range m.watch[cwd] {
+	watchers := make([]device.ID, 0, len(m.watch[key]))
+	for id, expiry := range m.watch[key] {
 		if expiry.Before(now) {
-			delete(m.watch[cwd], id)
+			delete(m.watch[key], id)
 			continue
 		}
 		watchers = append(watchers, id)
 	}
 	m.mu.Unlock()
+	if len(watchers) == 0 {
+		return
+	}
 
-	ev := Changed{Cwd: cwd, Sessions: sessions}
+	ev := Changed{Cwd: key, Sessions: m.List(key)}
 	for _, id := range watchers {
 		_ = m.emit.To(id, ev)
 	}
@@ -508,7 +528,7 @@ func (m *Manager) push(s *session, ev emit.Event) {
 }
 
 func (s *session) info() Info {
-	return Info{SessionID: s.id, CreatedAt: s.createdAt.UnixMilli()}
+	return Info{SessionID: s.id, Cwd: s.cwd, CreatedAt: s.createdAt.UnixMilli()}
 }
 
 // appendCapped keeps the tail. Reallocating the whole buffer on every read

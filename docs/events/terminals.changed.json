@@ -3,6 +3,7 @@
   "sessions": [
     {
       "session_id": "session_id",
+      "cwd": "cwd",
       "created_at": 1
     }
   ]

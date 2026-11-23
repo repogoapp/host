@@ -2062,6 +2062,7 @@ Params:
 Result:
 
 - `session_id` string
+- `cwd` string (omitted when empty)
 - `created_at` int
 
 ## `terminals.list`

@@ -184,3 +184,37 @@ func TestLoginShellFallsBackToAShellThatExists(t *testing.T) {
 		}
 	}
 }
+
+// The Terminal tab's project list counts every project's shells, so a
+// watcher of every project hears any project's change, with each session's
+// folder.
+func TestEveryProjectWatcherHearsEachProject(t *testing.T) {
+	dir := t.TempDir()
+	c := newCollector()
+	m := terminal.New(roots{dir}, c.emitter(), quiet())
+	t.Cleanup(m.Shutdown)
+
+	if err := m.Subscribe("ipad", ""); err != nil {
+		t.Fatalf("subscribe to every project: %v", err)
+	}
+	info, err := m.Create("phone", dir, 80, 24)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if got := waitChanged(t, c); got.to != "ipad" || got.count != 1 {
+		t.Fatalf("the watcher was told %+v, want one tab for ipad", got)
+	}
+	if got := m.List(""); len(got) != 1 || got[0].Cwd != info.Cwd || info.Cwd == "" {
+		t.Fatalf("list lost the session's folder: %+v, created %+v", got, info)
+	}
+
+	m.Unsubscribe("ipad", "")
+	if err := m.Close(info.SessionID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	select {
+	case got := <-c.changed:
+		t.Fatalf("an unsubscribed watcher was told %+v", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+}

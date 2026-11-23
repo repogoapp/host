@@ -11,6 +11,7 @@ func init() {
 }
 
 // Changed is a project's whole tab set, sent to every device watching that
+// project, or with an empty cwd every session, sent to those watching every
 // project. A snapshot, so it cannot drift the way a replayed delta can.
 type Changed struct {
 	Cwd      string `json:"cwd"`
