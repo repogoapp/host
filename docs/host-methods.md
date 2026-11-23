@@ -1117,6 +1117,8 @@ Result:
 
 ## `hosts.list`
 
+Tool (read): The other RepoGo environments this one reaches over SSH, from ~/.ssh/config and the tailnet: each one's id and name, or why it can't be used (offline, no SSH key, RepoGo not installed, not running or too old). Looks again when the last look is over two minutes old; refresh looks again now.
+
 Params:
 
 - `refresh` bool (omitted when empty)

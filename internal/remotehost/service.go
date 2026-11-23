@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// Every is how often the background run looks again: a host that comes
-// online or goes away shows within this.
-const Every = 5 * time.Minute
+// Reuse is how long an answer stands before a caller's look runs again: a
+// turn that asks twice doesn't SSH twice.
+const Reuse = 2 * time.Minute
 
 // List is the last discovery and when it ran.
 type List struct {
@@ -17,62 +17,53 @@ type List struct {
 	CheckedAt int64 `json:"checked_at"`
 }
 
-// Service keeps the last discovery, run in the background and on request,
-// so a caller reads it without waiting on SSH.
+// Service runs discovery when asked, never on a timer: nothing SSHes into the
+// user's machines unless an agent or a person asked which hosts there are.
 type Service struct {
-	d Deps
+	d   Deps
+	now func() time.Time
 
-	// run lets one discovery go at a time; a request waits for the one running.
-	run   sync.Mutex
-	mu    sync.Mutex
-	last  List
-	first chan struct{}
-	once  sync.Once
+	// run lets one discovery go at a time; a caller that waited on one reuses it.
+	run  sync.Mutex
+	mu   sync.Mutex
+	last List
 }
 
 func NewService(d Deps) *Service {
-	return &Service{d: d, first: make(chan struct{}), last: List{Hosts: []Host{}}}
+	return &Service{d: d, now: time.Now, last: List{Hosts: []Host{}}}
 }
 
-// Run discovers now and every Every until ctx ends.
-func (s *Service) Run(ctx context.Context) {
-	tick := time.NewTicker(Every)
-	defer tick.Stop()
-	for {
-		s.Refresh(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
+// List answers the last look when it is under Reuse old, else looks again;
+// fresh always looks again.
+func (s *Service) List(ctx context.Context, fresh bool) List {
+	if !fresh {
+		if last, ok := s.recent(); ok {
+			return last
 		}
 	}
-}
-
-// Refresh discovers now and keeps the answer.
-func (s *Service) Refresh(ctx context.Context) List {
 	s.run.Lock()
 	defer s.run.Unlock()
-	list := List{Hosts: Discover(ctx, s.d), CheckedAt: time.Now().UnixMilli()}
+	// A look that finished while this one waited is as fresh as one it would run.
+	if last, ok := s.recent(); ok && !fresh {
+		return last
+	}
+	list := List{Hosts: Discover(ctx, s.d), CheckedAt: s.now().UnixMilli()}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// A run cut short reads every host as offline; the last full one is truer.
+	// A look cut short reads every host as offline; the last full one is truer.
 	if ctx.Err() != nil {
 		return s.last
 	}
 	s.last = list
-	s.once.Do(func() { close(s.first) })
 	return list
 }
 
-// Last is the kept answer, waiting for the first run if none has finished;
-// an empty list when ctx ends first.
-func (s *Service) Last(ctx context.Context) List {
-	select {
-	case <-s.first:
-	case <-ctx.Done():
-		return List{Hosts: []Host{}}
-	}
+// recent is the last look when one ran under Reuse ago.
+func (s *Service) recent() (List, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.last
+	if s.last.CheckedAt == 0 || s.now().Sub(time.UnixMilli(s.last.CheckedAt)) >= Reuse {
+		return List{}, false
+	}
+	return s.last, true
 }

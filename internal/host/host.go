@@ -264,7 +264,6 @@ func (h *Host) Start() {
 	h.spawn(h.mgr.Watch)
 	h.spawn(h.keeper.Run)
 	h.spawn(h.info.WatchPublicIP)
-	h.spawn(h.Services.Hosts.Run)
 	h.spawn(h.watch.Run)
 	h.spawn(func(ctx context.Context) { h.live.WatchNotices(ctx, h.bridge) })
 	h.spawn(h.syncer.Run)

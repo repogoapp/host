@@ -19,7 +19,7 @@ func hostsCommand(ctx context.Context, fs *flag.FlagSet, args []string) error {
 		return fmt.Errorf("usage: repogo hosts [list] [--refresh] [--json]")
 	}
 	params := map[string]any{"refresh": flagBool(fs, "refresh")}
-	// A refresh waits on every host's SSH login, each bounded at a few seconds.
+	// A look waits on every host's SSH login, each bounded at a few seconds.
 	var raw json.RawMessage
 	if err := callWithin(ctx, 20*time.Second, "hosts.list", params, &raw); err != nil {
 		return err

@@ -18,7 +18,7 @@ type Deps struct {
 }
 
 type ListParams struct {
-	// Refresh looks again now, rather than answering the last look.
+	// Refresh looks again now, rather than reusing a look under two minutes old.
 	Refresh bool `json:"refresh,omitempty"`
 }
 
@@ -46,17 +46,19 @@ type CallResult struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
-	rpc.Add(r, "hosts.list", d.list)
+	// Not remote: another host's agent listing this one's hosts would reach
+	// a third, and calls stay one hop.
+	rpc.Add(r, "hosts.list", d.list, rpc.MCP, rpc.NotRemote, rpc.Tool("The other RepoGo environments this one "+
+		"reaches over SSH, from ~/.ssh/config and the tailnet: each one's id and name, or why it can't be used "+
+		"(offline, no SSH key, RepoGo not installed, not running or too old). Looks again when the last look is "+
+		"over two minutes old; refresh looks again now."), rpc.Read)
 	// Local only: the other host reaches it as `repogo call` over SSH, which
 	// reads this machine's runtime token; SSH is what proved the user.
 	rpc.Add(r, "hosts.call", d.call, rpc.Local)
 }
 
 func (d Deps) list(ctx context.Context, _ rpc.Caller, a ListParams) (remotehost.List, error) {
-	if a.Refresh {
-		return d.Hosts.Refresh(ctx), nil
-	}
-	return d.Hosts.Last(ctx), nil
+	return d.Hosts.List(ctx, a.Refresh), nil
 }
 
 func (d Deps) call(ctx context.Context, _ rpc.Caller, a CallParams) (CallResult, error) {

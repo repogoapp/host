@@ -6,38 +6,49 @@ import (
 	"time"
 )
 
-func TestLastWaitsForTheFirstRunThenKeepsIt(t *testing.T) {
+// A look is reused for two minutes, then runs again; fresh always runs, and
+// nothing runs before someone asks.
+func TestListLooksOnlyWhenAskedAndReusesARecentLook(t *testing.T) {
 	f := &fake{config: "Host studio\n", answers: map[string]answer{
 		"studio": {stdout: `{"host_id": "H1", "name": "Studio"}`},
 	}}
 	s := NewService(f.deps(""))
-
-	short, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	if got := s.Last(short); len(got.Hosts) != 0 || got.CheckedAt != 0 {
-		t.Fatalf("Last before any run = %+v, want empty", got)
+	now := time.UnixMilli(1_000_000)
+	s.now = func() time.Time { return now }
+	if len(f.ran) != 0 {
+		t.Fatal("a look ran before anyone asked")
 	}
 
-	ran := s.Refresh(context.Background())
-	if len(ran.Hosts) != 1 || ran.Hosts[0].HostID != "H1" || ran.CheckedAt == 0 {
-		t.Fatalf("Refresh = %+v, want studio as H1", ran)
+	first := s.List(context.Background(), false)
+	if len(first.Hosts) != 1 || first.Hosts[0].State != Ready || len(f.ran) != 1 {
+		t.Fatalf("first List = %+v after %d SSH calls, want studio ready after 1", first, len(f.ran))
 	}
 	f.answers["studio"] = answer{stderr: "ssh: connect to host studio: timed out", code: 255}
-	if got := s.Last(context.Background()); got.Hosts[0].State != Ready {
-		t.Fatalf("Last = %+v, want the kept run, not a new look", got)
+
+	now = now.Add(Reuse - time.Second)
+	if got := s.List(context.Background(), false); got.Hosts[0].State != Ready || len(f.ran) != 1 {
+		t.Fatalf("List under Reuse = %+v after %d SSH calls, want the kept look", got, len(f.ran))
+	}
+	if got := s.List(context.Background(), true); got.Hosts[0].State != Offline || len(f.ran) != 2 {
+		t.Fatalf("fresh List = %+v after %d SSH calls, want a new look", got, len(f.ran))
+	}
+	now = now.Add(Reuse)
+	if s.List(context.Background(), false); len(f.ran) != 3 {
+		t.Fatalf("List past Reuse made %d SSH calls, want a third look", len(f.ran))
 	}
 }
 
-func TestARefreshCutShortKeepsTheLastFullRun(t *testing.T) {
+// A look cut short keeps the last full one rather than calling every host offline.
+func TestALookCutShortKeepsTheLastFullOne(t *testing.T) {
 	f := &fake{config: "Host studio\n", answers: map[string]answer{
 		"studio": {stdout: `{"host_id": "H1", "name": "Studio"}`},
 	}}
 	s := NewService(f.deps(""))
-	s.Refresh(context.Background())
+	s.List(context.Background(), false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if got := s.Refresh(ctx); len(got.Hosts) != 1 || got.Hosts[0].State != Ready {
-		t.Fatalf("cancelled Refresh = %+v, want the last full run", got)
+	if got := s.List(ctx, true); len(got.Hosts) != 1 || got.Hosts[0].State != Ready {
+		t.Fatalf("cancelled List = %+v, want the last full look", got)
 	}
 }

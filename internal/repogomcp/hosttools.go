@@ -19,7 +19,8 @@ const hostToolsInstructions = " The `chats_*` tools list, read, rename, pin, res
 	"`schedules_list` and `tunnels_list` are the app's own reads; " +
 	"`reminders_*` notify the user's phones at a set time, set only when the user asks; " +
 	"the `screens_*` tools drive this environment's iOS simulators and Android emulators: read the screen " +
-	"(`screens_elements`), tap, swipe, type, press keys and buttons, rotate, fold, and save screenshots."
+	"(`screens_elements`), tap, swipe, type, press keys and buttons, rotate, fold, and save screenshots; " +
+	"`hosts_list` finds the other environments this one reaches over SSH."
 
 // hosttools.json is written from the router by `go test ./internal/rpc/conformance -update`.
 //

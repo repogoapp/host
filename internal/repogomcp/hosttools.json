@@ -565,6 +565,22 @@
     }
   },
   {
+    "name": "hosts_list",
+    "method": "hosts.list",
+    "description": "The other RepoGo environments this one reaches over SSH, from ~/.ssh/config and the tailnet: each one's id and name, or why it can't be used (offline, no SSH key, RepoGo not installed, not running or too old). Looks again when the last look is over two minutes old; refresh looks again now.",
+    "read_only": true,
+    "mcp": true,
+    "not_remote": true,
+    "input_schema": {
+      "properties": {
+        "refresh": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "limits_read",
     "method": "limits.read",
     "description": "Each agent's plan and how much of each rate-limit window is used, with when it resets.",
