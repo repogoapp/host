@@ -50,6 +50,8 @@ func vocabulary(root string) []check {
 		{method: "chats.tools_unsubscribe", params: map[string]any{"chat_id": "claude:missing", "call_ids": []string{"c1"}}, key: "ok"},
 		{method: "fs.unwatch", key: "ok"},
 		{method: "host.status", key: "version"},
+		// An empty name goes back to the machine's own: the test host keeps its default.
+		{method: "host.rename", params: map[string]any{"name": ""}, key: "default_name"},
 		{method: "devices.list", key: "devices"},
 		{method: "devices.revoke", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "turns.list", key: "turns"},
@@ -76,7 +78,7 @@ func vocabulary(root string) []check {
 		{method: "mcp.set_enabled", params: map[string]any{"id": "missing", "project": root, "enabled": true}, key: "ok"},
 		{method: "mcp.remove", params: map[string]any{"id": "missing"}, key: "ok"},
 		{method: "tunnels.list", key: "tunnels"},
-		// A test host has no ~/.ssh/config or tailnet, so a refresh answers at once.
+		// A test host has no tailnet, so a refresh answers at once.
 		{method: "hosts.list", params: map[string]any{"refresh": true}, key: "hosts"},
 		{method: "schedules.list", key: "schedules"},
 		{method: "schedules.delete", params: map[string]any{"id": "missing"}, key: "ok"},
@@ -115,6 +117,7 @@ var unchecked = map[string]string{
 	"catalog.read":    "probes every agent CLI as host.setup does; covered with fakes in the catalog family suite",
 
 	"devices.register_push": "paired-device token storage; loopback callers are denied",
+	"devices.push_key":      "paired-device push key; loopback callers are denied; covered in internal/rpc/devices",
 	"activities.set":        "plugins only, keyed by the calling plugin; covered in internal/stepactivity and its rpc family",
 	"devices.hello":         "paired-device record update; loopback callers are denied",
 
@@ -139,6 +142,8 @@ var unchecked = map[string]string{
 	"schedules.save":       "needs an installed agent and a project; covered in internal/schedule",
 	"projects.pin":         "needs a listed project; covered in internal/store",
 	"turns.respond":        "needs a turn waiting on approval",
+	"plugins.list":         "lists the plugins server's manifest, which needs Bun and the SDK the test host lacks; covered in internal/plugins",
+	"plugins.get":          "same",
 	"plugins.logs":         "reads the plugin log, which the test host opens empty; covered in internal/plugins",
 	"plugins.call":         "runs the plugins server, which needs Bun and the SDK the test host lacks; covered in internal/plugins",
 	"plugins.subscribe":    "same",
@@ -210,6 +215,8 @@ var unchecked = map[string]string{
 	"screens.save_screenshot":             "captures a running device to a file",
 	"screens.elements":                    "reads a running device's screen; matching covered in internal/screens",
 	"screens.tap":                         "touches a running device",
+	"screens.wait":                        "reads a running device's screen until it changes",
+	"screens.fold":                        "folds a running device",
 	"screens.swipe":                       "touches a running device",
 	"screens.type":                        "types on a running device",
 	"screens.key":                         "presses a key on a running device",
@@ -246,8 +253,10 @@ var unchecked = map[string]string{
 
 	"mcp.call": "calls a connected server's tools; covered against httptest servers in internal/mcp",
 
-	"tunnels.open":  "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
-	"tunnels.close": "same",
+	"tunnels.open":    "paired devices only, so it differs by transport on purpose; driven by TestPairedOnlyMethods",
+	"hosts.authorize": "paired devices only, and needs a host discovery found; denial driven by TestPairedOnlyMethods, the rest in internal/remotehost",
+	"hosts.listing":   "paired devices only, and reads ~/.ssh/config; denial driven by TestPairedOnlyMethods, the rest in internal/remotehost",
+	"tunnels.close":   "same",
 }
 
 // --- the host under test -----------------------------------------------------
@@ -449,6 +458,14 @@ func TestPairedOnlyMethods(t *testing.T) {
 			if c.name == "in-process" {
 				if _, err := c.call(t, "tunnels.open", open); !isCode(err, jsonrpc.CodeDenied) {
 					t.Errorf("tunnels.open from the machine answered %v, want denied", err)
+				}
+				// Switching a host on for agents is a paired phone's tap, never a shell's.
+				if _, err := c.call(t, "hosts.authorize", map[string]any{"id": "studio", "on": true}); !isCode(err, jsonrpc.CodeDenied) {
+					t.Errorf("hosts.authorize from the machine answered %v, want denied", err)
+				}
+				// So is asking for the user's SSH connections to be read and listed.
+				if _, err := c.call(t, "hosts.listing", map[string]any{"on": true}); !isCode(err, jsonrpc.CodeDenied) {
+					t.Errorf("hosts.listing from the machine answered %v, want denied", err)
 				}
 				return
 			}

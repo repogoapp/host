@@ -84,8 +84,9 @@ type Config struct {
 	// Online reports whether a device holds a live channel, resolved late:
 	// the transports are built after the router.
 	Online func(device.ID) bool
-	// PushChanged hears each token a phone registers or clears, by kind.
-	PushChanged func(kind string)
+	// PushChanged hears each token a phone registers or clears, by kind, and
+	// a new push key (device.PushKeyChanged).
+	PushChanged func(from device.ID, kind string)
 
 	// Addr is the address a pairing invite advertises, resolved late.
 	Addr func() string
@@ -190,7 +191,7 @@ func New(cfg Config) (*rpc.Router, error) {
 	})
 	devices.Register(r, devices.Deps{Store: cfg.Devices, Pairer: cfg.Pairer, Online: cfg.Online, PushChanged: cfg.PushChanged})
 	pairing.Register(r, pairing.Deps{
-		Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr, PairHost: cfg.PairHost, Log: cfg.Log,
+		Store: cfg.Devices, Pairer: cfg.Pairer, Addr: cfg.Addr, PairHost: cfg.PairHost, Name: cfg.Host.Name, Log: cfg.Log,
 	})
 	fsrpc.Register(r, fsrpc.Deps{Files: cfg.Files, Watch: cfg.Watch})
 	projectsrpc.Register(r, projectsrpc.Deps{

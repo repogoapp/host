@@ -3,9 +3,10 @@
 Applies to everything in this repo. Checked out as `apps/host` inside the RepoGo
 app repo, that repo's root `AGENTS.md` and internal notes apply too.
 
-One Go module (`github.com/repogoapp/host`): the `repogo` host binary and the hosted
-relay, `hrelay`. `README.md` is the public, customer-facing page. No hosted database and
-one small relay is the point; keep it that way.
+One Go module (`github.com/repogoapp/host`): the `repogo` host binary and the two hosted
+services, the relay (`hrelay`) and the tunnel gateway (`tunnelgateway`). `README.md` is the
+public, customer-facing page. No hosted database and two small services are the point; keep
+it that way.
 
 ## Never
 
@@ -56,11 +57,13 @@ them; comments explain why, in one line, only where it isn't obvious.
 
 | Package | Role | Smell |
 | --- | --- | --- |
-| `jsonrpc`, `handshake`, `wirecodec`, `tunnelwire` | Wire structs, codes and the per-message codec, no other behaviour; `tunnelwire` is public so the tunnel gateway shares it | any import |
+| `jsonrpc`, `handshake`, `wirecodec`, `tunnelwire` | Wire structs, codes and the per-message codec, no other behaviour; `tunnelwire` is what the host and the tunnel gateway say to each other | any import |
 | `chatwire`, `wirejson` | What leaves the host: a chat's transcript as the phone receives it, and required arrays at JSON boundaries | parsing transcripts |
 | `wsserver`, `wsconn`, `passthrough`, `hosttls`, `redial`, `hostclient`, `api` | Move bytes: server (and its `/stream` media sockets, direct or through the relay), shared WebSocket connection, the relay that pipes phones' TLS and the host's link to it, the host's pinned TLS key, the one reconnect loop, Go test client, loopback HTTP onto `rpc` | knows what a chat is |
-| `pushgate` | The relay's side of a push: the phone's grant, rate limits, APNs | host state |
+| `pushgate` | The relay's side of a push: the phone's grant, rate limits, APNs and FCM, Play Integrity | host state |
+| `tunnelgateway` | The gateway's side of a tunnel: each host's socket and its proof, forwarding visitors' requests and WebSockets, the response cache, rate limits, the Upstash rows | host state, imports from the host beyond `tunnelwire` |
 | `appattest` | Verify Apple app attestation and assertions for push authorization | app or host state |
+| `pushseal` | Seal a push for one phone's key (`docs/push-seal.md`); the phones open it | imports from the host, keys of its own |
 | `rpc`, `rpc/<family>` | One method → one core call; typed params and result, access and lifetime on the `rpc.Add` line. Thin | logic a second transport would copy |
 | `rpc/registry` | Wiring table only; every service required | needs helper funcs |
 | `host` | Build and wire every service (`New`), admit devices (`Listen`), run owned workers (`Start`), stop admission, cancel, wait, then close storage (`Close`) | a second assembly anywhere else |
@@ -121,8 +124,8 @@ work lives in the core package any surface can call (`rpc/hosts` and
 | --- | --- | --- |
 | Params, results, `Register`, handlers | `rpc/<family>/`; `types.go` once there are many | `hosts.list`, `hosts.call` |
 | Wire-only helpers: the caller, idempotency, the answer's shape | Below the handlers, unexported | `keyScope`, `from` (`rpc/chats`) |
-| Domain logic | The core package, exported | `remotehost.Service.Refresh`, `repogomcp.Server.RemoteCall` |
-| Parsing and decisions | The core package, unexported and pure, tested with plain inputs | `remotehost.classify`, `merge` |
+| Domain logic | The core package, exported | `remotehost.Service.List`, `repogomcp.Server.RemoteCall` |
+| Parsing and decisions | The core package, unexported and pure, tested with plain inputs | `remotehost.classify`, `parseSSHConfig` |
 | Side effects (exec, network, files) | Behind the core package's `Deps`, the real ones in one constructor | `remotehost.System` |
 
 A handler turns the caller and params into the core call's inputs, makes one

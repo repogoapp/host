@@ -189,6 +189,13 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `charging` bool
 - `plugged_in` bool
 
+## `host.name_changed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
+- `name` string
+- `default_name` string
+
 ## `host.setup_changed`
 
 Signal: not replayed; a missed one is recovered by refetching.
@@ -197,6 +204,11 @@ Signal: not replayed; a missed one is recovered by refetching.
 - `tools` [object{Install}]
 - `agents` [object{Catalog}]
 - `github` object{CloneFolder}
+
+## `hosts.changed`
+
+Signal: not replayed; a missed one is recovered by refetching.
+
 
 ## `mcp.changed`
 
@@ -258,6 +270,7 @@ Stateful, key `view`: the last one is handed to a device joining the room; `revi
 - `controls` [string]
 - `buttons` [string]
 - `state` object{State} (omitted when empty) (nullable)
+- `recording` bool (omitted when empty)
 - `epoch` string
 - `revision` int
 

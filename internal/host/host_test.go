@@ -1,6 +1,7 @@
 package host_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/repogoapp/host/internal/passthrough"
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/pushseal"
 	"github.com/repogoapp/host/internal/reminder"
 	"github.com/repogoapp/host/internal/rpc/registry"
 	"github.com/repogoapp/host/internal/store"
@@ -290,14 +292,22 @@ func TestPushesGoOutOnTheRelayLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := phone.GrantPush(hostID, device.PushTarget{Service: device.PushAPNs, Token: "abcd", Environment: pushgate.EnvironmentSandbox, GrantedAt: time.Now().UnixMilli()})
-	if err := th.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Client: device.Client{Platform: "ios"}, Push: &target}); err != nil {
+	// Alerts go only to a phone that opens them sealed.
+	key := bytes.Repeat([]byte{3}, pushseal.SecretSize)
+	client := device.Client{Platform: "ios", Features: map[string]int{device.FeaturePushSeal: pushseal.FeatureAlerts}}
+	if err := th.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Client: client, Push: &target, PushKey: key}); err != nil {
 		t.Fatal(err)
 	}
 	th.Remind(t.Context(), reminder.Alert{ID: "r1", Text: "Stand up"})
 	select {
 	case req := <-sent:
-		if req.Token != "abcd" || !strings.Contains(string(req.Payload), "Stand up") {
-			t.Fatalf("APNs got %+v", req)
+		var body struct {
+			Sealed pushseal.Envelope `json:"sealed"`
+		}
+		_ = json.Unmarshal(req.Payload, &body)
+		plain, err := pushseal.Open(key, string(hostID), pushseal.Alert, "", body.Sealed)
+		if req.Token != "abcd" || err != nil || !strings.Contains(string(plain), "Stand up") || strings.Contains(string(req.Payload), "Stand up") {
+			t.Fatalf("APNs got %+v (%v)", req, err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no push reached the relay")

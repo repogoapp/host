@@ -21,7 +21,7 @@ func TestRotatingTheTLSKeyEndsTheReusableInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pairer, err := device.OpenPairer(store, filepath.Join(dir, "pair-reusable.json"))
+	pairer, err := device.OpenPairer(store, filepath.Join(dir, "pair-reusable.json"), device.Label)
 	if err != nil {
 		t.Fatal(err)
 	}

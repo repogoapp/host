@@ -1,6 +1,7 @@
 package host
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -44,6 +45,7 @@ import (
 	"github.com/repogoapp/host/internal/projectsync"
 	"github.com/repogoapp/host/internal/projectwatch"
 	"github.com/repogoapp/host/internal/push"
+	"github.com/repogoapp/host/internal/release"
 	"github.com/repogoapp/host/internal/reminder"
 	"github.com/repogoapp/host/internal/remotehost"
 	"github.com/repogoapp/host/internal/repogomcp"
@@ -156,7 +158,12 @@ func (h *Host) openTools() error {
 	h.Services.Plugins = pluginscore.New(h.ctx, pluginscore.Config{
 		Runtime: h.pluginsRuntime(), Socket: h.state("plugins.sock"), DataDir: h.state("plugin-data"),
 		Global: h.state("plugins"), Crons: h.state("crons.json"), LogsPath: h.state("plugin-logs.db"), Redact: h.redact,
-		Notify: func(n pluginscore.Notice) { h.alerts.Plugin(h.ctx, push.PluginNotice(n)) },
+		Notify: func(n pluginscore.Notice) {
+			// A host with no relay has no notifier, and nowhere to push.
+			if h.alerts != nil {
+				h.alerts.Plugin(h.ctx, push.PluginNotice(n))
+			}
+		},
 		Events: h.emitter,
 		Keys:   pluginKeys{h},
 		// The identity opens after this; it's read only once requests arrive.
@@ -171,6 +178,9 @@ func (h *Host) openTools() error {
 		On:      func(string) bool { return h.mcps.BuiltinOn(mcp.BuiltinID) },
 		Browser: browser, Plugins: h.Services.Plugins, MCP: func() *mcp.Service { return h.mcps },
 		Router: func() *rpc.Router { return h.Router }, Log: h.log,
+		// Both are built after this, and read only once a turn calls a tool.
+		Hosts:  func() *remotehost.Service { return h.Services.Hosts },
+		HostID: func() string { return string(h.devices.Identity().ID) },
 	})
 	h.Services.Browser = browser
 	return nil
@@ -211,14 +221,24 @@ func (h *Host) openDevices() error {
 	}
 	h.onClose(h.keeper.Release)
 	h.info = hostinfo.New(hostinfo.Deps{
-		HostID: string(h.devices.Identity().ID), Name: h.cfg.Label,
-		Power: h.keeper, Relay: h.relayLinked, UpdateFailed: h.cfg.UpdateFailed, PublicIP: h.cfg.PublicIP,
+		HostID: string(h.devices.Identity().ID), DefaultName: h.cfg.Label,
+		// The store opens after this; the name is read only once requests arrive.
+		SavedName: h.savedHostName, SaveName: func(name string) error { return h.db.SetHostName(name) },
+		NameChanged: func(ev hostinfo.NameChanged) { h.emitter.All(ev) },
+		Power:       h.keeper, Relay: h.relayLinked, UpdateFailed: h.cfg.UpdateFailed,
 		Trash: files.TrashDir(runtime.GOOS, h.cfg.Home) != "", TLSKey: h.tlsKey,
 		Screens: screens.Supported,
 	})
-	h.pairer, err = device.OpenPairer(h.devices, h.state("pair-reusable.json"))
+	h.pairer, err = device.OpenPairer(h.devices, h.state("pair-reusable.json"), h.info.Name)
 	if err != nil {
 		return fmt.Errorf("reusable invite: %w", err)
+	}
+	// Reusable invites are for App Review's machine, which runs a development
+	// build; a release host ends one an earlier development build left.
+	if !release.IsDev() {
+		if err := h.pairer.RevokeReusable(); err != nil {
+			return fmt.Errorf("reusable invite: %w", err)
+		}
 	}
 	h.log.Info("device identity", "id", h.devices.Identity().ID,
 		"peers", len(h.devices.Peers()))
@@ -267,7 +287,11 @@ func (h *Host) openDevices() error {
 	// one killed with the last host (a restart) left its device behind.
 	go capture.RemoveMicDevices()
 	s.Tunnels = h.tunnels
-	s.Hosts = remotehost.NewService(h.cfg.Discovery(string(h.devices.Identity().ID)))
+	discovery := h.cfg.Discovery(string(h.devices.Identity().ID))
+	discovery.AuthorizedPath = h.state(remotehost.AuthorizedFile)
+	discovery.Changed = func() { h.emitter.All(remotehost.Changed{}) }
+	discovery.Log = h.log
+	s.Hosts = remotehost.NewService(discovery)
 	s.AgentTools = h.tools
 	return nil
 }
@@ -331,7 +355,7 @@ func (h *Host) openChats() error {
 	h.db.SameRow(wire.SameRow)
 	h.live = chatlive.New(h.ctx, chatlive.Deps{
 		Sessions: h.sessions, Store: h.db, Emit: h.emitter, Turns: h.mgr, Log: h.log,
-		Attention: h.announcer.Attention,
+		Attention: h.attention,
 		Wire:      wire,
 		Children:  h.syncer,
 	})
@@ -374,6 +398,8 @@ func (h *Host) openProjects() error {
 			{Path: h.cfg.Attachments, MaxBytes: agent.MaxUploadBytes},
 			{Path: h.state("plugins"), MaxBytes: files.MaxFileBytes},
 			{Path: h.state("plugin-data"), MaxBytes: files.MaxFileBytes},
+			// Simulator screenshots and recordings, for the phone to share and cards to show.
+			{Path: h.state("tmp", "screens"), MaxBytes: files.MaxFileBytes},
 		},
 	})
 	gitService := gitcore.New(projectFiles, h.log)
@@ -501,6 +527,7 @@ func (h *Host) openTransports() error {
 	h.srv, err = wsserver.New(wsserver.Config{
 		Port: h.cfg.Port, Token: h.cfg.Token, ServerID: h.cfg.ServerID, Mux: mux,
 		Devices: h.devices, Router: h.Router, Pushes: h.Pushes, OnDisconnect: h.disconnected, Log: h.log,
+		Name:       func() (string, string) { return h.info.Name(), h.cfg.Label },
 		Pairing:    h.pairer.Accepting,
 		SelfAuthed: map[string]http.Handler{repogomcp.Path: h.tools},
 		Stream:     screensrpc.Deps{Screens: h.Services.Screens, PhoneName: h.phoneName}.Stream,
@@ -516,18 +543,72 @@ func (h *Host) openTransports() error {
 		IdleTimeout: 75 * time.Second,
 		Log:         h.log,
 	}
-	h.alerts = push.New(h.devices, h.relay, h.log)
-	h.activities = liveactivity.New(h.db, h.devices, h.relay, h.log)
+	pushes := push.Logged(h.relay, h.log)
+	h.alerts = push.New(h.devices, pushes, h.log)
+	h.activities = liveactivity.New(h.db, h.devices, pushes, h.log)
 	return nil
 }
 
-// pushChanged has the Live Activities look again when a phone's card token
-// comes or goes, as when a reinstall clears it.
-func (h *Host) pushChanged(kind string) {
-	if h.activities != nil && (kind == device.PushToStart || kind == device.PushActivity) {
+// attention tells the phones' open apps, and alerts the phones when a chat
+// waits on the user or a turn ends, as the app's own alert shows it.
+func (h *Host) attention(at chatlive.Attention) {
+	h.announcer.Attention(at)
+	switch at.Kind {
+	case chatlive.AttentionApproval, chatlive.AttentionFinished, chatlive.AttentionFailed, chatlive.AttentionStopped:
+	default:
+		return
+	}
+	if h.alerts == nil {
+		return
+	}
+	row, err := h.db.Info(store.ChatID(at.ChatID))
+	if err != nil {
+		h.log.Warn("push: could not read the chat", "chat", at.ChatID, "err", err)
+		return
+	}
+	// The project as every surface names it (the user's rename, else the
+	// repository, else the folder); a chat outside a listed project keeps
+	// its folder's name.
+	project := ""
+	if row.CWD != "" {
+		project = filepath.Base(row.CWD)
+		if p, err := h.db.Project(row.CWD); err == nil && p.DisplayName != "" {
+			project = p.DisplayName
+		}
+	}
+	// The phone that sent the turn gets the push; a turn the manager doesn't
+	// know (one in the user's terminal) has none, and every phone does.
+	var sender device.ID
+	if h.mgr != nil {
+		if turn, err := h.mgr.Status(at.TurnID); err == nil {
+			sender = turn.Device
+		}
+	}
+	if at.Kind == chatlive.AttentionApproval {
+		ask, question := push.AskOf(at.Approval)
+		go h.alerts.NeedsYouAlert(h.ctx, push.NeedsYou{
+			ChatID: at.ChatID, Agent: row.Agent, Project: project, Sender: sender,
+			Prompt: row.LastUserMessagePreview, Title: row.Title, Question: question, Ask: ask,
+		})
+		return
+	}
+	go h.alerts.TurnEnded(h.ctx, push.TurnEnd{
+		ChatID: at.ChatID, Agent: row.Agent, Project: project, Sender: sender, Kind: at.Kind,
+		Prompt: row.LastUserMessagePreview, Title: row.Title, Summary: at.Summary, Error: at.Error,
+	})
+}
+
+// pushChanged has the Live Activities push again when a phone's card token
+// comes or goes, as when a reinstall clears it, or it sends a new key.
+func (h *Host) pushChanged(from device.ID, kind string) {
+	if release.IsDev() {
+		h.log.Info("push: token registered", "device", from, "kind", cmp.Or(kind, "alert"))
+	}
+	resealed := kind == device.PushKeyChanged
+	if h.activities != nil && (resealed || kind == device.PushToStart || kind == device.PushActivity) {
 		h.activities.TokensChanged()
 	}
-	if kind == device.PushStepsStart || kind == device.PushSteps {
+	if resealed || kind == device.PushStepsStart || kind == device.PushSteps {
 		h.Services.Activities.TokensChanged()
 	}
 }
@@ -612,4 +693,17 @@ func (h *Host) phoneName(id device.ID) string {
 		}
 	}
 	return ""
+}
+
+// savedHostName is the name a device gave this host; "" for none, or when the
+// store can't say, so a status still answers with the machine's own.
+func (h *Host) savedHostName() string {
+	if h.db == nil {
+		return ""
+	}
+	name, err := h.db.HostName()
+	if err != nil {
+		h.log.Warn("host name", "err", err)
+	}
+	return name
 }

@@ -593,6 +593,8 @@ Params:
 Result:
 
 - `push` [object{HeldPush}]
+- `push_seal` int (omitted when empty)
+- `push_key_id` string (omitted when empty)
 
 ## `devices.register_push`
 
@@ -613,6 +615,18 @@ Params:
 Result:
 
 - `ok` bool
+
+## `devices.push_key`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `secret` base64 (nullable)
+
+Result:
+
+- `key_id` string
 
 ## `devices.revoke`
 
@@ -1063,6 +1077,7 @@ Result:
 
 - `host_id` string (omitted when empty)
 - `name` string (omitted when empty)
+- `default_name` string (omitted when empty)
 - `version` string
 - `uptime_seconds` int
 - `relay_connected` bool
@@ -1086,6 +1101,17 @@ Result:
 - `tools` [object{Install}]
 - `agents` [object{Catalog}]
 - `github` object{CloneFolder}
+
+## `host.rename`
+
+Params:
+
+- `name` string
+
+Result:
+
+- `name` string
+- `default_name` string
 
 ## `host.update`
 
@@ -1117,7 +1143,9 @@ Result:
 
 ## `hosts.list`
 
-Tool (read): The other RepoGo environments this one reaches over SSH, from ~/.ssh/config and the tailnet: each one's id and name, or why it can't be used (offline, no SSH key, RepoGo not installed, not running or too old). Looks again when the last look is over two minutes old; refresh looks again now.
+Tool (read): The other environments the user switched on for agents here, reached over SSH: each one's id, and whether it is ready or why it can't be used (offline, SSH sign-in failed, RepoGo not installed, not running or too old). Only the user switches one on, in the app under Other Environments; one that isn't here can't be called, so ask them to switch it on. Looks again when the last look is over two minutes old; refresh looks again now.
+
+Live on: `hosts.changed`
 
 Params:
 
@@ -1125,8 +1153,42 @@ Params:
 
 Result:
 
+- `listing` bool
 - `hosts` [object{Host}] (nullable)
 - `checked_at` int
+
+## `hosts.listing`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `on` bool
+
+Result:
+
+- `listing` bool
+- `hosts` [object{Host}] (nullable)
+- `checked_at` int
+
+## `hosts.authorize`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `id` string
+- `on` bool
+
+Result:
+
+- `id` string
+- `host_id` string (omitted when empty)
+- `version` string (omitted when empty)
+- `state` string
+- `reason` string (omitted when empty)
+- `address` string (omitted when empty)
+- `authorized` bool
 
 ## `hosts.call`
 
@@ -1137,6 +1199,7 @@ Params:
 - `method` string
 - `params` json (omitted when empty) (nullable)
 - `from` object{From}
+- `to` string (omitted when empty)
 
 Result:
 
@@ -1222,6 +1285,7 @@ Params:
 - `input` json (omitted when empty) (nullable)
 - `read` bool (omitted when empty)
 - `confirmed` bool (omitted when empty)
+- `ask` string (omitted when empty)
 
 Result:
 
@@ -1308,6 +1372,44 @@ Result:
 - `host_signature` base64 (omitted when empty) (nullable)
 - `host_label` string
 
+## `plugins.list`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `project` string: The project's folder, which decides the pages that match and the plugins' ctx.root; empty is the environment alone
+
+Result:
+
+- `plugins` [object{Listed}] (nullable)
+- `crons` [object{Cron}] (omitted when empty) (nullable)
+- `error` string (omitted when empty)
+
+## `plugins.get`
+
+Paired devices only: refused at the machine.
+
+Params:
+
+- `project` string: As in plugins.list
+- `plugin` string
+
+Result:
+
+- `name` string
+- `title` string (omitted when empty)
+- `icon` object{Icon} (omitted when empty) (nullable)
+- `path` string
+- `errors` int (omitted when empty)
+- `description` string (omitted when empty)
+- `methods` [object{DetailMethod}] (nullable)
+- `storage` json (omitted when empty) (nullable)
+- `key` object{KeyStatus} (omitted when empty) (nullable)
+- `screens` [object{Screen}] (omitted when empty) (nullable)
+- `pages` [object{Page}] (omitted when empty) (nullable)
+- `crons` [object{Cron}] (omitted when empty) (nullable)
+
 ## `plugins.logs`
 
 Tool (read): The console lines plugins wrote, newest first, each with the plugin, the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves. An agent reads the text of lines its own chat's calls wrote; a line from another caller (a card, a cron, another chat) keeps its plugin, method, level and time but not its text. Secrets are masked.
@@ -1332,7 +1434,7 @@ Result:
 
 Params:
 
-- none
+- `plugin` string: Only this plugin's key; empty is every plugin's
 
 Result:
 
@@ -1358,6 +1460,7 @@ Params:
 - `method` string
 - `input` json (omitted when empty) (nullable)
 - `confirmed` bool (omitted when empty)
+- `ask` string (omitted when empty)
 - `uploads` [string] (omitted when empty) (nullable)
 
 Result:
@@ -1770,7 +1873,7 @@ Result:
 
 ## `screens.set`
 
-Tool (write): Change a simulator's or emulator's settings, only those given: appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose (closed, open, book, laptop) to fold a foldable. Answers the settings after. `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (write): Change a simulator's or emulator's settings, only those given: appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose (closed, open, book, laptop). Answers the settings after; to fold and see the screen after, use screens_fold. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -1874,7 +1977,7 @@ Result:
 
 ## `screens.elements`
 
-Tool (read): What's on a simulator's or emulator's screen now: each element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size. Points on iOS, pixels on Android, as screens_elements reports them. Refs (e7.12) name elements for screens_tap until the next read, fold or rotation. Read again after acting: actions don't wait for the app to redraw. `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (read): What's on a simulator's or emulator's screen now: each element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size. Points on iOS, pixels on Android, as screens_elements reports them. Refs (e7.12) name elements for screens_tap and last while the element stays on the screen. States follow the label: selected, on/off (switches), disabled, focused, secure (a password field), covered (under the keyboard: hide it first). keyboard says the on-screen keyboard is up; pose is a foldable's. Actions answer the screen once it settles, as changes when most of it stayed: changes true, elements lists only what's new or changed, gone the refs no longer there, and every other ref still holds. Read only to start, or after something that answers none. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -1887,11 +1990,48 @@ Result:
 - `width` number
 - `height` number
 - `unit` string
+- `keyboard` bool (omitted when empty)
+- `pose` string (omitted when empty) (nullable)
 - `elements` [object{Element}]
+- `changes` bool (omitted when empty)
+- `gone` [string] (omitted when empty) (nullable)
+- `unchanged` int (omitted when empty)
+
+## `screens.fold`
+
+Tool (write): Fold a foldable simulator or emulator: pose closed, open, book (half open) or laptop. Answers once the fold has shown, with the screen after it: its new size and elements, with fresh refs. `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `pose` string
+
+Result:
+
+- `ok` bool
+- `read` object{Elements} (omitted when empty) (nullable)
+
+## `screens.wait`
+
+Tool (read): Wait on a simulator's or emulator's screen instead of sleeping: until an element whose label, id or field text contains label shows, until one containing gone is gone, or until the screen is stable (two reads alike), up to timeout_ms (10000 by default, at most 60000). Answers met, how long it waited, and the screen as last read, with current refs, so the next action needs no read of its own. Use it after an action that takes a moment (opening a chat, a sheet, a page loading). `screen` is an id from screens_list (a booted simulator or emulator).
+
+Params:
+
+- `screen` string
+- `label` string (omitted when empty)
+- `gone` string (omitted when empty)
+- `stable` bool (omitted when empty)
+- `timeout_ms` int (omitted when empty)
+
+Result:
+
+- `met` bool
+- `waited_ms` int
+- `read` object{Elements}
 
 ## `screens.tap`
 
-Tool (write): Tap a simulator or emulator: one of ref (from screens_elements), label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y. Points on iOS, pixels on Android, as screens_elements reports them. Answers where it tapped. `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (write): Tap a simulator or emulator: one of ref (from screens_elements), label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y. Points on iOS, pixels on Android, as screens_elements reports them. Refuses an element off the screen or under the keyboard. Answers where it tapped and the screen once it settled, as changes where most of it stayed: no read needed after. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -1905,6 +2045,7 @@ Result:
 
 - `x` number
 - `y` number
+- `read` object{Elements} (omitted when empty) (nullable)
 
 ## `screens.swipe`
 
@@ -1922,6 +2063,7 @@ Params:
 Result:
 
 - `ok` bool
+- `read` object{Elements} (omitted when empty) (nullable)
 
 ## `screens.type`
 
@@ -1935,10 +2077,11 @@ Params:
 Result:
 
 - `ok` bool
+- `read` object{Elements} (omitted when empty) (nullable)
 
 ## `screens.key`
 
-Tool (write): Press a key on a simulator or emulator: return, delete, forward_delete, tab, escape, space, left, up, right or down. `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (write): Press a key on a simulator or emulator: backspace, delete, down, enter, escape, forward_delete, hide_keyboard, left, return, right, space, tab, up. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -1948,6 +2091,7 @@ Params:
 Result:
 
 - `ok` bool
+- `read` object{Elements} (omitted when empty) (nullable)
 
 ## `screens.button`
 
@@ -1961,23 +2105,26 @@ Params:
 Result:
 
 - `ok` bool
+- `read` object{Elements} (omitted when empty) (nullable)
 
 ## `screens.launch`
 
-Tool (write): Open an app on a simulator or emulator, or bring it to the front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (write): Open an app on a simulator or emulator, or bring it to the front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). grant lists permissions to grant it first, so it asks for none: calendar, camera, contacts, location, microphone, motion, notifications, photos, reminders (iOS has no camera or notifications grant). Granting can quit an app that's running. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
 - `screen` string
 - `app` string
+- `grant` [string] (omitted when empty) (nullable)
 
 Result:
 
 - `ok` bool
+- `read` object{Elements} (omitted when empty) (nullable)
 
 ## `screens.save_screenshot`
 
-Tool (write): Save a simulator's or emulator's screen as a PNG and answer its path, to open and look at. `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (write): Save a simulator's or emulator's screen as a PNG and answer its path; to an agent it also answers the picture itself, to look at. Password fields are blacked out. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -1986,6 +2133,7 @@ Params:
 Result:
 
 - `path` string
+- `image` object{Image} (omitted when empty) (nullable)
 
 ## `screens.desktop.switch_space`
 
@@ -2076,7 +2224,7 @@ Result:
 
 ## `screens.recording.start`
 
-Tool (write): Start recording a simulator's or emulator's screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after 10 minutes. `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (write): Start recording a simulator's or emulator's screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after 10 minutes (3 on an Android phone). `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -2088,7 +2236,7 @@ Result:
 
 ## `screens.recording.stop`
 
-Tool (write): Stop recording a simulator's or emulator's screen and answer the video's path: an MP4 on iOS, a WebM on Android. `screen` is an id from screens_list (a booted simulator or emulator).
+Tool (write): Stop recording a simulator's or emulator's screen and answer the video's path: an MP4 on iOS and Android phones, a WebM on Android emulators. `screen` is an id from screens_list (a booted simulator or emulator).
 
 Params:
 
@@ -2373,6 +2521,8 @@ Result:
 - `ok` bool
 
 ## `turns.respond`
+
+Paired devices only: refused at the machine.
 
 Params:
 

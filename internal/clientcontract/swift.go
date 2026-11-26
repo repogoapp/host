@@ -36,6 +36,7 @@ var methodExports = map[string]bool{
 	"connect.callback": true, "connect.cancel": true, "connect.disconnect": true,
 
 	"devices.list": true, "devices.hello": true, "devices.register_push": true, "devices.revoke": true,
+	"devices.push_key": true,
 
 	"env.read": true,
 
@@ -54,7 +55,8 @@ var methodExports = map[string]bool{
 	"github.repos": true, "github.clone": true, "github.pr_create": true,
 	"github.publish": true,
 
-	"host.status": true, "host.setup": true, "host.update": true,
+	"host.status": true, "host.setup": true, "host.rename": true, "host.update": true,
+	"hosts.list": true, "hosts.listing": true, "hosts.authorize": true,
 
 	"limits.read": true, "limits.reset": true,
 
@@ -63,14 +65,14 @@ var methodExports = map[string]bool{
 
 	"pair.invite": true,
 
-	"plugins.logs": true, "plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
+	"plugins.list": true, "plugins.get": true, "plugins.logs": true, "plugins.call": true, "plugins.subscribe": true, "plugins.unsubscribe": true,
 
 	"ports.list": true, "ports.kill": true,
 
 	"screens.list": true, "screens.boot": true, "screens.shutdown": true, "screens.view": true,
 	"screens.leave": true, "screens.set": true, "screens.rotate": true, "screens.open_url": true,
 	"screens.location": true, "screens.push": true, "screens.shake": true, "screens.memory_warning": true,
-	"screens.screenshot": true,
+	"screens.screenshot": true, "screens.recording.start": true, "screens.recording.stop": true,
 
 	"screens.desktop.switch_space": true, "screens.desktop.open_app": true, "screens.desktop.quit_app": true,
 	"screens.desktop.focus_window": true, "screens.desktop.press_window_button": true, "screens.desktop.tile_window": true,
@@ -240,6 +242,16 @@ const swiftPrelude = `public protocol HostEvent: Decodable {
 public protocol HostEventFamily: Sendable {
   static var family: String { get }
   static func decode(method: String, data: Data) throws -> Self?
+}
+
+/// The one coding key of every generated type, written as its wire name
+/// (forKey: "chat_id"). A CodingKeys enum per type costs about 2 KB of code each.
+nonisolated struct HostKey: CodingKey, ExpressibleByStringLiteral {
+  let stringValue: String
+  var intValue: Int? { nil }
+  init(stringValue: String) { self.stringValue = stringValue }
+  init?(intValue: Int) { nil }
+  init(stringLiteral value: String) { stringValue = value }
 }
 
 public nonisolated struct HostAPIMethod<Params: Encodable & Sendable, Result: Decodable & Sendable>: Sendable {
@@ -714,27 +726,22 @@ func (g *swiftGen) unionBody(t reflect.Type, name string) string {
 		fmt.Fprintf(&b, "    case %s(%s)\n", swiftIdent(c.wire), refs[i])
 	}
 	b.WriteString("    /// A case this build doesn't know, by its type.\n    case unknown(String)\n")
-	b.WriteString("\n    enum CodingKeys: String, CodingKey {\n      case type = \"type\"\n")
-	for _, c := range cases {
-		fmt.Fprintf(&b, "      case %s = %q\n", swiftIdent(c.wire), c.wire)
-	}
-	b.WriteString("    }\n")
 	if g.dirs[t]&decodes != 0 || conformance == "Codable" {
-		b.WriteString("\n    public init(from decoder: Decoder) throws {\n      let c = try decoder.container(keyedBy: CodingKeys.self)\n")
-		b.WriteString("      switch try c.decode(String.self, forKey: .type) {\n")
+		b.WriteString("\n    public init(from decoder: Decoder) throws {\n      let c = try decoder.container(keyedBy: HostKey.self)\n")
+		b.WriteString("      switch try c.decode(String.self, forKey: \"type\") {\n")
 		for i, c := range cases {
 			id := swiftIdent(c.wire)
-			fmt.Fprintf(&b, "      case %q: self = .%s(try c.decode(%s.self, forKey: .%s))\n", c.wire, strings.Trim(id, "`"), refs[i], id)
+			fmt.Fprintf(&b, "      case %q: self = .%s(try c.decode(%s.self, forKey: %q))\n", c.wire, strings.Trim(id, "`"), refs[i], c.wire)
 		}
 		b.WriteString("      case let type: self = .unknown(type)\n      }\n    }\n")
 	}
 	if g.dirs[t]&encodes != 0 || conformance == "Codable" {
-		b.WriteString("\n    public func encode(to encoder: Encoder) throws {\n      var c = encoder.container(keyedBy: CodingKeys.self)\n      switch self {\n")
+		b.WriteString("\n    public func encode(to encoder: Encoder) throws {\n      var c = encoder.container(keyedBy: HostKey.self)\n      switch self {\n")
 		for _, c := range cases {
 			id := swiftIdent(c.wire)
-			fmt.Fprintf(&b, "      case .%s(let value):\n        try c.encode(%q, forKey: .type)\n        try c.encode(value, forKey: .%s)\n", strings.Trim(id, "`"), c.wire, id)
+			fmt.Fprintf(&b, "      case .%s(let value):\n        try c.encode(%q, forKey: \"type\")\n        try c.encode(value, forKey: %q)\n", strings.Trim(id, "`"), c.wire, c.wire)
 		}
-		b.WriteString("      case .unknown(let type):\n        try c.encode(type, forKey: .type)\n      }\n    }\n")
+		b.WriteString("      case .unknown(let type):\n        try c.encode(type, forKey: \"type\")\n      }\n    }\n")
 	}
 	b.WriteString("  }\n")
 	return b.String()
@@ -794,13 +801,9 @@ func (g *swiftGen) structBody(t reflect.Type, name string) string {
 	}
 	b.WriteString("    }\n")
 	if len(props) > 0 {
-		b.WriteString("\n    enum CodingKeys: String, CodingKey {\n")
-		for _, p := range props {
-			fmt.Fprintf(&b, "      case %s = %q\n", p.swift, p.json)
-		}
-		b.WriteString("    }\n")
-		if g.dirs[t]&decodes != 0 {
-			b.WriteString("\n    public init(from decoder: Decoder) throws {\n      let c = try decoder.container(keyedBy: CodingKeys.self)\n")
+		// Both are always written out: a synthesized one would key by property name.
+		if g.dirs[t]&decodes != 0 || g.conformance(t) == "Codable" {
+			b.WriteString("\n    public init(from decoder: Decoder) throws {\n      let c = try decoder.container(keyedBy: HostKey.self)\n")
 			for _, p := range props {
 				op := "decode"
 				ty := p.ty
@@ -808,17 +811,17 @@ func (g *swiftGen) structBody(t reflect.Type, name string) string {
 					ty = strings.TrimSuffix(ty, "?")
 					op = "decodeIfPresent"
 				}
-				fmt.Fprintf(&b, "      %s = try c.%s(%s.self, forKey: .%s)\n", p.swift, op, ty, p.swift)
+				fmt.Fprintf(&b, "      %s = try c.%s(%s.self, forKey: %q)\n", p.swift, op, ty, p.json)
 			}
 			b.WriteString("    }\n")
 		}
 		if g.dirs[t]&encodes != 0 || g.conformance(t) == "Codable" {
-			b.WriteString("\n    public func encode(to encoder: Encoder) throws {\n      var c = encoder.container(keyedBy: CodingKeys.self)\n")
+			b.WriteString("\n    public func encode(to encoder: Encoder) throws {\n      var c = encoder.container(keyedBy: HostKey.self)\n")
 			for _, p := range props {
 				if p.optional {
-					fmt.Fprintf(&b, "      try c.encodeIfPresent(%s, forKey: .%s)\n", p.swift, p.swift)
+					fmt.Fprintf(&b, "      try c.encodeIfPresent(%s, forKey: %q)\n", p.swift, p.json)
 				} else {
-					fmt.Fprintf(&b, "      try c.encode(%s, forKey: .%s)\n", p.swift, p.swift)
+					fmt.Fprintf(&b, "      try c.encode(%s, forKey: %q)\n", p.swift, p.json)
 				}
 			}
 			b.WriteString("    }\n")
@@ -945,6 +948,8 @@ var EventExports = map[string]string{
 	"forward.pipe_closed":     "Forward.PipeClosed",
 	"host.battery":            "Host.Battery",
 	"host.setup_changed":      "Host.SetupChanged",
+	"host.name_changed":       "Host.NameChanged",
+	"hosts.changed":           "Hosts.Changed",
 	"browser.request":         "Browser.Request",
 	"connect.changed":         "Connect.Changed",
 	"mcp.changed":             "MCP.Changed",

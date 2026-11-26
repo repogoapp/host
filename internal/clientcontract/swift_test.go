@@ -45,10 +45,10 @@ func TestSwiftPresenceAndPublicInit(t *testing.T) {
 	got := g.structBody(typ, "Fields")
 	for _, want := range []string{
 		"public init(required: String? = nil, omitted: String? = nil, both: String? = nil, items: [String])",
-		"required = try c.decodeIfPresent(String.self, forKey: .required)",
-		"both = try c.decodeIfPresent(String.self, forKey: .both)",
-		"try c.encodeIfPresent(required, forKey: .required)",
-		"try c.encodeIfPresent(both, forKey: .both)",
+		"required = try c.decodeIfPresent(String.self, forKey: \"required\")",
+		"both = try c.decodeIfPresent(String.self, forKey: \"both\")",
+		"try c.encodeIfPresent(required, forKey: \"required\")",
+		"try c.encodeIfPresent(both, forKey: \"both\")",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -67,7 +67,7 @@ func TestParameterPresence(t *testing.T) {
 	got := g.structBody(typ, "MCP.TestParams")
 	for _, want := range []string{
 		"label: String? = nil, token: String? = nil, required: String?",
-		"try c.encodeIfPresent(token, forKey: .token)",
+		"try c.encodeIfPresent(token, forKey: \"token\")",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -129,7 +129,7 @@ func TestSwiftSelfFieldDoesNotShadowReceiver(t *testing.T) {
 	got := g.structBody(typ, "Fields")
 	for _, want := range []string{
 		"public var selfValue: String", "self.selfValue = selfValue",
-		`case selfValue = "self"`, "selfValue = try c.decode(String.self, forKey: .selfValue)",
+		`selfValue = try c.decode(String.self, forKey: "self")`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in generated self field:\n%s", want, got)
