@@ -567,7 +567,7 @@
   {
     "name": "hosts_list",
     "method": "hosts.list",
-    "description": "The other RepoGo environments this one reaches over SSH, from ~/.ssh/config and the tailnet: each one's id and name, or why it can't be used (offline, no SSH key, RepoGo not installed, not running or too old). Looks again when the last look is over two minutes old; refresh looks again now.",
+    "description": "The other environments the user switched on for agents here, reached over SSH: each one's id, and whether it is ready or why it can't be used (offline, SSH sign-in failed, RepoGo not installed, not running or too old). Only the user switches one on, in the app under Other Environments; one that isn't here can't be called, so ask them to switch it on. Looks again when the last look is over two minutes old; refresh looks again now.",
     "read_only": true,
     "mcp": true,
     "not_remote": true,
@@ -820,7 +820,7 @@
   {
     "name": "screens_set",
     "method": "screens.set",
-    "description": "Change a simulator's or emulator's settings, only those given: appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose (closed, open, book, laptop) to fold a foldable. Answers the settings after. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "Change a simulator's or emulator's settings, only those given: appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose (closed, open, book, laptop). Answers the settings after; to fold and see the screen after, use screens_fold. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
     "mcp": true,
     "input_schema": {
@@ -892,7 +892,7 @@
   {
     "name": "screens_elements",
     "method": "screens.elements",
-    "description": "What's on a simulator's or emulator's screen now: each element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size. Points on iOS, pixels on Android, as screens_elements reports them. Refs (e7.12) name elements for screens_tap until the next read, fold or rotation. Read again after acting: actions don't wait for the app to redraw. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "What's on a simulator's or emulator's screen now: each element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size. Points on iOS, pixels on Android, as screens_elements reports them. Refs (e7.12) name elements for screens_tap and last while the element stays on the screen. States follow the label: selected, on/off (switches), disabled, focused, secure (a password field), covered (under the keyboard: hide it first). keyboard says the on-screen keyboard is up; pose is a foldable's. Actions answer the screen once it settles, as changes when most of it stayed: changes true, elements lists only what's new or changed, gone the refs no longer there, and every other ref still holds. Read only to start, or after something that answers none. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": true,
     "mcp": true,
     "input_schema": {
@@ -905,9 +905,54 @@
     }
   },
   {
+    "name": "screens_fold",
+    "method": "screens.fold",
+    "description": "Fold a foldable simulator or emulator: pose closed, open, book (half open) or laptop. Answers once the fold has shown, with the screen after it: its new size and elements, with fresh refs. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": false,
+    "mcp": true,
+    "input_schema": {
+      "properties": {
+        "pose": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "screens_wait",
+    "method": "screens.wait",
+    "description": "Wait on a simulator's or emulator's screen instead of sleeping: until an element whose label, id or field text contains label shows, until one containing gone is gone, or until the screen is stable (two reads alike), up to timeout_ms (10000 by default, at most 60000). Answers met, how long it waited, and the screen as last read, with current refs, so the next action needs no read of its own. Use it after an action that takes a moment (opening a chat, a sheet, a page loading). `screen` is an id from screens_list (a booted simulator or emulator).",
+    "read_only": true,
+    "mcp": true,
+    "input_schema": {
+      "properties": {
+        "gone": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        },
+        "stable": {
+          "type": "boolean"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "screens_tap",
     "method": "screens.tap",
-    "description": "Tap a simulator or emulator: one of ref (from screens_elements), label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y. Points on iOS, pixels on Android, as screens_elements reports them. Answers where it tapped. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "Tap a simulator or emulator: one of ref (from screens_elements), label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y. Points on iOS, pixels on Android, as screens_elements reports them. Refuses an element off the screen or under the keyboard. Answers where it tapped and the screen once it settled, as changes where most of it stayed: no read needed after. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
     "mcp": true,
     "input_schema": {
@@ -982,7 +1027,7 @@
   {
     "name": "screens_key",
     "method": "screens.key",
-    "description": "Press a key on a simulator or emulator: return, delete, forward_delete, tab, escape, space, left, up, right or down. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "Press a key on a simulator or emulator: backspace, delete, down, enter, escape, forward_delete, hide_keyboard, left, return, right, space, tab, up. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
     "mcp": true,
     "input_schema": {
@@ -1018,13 +1063,19 @@
   {
     "name": "screens_launch",
     "method": "screens.launch",
-    "description": "Open an app on a simulator or emulator, or bring it to the front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "Open an app on a simulator or emulator, or bring it to the front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). grant lists permissions to grant it first, so it asks for none: calendar, camera, contacts, location, microphone, motion, notifications, photos, reminders (iOS has no camera or notifications grant). Granting can quit an app that's running. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
     "mcp": true,
     "input_schema": {
       "properties": {
         "app": {
           "type": "string"
+        },
+        "grant": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "screen": {
           "type": "string"
@@ -1036,7 +1087,7 @@
   {
     "name": "screens_save_screenshot",
     "method": "screens.save_screenshot",
-    "description": "Save a simulator's or emulator's screen as a PNG and answer its path, to open and look at. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "Save a simulator's or emulator's screen as a PNG and answer its path; to an agent it also answers the picture itself, to look at. Password fields are blacked out. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
     "mcp": true,
     "input_schema": {
@@ -1051,7 +1102,7 @@
   {
     "name": "screens_recording_start",
     "method": "screens.recording.start",
-    "description": "Start recording a simulator's or emulator's screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after 10 minutes. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "Start recording a simulator's or emulator's screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after 10 minutes (3 on an Android phone). `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
     "mcp": true,
     "input_schema": {
@@ -1066,7 +1117,7 @@
   {
     "name": "screens_recording_stop",
     "method": "screens.recording.stop",
-    "description": "Stop recording a simulator's or emulator's screen and answer the video's path: an MP4 on iOS, a WebM on Android. `screen` is an id from screens_list (a booted simulator or emulator).",
+    "description": "Stop recording a simulator's or emulator's screen and answer the video's path: an MP4 on iOS and Android phones, a WebM on Android emulators. `screen` is an id from screens_list (a booted simulator or emulator).",
     "read_only": false,
     "mcp": true,
     "input_schema": {

@@ -23,10 +23,16 @@ type RemoteAgent struct {
 
 // RemoteCall runs one host tool for an agent on another host, through the
 // same allowlist and limits as this host's own agents.
-func (s *Server) RemoteCall(ctx context.Context, from RemoteAgent, method string, params json.RawMessage) (json.RawMessage, error) {
+func (s *Server) RemoteCall(ctx context.Context, from RemoteAgent, to, method string, params json.RawMessage) (json.RawMessage, error) {
 	router := s.router()
-	if router == nil {
-		return nil, errkind.New(errkind.Unavailable, "this host offers no tools")
+	// Switched off here is off for another host's agents too.
+	if router == nil || (s.cfg.On != nil && !s.cfg.On("")) {
+		return nil, errkind.New(errkind.Unavailable, "RepoGo's tools are switched off on this environment")
+	}
+	// The caller checked which host answers here; one that changed since
+	// isn't the one the user switched on for it.
+	if to != "" && to != s.selfID() {
+		return nil, errkind.New(errkind.Denied, "this isn't the environment that call was sent to")
 	}
 	if from.HostID == "" || from.ChatID == "" {
 		return nil, errkind.New(errkind.Invalid, "from needs the calling host_id and chat_id")

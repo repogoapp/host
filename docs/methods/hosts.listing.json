@@ -1,0 +1,15 @@
+{
+  "listing": true,
+  "hosts": [
+    {
+      "id": "id",
+      "host_id": "host_id",
+      "version": "version",
+      "state": "state",
+      "reason": "reason",
+      "address": "address",
+      "authorized": true
+    }
+  ],
+  "checked_at": 1
+}

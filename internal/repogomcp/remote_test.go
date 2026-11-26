@@ -15,7 +15,7 @@ var studioChat = RemoteAgent{HostID: "H-MACBOOK", ChatID: "claude:a1", Permissio
 func TestRemoteCallRunsAHostToolAsTheCallingChat(t *testing.T) {
 	calls := map[string]rpc.Caller{}
 	s := hostToolsServer(t, hostRouter(t, calls))
-	out, err := s.RemoteCall(context.Background(), studioChat, "chats.pin", json.RawMessage(`{"chat_id": "codex:b2", "pinned": true}`))
+	out, err := s.RemoteCall(context.Background(), studioChat, "", "chats.pin", json.RawMessage(`{"chat_id": "codex:b2", "pinned": true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestRemoteCallReachesOnlyTools(t *testing.T) {
 	calls := map[string]rpc.Caller{}
 	s := hostToolsServer(t, hostRouter(t, calls))
 	for _, method := range []string{"fs.delete", "actions.run", "nope.nothing"} {
-		if _, err := s.RemoteCall(context.Background(), studioChat, method, nil); !errors.Is(err, errkind.ErrInvalid) {
+		if _, err := s.RemoteCall(context.Background(), studioChat, "", method, nil); !errors.Is(err, errkind.ErrInvalid) {
 			t.Errorf("%s: err %v, want invalid", method, err)
 		}
 	}
@@ -45,7 +45,7 @@ func TestRemoteCallReachesOnlyTools(t *testing.T) {
 func TestRemoteCallCantStartOrMessageChatsYet(t *testing.T) {
 	calls := map[string]rpc.Caller{}
 	s := hostToolsServer(t, hostRouter(t, calls))
-	if _, err := s.RemoteCall(context.Background(), studioChat, "chats.send", json.RawMessage(`{"chat_id": "codex:b2"}`)); !errors.Is(err, errkind.ErrUnavailable) {
+	if _, err := s.RemoteCall(context.Background(), studioChat, "", "chats.send", json.RawMessage(`{"chat_id": "codex:b2"}`)); !errors.Is(err, errkind.ErrUnavailable) {
 		t.Fatalf("chats.send: err %v, want unavailable", err)
 	}
 	if _, ran := calls["chats.send"]; ran {
@@ -55,7 +55,24 @@ func TestRemoteCallCantStartOrMessageChatsYet(t *testing.T) {
 
 func TestRemoteCallNeedsTheCallingChat(t *testing.T) {
 	s := hostToolsServer(t, hostRouter(t, map[string]rpc.Caller{}))
-	if _, err := s.RemoteCall(context.Background(), RemoteAgent{HostID: "H"}, "chats.pin", nil); !errors.Is(err, errkind.ErrInvalid) {
+	if _, err := s.RemoteCall(context.Background(), RemoteAgent{HostID: "H"}, "", "chats.pin", nil); !errors.Is(err, errkind.ErrInvalid) {
 		t.Fatalf("err %v, want invalid without a chat_id", err)
+	}
+}
+
+// A call addressed to another host than this one doesn't run here: the
+// caller's connection reaches a different machine than the one it checked.
+func TestRemoteCallRefusesACallMeantForAnotherHost(t *testing.T) {
+	calls := map[string]rpc.Caller{}
+	s := newForwarding(t, hostRouter(t, calls), nil)
+	pin := json.RawMessage(`{"chat_id": "codex:b2", "pinned": true}`)
+	if _, err := s.RemoteCall(context.Background(), studioChat, "H-SOMEWHERE-ELSE", "chats.pin", pin); !errors.Is(err, errkind.ErrDenied) {
+		t.Fatalf("a call for another host: %v, want denied", err)
+	}
+	if _, ran := calls["chats.pin"]; ran {
+		t.Fatal("chats.pin ran for a call meant for another host")
+	}
+	if _, err := s.RemoteCall(context.Background(), studioChat, "H-HERE", "chats.pin", pin); err != nil {
+		t.Fatalf("a call for this host: %v", err)
 	}
 }

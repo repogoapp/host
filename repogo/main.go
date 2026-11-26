@@ -15,6 +15,7 @@ import (
 	"github.com/repogoapp/host/internal/agents"
 	"github.com/repogoapp/host/internal/devlog"
 	"github.com/repogoapp/host/internal/notify"
+	"github.com/repogoapp/host/internal/remotehost"
 )
 
 // defaultRelay is RepoGo's relay: phones reach the host through it over the
@@ -31,6 +32,10 @@ func main() {
 			return
 		}
 		fmt.Fprintln(os.Stderr, "repogo:", err)
+		var stopped notRunning
+		if errors.As(err, &stopped) {
+			os.Exit(remotehost.ExitNotRunning)
+		}
 		os.Exit(1)
 	}
 }

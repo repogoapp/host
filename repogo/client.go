@@ -29,7 +29,7 @@ func callWithin(ctx context.Context, timeout time.Duration, method string, param
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("host is not running; run repogo start")
+		return notRunning("host is not running; run repogo start")
 	}
 	var conf localConf
 	if err := json.Unmarshal(data, &conf); err != nil {
@@ -52,7 +52,7 @@ func callWithin(ctx context.Context, timeout time.Duration, method string, param
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("host is not reachable; run repogo start or repogo logs")
+		return notRunning("host is not reachable; run repogo start or repogo logs")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -189,3 +189,9 @@ func pairOrStatus(ctx context.Context, force bool, pairHost string) error {
 		}
 	}
 }
+
+// notRunning is the error for a host that isn't serving. The command exits
+// with remotehost.ExitNotRunning for it, which another host reads over SSH.
+type notRunning string
+
+func (e notRunning) Error() string { return string(e) }

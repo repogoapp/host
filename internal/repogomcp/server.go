@@ -20,6 +20,7 @@ import (
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/mcp"
 	"github.com/repogoapp/host/internal/plugins"
+	"github.com/repogoapp/host/internal/remotehost"
 	"github.com/repogoapp/host/internal/rpc"
 )
 
@@ -49,6 +50,12 @@ type Config struct {
 	// Router serves the host's own methods marked rpc.Tool; it is built after
 	// this server, and nil leaves those tools out.
 	Router func() *rpc.Router
+	// Hosts is the other environments a host tool can run on (forward.go),
+	// built after this server; nil keeps every call here.
+	Hosts func() *remotehost.Service
+	// HostID is this host's id, sent as the calling host, and a host argument
+	// naming it runs here.
+	HostID func() string
 	Log    *slog.Logger
 }
 
@@ -178,7 +185,7 @@ func (s *Server) handle(ctx context.Context, session attached, req rpcRequest) (
 			tools = append(tools, mcpToolsTool)
 		}
 		if s.router() != nil {
-			tools = append(tools, hostToolList(session.child)...)
+			tools = append(tools, hostToolList(session.child, s.hosts() != nil)...)
 		}
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":
@@ -204,6 +211,9 @@ func (s *Server) instructions(cwd string) string {
 	}
 	if s.router() != nil {
 		out += hostToolsInstructions
+		if s.hosts() != nil {
+			out += forwardInstructions
+		}
 	}
 	return out
 }
@@ -239,9 +249,36 @@ func (s *Server) call(ctx context.Context, session attached, name string, args j
 		return mcpTools(s.cfg.MCP(), turn)
 	}
 	if def, ok := hostTool(name); ok && s.router() != nil {
-		return callHost(s.router(), turn, session.child || turn.Parent != "", def, args)
+		child := session.child || turn.Parent != ""
+		host, rest, err := splitHost(args)
+		if err != nil {
+			return failed("RepoGo " + def.Method + ": host must be an id from hosts_list")
+		}
+		if host != "" && host != s.selfID() {
+			// Never quietly here instead: the agent named another machine.
+			if def.NotRemote {
+				return failed("RepoGo " + def.Method + ": this tool runs only on the environment the chat is on, not " + host)
+			}
+			return s.forward(turn, child, def, host, rest)
+		}
+		return callHost(s.router(), turn, child, def, rest)
 	}
 	return failed("unknown tool: " + name)
+}
+
+// selfID is this host's id; "" before the host has one.
+func (s *Server) selfID() string {
+	if s.cfg.HostID == nil {
+		return ""
+	}
+	return s.cfg.HostID()
+}
+
+func (s *Server) hosts() *remotehost.Service {
+	if s.cfg.Hosts == nil {
+		return nil
+	}
+	return s.cfg.Hosts()
 }
 
 func (s *Server) router() *rpc.Router {

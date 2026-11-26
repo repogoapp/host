@@ -20,7 +20,7 @@ const hostToolsInstructions = " The `chats_*` tools list, read, rename, pin, res
 	"`reminders_*` notify the user's phones at a set time, set only when the user asks; " +
 	"the `screens_*` tools drive this environment's iOS simulators and Android emulators: read the screen " +
 	"(`screens_elements`), tap, swipe, type, press keys and buttons, rotate, fold, and save screenshots; " +
-	"`hosts_list` finds the other environments this one reaches over SSH."
+	"`hosts_list` lists the other environments the user switched on for agents here."
 
 // hosttools.json is written from the router by `go test ./internal/rpc/conformance -update`.
 //
@@ -41,14 +41,17 @@ var hostTools = func() []rpc.ToolDef {
 func HostToolsFile() []byte { return hostToolsFile }
 
 // hostToolList is what a session is offered: a child isn't offered what the
-// router would refuse it (rpc.NotFromChild).
-func hostToolList(child bool) []tool {
+// router would refuse it (rpc.NotFromChild), and remote adds the host argument.
+func hostToolList(child, remote bool) []tool {
 	out := make([]tool, 0, len(hostTools))
 	for _, d := range hostTools {
 		if child && d.NotFromChild {
 			continue
 		}
 		t := tool{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema}
+		if remote {
+			t.InputSchema = withHostArg(d)
+		}
 		if d.ReadOnly {
 			t.Annotations = &annotations{ReadOnlyHint: true}
 		}
@@ -74,7 +77,7 @@ func callHost(router *rpc.Router, turn agent.RunningTurn, child bool, def rpc.To
 	if err != nil {
 		return failed("RepoGo " + def.Method + ": " + err.Error())
 	}
-	return succeeded(out)
+	return hostResult(out)
 }
 
 // runHostTool is every agent's way onto the router, this host's and another's

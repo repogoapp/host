@@ -1,7 +1,8 @@
 // Package remotehost finds the other RepoGo hosts this user can reach over
-// SSH: the hosts in ~/.ssh/config and the machines on their tailnet, each
-// checked with `repogo status --json` on the other end. SSH is the only
-// credential; nothing here listens or announces.
+// SSH: the connections they named in ~/.ssh/config, read only once they ask
+// for the list. Only one they switched on is ever dialed, as `ssh <alias>`
+// with their own username, key and host trust, and checked with `repogo
+// status --json` on the other end. Nothing here listens or announces.
 package remotehost
 
 import (
@@ -9,179 +10,158 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/repogoapp/host/internal/hostinfo"
-	"github.com/repogoapp/host/internal/syscmd"
 )
 
-// Host is one machine discovery found, usable or not.
+// Host is one SSH connection the user named, usable or not.
 type Host struct {
-	// ID is what SSH dials and what agents name it by: the ~/.ssh/config
-	// alias, else the tailnet name's first label.
+	// ID is its ~/.ssh/config alias: what agents and devices name it by, and
+	// what SSH dials.
 	ID string `json:"id"`
-	// HostID, Name and Version are what `repogo status` answered; empty
-	// unless State is Ready.
+	// HostID and Version are what `repogo status` answered, empty until it did.
 	HostID  string `json:"host_id,omitempty"`
-	Name    string `json:"name,omitempty"`
 	Version string `json:"version,omitempty"`
 	State   State  `json:"state"`
 	// Reason says, for a host that isn't Ready, what the user can do.
 	Reason string `json:"reason,omitempty"`
+	// Address is the HostName the file gives the alias, shown so the user
+	// can tell which machine it is. A hint: SSH decides where the alias goes.
+	Address string `json:"address,omitempty"`
+	// Authorized is whether the user switched it on (Service.Authorize): this
+	// host may dial it, and agents' calls may go to it. State says whether it
+	// takes a call now. Set as a list is answered.
+	Authorized bool `json:"authorized"`
 }
 
 // State is whether a host can run RepoGo's tools from here, and if not, why.
 type State string
 
 const (
+	// Off is a host the user hasn't switched on: named, never dialed.
+	Off          State = "off"
 	Ready        State = "ready"
 	Offline      State = "offline"
 	NoKey        State = "no_key"
 	NotInstalled State = "not_installed"
 	NotRunning   State = "not_running"
 	TooOld       State = "too_old"
+	// Self is a name that reaches this host itself.
+	Self State = "self"
 )
-
-// HostBinFile names, under ~/.repogo, the file a serving host writes its own
-// executable's path to: a development host runs from elsewhere than the
-// release's ~/.repogo/bin/repogo, and the check must ask the host that runs.
-const HostBinFile = "host-bin"
-
-// Repogo runs the other host's repogo command: the running host's own
-// binary, else the release's. A non-interactive SSH session's PATH lacks
-// ~/.repogo/bin, so paths are spelled out, and sh runs it whatever the
-// login shell is. No exec: macOS sh answers 126, not 127, for a missing file.
-func Repogo(args string) string {
-	return `sh -c 'b=$(cat ~/.repogo/` + HostBinFile + ` 2>/dev/null); [ -x "$b" ] || b=~/.repogo/bin/repogo; "$b" ` + args + `'`
-}
-
-// statusCommand runs on the other host.
-var statusCommand = Repogo("status --json")
 
 // checkTimeout bounds one host's SSH call, login included.
 const checkTimeout = 5 * time.Second
 
 // Deps is how discovery reads this machine and reaches others; System is the real one.
 type Deps struct {
-	// Self is this host's ID, left out of the answer when a name reaches it.
+	// Self is this host's ID: a name that reaches it is marked Self.
 	Self string
-	// SSHConfig is ~/.ssh/config's contents; empty when there is none.
+	// SSHConfig is ~/.ssh/config's contents, read only; empty when there is
+	// none. Called only once the user asked for the list.
 	SSHConfig func() []byte
-	// Resolve is the address SSH dials for an alias (`ssh -G`'s hostname).
-	Resolve func(ctx context.Context, alias string) string
-	// Tailnet is `tailscale status --json`; empty when Tailscale isn't up.
-	Tailnet func(ctx context.Context) []byte
-	// Run runs command on target over SSH, never prompting: its output and
+	// Run runs command on alias over SSH, never prompting: its output and
 	// exit code, -1 when it didn't finish.
-	Run func(ctx context.Context, target, command string) (stdout, stderr []byte, code int)
+	Run func(ctx context.Context, alias, command string) (stdout, stderr []byte, code int)
+	// Send is Run for a call: stdin on the command, over a connection kept
+	// open between calls (ControlMaster).
+	Send func(ctx context.Context, alias, command string, stdin []byte) (stdout, stderr []byte, code int)
+	// Close ends the connection Send keeps open to alias; nil keeps none.
+	Close func(ctx context.Context, alias string)
+	// AuthorizedPath is where the user's choices are saved (AuthorizedFile);
+	// empty keeps them in memory.
+	AuthorizedPath string
+	// Changed tells every device the list or a switch changed.
+	Changed func()
+	// Log takes the debug lines a development host keeps while this is
+	// tried: each look, switch and call. Nil logs nothing.
+	Log *slog.Logger
 }
 
-// candidate is one name to check.
+// debug writes one development log line.
+func (d Deps) debug(msg string, args ...any) {
+	if d.Log != nil {
+		d.Log.Debug(msg, args...)
+	}
+}
+
+// candidate is one alias in ~/.ssh/config.
 type candidate struct {
-	id, target string
-	// offline is a machine Tailscale reports offline: not worth an SSH call.
-	offline bool
+	id string
+	// address is the HostName its block gives; empty when it gives none.
+	address string
 }
 
-// Discover checks every candidate at once, so it takes as long as the
-// slowest; a ~/.ssh/config host comes before a tailnet peer that is the same
-// machine.
-func Discover(ctx context.Context, d Deps) []Host {
-	cands := candidates(ctx, d)
+// Discover names every alias and checks the ones on reports the user
+// switched on, all at once, so it takes as long as the slowest. The rest are
+// Off and never dialed.
+func Discover(ctx context.Context, d Deps, on func(alias string) bool) []Host {
+	cands := parseSSHConfig(d.SSHConfig())
 	found := make([]Host, len(cands))
 	var wg sync.WaitGroup
 	for i, c := range cands {
+		if !on(c.id) {
+			found[i] = Host{ID: c.id, Address: c.address, State: Off}
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			began := time.Now()
 			found[i] = check(ctx, d, c)
+			d.debug("hosts: checked", "alias", c.id, "state", found[i].State, "reason", found[i].Reason,
+				"ms", time.Since(began).Milliseconds())
 		}()
 	}
 	wg.Wait()
-	return merge(found, d.Self)
-}
-
-// candidates is the ~/.ssh/config aliases, then the tailnet peers none of
-// them already dials. A config alias whose address is an offline peer is
-// offline too.
-func candidates(ctx context.Context, d Deps) []candidate {
-	peers := parseTailnet(d.Tailnet(ctx))
-	taken := map[string]bool{}
-	var out []candidate
-	for _, alias := range parseSSHConfig(d.SSHConfig()) {
-		addr := d.Resolve(ctx, alias)
-		if codeHosts[strings.ToLower(addr)] {
-			continue
-		}
-		c := candidate{id: alias, target: alias}
-		for _, p := range peers {
-			if p.has(addr) {
-				c.offline = !p.Online
-				taken[p.DNSName] = true
-			}
-		}
-		out = append(out, c)
-	}
-	for _, p := range peers {
-		if taken[p.DNSName] || p.DNSName == "" {
-			continue
-		}
-		name := strings.TrimSuffix(p.DNSName, ".")
-		id, _, _ := strings.Cut(name, ".")
-		out = append(out, candidate{id: id, target: name, offline: !p.Online})
-	}
-	return out
-}
-
-// codeHosts are where a ~/.ssh/config alias points to push code, not to a
-// computer: left out rather than listed as a host with no shell.
-var codeHosts = map[string]bool{
-	"github.com": true, "ssh.github.com": true, "gitlab.com": true,
-	"altssh.gitlab.com": true, "bitbucket.org": true, "altssh.bitbucket.org": true,
+	return found
 }
 
 // check asks one host for its status; how the call fails says what's missing.
 func check(ctx context.Context, d Deps, c candidate) Host {
-	h := Host{ID: c.id}
-	if c.offline {
-		h.State, h.Reason = Offline, "offline in Tailscale"
-		return h
-	}
+	h := Host{ID: c.id, Address: c.address}
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
-	stdout, stderr, code := d.Run(ctx, c.target, statusCommand)
-	if h.State, h.Reason = classify(code, string(stderr)); h.State != Ready {
+	stdout, stderr, code := d.Run(ctx, c.id, statusCommand)
+	if h.State, h.Reason = classify(code, string(stderr), c.id); h.State != Ready {
 		return h
 	}
 	var status hostinfo.Status
-	if json.Unmarshal(stdout, &status) != nil || status.HostID == "" {
-		h.State, h.Reason = TooOld, "update RepoGo there"
-		return h
+	_ = json.Unmarshal(stdout, &status)
+	// The other host wrote these: kept short and printable before they reach
+	// an agent's context or a terminal.
+	h.HostID, h.Version = clean(status.HostID, 64), clean(status.Version, 32)
+	switch h.HostID {
+	case "":
+		h.Version, h.State, h.Reason = "", TooOld, "update RepoGo there"
+	case d.Self:
+		h.State, h.Reason = Self, "this is the environment you're on"
 	}
-	h.HostID, h.Name, h.Version = status.HostID, status.Name, status.Version
 	return h
 }
 
 // classify reads an SSH call's exit code and stderr: 255 is SSH's own
-// failure, 127 the remote shell's command not found, 1 the repogo CLI's error.
-func classify(code int, stderr string) (State, string) {
+// failure, whose text is OpenSSH's; 127 the remote shell's command not
+// found; ExitNotRunning the repogo CLI's. "unknown flag" is what a release
+// from before `status --json` prints, which can't change now.
+func classify(code int, stderr, alias string) (State, string) {
 	switch {
 	case code == 0:
 		return Ready, ""
 	case code == 255 && strings.Contains(stderr, "Permission denied"):
-		return NoKey, "no SSH key that works there"
+		// A wrong username and a key it doesn't accept read the same.
+		return NoKey, "SSH sign-in failed; it works here once ssh " + alias + " connects without asking for a password"
 	case code == 255 && strings.Contains(stderr, "Host key verification failed"):
-		return NoKey, "run ssh there once to trust its host key"
+		return NoKey, "run ssh " + alias + " once in a terminal to trust its host key"
 	case code == 127:
 		return NotInstalled, "RepoGo isn't installed"
-	case strings.Contains(stderr, "not running"):
+	case code == ExitNotRunning:
 		return NotRunning, "run repogo start there"
 	case strings.Contains(stderr, "unknown flag"):
 		return TooOld, "update RepoGo there"
@@ -189,146 +169,142 @@ func classify(code int, stderr string) (State, string) {
 	return Offline, firstLine(stderr)
 }
 
-// merge keeps one entry per host ID, the first (a ~/.ssh/config alias before
-// a tailnet name), and drops this host. Hosts that didn't answer stay, so the
-// list can say why.
-func merge(found []Host, self string) []Host {
+// maxConfig bounds what is read of ~/.ssh/config, and one line of it.
+const maxConfig = 1 << 20
+
+// codeHosts are where an alias points to push code, not to a computer: left
+// out rather than listed as a connection with no shell.
+var codeHosts = map[string]bool{
+	"github.com": true, "ssh.github.com": true, "gist.github.com": true, "gitlab.com": true,
+	"altssh.gitlab.com": true, "bitbucket.org": true, "altssh.bitbucket.org": true,
+	"ssh.dev.azure.com": true, "vs-ssh.visualstudio.com": true,
+}
+
+// parseSSHConfig is the aliases ~/.ssh/config names, each once, in the
+// file's order: the first name of each Host line that isn't a pattern, with
+// the HostName its block gives. Nothing else is taken from the file, key
+// paths included, and nothing in it is run: Include and Match aren't followed.
+func parseSSHConfig(data []byte) []candidate {
+	var out []candidate
 	seen := map[string]bool{}
-	out := []Host{}
-	for _, h := range found {
-		if h.HostID != "" {
-			if h.HostID == self || seen[h.HostID] {
+	// open is the alias whose block the lines belong to; -1 for a block that
+	// names none, a pattern's or a Match's.
+	open := -1
+	lines := bufio.NewScanner(bytes.NewReader(data))
+	// A line too long to be a setting ends the list there, with what came before.
+	lines.Buffer(nil, maxConfig)
+	for lines.Scan() {
+		key, args := configLine(lines.Text())
+		switch strings.ToLower(key) {
+		case "host":
+			open = -1
+			name, ok := firstName(args)
+			if !ok || seen[strings.ToLower(name)] {
 				continue
 			}
-			seen[h.HostID] = true
-		}
-		out = append(out, h)
-	}
-	return out
-}
-
-// parseSSHConfig is the first name of each Host line that isn't a pattern.
-// Include and Match are not followed.
-func parseSSHConfig(data []byte) []string {
-	var out []string
-	lines := bufio.NewScanner(bytes.NewReader(data))
-	for lines.Scan() {
-		line := strings.TrimSpace(lines.Text())
-		key, rest, ok := strings.Cut(strings.Replace(line, "=", " ", 1), " ")
-		if !ok || !strings.EqualFold(key, "Host") {
-			continue
-		}
-		for _, name := range strings.Fields(rest) {
-			if !strings.ContainsAny(name, "*?!") {
-				out = append(out, name)
-				break
+			seen[strings.ToLower(name)] = true
+			out = append(out, candidate{id: name})
+			open = len(out) - 1
+		case "match":
+			open = -1
+		case "hostname":
+			if open >= 0 && out[open].address == "" && len(args) > 0 {
+				out[open].address = clean(args[0], 128)
 			}
 		}
 	}
-	return out
+	// An alias with no HostName dials its own name.
+	return slices.DeleteFunc(out, func(c candidate) bool {
+		at := c.address
+		if at == "" {
+			at = c.id
+		}
+		return codeHosts[strings.ToLower(at)]
+	})
 }
 
-// peer is one machine in `tailscale status --json`.
-type peer struct {
-	DNSName      string
-	OS           string
-	Online       bool
-	TailscaleIPs []string
-}
-
-// has reports whether addr is this peer's name or one of its addresses.
-func (p peer) has(addr string) bool {
-	if addr == "" {
-		return false
+// configLine is one ssh_config line as its keyword and arguments: spaces or
+// tabs between them, an optional "=" after the keyword, quotes around an
+// argument, and a comment from "#" on. Empty for a blank or comment line, and
+// for one whose quotes don't close: it isn't guessed at.
+func configLine(line string) (key string, args []string) {
+	line = strings.TrimSpace(line)
+	end := strings.IndexAny(line, " \t=")
+	if end < 0 {
+		end = len(line)
 	}
-	if strings.EqualFold(strings.TrimSuffix(p.DNSName, "."), strings.TrimSuffix(addr, ".")) {
-		return true
+	key = line[:end]
+	if strings.HasPrefix(key, "#") {
+		return "", nil
 	}
-	for _, ip := range p.TailscaleIPs {
-		if ip == addr {
-			return true
+	rest := strings.TrimPrefix(strings.TrimLeft(line[end:], " \t"), "=")
+	var arg strings.Builder
+	quoted, started := false, false
+	for _, r := range rest {
+		switch {
+		case r == '"':
+			quoted, started = !quoted, true
+		case quoted:
+			arg.WriteRune(r)
+		case r == ' ' || r == '\t':
+			if started {
+				args = append(args, arg.String())
+				arg.Reset()
+				started = false
+			}
+		case r == '#' && !started:
+			return key, args
+		default:
+			arg.WriteRune(r)
+			started = true
 		}
 	}
-	return false
+	if quoted {
+		return "", nil
+	}
+	if started {
+		args = append(args, arg.String())
+	}
+	return key, args
 }
 
-// computerOS is the tailnet OSes a host runs on; phones are left out.
-var computerOS = map[string]bool{"macOS": true, "linux": true, "windows": true}
-
-// parseTailnet is the computers among the tailnet's peers; none for output it can't read.
-func parseTailnet(data []byte) []peer {
-	var status struct {
-		Peer map[string]peer
-	}
-	if len(data) == 0 || json.Unmarshal(data, &status) != nil {
-		return nil
-	}
-	var out []peer
-	for _, p := range status.Peer {
-		if computerOS[p.OS] {
-			out = append(out, p)
+// firstName is the first of a Host line's names that is one machine's alias:
+// not a pattern or a negation, and nothing SSH would read as an option, a
+// user@host, a URI or more than one word, which would dial somewhere else
+// than the alias the user was shown.
+func firstName(names []string) (string, bool) {
+	for _, name := range names {
+		if name != "" && !strings.ContainsAny(name, "*?! \t@:/\\'") && !strings.HasPrefix(name, "-") && name == clean(name, 128) {
+			return name, true
 		}
 	}
-	// The map's order is random; a stable list keeps agents' IDs in place.
-	slices.SortFunc(out, func(a, b peer) int { return strings.Compare(a.DNSName, b.DNSName) })
-	return out
+	return "", false
 }
 
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
-	return line
+	return clean(line, maxLine)
 }
 
-// System is discovery on this machine: home's ~/.ssh/config, the tailscale
-// CLI, and ssh in batch mode.
-func System(self, home string) Deps {
-	return Deps{
-		Self: self,
-		SSHConfig: func() []byte {
-			data, _ := os.ReadFile(filepath.Join(home, ".ssh", "config"))
-			return data
-		},
-		Resolve: func(ctx context.Context, alias string) string {
-			out, err := syscmd.Output(ctx, 2*time.Second, "ssh", "-G", alias)
-			if err != nil {
-				return ""
-			}
-			for _, line := range strings.Split(out, "\n") {
-				if host, ok := strings.CutPrefix(line, "hostname "); ok {
-					return strings.TrimSpace(host)
-				}
-			}
-			return ""
-		},
-		Tailnet: func(ctx context.Context) []byte {
-			for _, cli := range hostinfo.TailscaleCLIs {
-				path, err := exec.LookPath(cli)
-				if err != nil {
-					continue
-				}
-				// Stdout alone: the CLI warns on stderr when it and the daemon differ.
-				ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-				out, err := exec.CommandContext(ctx, path, "status", "--json").Output()
-				cancel()
-				if err == nil {
-					return out
-				}
-			}
-			return nil
-		},
-		Run: func(ctx context.Context, target, command string) ([]byte, []byte, int) {
-			var stdout, stderr bytes.Buffer
-			cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", target, command)
-			cmd.Stdout, cmd.Stderr = &stdout, &stderr
-			err := cmd.Run()
-			var exit *exec.ExitError
-			switch {
-			case err == nil:
-				return stdout.Bytes(), stderr.Bytes(), 0
-			case errors.As(err, &exit) && ctx.Err() == nil:
-				return stdout.Bytes(), stderr.Bytes(), exit.ExitCode()
-			}
-			return stdout.Bytes(), stderr.Bytes(), -1
-		},
+// maxLine bounds one line of another host's error text in an answer.
+const maxLine = 200
+
+// clean is text another host wrote, as it may reach an agent or a terminal:
+// no control or format characters (escapes, newlines, bidi overrides), and
+// at most max runes.
+func clean(s string, max int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		if n == max {
+			b.WriteString("…")
+			break
+		}
+		b.WriteRune(r)
+		n++
 	}
+	return strings.TrimSpace(b.String())
 }
