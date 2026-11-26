@@ -148,14 +148,20 @@ type Resetter interface {
 	Reset(ctx context.Context, creditID string) (outcome string, err error)
 }
 
-// Service caches what it reads. The TTL is a safety measure, not an
-// optimization: Claude's usage endpoint rate-limits its callers, and a host
-// that asked on every keystroke would lock the user out of the number.
+// Service caches what it reads for a minute, so a popover opened on every
+// keystroke doesn't start a CLI each time. Past the minute it answers with the
+// old reading at once and reads again behind it, so a screen never waits on a
+// CLI except for an agent's first reading.
 type Service struct {
 	providers []Provider
 	mu        sync.Mutex
 	fresh     map[agent.Kind]cached
 	lastGood  map[agent.Kind]Usage
+	// refreshing is the agents being read behind an old answer, one read each.
+	refreshing map[agent.Kind]bool
+	// generation counts each agent's invalidations (Reset), so a read begun
+	// before one never stores its older answer after it.
+	generation map[agent.Kind]int
 }
 
 type cached struct {
@@ -176,9 +182,11 @@ const (
 // New reads usage from providers.
 func New(providers ...Provider) *Service {
 	return &Service{
-		providers: providers,
-		fresh:     map[agent.Kind]cached{},
-		lastGood:  map[agent.Kind]Usage{},
+		providers:  providers,
+		fresh:      map[agent.Kind]cached{},
+		lastGood:   map[agent.Kind]Usage{},
+		refreshing: map[agent.Kind]bool{},
+		generation: map[agent.Kind]int{},
 	}
 }
 
@@ -188,47 +196,54 @@ func (s *Service) All(ctx context.Context) []Usage {
 	return par.Map(s.providers, 0, func(p Provider) Usage { return s.One(ctx, p.Kind()) })
 }
 
-// One reports a single provider, serving a cached reading when it is fresh.
+// One reports a single provider: a fresh reading as it is, an old one at once
+// while it is read again behind, and none only after reading it.
 func (s *Service) One(ctx context.Context, kind agent.Kind) Usage {
-	if hit, ok := s.cachedValue(kind); ok {
-		return hit
+	s.mu.Lock()
+	hit, ok := s.fresh[kind]
+	if ok && time.Since(hit.at) <= ttl {
+		s.mu.Unlock()
+		return hit.usage
 	}
+	if ok {
+		if !s.refreshing[kind] {
+			s.refreshing[kind] = true
+			go s.read(context.WithoutCancel(ctx), kind)
+		}
+		s.mu.Unlock()
+		return hit.usage
+	}
+	s.mu.Unlock()
+	return s.read(ctx, kind)
+}
 
-	provider, ok := agent.Find(s.providers, kind, Provider.Kind)
-	if !ok {
-		return Usage{Agent: string(kind)}
-	}
-	ctx, cancel := context.WithTimeout(ctx, readTimeout)
-	defer cancel()
-	usage := provider.Usage(ctx, s.lastGoodValue(kind))
-	usage.Agent = string(kind)
-	if p, ok := provider.(agent.Identity); ok {
-		usage.Name = p.Name()
+// read asks the provider and keeps its answer.
+func (s *Service) read(ctx context.Context, kind agent.Kind) Usage {
+	s.mu.Lock()
+	generation := s.generation[kind]
+	last := s.lastGood[kind]
+	s.mu.Unlock()
+
+	usage := Usage{Agent: string(kind)}
+	if provider, ok := agent.Find(s.providers, kind, Provider.Kind); ok {
+		ctx, cancel := context.WithTimeout(ctx, readTimeout)
+		usage = provider.Usage(ctx, last)
+		cancel()
+		usage.Agent = string(kind)
+		if p, ok := provider.(agent.Identity); ok {
+			usage.Name = p.Name()
+		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	delete(s.refreshing, kind)
+	if s.generation[kind] != generation {
+		return usage
+	}
 	s.fresh[kind] = cached{usage: usage, at: time.Now()}
 	if usage.Available && len(usage.Windows) > 0 {
 		s.lastGood[kind] = usage
 	}
 	return usage
-}
-
-func (s *Service) cachedValue(kind agent.Kind) (Usage, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	hit, ok := s.fresh[kind]
-	if !ok || time.Since(hit.at) > ttl {
-		return Usage{}, false
-	}
-	return hit.usage, true
-}
-
-// lastGoodValue is the last good reading, zero when there is none, for a
-// provider to serve with its original CapturedAtMS when a live read fails.
-func (s *Service) lastGoodValue(kind agent.Kind) Usage {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.lastGood[kind]
 }

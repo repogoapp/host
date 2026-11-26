@@ -53,7 +53,7 @@ names there.
 | `claude.go` | The package's starting point: the `Provider` (install details, where the binary lives) and which account is signed in. |
 | `home.go` | Where Claude's config lives: `~/.claude` or `CLAUDE_CONFIG_DIR`. |
 | `login.go` | Reads the sign-in link from `claude auth login` so the phone can open it. |
-| `usage.go` | Plan limits and how much of each is used, from Anthropic's usage endpoint and the local credential cache. |
+| `usage.go` | Plan limits and how much of each is used, from Claude Code's get_usage control request, kept current between reads by each chat turn's rate_limit_event. |
 | `shipping.go` | Token counts from the transcripts, for the usage and cost history. |
 
 ## Hooks and MCP

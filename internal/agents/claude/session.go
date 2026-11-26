@@ -22,26 +22,28 @@ type liveSession struct {
 	id, key, cwd, fingerprint string
 	release                   func()
 	// log records background task changes at debug, which only a dev host keeps.
-	log               *slog.Logger
-	mu                sync.Mutex
-	closed            bool
-	io                *agent.TurnIO
-	turnCtx           context.Context
-	turnCancel        context.CancelFunc
-	outcome           chan turnOutcome
-	lastActivity      time.Time
-	mode              string
-	prePlanMode       string
-	allowBypass       bool
-	tasks             map[string]*liveTask
-	blocks            map[string]map[int]*streamBlock
-	messageID         string
-	calls             map[string]string
-	seenResults       map[string]bool
-	seenMessages      map[string]bool
-	deferred          *turnOutcome
-	usage             agent.Usage
-	lastModel         string
+	log          *slog.Logger
+	mu           sync.Mutex
+	closed       bool
+	io           *agent.TurnIO
+	turnCtx      context.Context
+	turnCancel   context.CancelFunc
+	outcome      chan turnOutcome
+	lastActivity time.Time
+	mode         string
+	prePlanMode  string
+	allowBypass  bool
+	tasks        map[string]*liveTask
+	blocks       map[string]map[int]*streamBlock
+	messageID    string
+	calls        map[string]string
+	seenResults  map[string]bool
+	seenMessages map[string]bool
+	deferred     *turnOutcome
+	usage        agent.Usage
+	lastModel    string
+	// limits keeps the rate_limit_events this session's turns carry.
+	limits            *rateLimits
 	promptID          string
 	planRejected      string
 	planRejectionSeen bool

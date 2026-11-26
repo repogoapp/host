@@ -14,8 +14,9 @@ func executable() string { return clitool.PreferredExecutable(definition().Tool.
 
 // streamJSONControl sends control requests (id -> subtype) to a throwaway
 // `claude -p` reading stream-json and answers each by id; nil marks one that
-// failed. No prompt is sent, so no turn runs and nothing is billed.
-func streamJSONControl(ctx context.Context, requests map[string]string) (map[string]json.RawMessage, bool) {
+// failed. No prompt is sent, so no turn runs and nothing is billed. args are
+// added to claude's own.
+func streamJSONControl(ctx context.Context, requests map[string]string, args ...string) (map[string]json.RawMessage, bool) {
 	lines := make([]string, 0, len(requests))
 	for id, subtype := range requests {
 		line, _ := json.Marshal(map[string]any{
@@ -26,7 +27,8 @@ func streamJSONControl(ctx context.Context, requests map[string]string) (map[str
 		lines = append(lines, string(line))
 	}
 	// The stream carries hook and system events too; replies match by request id.
-	return agent.Exchange(ctx, executable(), []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"},
+	args = append([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}, args...)
+	return agent.Exchange(ctx, executable(), args,
 		lines, len(requests), func(raw []byte) (string, json.RawMessage, bool) {
 			var envelope struct {
 				Type     string `json:"type"`

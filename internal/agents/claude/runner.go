@@ -32,6 +32,8 @@ type runner struct {
 	declined map[string]bool
 	// adopt is the Manager's, set once as it starts: see agent.Joiner.
 	adopt func(chatID, cwd string)
+	// limits is the account's latest limits, as chat turns report them.
+	limits *rateLimits
 }
 
 func (r *runner) Kind() agent.Kind { return agent.KindClaude }
@@ -145,6 +147,7 @@ func (r *runner) startSession(ctx context.Context, req agent.TurnRequest, newID 
 		id = newID
 	}
 	s := newLiveSession(id, req.Cwd)
+	s.limits = r.limits
 	s.key = agent.ChatID(agent.KindClaude, id)
 	s.log = r.deps.Log.With("chat", s.key)
 	s.ownTurn = func() {

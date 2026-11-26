@@ -83,8 +83,12 @@ func New(deps agent.Dependencies) *Provider {
 		home = filepath.Join(deps.Root, string(agent.KindClaude))
 		account = filepath.Join(home, ".claude.json")
 	}
+	limits := &rateLimits{}
+	if deps.State != "" {
+		limits.path = filepath.Join(deps.State, "claude-limits.json")
+	}
 	return &Provider{
-		runner: &runner{deps: deps, executable: executable, home: home, account: account},
+		runner: &runner{deps: deps, executable: executable, home: home, account: account, limits: limits},
 		home:   home, accountPath: account, sessions: NewSessions(home),
 	}
 }

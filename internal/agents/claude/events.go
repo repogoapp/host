@@ -15,6 +15,12 @@ import (
 type streamBlock struct{ kind, text string }
 
 func (s *liveSession) handleMessage(m claudecode.Message) {
+	if m.Type == "rate_limit_event" {
+		if s.limits != nil {
+			s.limits.record(m.RateLimitInfo)
+		}
+		return
+	}
 	s.mu.Lock()
 	s.lastActivity = time.Now()
 	ownTurn := false

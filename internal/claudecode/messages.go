@@ -134,5 +134,29 @@ type Message struct {
 		Ambient bool   `json:"ambient"`
 	} `json:"tasks"`
 	ToolUseResult json.RawMessage `json:"tool_use_result"`
+	// RateLimitInfo is a rate_limit_event's reading of the account's limits.
+	RateLimitInfo *RateLimitInfo  `json:"rate_limit_info"`
 	Raw           json.RawMessage `json:"-"`
+}
+
+// RateLimitInfo is how much of its subscription limits the account has used,
+// as Claude Code reads it from the API's answers and sends with a turn.
+type RateLimitInfo struct {
+	Status string `json:"status"`
+	// RateLimitType names the window that binds now, such as "five_hour".
+	RateLimitType string `json:"rateLimitType"`
+	// Utilization is that window's, 0 to 1; absent from older CLIs.
+	Utilization *float64 `json:"utilization"`
+	// ResetsAt is Unix seconds.
+	ResetsAt int64 `json:"resetsAt"`
+	// UnifiedWindows is every window the answer carried, by name
+	// ("five_hour", "seven_day", "seven_day_overage_included").
+	UnifiedWindows map[string]RateLimitWindow `json:"unifiedWindows"`
+}
+
+// RateLimitWindow is one window of a RateLimitInfo.
+type RateLimitWindow struct {
+	Utilization *float64 `json:"utilization"`
+	ResetsAt    int64    `json:"resetsAt"`
+	Status      string   `json:"status"`
 }

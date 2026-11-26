@@ -26,6 +26,7 @@ func (s *Service) Reset(ctx context.Context, kind agent.Kind, creditID string) (
 	// Whatever happened, the cached windows and credits may be wrong now.
 	s.mu.Lock()
 	delete(s.fresh, kind)
+	s.generation[kind]++
 	s.mu.Unlock()
 	return outcome, err
 }
