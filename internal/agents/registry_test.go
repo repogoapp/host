@@ -32,8 +32,8 @@ func TestRegistryConstructsIsolatedProviders(t *testing.T) {
 	}
 	defer b.Close()
 	// Claude, Codex, Antigravity and ACP run turns and keep history; ACP has
-	// no CLI to install, sign in, or read models, usage, token history and
-	// hooks from.
+	// no CLI to install, sign in, or read models, token history and hooks
+	// from.
 	if len(a.Agents) != 4 || len(a.Adapters) != 4 || len(a.Sessions) != 4 || len(a.Providers) != 3 || len(a.Hooks) != 3 || len(a.Catalogs) != 3 || len(a.Usage) != 3 || len(a.Shipping) != 3 {
 		t.Fatalf("incomplete registry: %+v", a)
 	}

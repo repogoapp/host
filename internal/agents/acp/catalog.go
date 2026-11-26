@@ -2,7 +2,6 @@ package acp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	"github.com/repogoapp/host/internal/projectagent"
@@ -20,25 +19,25 @@ type ModelChoice struct {
 // Models asks the agent what a session in cwd offers, in a process of its
 // own that ends with the answer: each model of its model option and, by
 // setting each in turn, the effort option's values on it (effort is that
-// option's category), with the session's _meta. Opening a session records
+// option's category). Opening a session records
 // no conversation until it is prompted.
-func (p *Provider) Models(ctx context.Context, cwd, effort string) ([]ModelChoice, json.RawMessage, error) {
+func (p *Provider) Models(ctx context.Context, cwd, effort string) ([]ModelChoice, error) {
 	m, err := p.cfg.Find(cwd, "")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	proc, err := p.start(ctx, m, "")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer proc.close()
 	var opened newSessionResult
 	if err := proc.client.Call(ctx, methodNewSession, sessionParams{Cwd: proc.workdir, MCPServers: []mcpServer{}}, &opened); err != nil {
-		return nil, nil, failure{name: proc.name, step: "couldn't open a chat", err: err}
+		return nil, failure{name: proc.name, step: "couldn't open a chat", err: err}
 	}
 	models, ok := modelOption(opened.ConfigOptions)
 	if !ok {
-		return nil, nil, errors.New(proc.name + " offers no model option")
+		return nil, errors.New(proc.name + " offers no model option")
 	}
 	options := opened.ConfigOptions
 	out := make([]ModelChoice, 0, len(models.Models))
@@ -47,7 +46,7 @@ func (p *Provider) Models(ctx context.Context, cwd, effort string) ([]ModelChoic
 			var set sessionResult
 			err := proc.client.Call(ctx, methodSetConfig, setConfigParams{SessionID: opened.SessionID, ConfigID: models.ConfigID, Value: model.ID}, &set)
 			if err != nil {
-				return nil, nil, failure{name: proc.name, step: "couldn't switch to " + model.ID, err: err}
+				return nil, failure{name: proc.name, step: "couldn't switch to " + model.ID, err: err}
 			}
 			options = set.ConfigOptions
 		}
@@ -60,7 +59,7 @@ func (p *Provider) Models(ctx context.Context, cwd, effort string) ([]ModelChoic
 		}
 		out = append(out, choice)
 	}
-	return out, opened.Meta, nil
+	return out, nil
 }
 
 // Manifest is the agent a chat in cwd runs, for a caller that names it.

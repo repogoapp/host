@@ -66,8 +66,6 @@ type Provider struct {
 	// home is agy's own folder, where it keeps its conversations; configDir
 	// is where it reads hooks.json.
 	home, configDir string
-	// limits reads the account's limits; plan is its tier as agy last named it.
-	limits *limits
 }
 
 // New builds this host's Antigravity provider. A Root in deps (tests, the
@@ -79,7 +77,7 @@ func New(deps agent.Dependencies) *Provider {
 		home = filepath.Join(deps.Root, string(agent.KindAntigravity), "agy")
 		configDir = filepath.Join(deps.Root, string(agent.KindAntigravity), "config")
 	}
-	p := &Provider{deps: deps, status: &signIn{}, home: home, configDir: configDir, limits: &limits{}}
+	p := &Provider{deps: deps, status: &signIn{}, home: home, configDir: configDir}
 	p.run = acp.NewWith(deps, acp.Config{
 		Kind: agent.KindAntigravity, Name: name, Home: string(agent.KindAntigravity),
 		Find:        p.manifest,
@@ -173,11 +171,10 @@ func (p *Provider) Catalog(ctx context.Context) (agentcatalog.Catalog, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return agentcatalog.Catalog{}, err
 	}
-	choices, meta, err := p.run.Models(ctx, dir, categoryEffort)
+	choices, err := p.run.Models(ctx, dir, categoryEffort)
 	if err != nil {
 		return agentcatalog.Catalog{}, err
 	}
-	p.notePlan(meta)
 	out := agentcatalog.Catalog{Available: true, Models: make([]agentcatalog.Model, 0, len(choices))}
 	for _, c := range choices {
 		m := agentcatalog.Model{

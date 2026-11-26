@@ -40,15 +40,6 @@ func TestLiveAgy(t *testing.T) {
 	}
 	t.Logf("catalog in %s", time.Since(start).Round(time.Millisecond))
 
-	limits, err := p.readLimits(ctx)
-	if err != nil || len(limits.Windows) == 0 {
-		t.Fatalf("limits %+v %v", limits, err)
-	}
-	t.Logf("plan %q account set %v", limits.Plan, limits.Account != nil)
-	for _, w := range limits.Windows {
-		t.Logf("limit %s: %.1f%% used, resets %d", w.Label, w.UsedPercent, w.ResetsAt)
-	}
-
 	dir := t.TempDir()
 	run := func(req agent.TurnRequest, turnID string, during func(chat string)) (string, []agent.Approval, string, agent.Result) {
 		var mu sync.Mutex
