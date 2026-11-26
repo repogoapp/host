@@ -1,0 +1,44 @@
+# RepoGo's tunnel gateway: serves `<slug>.repogo.dev` tunnels and the hosts'
+# public plugin addresses. Fly's proxy ends TLS here, so the gateway reads
+# every tunnel request in the clear. Deploy from apps/host:
+# fly deploy -c tunnelgateway/fly.toml --ha=false
+# Secrets: UPSTASH_TUNNEL_REST_URL, UPSTASH_TUNNEL_REST_TOKEN.
+app = "repogo-tunnel-gateway"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TUNNEL_DOMAIN = "repogo.dev"
+  GATEWAY_ID = "tunnels.repogo.dev"
+
+[deploy]
+  # Hosts hold their socket on one machine and visitors must reach the same
+  # one, so there is exactly one; deploys replace it in place.
+  strategy = "immediate"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # A stopped gateway looks like every tunnel went offline.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    # Host sockets and visitor WebSockets stay open, so count connections.
+    type = "connections"
+    soft_limit = 2000
+    hard_limit = 2500
+
+[[http_service.checks]]
+  grace_period = "5s"
+  interval = "15s"
+  timeout = "2s"
+  method = "GET"
+  path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

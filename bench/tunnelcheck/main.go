@@ -38,7 +38,7 @@ import (
 const bigSize = 4 << 20
 
 func main() {
-	local := flag.String("local", "", "path to a tunnel-gateway binary to run on loopback")
+	local := flag.String("local", "", "path to a tunnelgateway binary to run on loopback")
 	web := flag.String("web", "https://repogo.app", "repogo.app, which opens live links")
 	gateway := flag.String("gateway", tunnel.DefaultGateway, "gateway the host dials, live only")
 	verbose := flag.Bool("v", false, "show the host's tunnel log")

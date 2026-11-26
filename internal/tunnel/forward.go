@@ -37,10 +37,13 @@ const (
 
 // Dropped in both directions along with forward.HopByHop. Accept-Encoding
 // too: the dev server then sends plain bytes, which the gateway compresses.
+// The proxy headers are a visitor's to forge, and frameworks trust some.
 var gatewayOwned = map[string]bool{
 	"host": true, "content-encoding": true, "accept-encoding": true,
 	"x-forwarded-proto": true, "x-forwarded-host": true, "x-forwarded-for": true,
 	"x-forwarded-port": true, "x-forwarded-ssl": true, "forwarded": true,
+	"x-forwarded-scheme": true, "x-real-ip": true, "true-client-ip": true,
+	"x-original-url": true,
 }
 
 // dropped reports a header that never crosses the tunnel.

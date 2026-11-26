@@ -1,2 +1,10 @@
-# Local build output (gigabytes of Xcode derived data); the relay image needs only Go source.
-build/
+# Only the Go source the relay and tunnel gateway images build from.
+*
+!go.mod
+!go.sum
+!hrelay
+!tunnelgateway
+!tunnelwire
+!internal
+**/*_test.go
+**/testdata

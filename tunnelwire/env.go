@@ -17,6 +17,12 @@ var (
 	methodName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 )
 
+// slug is a tunnel's name, as repogo.app makes them: random base36.
+var slug = regexp.MustCompile(`^[0-9a-z]{10,32}$`)
+
+// IsSlug is whether name could be a tunnel's, so the gateway looks up no other.
+func IsSlug(name string) bool { return slug.MatchString(name) }
+
 // EnvLabel is the DNS label of the host's environment address.
 func EnvLabel(id string) string { return EnvPrefix + id }
 

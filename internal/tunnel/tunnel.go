@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"sort"
 	"sync"
 	"time"
@@ -38,9 +37,6 @@ const DefaultGateway = "tunnels.repogo.dev"
 
 // MaxDuration matches repogo.app's longest tunnel, with room for clock skew.
 const MaxDuration = 7*24*time.Hour + 5*time.Minute
-
-// Slugs are repogo.app's random base36 names.
-var slugPattern = regexp.MustCompile(`^[0-9a-z]{10,32}$`)
 
 // Tunnel is one public URL this host serves.
 type Tunnel struct {
@@ -125,7 +121,7 @@ func Open(cfg Config) (*Service, error) {
 func (s *Service) Open(by device.ID, slug string, port int, expiresAt int64) (Tunnel, error) {
 	now := s.now()
 	switch {
-	case !slugPattern.MatchString(slug):
+	case !tunnelwire.IsSlug(slug):
 		return Tunnel{}, fmt.Errorf("%w: slug must be 10 to 32 lowercase letters and digits", ErrInvalid)
 	case port < 1024 || port > 65535:
 		return Tunnel{}, fmt.Errorf("%w: port must be from 1024 to 65535", ErrInvalid)

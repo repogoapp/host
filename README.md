@@ -127,6 +127,25 @@ From 0.1.44 (with RepoGo 1.0.4), the host also serves phones without the relay:
 Each listener serves the same pinned TLS and session-bound hello as the relay
 route, and caps how many connections may wait before their hello.
 
+#### Tunnels
+
+A tunnel gives a local server a public URL, `<slug>.repogo.dev`, for six hours.
+repogo.app picks the slug and records which host and port it reaches; the
+host keeps one WebSocket open to RepoGo's tunnel gateway
+([`tunnelgateway/`](tunnelgateway/)), proves its key, and answers each visitor's
+request over it.
+
+Tunnels are not end-to-end encrypted. The visitor's TLS ends at the gateway's
+proxy, so the gateway reads every request and response in the clear. It caches
+answers to requests that carry no cookie and no header named like a key or
+token (`Authorization`, `X-API-Key`), unless your server marks them `private`
+or `no-store` or sets a cookie: a page or JSON for up to a minute when your
+server sends `s-maxage`, and static files such as scripts, styles, images and
+fonts for their `max-age`, or up to five minutes when your server sends no
+cache headers. Anyone with the URL can open it until
+it closes or expires; a WebSocket already open stays open until either side
+closes it.
+
 #### Plugin methods over HTTP
 
 From 0.1.44, a plugin method may opt into plain HTTP, at two addresses, which
@@ -243,14 +262,15 @@ local WebSocket, and the host's pinned TLS, on temporary data.
 ### Layout
 
 ```
-repogo/      the host binary: commands, config, start, update
-hrelay/      the relay behind h.repogo.app: pipes phones' TLS, sends pushes
-npm/         the `npx @repogo/host` installer
-plugins-sdk/ `@repogo/plugins`, the package plugins are written with
-tunnelwire/  wire types shared with the tunnel gateway
-internal/    the host's packages: transport and encryption, RPC methods,
-             agent runners, transcript reading, git, files, terminals
-docs/        generated method and event references
+repogo/        the host binary: commands, config, start, update
+hrelay/        the relay behind h.repogo.app: pipes phones' TLS, sends pushes
+tunnelgateway/ the tunnel gateway behind <slug>.repogo.dev
+npm/           the `npx @repogo/host` installer
+plugins-sdk/   `@repogo/plugins`, the package plugins are written with
+tunnelwire/    wire types between the host and the tunnel gateway
+internal/      the host's packages: transport and encryption, RPC methods,
+               agent runners, transcript reading, git, files, terminals
+docs/          generated method and event references
 ```
 
 ## Contributing
