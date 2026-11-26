@@ -107,7 +107,7 @@ func TestCallReadsATool(t *testing.T) {
 	for _, sse := range []bool{false, true} {
 		up := newToolServer(t, sse)
 		s, project := connected(t, up)
-		got, err := s.Call(context.Background(), project, "neon", "list_projects", nil, true, false)
+		got, err := s.Call(context.Background(), project, "neon", "list_projects", nil, true, false, false)
 		if err != nil {
 			t.Fatalf("sse=%v: %v", sse, err)
 		}
@@ -123,13 +123,13 @@ func TestCallReadsATool(t *testing.T) {
 func TestCallShapesResults(t *testing.T) {
 	s, project := connected(t, newToolServer(t, false))
 	ctx := context.Background()
-	if got, _ := s.Call(ctx, project, "neon", "rename", json.RawMessage(`{"name":"x"}`), false, false); string(got.Result) != `{"ok":true}` {
+	if got, _ := s.Call(ctx, project, "neon", "rename", json.RawMessage(`{"name":"x"}`), false, false, false); string(got.Result) != `{"ok":true}` {
 		t.Errorf("structured content = %s, want it over the text", got.Result)
 	}
-	if got, _ := s.Call(ctx, project, "neon", "prose", nil, true, false); string(got.Result) != `"Done."` {
+	if got, _ := s.Call(ctx, project, "neon", "prose", nil, true, false, false); string(got.Result) != `"Done."` {
 		t.Errorf("prose = %s, want a JSON string", got.Result)
 	}
-	if got, _ := s.Call(ctx, project, "neon", "fails", nil, true, false); got.Error == nil || got.Error.Code != "TOOL_ERROR" || got.Error.Message != "quota exceeded" {
+	if got, _ := s.Call(ctx, project, "neon", "fails", nil, true, false, false); got.Error == nil || got.Error.Code != "TOOL_ERROR" || got.Error.Message != "quota exceeded" {
 		t.Errorf("isError = %+v, want TOOL_ERROR with its text", got.Error)
 	}
 }
@@ -139,20 +139,30 @@ func TestCallGuardsWrites(t *testing.T) {
 	s, project := connected(t, up)
 	ctx := context.Background()
 
-	if got, _ := s.Call(ctx, project, "neon", "rename", nil, true, false); got.Error == nil || got.Error.Code != "NOT_READ_ONLY" {
+	if got, _ := s.Call(ctx, project, "neon", "rename", nil, true, false, false); got.Error == nil || got.Error.Code != "NOT_READ_ONLY" {
 		t.Errorf("a read of a write tool = %+v, want NOT_READ_ONLY", got.Error)
 	}
-	got, err := s.Call(ctx, project, "neon", "delete_branch", nil, false, false)
+	got, err := s.Call(ctx, project, "neon", "delete_branch", nil, false, false, false)
 	if err != nil || got.Error == nil || got.Error.Code != "CONFIRM" || got.Error.Message != "Run Delete branch on Neon?" {
 		t.Fatalf("an unannotated write = %+v, %v; want CONFIRM, as MCP defaults a write to destructive", got.Error, err)
 	}
 	if up.calls.Load() != 0 {
 		t.Fatalf("%d tools ran before the user agreed", up.calls.Load())
 	}
-	if got, _ := s.Call(ctx, project, "neon", "delete_branch", nil, false, true); got.Error != nil {
+	if got, _ := s.Call(ctx, project, "neon", "delete_branch", nil, false, true, false); got.Error != nil {
 		t.Errorf("confirmed = %+v, want it run", got.Error)
 	}
-	if got, _ := s.Call(ctx, project, "neon", "rename", nil, false, false); got.Error != nil {
+	// Voice asks before every write, a non-destructive one too, and never before a read.
+	if got, _ := s.Call(ctx, project, "neon", "rename", nil, false, false, true); got.Error == nil || got.Error.Code != "CONFIRM" {
+		t.Errorf("a write asked for with askWrites = %+v, want CONFIRM", got.Error)
+	}
+	if got, _ := s.Call(ctx, project, "neon", "list_projects", nil, false, false, true); got.Error != nil {
+		t.Errorf("a read with askWrites = %+v, want it to run", got.Error)
+	}
+	if got, _ := s.Call(ctx, project, "neon", "rename", nil, false, true, true); got.Error != nil {
+		t.Errorf("a confirmed write with askWrites = %+v, want it to run", got.Error)
+	}
+	if got, _ := s.Call(ctx, project, "neon", "rename", nil, false, false, false); got.Error != nil {
 		t.Errorf("a non-destructive write = %+v, want it run without asking", got.Error)
 	}
 }
@@ -161,11 +171,11 @@ func TestCallOpensANewSessionWhenTheServerForgetsIt(t *testing.T) {
 	up := newToolServer(t, false)
 	s, project := connected(t, up)
 	ctx := context.Background()
-	if _, err := s.Call(ctx, project, "neon", "list_projects", nil, true, false); err != nil {
+	if _, err := s.Call(ctx, project, "neon", "list_projects", nil, true, false, false); err != nil {
 		t.Fatal(err)
 	}
 	up.expire.Store(true)
-	got, err := s.Call(ctx, project, "neon", "list_projects", nil, true, false)
+	got, err := s.Call(ctx, project, "neon", "list_projects", nil, true, false, false)
 	if err != nil || got.Error != nil {
 		t.Fatalf("after expiry: %+v, %v", got.Error, err)
 	}
@@ -178,11 +188,11 @@ func TestCallReachesOnlyServersOnForTheProject(t *testing.T) {
 	up := newToolServer(t, false)
 	s, _ := connected(t, up)
 	ctx := context.Background()
-	if _, err := s.Call(ctx, t.TempDir(), "neon", "list_projects", nil, true, false); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Call(ctx, t.TempDir(), "neon", "list_projects", nil, true, false, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("another project = %v, want not found", err)
 	}
 	_, project := connected(t, up)
-	if _, err := s.Call(ctx, project, "neon", "missing", nil, true, false); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Call(ctx, project, "neon", "missing", nil, true, false, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("an unknown tool = %v, want not found", err)
 	}
 }

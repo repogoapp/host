@@ -2,8 +2,10 @@ package plugins
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -73,7 +75,7 @@ func TestListAnswersSmallAndInFull(t *testing.T) {
 	if err != nil || list.Error != nil {
 		t.Fatalf("list: %+v %v", list.Error, err)
 	}
-	want := `{"plugins":[{"name":"shelf","page":"~/.repogo/plugins/shelf/pages/index.ui","description":"Books on a shelf","methods":[` +
+	want := `{"plugins":[{"name":"shelf","page":"~/.repogo/plugins/shelf/pages/index.ui","ui":"~/.repogo/plugins/shelf/pages/index.ui","description":"Books on a shelf","methods":[` +
 		`{"name":"shelf.books","effect":"read","description":"Every book"},` +
 		`{"name":"shelf.shelve","effect":"write","asks":true,"input":"id, title?, read?","description":"Put a book <back>"}]}]}`
 	if string(list.Result) != want {
@@ -98,5 +100,83 @@ func TestListAnswersSmallAndInFull(t *testing.T) {
 
 	if _, err := s.List(t.Context(), root, "books"); err == nil || !strings.Contains(err.Error(), "there are shelf") {
 		t.Fatalf("unknown plugin: %v", err)
+	}
+}
+
+// A device's listing marks only the methods HTTP really serves, and the
+// detail gives each one's URLs, whether the key is made (never the key) and
+// the plugin's own pages, its index first.
+func TestDeviceListingAndDetail(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	root := project(t, dir, map[string]string{"hello": httpPlugin})
+	s.cfg.Global = filepath.Join(root, ".repogo", "plugins")
+	pages := filepath.Join(s.cfg.Global, "hello", "pages")
+	if err := os.MkdirAll(pages, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		"index.ui":   `<Router initial="a"><Route path="a" title="Hello there"/></Router>`,
+		"about.md":   "# About hello\n",
+		"plain.html": "<p>no title</p>",
+		"notes.txt":  "not a page",
+	} {
+		if err := os.WriteFile(filepath.Join(pages, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	list, err := s.Listing(t.Context(), "")
+	if err != nil || list.Error != "" || len(list.Plugins) != 1 {
+		t.Fatalf("Listing: %+v %v", list, err)
+	}
+	if list.Plugins[0].UI != "~/.repogo/plugins/hello/pages/index.ui" {
+		t.Fatalf("ui = %q", list.Plugins[0].UI)
+	}
+	served := map[string]string{}
+	for _, m := range list.Plugins[0].Methods {
+		served[m.Name] = fmt.Sprint(m.HTTP)
+	}
+	want := map[string]string{
+		"hello.ping": "[public]", "hello.echo": "[public]", "hello.keyed": "[public]", "hello.fails": "[public]",
+		"hello.local": "[device]", "hello.closed": "[]", "hello.asks": "[]", "hello.tail": "[]",
+	}
+	if fmt.Sprint(served) != fmt.Sprint(want) {
+		t.Fatalf("http:\n got  %v\n want %v", served, want)
+	}
+
+	d, err := s.Detail(t.Context(), "", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Key == nil || d.Key.Set {
+		t.Fatalf("key before one is made: %+v", d.Key)
+	}
+	keyed := d.Methods[slices.IndexFunc(d.Methods, func(m DetailMethod) bool { return m.Name == "hello.keyed" })]
+	if len(keyed.URLs) != 1 || !keyed.URLs[0].Key || keyed.URLs[0].URL != "https://h-0123456789abcdef0123456789abcdef.repogo.dev/hello/keyed" {
+		t.Fatalf("keyed URLs: %+v", keyed.URLs)
+	}
+	if got := fmt.Sprint(d.Screens); got != "[{Hello there ~/.repogo/plugins/hello/pages/index.ui} {About hello ~/.repogo/plugins/hello/pages/about.md} {plain ~/.repogo/plugins/hello/pages/plain.html}]" {
+		t.Fatalf("screens: %s", got)
+	}
+
+	made, err := s.CreateKey(t.Context(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _ = s.Detail(t.Context(), "", "hello")
+	raw, _ := json.Marshal(d)
+	if !d.Key.Set || strings.Contains(string(raw), made.Key) {
+		t.Fatalf("detail after a key is made: %s", raw)
+	}
+}
+
+func TestListingWithoutPluginsIsEmpty(t *testing.T) {
+	dir := sdk(t)
+	s, _ := newService(t, dir)
+	s.cfg.Global = filepath.Join(t.TempDir(), "plugins")
+	list, err := s.Listing(t.Context(), "")
+	if err != nil || list.Plugins == nil || len(list.Plugins) != 0 {
+		t.Fatalf("Listing without a plugins folder: %+v %v", list, err)
 	}
 }

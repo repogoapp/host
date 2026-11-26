@@ -2,7 +2,7 @@ import type { Bucket } from "./buckets";
 import type { Collection } from "./collections";
 import type { Kv } from "./kv";
 import type { Stream } from "./streams";
-import type { Effect, HTTPAddresses, PermissionMode } from "./define";
+import type { Effect, HTTPAddresses, PermissionMode, PluginIcon } from "./define";
 import type { Duration } from "./duration";
 
 /** An alert for the user's phones: what it says, and the page a tap opens. */
@@ -134,6 +134,8 @@ export type CronStatus = ManifestCron & { plugin: string; error: string | null }
 export type Manifest = {
   plugins: {
     name: string;
+    title: string | null;
+    icon: PluginIcon | null;
     description: string | null;
     methods: ManifestMethod[];
     crons: ManifestCron[];

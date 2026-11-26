@@ -35,9 +35,10 @@ type KeyedPlugin struct {
 	CreatedAt int64 `json:"created_at"`
 }
 
-// Keys is every environment plugin with a method that takes a key, with its key.
-func (s *Service) Keys(ctx context.Context) ([]KeyedPlugin, error) {
-	served, err := s.Served(ctx, "")
+// Keys is every environment plugin with a method that takes a key, with its
+// key, or only plugin's when it's set.
+func (s *Service) Keys(ctx context.Context, plugin string) ([]KeyedPlugin, error) {
+	served, err := s.Served(ctx, plugin)
 	if err != nil {
 		return nil, err
 	}
@@ -63,17 +64,16 @@ func (s *Service) Keys(ctx context.Context) ([]KeyedPlugin, error) {
 // CreateKey makes plugin a new key, replacing the one it had: callers holding
 // the old one are refused from now on.
 func (s *Service) CreateKey(ctx context.Context, plugin string) (KeyedPlugin, error) {
-	keyed, err := s.Keys(ctx)
+	keyed, err := s.Keys(ctx, plugin)
 	if err != nil {
 		return KeyedPlugin{}, err
 	}
-	i := slices.IndexFunc(keyed, func(k KeyedPlugin) bool { return k.Plugin == plugin })
-	if i < 0 {
+	if len(keyed) == 0 {
 		return KeyedPlugin{}, ErrNoKeyedPlugin
 	}
 	secret := make([]byte, 32)
 	_, _ = rand.Read(secret)
-	k := keyed[i]
+	k := keyed[0]
 	k.Key, k.CreatedAt = "rgk_"+base64.RawURLEncoding.EncodeToString(secret), time.Now().UnixMilli()
 	if err := s.cfg.Keys.SetPluginKey(plugin, k.Key, k.CreatedAt); err != nil {
 		return KeyedPlugin{}, err

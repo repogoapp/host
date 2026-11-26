@@ -33,26 +33,39 @@ func (s *Service) Served(ctx context.Context, plugin string) ([]ServedMethod, er
 	if err != nil {
 		return nil, err
 	}
-	bases := map[Address]string{Public: "https://" + tunnelwire.EnvLabel(s.cfg.HostID()) + "." + tunnel.Domain}
-	if s.cfg.DevicePort != 0 {
-		bases[Device] = "http://127.0.0.1:" + strconv.Itoa(s.cfg.DevicePort)
-	}
+	bases := s.urlBases()
 	out := []ServedMethod{}
 	for _, p := range found {
 		if plugin != "" && p.Name != plugin {
 			continue
 		}
 		for _, m := range p.Methods {
-			method := ServedMethod{Plugin: p.Name, Method: within(p.Name, m.Name), Effect: m.Effect, URLs: []MethodURL{}}
-			for _, at := range []Address{Device, Public} {
-				if base := bases[at]; base != "" && open(m.HTTP[at], m.Stream, m.Approve) {
-					method.URLs = append(method.URLs, MethodURL{Address: at, URL: base + "/" + p.Name + "/" + method.Method, Key: m.HTTP[at] == httpKey})
-				}
-			}
-			if len(method.URLs) > 0 {
-				out = append(out, method)
+			if urls := methodURLs(bases, p.Name, m); len(urls) > 0 {
+				out = append(out, ServedMethod{Plugin: p.Name, Method: within(p.Name, m.Name), Effect: m.Effect, URLs: urls})
 			}
 		}
 	}
 	return out, nil
+}
+
+// urlBases is where this environment's plugin methods answer HTTP, by address;
+// the device address only while its listener has a port.
+func (s *Service) urlBases() map[Address]string {
+	bases := map[Address]string{Public: "https://" + tunnelwire.EnvLabel(s.cfg.HostID()) + "." + tunnel.Domain}
+	if s.cfg.DevicePort != 0 {
+		bases[Device] = "http://127.0.0.1:" + strconv.Itoa(s.cfg.DevicePort)
+	}
+	return bases
+}
+
+// methodURLs is each address a method really answers at: one it opted into,
+// unless it streams or asks first, which HTTP never serves.
+func methodURLs(bases map[Address]string, plugin string, m manifestMethod) []MethodURL {
+	var out []MethodURL
+	for _, at := range []Address{Device, Public} {
+		if base := bases[at]; base != "" && open(m.HTTP[at], m.Stream, m.Approve) {
+			out = append(out, MethodURL{Address: at, URL: base + "/" + plugin + "/" + within(plugin, m.Name), Key: m.HTTP[at] == httpKey})
+		}
+	}
+	return out
 }

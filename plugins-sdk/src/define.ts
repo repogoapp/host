@@ -72,8 +72,31 @@ function httpAddresses(option: HTTPOption | undefined): HTTPAddresses | undefine
 
 export type Handler = (payload: any, ctx: Context) => unknown | Promise<unknown>;
 
+/**
+ * How a device draws a plugin, as a card Item draws its tile: a symbol on a
+ * coloured tile, a site's favicon, or a picture.
+ */
+export type PluginIcon =
+  | {
+      /** An SF Symbol, drawn on iOS; Android and the web draw its nearest unless given their own. */
+      symbol: string;
+      /** A Material Symbol name, for Android. */
+      android?: string;
+      /** A Lucide icon name, for the web. */
+      web?: string;
+      /** The tile's colour, one of the cards' named colours: blue, green, orange, red, purple, pink, teal, yellow, gray, accent, success, warning, danger. Gray unless set. */
+      color?: string;
+    }
+  /** A site whose favicon is the tile: "vercel.com". */
+  | { site: string }
+  /** A picture that is the tile: a PNG, JPEG or WebP in the plugin's folder (at most 64 KB), or an https URL. */
+  | { image: string };
+
 export type PluginDefinition = {
-  /** One line, shown to the agent in the index of plugins. */
+  /** The name a device shows ("Vercel"); the folder's name stays its id, which cards, crons and URLs use. */
+  title?: string;
+  icon?: PluginIcon;
+  /** One line, shown to the agent in the index of plugins, and under its name on a device. */
   description?: string;
   /**
    * Where the plugin's data lives: `<namespace>/` in the data dir, holding `data.db`

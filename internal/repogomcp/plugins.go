@@ -1,10 +1,12 @@
 package repogomcp
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/outcome"
@@ -24,10 +26,10 @@ var pluginsTool = tool{
 	Description: "List the environment's plugins (~/.repogo/plugins), which every project can use, " +
 		"each with its `errors` in the last hour, the `page` that shows it, " +
 		"and a line per method: `effect` (read, write or destructive), `stream` for a read that sends items, " +
-		"`asks` when it has an approve question, and `input`, its fields " +
+		"`asks` when it has an approve question, `http` the addresses it answers plain HTTP at, and `input`, its fields " +
 		"with optional ones ending in `?`; and `crons`, each line of ~/.repogo/crons.json with its error or next and last run. " +
-		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema, `approve` and `approveUpTo`, its storage, " +
-		"the pages that show its methods (`target` to open with page: and the `params` to add) and the cron lines naming it. " +
+		"With `plugin`, that plugin in full: its folder, each method's input and output JSON Schema, `approve`, `approveUpTo` and `urls`, its storage, " +
+		"whether its HTTP `key` is made, its own page files (`screens`), the pages that show its methods (`target` to open with page: and the `params` to add) and the cron lines naming it. " +
 		"Call this, and with the plugin's name for its schemas, before plugin_call; again after writing or changing a plugin or crons.json.",
 	InputSchema: map[string]any{
 		"type": "object",
@@ -102,6 +104,10 @@ func pluginsTools(service *plugins.Service, turn agent.RunningTurn, name string,
 		return pluginResult(service.Call(turn.Ctx, turn.Cwd, p.Method, p.Input, nil, true, origin))
 	case approveNo:
 		return failed("The user declined " + p.Method + " (\"" + answer.Error.Message + "\"). It didn't run; don't call it again unless they ask.")
+	case approveTimedOut:
+		return failed("Timed out waiting for approval: " + p.Method + " (\"" + answer.Error.Message + "\") didn't run. " +
+			"Don't call it again on your own: draw a Button with action=\"plugin:" + p.Method + "\" and a Param per input field, " +
+			"so the user runs it when they're ready.")
 	default:
 		return failed("Nobody answered " + p.Method + "'s question (\"" + answer.Error.Message + "\"), so it didn't run.")
 	}
@@ -133,7 +139,13 @@ const (
 	approveUnanswered approveAnswer = iota
 	approveYes
 	approveNo
+	approveTimedOut
 )
+
+// approveWait is how long a plugin's question waits for the user. It must end
+// before Claude drops the call (MCP_TOOL_TIMEOUT, set in agents/claude), so the
+// agent reads why the call failed rather than a bare timeout.
+var approveWait = 10 * time.Minute
 
 const (
 	approveYesID = "allow-once"
@@ -143,9 +155,12 @@ const (
 // approve puts a method's question on the turn's chat, as an agent's tool
 // approval is, and waits for the user's pick. Its own call id, so the prompt
 // carries the plugin's question rather than the plugin_call row's title.
+// Unanswered after approveWait, the question leaves the phone and the call fails.
 func approve(turn agent.RunningTurn, method string, input json.RawMessage, question string) approveAnswer {
 	detail, _ := json.Marshal(map[string]json.RawMessage{"method": mustJSON(method), "input": orEmpty(input)})
-	answer, err := turn.Ask(turn.Ctx, agent.Approval{
+	ctx, cancel := context.WithTimeout(turn.Ctx, approveWait)
+	defer cancel()
+	answer, err := turn.Ask(ctx, agent.Approval{
 		CallID: "plugin-approve:" + randomID(), Title: question, Kind: "plugin", Input: detail,
 		Options: []agent.ApprovalOption{
 			{OptionID: approveYesID, Name: "Yes", Kind: "allow_once"},
@@ -153,6 +168,9 @@ func approve(turn agent.RunningTurn, method string, input json.RawMessage, quest
 		},
 	})
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return approveTimedOut
+		}
 		return approveUnanswered
 	}
 	var picked string

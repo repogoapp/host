@@ -260,6 +260,34 @@ func (s *Service) Call(ctx context.Context, path, name string, input json.RawMes
 	})
 }
 
+// CallAskingWrites is Call for a caller that wants the user asked before
+// anything that isn't a read: the phone's voice agent, whose model must never
+// be the one to say yes. Unconfirmed, a method that isn't a read answers
+// CONFIRM: its own question when it has an approve, else one naming it.
+func (s *Service) CallAskingWrites(ctx context.Context, path, name string, input json.RawMessage, files []uploads.File, confirmed bool, by Origin) (outcome.Answer, error) {
+	if !confirmed {
+		m, found, err := s.Method(ctx, path, name)
+		if err != nil {
+			return outcome.Answer{}, err
+		}
+		if question, asks := writeQuestion(m, found, name); asks {
+			return outcome.Answer{Error: &outcome.Failure{Code: "CONFIRM", Message: question}}, nil
+		}
+	}
+	return s.Call(ctx, path, name, input, files, confirmed, by)
+}
+
+// writeQuestion is what to ask before a method that isn't a read and has no
+// approve; one with an approve asks its own question when called unconfirmed,
+// filled from the input. A method no plugin has is left for Call to refuse.
+func writeQuestion(m Asking, found bool, name string) (string, bool) {
+	if !found || m.Effect == "read" || m.Approve != "" {
+		return "", false
+	}
+	plugin, method, _ := strings.Cut(name, ".")
+	return fmt.Sprintf("Run %s on %s?", method, plugin), true
+}
+
 // Subscribe keeps a device's query or stream under the device's id, replacing
 // one already there; a query's changed answer, or a stream's batch of items,
 // sends plugins.data. A plugin's error on the first run subscribes nothing.

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/emit/emittest"
@@ -33,7 +34,7 @@ func pluginsServiceIn(t *testing.T, sdk, global string) *plugins.Service {
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	return plugins.New(t.Context(), plugins.Config{
 		Runtime: runtimeOf(sdk), Socket: filepath.Join(home, "plugins.sock"), DataDir: filepath.Join(home, "data"), Global: global,
-		Events: emittest.Sink{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Events: emittest.Sink{}, HostID: func() string { return "0123456789abcdef0123456789abcdef" }, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 }
 
@@ -229,6 +230,19 @@ export default definePlugin({
 	}
 	if gone := callTool(t, s, chat, "plugin_call", map[string]any{"method": "notes.notes.get", "input": map[string]any{"id": note.ID}}); gone.IsError || strings.Contains(gone.Content[0].Text, `"hi"`) {
 		t.Fatalf("the note stayed after the user's yes: %+v", gone)
+	}
+
+	// Unanswered past approveWait, the call fails saying so, before the agent's
+	// own timeout would give it a bare one.
+	defer func(wait time.Duration) { approveWait = wait }(approveWait)
+	approveWait = 10 * time.Millisecond
+	waiting := attachAsking(t, s, root, agent.TurnConfig{PermissionMode: agent.PermissionApprovalRequired}, func(ctx context.Context, _ agent.Approval) (json.RawMessage, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	if got := callTool(t, s, waiting, "plugin_call", map[string]any{"method": "notes.tidy"}); !got.IsError ||
+		!strings.Contains(got.Content[0].Text, "Timed out waiting for approval") || !strings.Contains(got.Content[0].Text, `action="plugin:notes.tidy"`) {
+		t.Fatalf("an unanswered question: %+v", got)
 	}
 
 	// approveUpTo auto-accept-edits: full access runs it unasked, the stricter modes ask.

@@ -55,7 +55,13 @@ type CallParams struct {
 	// Confirmed is the user's yes; without it a destructive tool answers
 	// CONFIRM instead of running.
 	Confirmed bool `json:"confirmed,omitempty"`
+	// Ask is "writes" from the phone's voice agent: every tool that isn't
+	// read-only answers CONFIRM until Confirmed, so the user taps, not the model.
+	Ask string `json:"ask,omitempty"`
 }
+
+// AskWrites is the Ask that asks before everything that isn't a read.
+const AskWrites = "writes"
 
 func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "mcp.list", d.list)
@@ -87,5 +93,5 @@ func (d Deps) call(ctx context.Context, _ rpc.Caller, a CallParams) (outcome.Ans
 	if a.Project == "" || a.Server == "" || a.Tool == "" {
 		return outcome.Answer{}, rpc.ErrInvalidParams
 	}
-	return d.MCP.Call(ctx, a.Project, a.Server, a.Tool, a.Input, a.Read, a.Confirmed)
+	return d.MCP.Call(ctx, a.Project, a.Server, a.Tool, a.Input, a.Read, a.Confirmed, a.Ask == AskWrites)
 }

@@ -1,0 +1,79 @@
+{
+  "name": "name",
+  "title": "title",
+  "icon": {
+    "symbol": "symbol",
+    "android": "android",
+    "web": "web",
+    "color": "color",
+    "site": "site",
+    "image": "image"
+  },
+  "path": "path",
+  "errors": 1,
+  "description": "description",
+  "methods": [
+    {
+      "name": "name",
+      "effect": "effect",
+      "stream": true,
+      "description": "description",
+      "approve": "approve",
+      "approveUpTo": "approveUpTo",
+      "input": {
+        "input": "input"
+      },
+      "output": {
+        "output": "output"
+      },
+      "urls": [
+        {
+          "address": "address",
+          "url": "url",
+          "key": true
+        }
+      ]
+    }
+  ],
+  "storage": {
+    "storage": "storage"
+  },
+  "key": {
+    "set": true,
+    "created_at": 1
+  },
+  "screens": [
+    {
+      "title": "title",
+      "target": "target"
+    }
+  ],
+  "pages": [
+    {
+      "method": "method",
+      "target": "target",
+      "params": [
+        "params"
+      ]
+    }
+  ],
+  "crons": [
+    {
+      "index": 1,
+      "project": "project",
+      "plugin": "plugin",
+      "method": "method",
+      "schedule": "schedule",
+      "timezone": "timezone",
+      "enabled": true,
+      "root": "root",
+      "error": "error",
+      "nextRunAt": 1,
+      "lastRunAt": 1,
+      "lastError": "lastError",
+      "lastDurationMs": 1,
+      "running": true,
+      "runs": 1
+    }
+  ]
+}

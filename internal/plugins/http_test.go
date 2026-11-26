@@ -157,7 +157,7 @@ func TestKeyOpensOnlyItsPlugin(t *testing.T) {
 		return err
 	}
 
-	list, err := s.Keys(t.Context())
+	list, err := s.Keys(t.Context(), "")
 	if err != nil || len(list) != 1 || list[0].Plugin != "hello" || list[0].Key != "" || strings.Join(list[0].Methods, ",") != "keyed" {
 		t.Fatalf("Keys before one is made: %+v %v", list, err)
 	}

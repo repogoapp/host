@@ -15,8 +15,10 @@ import (
 
 // Call runs one tool of a server switched on for project, named by the key
 // an agent knows it by. A read runs only read-only tools; a destructive tool
-// answers CONFIRM until confirmed says the user agreed.
-func (s *Service) Call(ctx context.Context, project, server, toolName string, input json.RawMessage, read, confirmed bool) (outcome.Answer, error) {
+// answers CONFIRM until confirmed says the user agreed. askWrites asks before
+// every tool that isn't read-only, for the phone's voice agent, whose model
+// must never be the one to say yes.
+func (s *Service) Call(ctx context.Context, project, server, toolName string, input json.RawMessage, read, confirmed, askWrites bool) (outcome.Answer, error) {
 	n, err := s.named(ctx, project, server)
 	if err != nil {
 		return outcome.Answer{}, err
@@ -30,7 +32,7 @@ func (s *Service) Call(ctx context.Context, project, server, toolName string, in
 		return outcome.Answer{}, ErrNotFound.Errorf("%s has no tool %s", n.record.Label, toolName)
 	case read && !t.readOnly():
 		return refusal("NOT_READ_ONLY", fmt.Sprintf("%s changes data, so a card runs it from a Button, not a Data", toolName)), nil
-	case !read && t.destructive() && !confirmed:
+	case !read && !confirmed && (t.destructive() || askWrites && !t.readOnly()):
 		return refusal("CONFIRM", fmt.Sprintf("Run %s on %s?", t.label(), n.record.Label)), nil
 	}
 	if len(bytes.TrimSpace(input)) == 0 {

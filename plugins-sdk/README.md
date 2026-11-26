@@ -72,7 +72,30 @@ from `~/.repogo/plugins`, so a cloned repo can't put its own page, and the
 script an `.html` page runs, in front of the user. A page about one project
 lives beside its plugin and takes the project as state (`?project=…`).
 
-A plugin's name is its folder's: lowercase letters, digits and hyphens. The
+A plugin's name is its folder's: lowercase letters, digits and hyphens. It's
+the id cards, crons and URLs call it by. What a device shows is its own:
+
+```ts
+export default definePlugin({
+  title: "Ship",                  // the name shown; the folder's when unset
+  icon: { symbol: "shippingbox.fill", android: "deployed_code", web: "package", color: "green" },
+  // icon: { site: "vercel.com" }, // or a site's favicon as the tile
+  // icon: { image: "icon.png" },  // or a picture: a file in its folder (PNG, JPEG or WebP, ≤ 64 KB) or an https URL
+  description: "CI, push and GitHub for main", // under its name on a device, and to the agent
+  methods: { … },
+});
+```
+
+The icon is drawn as a card Item's tile: `symbol` is an SF Symbol (iOS),
+`android` a Material Symbol and `web` a Lucide name, each falling back to the SF
+Symbol's nearest, on a tile of `color` (the cards' named colours). A `site` or
+`image` is the tile itself.
+
+Renaming the title never breaks a call; renaming the folder does. An image
+file outside the folder, of another type or over 64 KB, or a URL that isn't
+https, is left out.
+
+The
 environment's plugins run together in one Worker, so a plugin's blocking code
 stalls the others: use async APIs. They load together too: one that fails to
 load (a throw at import, a destructive method without an `approve`, data without

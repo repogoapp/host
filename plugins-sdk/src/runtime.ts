@@ -551,6 +551,8 @@ export class Runtime {
   manifest(): Manifest {
     const plugins = [...this.plugins.entries()].map(([name, plugin]) => ({
       name,
+      title: plugin.title ?? null,
+      icon: plugin.icon ?? null,
       description: plugin.description ?? null,
       methods: [...this.methods.values()]
         .filter((method) => method.plugin === name)

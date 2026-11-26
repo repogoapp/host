@@ -1,0 +1,53 @@
+{
+  "plugins": [
+    {
+      "name": "name",
+      "title": "title",
+      "icon": {
+        "symbol": "symbol",
+        "android": "android",
+        "web": "web",
+        "color": "color",
+        "site": "site",
+        "image": "image"
+      },
+      "errors": 1,
+      "page": "page",
+      "ui": "ui",
+      "description": "description",
+      "methods": [
+        {
+          "name": "name",
+          "effect": "effect",
+          "stream": true,
+          "asks": true,
+          "input": "input",
+          "description": "description",
+          "http": [
+            "http"
+          ]
+        }
+      ]
+    }
+  ],
+  "crons": [
+    {
+      "index": 1,
+      "project": "project",
+      "plugin": "plugin",
+      "method": "method",
+      "schedule": "schedule",
+      "timezone": "timezone",
+      "enabled": true,
+      "root": "root",
+      "error": "error",
+      "nextRunAt": 1,
+      "lastRunAt": 1,
+      "lastError": "lastError",
+      "lastDurationMs": 1,
+      "running": true,
+      "runs": 1
+    }
+  ],
+  "error": "error"
+}

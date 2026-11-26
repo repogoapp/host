@@ -26,6 +26,9 @@ type CallParams struct {
 	// Confirmed is the user's yes to the method's confirm question; without
 	// it, a method that has one answers CONFIRM instead of running.
 	Confirmed bool `json:"confirmed,omitempty"`
+	// Ask is "writes" from the phone's voice agent: every method that isn't a
+	// read answers CONFIRM until Confirmed, so the user taps, not the model.
+	Ask string `json:"ask,omitempty"`
 	// Uploads are files the device staged with uploads.write, which the method
 	// gets as input.files; the host resolves them, so a phone never names a path.
 	Uploads []string `json:"uploads,omitempty"`
@@ -44,6 +47,17 @@ type UnsubscribeParams struct {
 	Subscription string `json:"subscription"`
 }
 
+// ListParams names the project the plugins run for; empty is the environment alone.
+type ListParams struct {
+	Project string `json:"project" doc:"The project's folder, which decides the pages that match and the plugins' ctx.root; empty is the environment alone"`
+}
+
+// GetParams names one environment plugin.
+type GetParams struct {
+	Project string `json:"project" doc:"As in plugins.list"`
+	Plugin  string `json:"plugin"`
+}
+
 // LogsParams narrows the console lines plugins wrote; every field may be left out.
 type LogsParams struct {
 	Plugin string `json:"plugin" doc:"Only this plugin's lines; empty is every plugin"`
@@ -57,6 +71,11 @@ type LogsParams struct {
 
 type LogsResult struct {
 	Lines []pluginscore.LogLine `json:"lines"`
+}
+
+// KeysParams narrows the keys to one environment plugin; empty is every one.
+type KeysParams struct {
+	Plugin string `json:"plugin" doc:"Only this plugin's key; empty is every plugin's"`
 }
 
 // KeysResult is every environment plugin with a method that takes a key over HTTP.
@@ -80,6 +99,9 @@ type KeyParams struct {
 }
 
 func Register(r *rpc.Router, d Deps) {
+	// A paired device's own: the CLI, agents and plugins have the plugins tool and plugins.urls.
+	rpc.Add(r, "plugins.list", d.list, rpc.Paired)
+	rpc.Add(r, "plugins.get", d.get, rpc.Paired)
 	rpc.Add(r, "plugins.logs", d.logs, rpc.MCP, rpc.NotRemote, rpc.Tool("The console lines plugins wrote, newest first, each with the plugin, "+
 		"the method and the call that wrote it, and errors methods threw. Read it when a plugin or a card showing one misbehaves. "+
 		"An agent reads the text of lines its own chat's calls wrote; a line from another caller (a card, a cron, another chat) "+
@@ -110,8 +132,21 @@ func (d Deps) logs(ctx context.Context, c rpc.Caller, p LogsParams) (LogsResult,
 	return LogsResult{Lines: lines}, err
 }
 
-func (d Deps) keys(ctx context.Context, _ rpc.Caller, _ rpc.None) (KeysResult, error) {
-	keyed, err := d.Plugins.Keys(ctx)
+// list is every environment plugin with a line per method, and the crons.
+func (d Deps) list(ctx context.Context, _ rpc.Caller, p ListParams) (pluginscore.Listing, error) {
+	return d.Plugins.Listing(ctx, p.Project)
+}
+
+// get is one plugin in full: schemas, URLs, key status, pages and crons.
+func (d Deps) get(ctx context.Context, _ rpc.Caller, p GetParams) (pluginscore.Detail, error) {
+	if p.Plugin == "" {
+		return pluginscore.Detail{}, rpc.ErrInvalidParams
+	}
+	return d.Plugins.Detail(ctx, p.Project, p.Plugin)
+}
+
+func (d Deps) keys(ctx context.Context, _ rpc.Caller, p KeysParams) (KeysResult, error) {
+	keyed, err := d.Plugins.Keys(ctx, p.Plugin)
 	return KeysResult{Plugins: keyed}, err
 }
 
@@ -119,6 +154,9 @@ func (d Deps) urls(ctx context.Context, _ rpc.Caller, p URLsParams) (URLsResult,
 	served, err := d.Plugins.Served(ctx, p.Plugin)
 	return URLsResult{Methods: served}, err
 }
+
+// askWrites is the Ask that asks before everything that isn't a read.
+const askWrites = "writes"
 
 func (d Deps) call(ctx context.Context, c rpc.Caller, p CallParams) (outcome.Answer, error) {
 	if p.Method == "" {
@@ -132,6 +170,9 @@ func (d Deps) call(ctx context.Context, c rpc.Caller, p CallParams) (outcome.Ans
 		}
 		defer release()
 		files = held
+	}
+	if p.Ask == askWrites {
+		return d.Plugins.CallAskingWrites(ctx, p.Project, p.Method, p.Input, files, p.Confirmed, pluginscore.Origin{Caller: pluginscore.CallerCard})
 	}
 	return d.Plugins.Call(ctx, p.Project, p.Method, p.Input, files, p.Confirmed, pluginscore.Origin{Caller: pluginscore.CallerCard})
 }
