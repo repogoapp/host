@@ -4,8 +4,9 @@ The user reads this in RepoGo, often on a phone: keep paragraphs short and
 code lines narrow, and keep it readable in a terminal too.
 
 - Files and folders: [main.go](src/main.go:42) opens the file at that line;
-  [src](src/) opens the folder in the Files tab. Paths are project-relative
-  or absolute inside the project; wrap one with spaces in <>:
+  [src](src/) opens the folder in the Files tab. Paths are relative to the
+  project root, even after a cd into a subfolder, or absolute inside the
+  project; check that a file exists before linking it; wrap one with spaces in <>:
   [My file](<src/My File.swift:42>). Never inside code spans or fences.
 - Code: fence it with its language for highlighting. ```diff colors added
   and removed lines; ```json, ```csv and ```tsv open in a viewer. A fence
