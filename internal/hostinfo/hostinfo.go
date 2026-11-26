@@ -17,8 +17,12 @@ type Status struct {
 	// tells one host apart when it's reached by two names. Optional on the
 	// wire: an older host doesn't send it.
 	HostID string `json:"host_id,omitempty"`
-	// Name is what this host is called: device.Label. Optional, as HostID.
-	Name           string `json:"name,omitempty"`
+	// Name is what this host is called: the name a device gave it, else
+	// DefaultName. Optional, as HostID.
+	Name string `json:"name,omitempty"`
+	// DefaultName is the machine's own name, what Name falls back to, so a
+	// phone's name field shows it as its placeholder.
+	DefaultName    string `json:"default_name,omitempty"`
 	Version        string `json:"version"`
 	Uptime         int64  `json:"uptime_seconds"`
 	RelayConnected bool   `json:"relay_connected"`
@@ -78,6 +82,15 @@ const (
 	// CapabilityPairInvite is a host whose pair.invite gives a paired device
 	// a code to pair another with.
 	CapabilityPairInvite = "pair_invite"
+	// CapabilityHosts is a host that finds the other hosts it reaches over
+	// SSH (hosts.list) and lets a device switch each on for its agents
+	// (hosts.authorize).
+	CapabilityHosts = "hosts"
+	// CapabilityAskWrites is a host whose plugins.call and mcp.call take
+	// ask: "writes" and answer CONFIRM before anything that isn't a read. The
+	// phone's voice agent sends it only here; on an older host it asks the
+	// user before every call, reads included.
+	CapabilityAskWrites = "ask_writes"
 )
 
 // Battery is the machine's last power reading.
@@ -86,15 +99,21 @@ type Battery interface {
 }
 
 type Deps struct {
-	// HostID and Name are what Status reports as host_id and name.
-	HostID, Name string
-	Power        Battery
+	// HostID is what Status reports as host_id.
+	HostID string
+	// DefaultName is the machine's own name: device.Label.
+	DefaultName string
+	// SavedName is the name a device gave this host, "" for none: store.HostName.
+	SavedName func() string
+	// SaveName saves a device's name for this host, "" clearing it: store.SetHostName.
+	SaveName func(string) error
+	// NameChanged tells every device a rename or a clear: the host's emitter.
+	NameChanged func(NameChanged)
+	Power       Battery
 	// Relay reports whether the relay link is attached; false on a host without one.
 	Relay func() bool
 	// UpdateFailed is why the last update was rolled back, reported until the host restarts.
 	UpdateFailed string
-	// PublicIP looks up the address this machine reaches the internet from: LookupPublicIP.
-	PublicIP func(context.Context) (string, error)
 	// Trash is whether deleted files and projects go to the Trash: files.TrashDir.
 	Trash bool
 	// Screens reports whether this machine can have live screens:
@@ -119,9 +138,6 @@ type Service struct {
 	failed  string
 
 	port        int
-	publicIP    string
-	publicAt    time.Time
-	publicStale chan struct{}
 	tailnetIP   string
 	tailnetPort int
 	lanIP       string
@@ -129,10 +145,14 @@ type Service struct {
 
 	device     *Device
 	deviceRead chan struct{}
+
+	// renaming holds one rename from its save to its event, so two that
+	// cross tell devices the name that was saved last.
+	renaming sync.Mutex
 }
 
 func New(d Deps) *Service {
-	s := &Service{d: d, started: time.Now(), publicStale: make(chan struct{}, 1), deviceRead: make(chan struct{})}
+	s := &Service{d: d, started: time.Now(), deviceRead: make(chan struct{})}
 	read := d.ReadDevice
 	if read == nil {
 		read = readDevice
@@ -215,6 +235,16 @@ type TLSKey struct {
 	Counter int64  `json:"counter"`
 }
 
+// Name is what this host is called: the name a device gave it, else the
+// machine's own. Everything that tells a device or another host the name
+// calls this.
+func (s *Service) Name() string {
+	if name := s.d.SavedName(); name != "" {
+		return name
+	}
+	return s.d.DefaultName
+}
+
 func (s *Service) Status() Status {
 	local := localNetwork()
 	storage, hasStorage := homeStorage()
@@ -226,7 +256,8 @@ func (s *Service) Status() Status {
 	defer s.mu.Unlock()
 	out := Status{
 		HostID:         s.d.HostID,
-		Name:           s.d.Name,
+		Name:           s.Name(),
+		DefaultName:    s.d.DefaultName,
 		Version:        release.Version,
 		Uptime:         int64(time.Since(s.started).Seconds()),
 		UpdateFailed:   s.d.UpdateFailed,
@@ -247,7 +278,7 @@ func (s *Service) Status() Status {
 		out.Device = &device
 	}
 	out.Capabilities = []string{CapabilityDevices, CapabilityUsage, CapabilityUsageProjects, CapabilityUsageRepos,
-		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeCursor, CapabilityAgentTurnRows, CapabilityPairInvite}
+		CapabilityUsageTime, CapabilityAgentTime, CapabilitySubscribeCursor, CapabilityAgentTurnRows, CapabilityPairInvite, CapabilityHosts, CapabilityAskWrites}
 	if s.d.Trash {
 		out.Capabilities = append(out.Capabilities, CapabilityTrash)
 	}

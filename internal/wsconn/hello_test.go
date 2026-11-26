@@ -25,7 +25,7 @@ func helloReply(t *testing.T, unpaired bool, refusal error) *jsonrpc.Message {
 			return
 		}
 		c := Wrap(ws)
-		if _, err := c.Accept(r.Context(), "test", "dev", func(handshake.Hello, []byte) (bool, error) {
+		if _, err := c.Accept(r.Context(), "test", "dev", func() (string, string) { return "Build Box", "Studio" }, func(handshake.Hello, []byte) (bool, error) {
 			return unpaired, refusal
 		}); err == nil {
 			c.Read(r.Context())
@@ -80,5 +80,23 @@ func TestAnUnpairedAdmissionSaysSo(t *testing.T) {
 	}
 	if !accepted.Unpaired {
 		t.Fatal("an admission to pair didn't say the device is unpaired")
+	}
+}
+
+// A paired device hears the host's name as it connects; one let in only to
+// pair hasn't proven the code, so it hears neither name.
+func TestOnlyAPairedDeviceHearsTheHostsName(t *testing.T) {
+	var paired, joining handshake.Accepted
+	if err := jsonrpc.Into(helloReply(t, false, nil).Result, &paired); err != nil {
+		t.Fatal(err)
+	}
+	if paired.HostName != "Build Box" || paired.DefaultName != "Studio" {
+		t.Fatalf("paired device heard %q / %q", paired.HostName, paired.DefaultName)
+	}
+	if err := jsonrpc.Into(helloReply(t, true, nil).Result, &joining); err != nil {
+		t.Fatal(err)
+	}
+	if joining.HostName != "" || joining.DefaultName != "" {
+		t.Fatalf("a device let in only to pair heard %q / %q", joining.HostName, joining.DefaultName)
 	}
 }

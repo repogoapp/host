@@ -111,6 +111,8 @@ func DecodeInvite(s string) (Invite, error) {
 type Pairer struct {
 	store        *Store
 	reusablePath string
+	// name is what an invite calls this host: hostinfo.Service.Name.
+	name func() string
 
 	mu      sync.Mutex
 	code    string
@@ -148,8 +150,8 @@ type reusableCode struct {
 
 // OpenPairer loads the reusable invite saved at reusablePath, if any, so a
 // restart does not end it.
-func OpenPairer(s *Store, reusablePath string) (*Pairer, error) {
-	p := &Pairer{store: s, reusablePath: reusablePath}
+func OpenPairer(s *Store, reusablePath string, name func() string) (*Pairer, error) {
+	p := &Pairer{store: s, reusablePath: reusablePath, name: name}
 	if _, err := apphome.ReadJSON(reusablePath, &p.reusable); err != nil {
 		return nil, err
 	}
@@ -212,15 +214,20 @@ func (p *Pairer) RevokeReusable() error {
 	return p.endReusable()
 }
 
-// Remove revokes a device and ends the reusable invite it may hold. Complete
-// holds the same lock, so the device cannot pair back in between the two.
+// Remove revokes a device and ends every invite it may hold: the reusable
+// one and the pending one-time code, which a device could ask for and keep
+// to pair back in once revoked. Complete holds the same lock, so the device
+// cannot pair back in between.
 func (p *Pairer) Remove(caller, id ID) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := p.store.Revoke(caller, id); err != nil {
+	// The invites end first: a revoke that then fails can be retried, but a
+	// revoked device must never be left an invite to pair back in with.
+	p.code, p.inviteID = "", ""
+	if err := p.endReusable(); err != nil {
 		return err
 	}
-	return p.endReusable()
+	return p.store.Revoke(caller, id)
 }
 
 // endReusable assumes the caller holds p.mu.
@@ -249,7 +256,7 @@ func (p *Pairer) invite(address, code string, expires time.Time, pin *SignedPin)
 		GroupID:       LegacyGroupID,
 		InviterID:     id.ID,
 		InviterPublic: id.Public,
-		Label:         Label(),
+		Label:         p.name(),
 		Code:          code,
 		ExpiresAt:     expires.UnixMilli(),
 		TLSPin:        pin,

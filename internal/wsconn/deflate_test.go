@@ -30,7 +30,7 @@ func handshaken(t *testing.T, askFor bool) (*Conn, *websocket.Conn, <-chan webso
 		}
 		c := Wrap(ws)
 		ctx := r.Context()
-		if _, err := c.Accept(ctx, "test", "dev", func(handshake.Hello, []byte) (bool, error) { return false, nil }); err != nil {
+		if _, err := c.Accept(ctx, "test", "dev", func() (string, string) { return "", "" }, func(handshake.Hello, []byte) (bool, error) { return false, nil }); err != nil {
 			return
 		}
 		if err := c.Write(ctx, websocket.MessageText, []byte(page)); err != nil {

@@ -21,7 +21,6 @@
       "authed": true,
       "account": {
         "email": "email",
-        "name": "name",
         "login": "login"
       },
       "login_pending": {

@@ -14,6 +14,14 @@ CREATE TABLE IF NOT EXISTS chat_marks (
   PRIMARY KEY (agent, session_id)
 );
 
+-- The user's name for this host, shared by every device. One row; none is
+-- unnamed, and the host answers the machine's own name. The last rename to
+-- arrive wins. One writer: SetHostName (hostname.go).
+CREATE TABLE IF NOT EXISTS host_name (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  name TEXT NOT NULL  -- never ''; a clear deletes the row
+);
+
 -- What the user set on a project. NULL is not set; an all-NULL row is deleted.
 -- One writer: updateProjectMarks (projectmarks.go).
 --

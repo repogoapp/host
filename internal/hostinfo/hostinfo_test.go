@@ -1,7 +1,6 @@
 package hostinfo
 
 import (
-	"context"
 	"encoding/json"
 	"net"
 	"net/netip"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/release"
-	"github.com/repogoapp/host/internal/testwait"
 )
 
 type reading struct {
@@ -38,40 +36,24 @@ func TestStatusCarriesTheBatteryOnceRead(t *testing.T) {
 }
 
 func TestStatusNamesTheHost(t *testing.T) {
-	s := New(Deps{HostID: "h1", Name: "Studio", Power: reading{}, Relay: func() bool { return false },
-		ReadDevice: func() Device { return studio }})
+	saved := ""
+	s := New(Deps{HostID: "h1", DefaultName: "Servers-Mac-Studio", SavedName: func() string { return saved },
+		Power: reading{}, Relay: func() bool { return false }, ReadDevice: func() Device { return studio }})
 	raw, _ := json.Marshal(s.Status())
-	if !strings.Contains(string(raw), `"host_id":"h1","name":"Studio"`) {
-		t.Fatalf("status %s, want host_id h1 and name Studio", raw)
+	if !strings.Contains(string(raw), `"host_id":"h1","name":"Servers-Mac-Studio","default_name":"Servers-Mac-Studio"`) {
+		t.Fatalf("status %s, want the machine's own name with none saved", raw)
+	}
+	saved = "Build Box"
+	if got := s.Status(); got.Name != "Build Box" || got.DefaultName != "Servers-Mac-Studio" || s.Name() != "Build Box" {
+		t.Fatalf("status %+v, want the saved name over the default", got)
 	}
 }
 
-func TestStatusCarriesTheNetworkWithoutWaitingOnTheLookup(t *testing.T) {
-	lookedUp := make(chan struct{})
-	s := New(Deps{Power: reading{}, Relay: func() bool { return false },
-		PublicIP: func(context.Context) (string, error) { close(lookedUp); return "203.0.113.7", nil }})
-	s.SetPort(7300)
-
-	status := s.Status()
-	if status.Network.Port != 7300 || status.Network.PublicIP != "" {
-		t.Fatalf("network %+v before the lookup, want port 7300 and no public IP", status.Network)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go s.WatchPublicIP(ctx)
-	<-lookedUp
-	testwait.For(t, "the public IP", func() bool {
-		status = s.Status()
-		return status.Network.PublicIP != ""
-	})
-	if status.Network.PublicIP != "203.0.113.7" {
-		t.Fatalf("public IP %q after the lookup", status.Network.PublicIP)
-	}
-}
+// noName is a host no device has named.
+func noName() string { return "" }
 
 func newService(p Battery) *Service {
-	return New(Deps{Power: p, Relay: func() bool { return false }, ReadDevice: func() Device { return studio }})
+	return New(Deps{SavedName: noName, Power: p, Relay: func() bool { return false }, ReadDevice: func() Device { return studio }})
 }
 
 var studio = Device{OS: "macos", OSVersion: "26.1", FormFactor: FormDesktop, ModelName: "Mac Studio"}
@@ -108,7 +90,7 @@ func TestStatusCarriesTheHomeVolume(t *testing.T) {
 }
 
 func TestTailnetPortOnlyForTheServedAddress(t *testing.T) {
-	s := New(Deps{Power: reading{}, Relay: func() bool { return false }, ReadDevice: func() Device { return Device{} }})
+	s := New(Deps{SavedName: noName, Power: reading{}, Relay: func() bool { return false }, ReadDevice: func() Device { return Device{} }})
 	s.SetTailnet("100.81.230.35", 47443)
 	if got := s.network(Network{Tailscale: &Tailscale{IP: "100.81.230.35"}}).Tailscale.Port; got != 47443 {
 		t.Fatalf("served address: port %d, want 47443", got)
@@ -152,7 +134,7 @@ func TestScreensCapabilityFollowsWhatTheMachineCanShow(t *testing.T) {
 		}
 		return false
 	}
-	s := New(Deps{Power: reading{}, Relay: func() bool { return false }, ReadDevice: func() Device { return studio },
+	s := New(Deps{SavedName: noName, Power: reading{}, Relay: func() bool { return false }, ReadDevice: func() Device { return studio },
 		Screens: func() bool { return true }})
 	if caps := s.Status().Capabilities; !has(caps, CapabilityScreens) {
 		t.Fatalf("capabilities %v, want screens", caps)

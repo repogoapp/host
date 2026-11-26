@@ -18,7 +18,7 @@ func TestStatusCarriesTheDevice(t *testing.T) {
 func TestStatusDoesNotWaitForeverOnTheDevice(t *testing.T) {
 	stuck := make(chan struct{})
 	defer close(stuck)
-	s := New(Deps{Power: reading{}, Relay: func() bool { return false },
+	s := New(Deps{SavedName: noName, Power: reading{}, Relay: func() bool { return false },
 		ReadDevice: func() Device { <-stuck; return studio }})
 	start := time.Now()
 	if got := s.Status().Device; got != nil {
@@ -90,7 +90,7 @@ func TestBatteryInstalled(t *testing.T) {
 // relay has none and leaves it out.
 func TestStatusCarriesTheTLSKey(t *testing.T) {
 	key := &TLSKey{SPKI: "ab12", Counter: 7}
-	s := New(Deps{Power: reading{}, Relay: func() bool { return true }, ReadDevice: func() Device { return studio },
+	s := New(Deps{SavedName: noName, Power: reading{}, Relay: func() bool { return true }, ReadDevice: func() Device { return studio },
 		TLSKey: func() *TLSKey { return key }})
 	if got := s.Status().TLS; got == nil || *got != *key {
 		t.Fatalf("tls %+v, want %+v", got, key)

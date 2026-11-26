@@ -54,6 +54,12 @@ type Accepted struct {
 	// is a binary frame in wirecodec framing. Absent, frames stay plain text.
 	Deflate bool `json:"deflate,omitempty"`
 
+	// HostName is what this host is called, and DefaultName the machine's own
+	// name it falls back to: a phone shows the name as soon as it connects.
+	// Absent from an older host.
+	HostName    string `json:"host_name,omitempty"`
+	DefaultName string `json:"default_name,omitempty"`
+
 	// Unpaired admits a device this host doesn't hold only to pair, while a
 	// code is live: a phone that thought it was paired has been removed.
 	Unpaired bool `json:"unpaired,omitempty"`

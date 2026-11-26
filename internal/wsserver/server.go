@@ -36,6 +36,10 @@ type Config struct {
 	// Identifies this runtime in the challenge a client signs. Stable across restarts.
 	ServerID string
 
+	// Name is this host's name and the machine's own, told to a device as it
+	// connects: hostinfo.Service.Name and its default.
+	Name func() (name, defaultName string)
+
 	// Paired devices, verified against a Hello's challenge signature.
 	Devices *device.Store
 
@@ -96,8 +100,8 @@ func New(cfg Config) (*Server, error) {
 	if cfg.ServerID == "" {
 		return nil, errors.New("wsserver: server id is required")
 	}
-	if cfg.Router == nil || cfg.Devices == nil || cfg.Pushes == nil || cfg.OnDisconnect == nil {
-		return nil, errors.New("wsserver: router, devices, pushes and on-disconnect are required")
+	if cfg.Router == nil || cfg.Devices == nil || cfg.Pushes == nil || cfg.OnDisconnect == nil || cfg.Name == nil {
+		return nil, errors.New("wsserver: router, devices, pushes, on-disconnect and name are required")
 	}
 	s := &Server{cfg: cfg, log: cfg.Log, conns: map[device.ID]*conn{}, open: map[*conn]struct{}{}, remote: map[*http.Server]struct{}{}}
 	cfg.Devices.OnRevoke(s.revoked)

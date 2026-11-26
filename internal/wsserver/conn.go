@@ -63,7 +63,7 @@ func (c *conn) run(ctx context.Context) {
 	if c.bind != nil {
 		helloCtx, cancelHello = context.WithTimeout(ctx, remoteHelloTimeout)
 	}
-	h, err := c.ws.Accept(helloCtx, c.srv.cfg.ServerID, release.Version, func(h handshake.Hello, signed []byte) (bool, error) {
+	h, err := c.ws.Accept(helloCtx, c.srv.cfg.ServerID, release.Version, c.srv.cfg.Name, func(h handshake.Hello, signed []byte) (bool, error) {
 		if c.bind != nil {
 			if len(h.ChallengeSig) == 0 || h.LocalToken != "" {
 				return false, errors.New("a remote connection authenticates by a bound signature only")

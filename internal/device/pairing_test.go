@@ -15,7 +15,7 @@ func openPairer(t *testing.T) (*Pairer, string) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "pair-reusable.json")
-	p, err := OpenPairer(store, path)
+	p, err := OpenPairer(store, path, Label)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestReusableInviteEnds(t *testing.T) {
 	if _, err := p.Complete(joiner, Proof(invite.Code, joiner.Public)); !errors.Is(err, ErrNoPairing) {
 		t.Fatalf("revoked: err = %v, want ErrNoPairing", err)
 	}
-	reopened, err := OpenPairer(p.store, path)
+	reopened, err := OpenPairer(p.store, path, Label)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestReusableInviteSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := OpenPairer(p.store, path)
+	reopened, err := OpenPairer(p.store, path, Label)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,5 +220,28 @@ func TestCancelLeavesNewerCode(t *testing.T) {
 	p.Cancel(current.Code)
 	if pending, _ := p.Pending(); pending {
 		t.Fatal("cancel left its own code live")
+	}
+}
+
+// Revoking a device ends the one-time code too: one the device asked for
+// before it was revoked can't pair it, or anyone, back in.
+func TestRemoveEndsAPendingOneTimeCode(t *testing.T) {
+	p, _ := openPairer(t)
+	phone := newJoiner(t, "phone")
+	if err := p.store.Add(phone); err != nil {
+		t.Fatal(err)
+	}
+	once, err := p.Begin("addr", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Remove(p.store.Identity().ID, phone.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Complete(phone, Proof(once.Code, phone.Public)); err == nil {
+		t.Fatal("the revoked phone paired back in with its code")
+	}
+	if p.Accepting() {
+		t.Fatal("still accepting after the revoke")
 	}
 }

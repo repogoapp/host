@@ -379,6 +379,7 @@ func TestStateTablesHaveOneWriter(t *testing.T) {
 		"plugin_keys":      {"pluginkeys.go"},
 		"idempotency_keys": {"idempotency.go"},
 		"turn_chats":       {"idempotency.go"},
+		"host_name":        {"hostname.go"},
 	}
 	shape, err := stateShape()
 	if err != nil {
@@ -406,6 +407,25 @@ func TestStateTablesHaveOneWriter(t *testing.T) {
 			if write.Match(src) && !slices.Contains(allowed, file) {
 				t.Errorf("%s writes state.%s; only %v may", file, table, allowed)
 			}
+		}
+	}
+}
+
+// The host's name is the last one saved, and a clear leaves none.
+func TestHostNameIsTheLastSaved(t *testing.T) {
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, step := range []struct{ set, want string }{
+		{"", ""}, {"Build Box", "Build Box"}, {"Studio", "Studio"}, {"", ""},
+	} {
+		if err := db.SetHostName(step.set); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := db.HostName(); err != nil || got != step.want {
+			t.Fatalf("after setting %q: %q, %v; want %q", step.set, got, err, step.want)
 		}
 	}
 }

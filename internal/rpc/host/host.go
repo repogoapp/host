@@ -31,6 +31,12 @@ type SetupParams struct {
 	Refresh bool `json:"refresh"`
 }
 
+// RenameParams names this host for every device; "" goes back to the
+// machine's own name.
+type RenameParams struct {
+	Name string `json:"name"`
+}
+
 type UpdateParams struct {
 	// Now stops running chats, terminals and actions rather than refusing.
 	Now bool `json:"now"`
@@ -41,6 +47,8 @@ func Register(r *rpc.Router, d Deps) {
 	// setup is everything an environment's screens ask: this host's release,
 	// whose GitHub, which agents are ready, and every model each offers.
 	rpc.Add(r, "host.setup", d.setup)
+	// rename names this host for every device, and they hear host.name_changed.
+	rpc.Add(r, "host.rename", d.rename)
 	// Detached: a binary swapped with no restart after it is worse than either.
 	rpc.Add(r, "host.update", d.update, rpc.Detached)
 	// Local: only someone at the machine replaces its key (repogo tls rotate).
@@ -52,6 +60,10 @@ func (d Deps) tlsRotate(context.Context, rpc.Caller, rpc.None) (device.SignedPin
 		return device.SignedPin{}, errkind.New(errkind.NotFound, "this host has no relay, so no TLS key")
 	}
 	return d.TLSRotate()
+}
+
+func (d Deps) rename(_ context.Context, _ rpc.Caller, a RenameParams) (hostinfo.Named, error) {
+	return d.Service.Rename(a.Name)
 }
 
 func (d Deps) status(context.Context, rpc.Caller, rpc.None) (hostinfo.Status, error) {

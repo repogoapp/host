@@ -137,8 +137,9 @@ func (c *Conn) Close() error { return c.ws.Close(websocket.StatusNormalClosure, 
 func (c *Conn) CloseNow()    { c.ws.CloseNow() }
 
 // Accept runs the server side of the handshake. check vets the hello given the
-// bytes its ChallengeSig must cover; any failure is sent to the peer as a refusal.
-func (c *Conn) Accept(ctx context.Context, serverID, version string,
+// bytes its ChallengeSig must cover; any failure is sent to the peer as a
+// refusal. name is the host's name and the machine's own, sent on acceptance.
+func (c *Conn) Accept(ctx context.Context, serverID, version string, name func() (string, string),
 	check func(h handshake.Hello, signed []byte) (unpaired bool, err error)) (handshake.Hello, error) {
 	var helloID json.RawMessage
 	h, err := func() (handshake.Hello, error) {
@@ -181,8 +182,15 @@ func (c *Conn) Accept(ctx context.Context, serverID, version string,
 		if err != nil {
 			return h, err
 		}
+		// A device let in only to pair hasn't proven the code yet: it learns
+		// the name from pair.complete, once it has.
+		var hostName, defaultName string
+		if !unpaired {
+			hostName, defaultName = name()
+		}
 		accepted, err := jsonrpc.Result(msg.ID, handshake.Accepted{
 			DeviceID: h.DeviceID, ServerVersion: version, Deflate: h.Deflate, Unpaired: unpaired,
+			HostName: hostName, DefaultName: defaultName,
 		})
 		if err != nil {
 			return h, err
