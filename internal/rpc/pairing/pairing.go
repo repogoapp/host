@@ -10,6 +10,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/release"
 	"github.com/repogoapp/host/internal/rpc"
 )
 
@@ -26,7 +27,9 @@ type Deps struct {
 	Addr func() string
 	// PairHost is the site pairing links open on and codes are parked at.
 	PairHost string
-	Log      *slog.Logger
+	// Name is what a phone that pairs calls this host: hostinfo.Service.Name.
+	Name func() string
+	Log  *slog.Logger
 }
 
 // BeginResult is the encoded invite, what the QR and the pairing link carry.
@@ -133,9 +136,16 @@ func (d Deps) invite(_ context.Context, c rpc.Caller, a InviteParams) (InviteRes
 	return InviteResult{Code: code, Link: device.CodeLink(d.PairHost, code), ExpiresAt: invite.ExpiresAt}, nil
 }
 
+// ErrReusableDevOnly refuses a reusable invite on a release host.
+var ErrReusableDevOnly = errkind.New(errkind.Unavailable, "pairing: reusable invites are only for development builds")
+
 // reusable issues an invite many devices may join with for a.Hours, for a
-// machine nobody stands at to show a fresh code.
+// machine nobody stands at to show a fresh code: App Review's, which runs a
+// development build. A release host refuses, so no user leaves one open.
 func (d Deps) reusable(_ context.Context, _ rpc.Caller, a ReusableParams) (BeginResult, error) {
+	if !release.IsDev() {
+		return BeginResult{}, ErrReusableDevOnly
+	}
 	invite, err := d.Pairer.BeginReusable(d.Addr(), time.Duration(a.Hours)*time.Hour)
 	if err != nil {
 		return BeginResult{}, err
@@ -181,6 +191,6 @@ func (d Deps) complete(_ context.Context, _ rpc.Caller, a CompleteParams) (Compl
 		HostPublic:    self.Public,
 		HostProof:     hostProof,
 		HostSignature: signature,
-		HostLabel:     device.Label(),
+		HostLabel:     d.Name(),
 	}, nil
 }

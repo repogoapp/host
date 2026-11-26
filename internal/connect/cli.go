@@ -31,7 +31,7 @@ func (s *Service) cliStatus(ctx context.Context, kind, project string, c *Connec
 	if install.Authed {
 		c.Status = Connected
 		if a := install.Account; a != nil {
-			c.Account = firstOf(a.Email, a.Login, a.Name)
+			c.Account = firstOf(a.Email, a.Login)
 		}
 	}
 	if project == "" {

@@ -6,8 +6,7 @@
       "available": true,
       "plan": "plan",
       "account": {
-        "email": "email",
-        "key": "key"
+        "email": "email"
       },
       "captured_at_ms": 1,
       "windows": [

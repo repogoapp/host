@@ -224,13 +224,13 @@ func (s *statusCache) clear() {
 }
 
 // accountOf names the account a status line gives: an AWS identity read as
-// a person reads it, an email, else a login.
+// a person reads it, an email masked as it is read, else a login.
 func accountOf(line string) *Account {
 	if strings.HasPrefix(line, "arn:") {
 		return &Account{Login: awsWho(line)}
 	}
 	if strings.Contains(line, "@") {
-		return &Account{Email: line}
+		return &Account{Email: MaskEmail(line)}
 	}
 	return &Account{Login: line}
 }

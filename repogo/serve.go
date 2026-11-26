@@ -19,7 +19,6 @@ import (
 	"github.com/repogoapp/host/internal/binfetch"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/host"
-	"github.com/repogoapp/host/internal/hostinfo"
 	"github.com/repogoapp/host/internal/hostupdate"
 	"github.com/repogoapp/host/internal/nodejs"
 	"github.com/repogoapp/host/internal/notify"
@@ -196,8 +195,7 @@ func hostConfig(log *slog.Logger, conf *localConf, lan bool, relay string, self 
 			}
 			return k, nil
 		},
-		PublicIP: hostinfo.LookupPublicIP,
-		Log:      log,
+		Log: log,
 	}, nil
 }
 

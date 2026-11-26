@@ -110,7 +110,8 @@ func codexPackage(ctx context.Context, goos, goarch string) (clitool.Package, er
 	}, nil
 }
 
-// codexAccount reads the email and account claims of the ChatGPT id_token in auth.json.
+// codexAccount reads the email and account claims of the ChatGPT id_token in
+// auth.json, masking the email as it is read.
 // Decoded, not verified: it names the account on a screen and grants nothing.
 func codexAccount(path string) (*clitool.Account, string) {
 	var file struct {
@@ -131,7 +132,6 @@ func codexAccount(path string) (*clitool.Account, string) {
 	}
 	var claims struct {
 		Email string `json:"email"`
-		Name  string `json:"name"`
 		// The account id is the workspace on Team plans, so the user id too.
 		Auth struct {
 			User    string `json:"chatgpt_user_id"`
@@ -141,7 +141,7 @@ func codexAccount(path string) (*clitool.Account, string) {
 	if json.Unmarshal(payload, &claims) != nil || claims.Email == "" {
 		return nil, ""
 	}
-	return &clitool.Account{Email: claims.Email, Name: claims.Name},
+	return &clitool.Account{Email: clitool.MaskEmail(claims.Email)},
 		clitool.AccountKey(string(agent.KindCodex), claims.Auth.User, claims.Auth.Account)
 }
 

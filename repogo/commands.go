@@ -20,7 +20,10 @@ func table() []command {
 	return []command{
 		{name: "", summary: "Install, start and show a pairing code (first run)", flags: withDirect(withPairHost(nil)), run: setup("")},
 		{name: "pair", summary: "Show a pairing code for another device", flags: withPairHost(func(fs *flag.FlagSet) {
-			fs.String("reusable", "", "an invite many devices may join with, for days or hours (14d, 36h), or off")
+			// Development builds only: for App Review's machine (pair.reusable).
+			if release.IsDev() {
+				fs.String("reusable", "", "an invite many devices may join with, for days or hours (14d, 36h), or off")
+			}
 		}), run: runPair},
 		{name: "status", args: "[--json]", summary: "Whether the host is running, its name and version", flags: func(fs *flag.FlagSet) {
 			fs.Bool("json", false, "print the host's answer as JSON")
@@ -38,6 +41,7 @@ func table() []command {
 			fs.Bool("all", false, "revoke: every paired device; pair again with repogo pair")
 			fs.Bool("yes", false, "revoke --all: don't ask first")
 		}, run: devicesCommand},
+		{name: "host", args: "rename <name>", summary: "Rename this host for every device; \"\" for the machine's own name", run: hostCommand},
 		{name: "call", args: "<method> < params.json", summary: "Run one host method, params on stdin, and print its result", run: callCommand},
 		{name: "hosts", args: "[list] [--refresh] [--json]", summary: "List the other RepoGo hosts you reach over SSH", flags: func(fs *flag.FlagSet) {
 			fs.Bool("refresh", false, "look again now rather than reuse a look under two minutes old")
@@ -286,8 +290,9 @@ func runPair(ctx context.Context, fs *flag.FlagSet, args []string) error {
 	if err := noArgs("pair", args); err != nil {
 		return err
 	}
-	if reusable := flagString(fs, "reusable"); reusable != "" {
-		return pairReusable(ctx, reusable, pairHostOf(fs))
+	// Release builds don't define --reusable (see table).
+	if f := fs.Lookup("reusable"); f != nil && f.Value.String() != "" {
+		return pairReusable(ctx, f.Value.String(), pairHostOf(fs))
 	}
 	// Not running yet: set it up first, as a bare repogo does.
 	if err := call(ctx, "host.status", nil, nil); err != nil {

@@ -49,12 +49,12 @@ func definition() agent.Provider {
 	}
 }
 
-// claudeAccount reads oauthAccount from Claude Code's .claude.json.
+// claudeAccount reads oauthAccount from Claude Code's .claude.json, masking
+// the email as it is read; the ids only make the account's key.
 func claudeAccount(path string) (*clitool.Account, string) {
 	var file struct {
 		OAuthAccount struct {
 			Email string `json:"emailAddress"`
-			Name  string `json:"displayName"`
 			User  string `json:"accountUuid"`
 			Org   string `json:"organizationUuid"`
 		} `json:"oauthAccount"`
@@ -63,7 +63,7 @@ func claudeAccount(path string) (*clitool.Account, string) {
 		return nil, ""
 	}
 	a := file.OAuthAccount
-	return &clitool.Account{Email: a.Email, Name: a.Name}, clitool.AccountKey(string(agent.KindClaude), a.User, a.Org)
+	return &clitool.Account{Email: clitool.MaskEmail(a.Email)}, clitool.AccountKey(string(agent.KindClaude), a.User, a.Org)
 }
 
 // Provider owns this host's runner and provider-specific capabilities.

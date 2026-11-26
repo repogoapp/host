@@ -134,18 +134,38 @@ type found struct {
 	authSource string
 }
 
-// Account is the person a CLI is signed in as. Never a token.
+// Account is the person a CLI is signed in as. Never a token, and never a
+// whole email: each reader masks it as it parses it (MaskEmail).
 type Account struct {
 	Email string `json:"email,omitempty"`
-	Name  string `json:"name,omitempty"`
 
 	// Login is the account's handle where the provider has one, as GitHub does.
 	Login string `json:"login,omitempty"`
 }
 
+// MaskEmail keeps enough of an address to tell two accounts apart:
+// "ale•••a@example.com", or "j•••@x.io" when the part before the @ has four
+// characters or fewer. Text without an @ is masked the same way, with no domain.
+func MaskEmail(email string) string {
+	local, domain := email, ""
+	if at := strings.LastIndex(email, "@"); at >= 0 {
+		local, domain = email[:at], email[at:]
+	}
+	runes := []rune(local)
+	switch {
+	case len(runes) == 0:
+		return domain
+	case len(runes) <= 4:
+		return string(runes[:1]) + "•••" + domain
+	default:
+		return string(runes[:3]) + "•••" + string(runes[len(runes)-1:]) + domain
+	}
+}
+
 // AccountKey hashes a provider's user and organization ids, so the ids never
 // leave the host. Both, because a Team organization is shared and its limits
-// are per person.
+// are per person. Only the host uses it, to notice an account switch; it is
+// never sent.
 func AccountKey(kind, user, org string) string {
 	if user == "" || org == "" {
 		return ""

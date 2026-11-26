@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/repogoapp/host/internal/apphome"
+	"github.com/repogoapp/host/internal/release"
 )
 
 // The help lists every command once, one per line, with --flags; a command's
@@ -177,5 +178,33 @@ func TestShellProfile(t *testing.T) {
 		if !ok || got != filepath.Join(home, want) || line == "" {
 			t.Errorf("%s: %q %q %v", shell, got, line, ok)
 		}
+	}
+}
+
+// `repogo host rename` with no name is a usage error, never a clear: only ""
+// goes back to the machine's own name.
+func TestHostRenameNeedsAName(t *testing.T) {
+	for _, args := range [][]string{nil, {"rename"}, {"status"}} {
+		if err := hostCommand(t.Context(), nil, args); err == nil || !strings.Contains(err.Error(), "usage") {
+			t.Errorf("%v: %v, want usage", args, err)
+		}
+	}
+}
+
+// A release build has no --reusable: reusable invites are for development
+// builds, App Review's machine among them.
+func TestReleaseBuildsHaveNoReusableFlag(t *testing.T) {
+	version := release.Version
+	release.Version = "9.9.9"
+	t.Cleanup(func() { release.Version = version })
+
+	var out bytes.Buffer
+	pair, _ := find("pair")
+	printCommand(&out, pair)
+	if strings.Contains(out.String(), "--reusable") {
+		t.Fatalf("repogo help pair on a release build:\n%s", out.String())
+	}
+	if err := dispatch(context.Background(), []string{"pair", "--reusable", "14d"}); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("repogo pair --reusable on a release build: %v", err)
 	}
 }

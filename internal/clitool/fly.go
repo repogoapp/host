@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/repogoapp/host/internal/par"
@@ -39,18 +39,24 @@ func (flyAccounts) List(ctx context.Context, bin string) []CLIAccount {
 	}
 	return par.Map(ids, 0, func(id string) CLIAccount {
 		a := CLIAccount{ID: id, CanSignIn: true, Detail: "Signed out"}
-		if who := flyWhoami(ctx, bin, id); who != "" {
+		if who := flyWhoami(ctx, bin, flyEnv(id)); who != "" {
 			a.SignedIn, a.Detail = true, who
 		}
 		return a
 	})
 }
 
-// flyWhoami is the email the account's folder is signed in as, "" when none.
-func flyWhoami(ctx context.Context, bin, id string) string {
-	out, err := runCLI(ctx, bin, flyEnv(id), "auth", "whoami")
+// flyWhoami is the masked email fly is signed in as under env; "" when none.
+func flyWhoami(ctx context.Context, bin string, env []string) string {
+	return MaskEmail(flyLogin(ctx, bin, env))
+}
+
+// flyLogin is the whole email fly is signed in as under env, for comparing
+// two logins only: everything kept or sent uses flyWhoami.
+func flyLogin(ctx context.Context, bin string, env []string) string {
+	out, err := runCLI(ctx, bin, env, "auth", "whoami")
 	who, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
-	if err != nil || who == "" {
+	if err != nil {
 		return ""
 	}
 	return who
@@ -59,14 +65,14 @@ func flyWhoami(ctx context.Context, bin, id string) string {
 // Default is the account signed in as whoever ~/.fly is: the login fly uses
 // with no folder named.
 func (flyAccounts) Default(ctx context.Context, bin string, accounts []CLIAccount) string {
-	// The host's own login, even run where a project's pick is set.
-	out, err := runCLI(ctx, bin, []string{"FLY_CONFIG_DIR="}, "auth", "whoami")
-	who, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
-	if err != nil || who == "" {
+	// The host's own login, even run where a project's pick is set. Whole
+	// emails, since two accounts' masks can match.
+	own := flyLogin(ctx, bin, []string{"FLY_CONFIG_DIR="})
+	if own == "" {
 		return ""
 	}
 	for _, a := range accounts {
-		if a.SignedIn && a.Detail == who {
+		if a.SignedIn && flyLogin(ctx, bin, flyEnv(a.ID)) == own {
 			return a.ID
 		}
 	}
@@ -93,18 +99,18 @@ func (flyAccounts) Rename(_ context.Context, _, from, to string) error {
 	return os.Rename(flyDir(from), flyDir(to))
 }
 
-// notName is what an email's local part may not keep as an account name.
-var notName = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
-
-// Who is the account's email, and its name before the @ as a suggestion.
+// Who is the account's masked email, and the first free "fly-N" to suggest
+// as its name: the name is the account's id, so it doesn't come from the email.
 func (flyAccounts) Who(ctx context.Context, bin, id string) (detail, suggestion string) {
-	who := flyWhoami(ctx, bin, id)
+	who := flyWhoami(ctx, bin, flyEnv(id))
 	if who == "" {
 		return "", ""
 	}
-	local, _, _ := strings.Cut(who, "@")
-	if name := strings.Trim(notName.ReplaceAllString(local, "-"), "-."); accountName.MatchString(name) {
-		suggestion = name
+	for n := 1; ; n++ {
+		name := "fly-" + strconv.Itoa(n)
+		// Any error but a folder that exists ends it, so an unreadable one can't spin.
+		if _, err := os.Stat(flyDir(name)); err != nil {
+			return who, name
+		}
 	}
-	return who, suggestion
 }

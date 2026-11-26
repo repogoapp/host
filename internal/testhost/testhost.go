@@ -95,14 +95,13 @@ func Config(t testing.TB) host.Config {
 		Power: func(*slog.Logger, func() bool, func(power.Battery)) (host.Keeper, error) {
 			return noPower{}, nil
 		},
-		PublicIP: func(context.Context) (string, error) { return "", nil },
-		// No ~/.ssh/config and no tailnet: a test host never dials another machine.
+		// No ~/.ssh/config: a test host never dials another machine.
 		Discovery: func(self string) remotehost.Deps {
 			return remotehost.Deps{
-				Self: self, SSHConfig: func() []byte { return nil },
-				Resolve: func(context.Context, string) string { return "" },
-				Tailnet: func(context.Context) []byte { return nil },
-				Run:     func(context.Context, string, string) ([]byte, []byte, int) { return nil, nil, -1 },
+				Self:      self,
+				SSHConfig: func() []byte { return nil },
+				Run:       func(context.Context, string, string) ([]byte, []byte, int) { return nil, nil, -1 },
+				Send:      func(context.Context, string, string, []byte) ([]byte, []byte, int) { return nil, nil, -1 },
 			}
 		},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),

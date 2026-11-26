@@ -23,7 +23,8 @@ import (
 // the plan from the local credential cache and last's windows.
 func (p *Provider) Usage(ctx context.Context, last agentusage.Usage) agentusage.Usage {
 	usage := p.claudePlanFromDisk()
-	usage.Account = agentusage.AccountOf(claudeAccount(p.accountPath))
+	account, _ := claudeAccount(p.accountPath)
+	usage.Account = agentusage.AccountOf(account)
 
 	if live, ok := p.fetchClaudeUsage(ctx); ok {
 		usage.Available = true

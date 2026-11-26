@@ -242,13 +242,12 @@ func (l *limits) accountFor(ctx context.Context, token string) *agentusage.Accou
 	}
 	defer resp.Body.Close()
 	var info struct {
-		ID    string `json:"id"`
 		Email string `json:"email"`
 	}
 	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&info) != nil || info.Email == "" {
 		return nil
 	}
-	account := &agentusage.Account{Email: info.Email, Key: clitool.AccountKey("antigravity", info.ID, "google")}
+	account := &agentusage.Account{Email: clitool.MaskEmail(info.Email)}
 	l.mu.Lock()
 	l.account, l.accountToken = account, token
 	l.mu.Unlock()

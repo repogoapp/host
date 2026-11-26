@@ -34,7 +34,7 @@ func TestFlyAccountsAreFolders(t *testing.T) {
 	}
 
 	got := f.List(ctx, bin)
-	if len(got) != 2 || got[0].ID != "boppr" || !got[0].SignedIn || got[0].Detail != "jerrick+boppr@example.com" ||
+	if len(got) != 2 || got[0].ID != "boppr" || !got[0].SignedIn || got[0].Detail != "jer•••r@example.com" ||
 		got[1].SignedIn || got[1].Detail != "Signed out" || !got[1].CanSignIn {
 		t.Fatalf("accounts = %+v", got)
 	}
@@ -44,13 +44,27 @@ func TestFlyAccountsAreFolders(t *testing.T) {
 	if def := f.Default(ctx, bin, got); def != "boppr" {
 		t.Fatalf("default = %q, want the account matching the environment's own login", def)
 	}
+	// Another login that masks the same way is not the environment's own.
+	if err := f.Prepare(ctx, bin, "alt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(flyDir("alt"), "who"), []byte("jerrick+bar@example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alt := CLIAccount{ID: "alt", SignedIn: true, Detail: "jer•••r@example.com"}
+	if def := f.Default(ctx, bin, append([]CLIAccount{alt}, got...)); def != "boppr" {
+		t.Fatalf("default = %q, want boppr over an account whose mask matches", def)
+	}
+	if err := f.Remove(ctx, bin, "alt"); err != nil {
+		t.Fatal(err)
+	}
 	if env := f.Env("boppr"); env != "FLY_CONFIG_DIR="+filepath.Join(home, ".repogo", "cli-accounts", "fly", "boppr") {
 		t.Fatalf("env = %s", env)
 	}
 	if !slices.Equal(f.LoginEnv("repogo"), []string{"FLY_CONFIG_DIR=" + flyDir("repogo")}) {
 		t.Fatalf("login env = %v", f.LoginEnv("repogo"))
 	}
-	if detail, suggestion := f.Who(ctx, bin, "boppr"); detail != "jerrick+boppr@example.com" || suggestion != "jerrick-boppr" {
+	if detail, suggestion := f.Who(ctx, bin, "boppr"); detail != "jer•••r@example.com" || suggestion != "fly-1" {
 		t.Fatalf("who = %q, %q", detail, suggestion)
 	}
 

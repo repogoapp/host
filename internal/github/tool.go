@@ -51,7 +51,7 @@ func signedIn(ctx context.Context, path string) (bool, string, *clitool.Account)
 	if login == "" {
 		return false, "", nil
 	}
-	return true, "gh api user", &clitool.Account{Name: login, Login: login}
+	return true, "gh api user", &clitool.Account{Login: login}
 }
 
 // ghUser is the signed-in account's handle; "" when signed out.

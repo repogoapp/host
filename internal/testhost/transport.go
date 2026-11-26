@@ -47,6 +47,7 @@ func Serve(t testing.TB, devices *device.Store, router *rpc.Router) *Transports 
 	srv, err := wsserver.New(wsserver.Config{
 		Token: Token, ServerID: "testhost", Devices: devices, Router: router,
 		Pushes: emit.NewMux(), OnDisconnect: func(device.ID) {}, Log: log,
+		Name: func() (string, string) { return "testhost", "testhost" },
 	})
 	if err != nil {
 		t.Fatalf("wsserver: %v", err)

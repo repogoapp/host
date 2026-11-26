@@ -45,20 +45,19 @@ type Usage struct {
 	Balance *Balance `json:"balance,omitempty"`
 }
 
-// Account is the seat a reading belongs to: Key groups hosts signed in to the
-// same subscription, Email names it.
+// Account is who a reading belongs to, present while the CLI is signed in:
+// its email, masked where it is read (clitool.MaskEmail). It carries no id,
+// so the phone shows each environment's limits on their own.
 type Account struct {
 	Email string `json:"email,omitempty"`
-	Key   string `json:"key,omitempty"`
 }
 
-// AccountOf is the CLI's sign-in and its seat's key as a reading's account;
-// nil when signed out.
-func AccountOf(a *clitool.Account, key string) *Account {
+// AccountOf is the CLI's sign-in as a reading's account; nil when signed out.
+func AccountOf(a *clitool.Account) *Account {
 	if a == nil {
 		return nil
 	}
-	return &Account{Email: a.Email, Key: key}
+	return &Account{Email: a.Email}
 }
 
 // Balance is prepaid credit left on the account.

@@ -19,7 +19,8 @@ import (
 // CLI stops writing usable limits to its logs, exactly when the number matters.
 // The rollouts come next, then last's windows.
 func (p *Provider) Usage(ctx context.Context, last agentusage.Usage) agentusage.Usage {
-	account := agentusage.AccountOf(codexAccount(p.accountPath))
+	cli, _ := codexAccount(p.accountPath)
+	account := agentusage.AccountOf(cli)
 	if usage, ok := p.codexAccountUsage(ctx); ok {
 		usage.Account = account
 		return usage

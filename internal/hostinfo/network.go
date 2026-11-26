@@ -3,10 +3,7 @@ package hostinfo
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"net"
-	"net/http"
 	"net/netip"
 	"os/exec"
 	"runtime"
@@ -15,18 +12,12 @@ import (
 	"time"
 )
 
-// publicIPTTL bounds how stale a status's public address may be before it asks for a new one.
-const publicIPTTL = 5 * time.Minute
-
-var errUnexpectedIP = errors.New("public IP lookup: unexpected answer")
-
 // Network is where this machine sits: its addresses and the port the host serves on.
 type Network struct {
 	// LANIP is the address of the interface the default route leaves by.
 	LANIP string `json:"lan_ip,omitempty"`
 	// LANPort is where the host serves phones on LANIP; absent unless started with --lan.
-	LANPort  int    `json:"lan_port,omitempty"`
-	PublicIP string `json:"public_ip,omitempty"`
+	LANPort int `json:"lan_port,omitempty"`
 	// LocalHostname is the Mac's Bonjour name, "Jerricks-MacBook-Pro.local"; absent off macOS.
 	LocalHostname string `json:"local_hostname,omitempty"`
 	Port          int    `json:"port"`
@@ -69,27 +60,6 @@ func (s *Service) Port() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.port
-}
-
-// WatchPublicIP looks the public address up at start and again whenever a
-// status finds it stale, so a status never waits on the network.
-func (s *Service) WatchPublicIP(ctx context.Context) {
-	for {
-		lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
-		ip, err := s.d.PublicIP(lookup)
-		cancel()
-		if err != nil {
-			ip = ""
-		}
-		s.mu.Lock()
-		s.publicIP, s.publicAt = ip, time.Now()
-		s.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.publicStale:
-		}
-	}
 }
 
 // localNetwork is the part read from this machine; Status reads it before taking mu.
@@ -162,16 +132,16 @@ func tailnetCandidate() string {
 	return ""
 }
 
-// TailscaleCLIs is where the tailscale command may be: a service's PATH can
+// tailscaleCLIs is where the tailscale command may be: a service's PATH can
 // lack Homebrew's, and the Mac app carries its own.
-var TailscaleCLIs = []string{
+var tailscaleCLIs = []string{
 	"tailscale", "/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale",
 	"/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 }
 
 // cliTailnetIP is the IPv4 address the tailscale CLI reports; empty without one.
 func cliTailnetIP() string {
-	for _, cli := range TailscaleCLIs {
+	for _, cli := range tailscaleCLIs {
 		path, err := exec.LookPath(cli)
 		if err != nil {
 			continue
@@ -208,15 +178,9 @@ var magicDNS = &net.Resolver{
 	},
 }
 
-// network adds the port and the last public lookup to n; the caller holds mu.
+// network adds the ports to n; the caller holds mu.
 func (s *Service) network(n Network) Network {
-	if !s.publicAt.IsZero() && time.Since(s.publicAt) > publicIPTTL {
-		select {
-		case s.publicStale <- struct{}{}:
-		default:
-		}
-	}
-	n.PublicIP, n.Port = s.publicIP, s.port
+	n.Port = s.port
 	if n.LANIP != "" && n.LANIP == s.lanIP {
 		n.LANPort = s.lanPort
 	}
@@ -322,28 +286,4 @@ func localHostname() string {
 		return ""
 	}
 	return name + ".local"
-}
-
-var publicIPClient = &http.Client{Timeout: 3 * time.Second}
-
-// LookupPublicIP asks a plaintext echo service which address this machine's requests leave from.
-func LookupPublicIP(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org", nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := publicIPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
-	if err != nil {
-		return "", err
-	}
-	ip := net.ParseIP(strings.TrimSpace(string(body)))
-	if resp.StatusCode != http.StatusOK || ip == nil {
-		return "", errUnexpectedIP
-	}
-	return ip.String(), nil
 }

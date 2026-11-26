@@ -76,7 +76,7 @@ func TestADeclaredStatusIsCachedUntilCleared(t *testing.T) {
 	ctx := context.Background()
 
 	write("me@example.com\nother@example.com\n")
-	if ok, _, a := status.probe(ctx, cli); !ok || a == nil || a.Email != "me@example.com" {
+	if ok, _, a := status.probe(ctx, cli); !ok || a == nil || a.Email != "m•••@example.com" {
 		t.Fatalf("signed in = %v, %+v", ok, a)
 	}
 	write("")
