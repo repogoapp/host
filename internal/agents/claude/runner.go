@@ -198,6 +198,12 @@ func (r *runner) environment() []string {
 	// Claude reports running and idle only when asked: running is how the host
 	// sees a turn Claude starts by itself, and idle settles a joined one.
 	env = append(env, "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1")
+	// Claude drops an MCP call after 60 s by default, and a plugin's question
+	// waits 10 minutes for the user (repogomcp's approveWait): give it longer,
+	// so the host answers first and says why.
+	if os.Getenv("MCP_TOOL_TIMEOUT") == "" {
+		env = append(env, "MCP_TOOL_TIMEOUT=660000") // 11 minutes
+	}
 	// An explicit config directory changes account discovery even at the default path.
 	if r.deps.Root != "" {
 		env = append(env, "CLAUDE_CONFIG_DIR="+r.home)

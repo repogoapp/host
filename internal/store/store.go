@@ -13,7 +13,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -87,7 +86,7 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := s.forgetStatuses(); err != nil {
+	if err := s.forgetOutsideTurns(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -224,17 +223,19 @@ func (s *Store) Counts() (sessions, events int64, err error) {
 	return
 }
 
-// forgetStatuses reads every cached active or idle chat as unknown: a cached
-// state is no proof the agent survived the restart. Each row gets a new
-// revision, or a phone holding it would keep showing it working.
-func (s *Store) forgetStatuses() error {
-	settled := append(slices.Clone(agent.ActiveStatuses), agent.ChatIdle)
+// forgetOutsideTurns reads every chat a CLI outside this host left active as
+// unknown: its next hook or transcript line says where it stands. A turn this
+// host ran ended with the process; InterruptOrphans marks it interrupted. How
+// a settled turn ended stays. Each row gets a new revision, or a phone holding
+// it would keep showing it working.
+func (s *Store) forgetOutsideTurns() error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	ids, err := selectChats(tx, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(settled))+`)`, anys(settled)...)
+	ids, err := selectChats(tx, `SELECT agent, session_id FROM sessions WHERE status IN (`+marks(len(agent.ActiveStatuses))+`)
+		AND last_turn_key NOT LIKE ?`, append(anys(agent.ActiveStatuses), ManagerTurnPrefix+"%")...)
 	if err != nil {
 		return err
 	}

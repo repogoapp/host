@@ -51,6 +51,54 @@ func TestInterruptOrphansSettlesOnlyThisHostsTurns(t *testing.T) {
 	}
 }
 
+// A restart keeps how each settled turn ended. A terminal's active chat reads
+// unknown until its hooks speak; this host's own reads interrupted once
+// InterruptOrphans runs, as the host does at start.
+func TestRestartKeepsOutcomes(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.UnixMilli(1000)
+	want := map[ChatID]agent.ChatStatus{}
+	for _, c := range []struct {
+		id           ChatID
+		status, then agent.ChatStatus
+		key          string
+	}{
+		{chatID("codex", "done"), agent.ChatCompleted, agent.ChatCompleted, ManagerTurnPrefix + "t1"},
+		{chatID("codex", "broke"), agent.ChatFailed, agent.ChatFailed, ManagerTurnPrefix + "t2"},
+		{chatID("claude", "stopped"), agent.ChatCancelled, agent.ChatCancelled, "hook-prompt:p1"},
+		{chatID("codex", "running"), agent.ChatWorking, agent.ChatInterrupted, ManagerTurnPrefix + "t3"},
+		{chatID("claude", "terminal"), agent.ChatWorking, agent.ChatUnknown, "hook-prompt:p2"},
+	} {
+		if err := db.SetStatus(c.id, "/tmp/a", c.status, started, TurnObservation{Key: c.key, StartedAt: &started}); err != nil {
+			t.Fatal(err)
+		}
+		want[c.id] = c.then
+	}
+	db.Close()
+
+	db, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.InterruptOrphans(time.UnixMilli(2000)); err != nil {
+		t.Fatal(err)
+	}
+	for id, status := range want {
+		chat, err := db.Info(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if chat.Status != status {
+			t.Errorf("%s after a restart: %s, want %s", id, chat.Status, status)
+		}
+	}
+}
+
 // A stop with nothing running here settles any active chat, a dead host
 // turn or a terminal's; a settled chat is left alone.
 func TestInterruptSettlesAnyActiveChat(t *testing.T) {

@@ -39,7 +39,9 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "turns.stop", d.stop)
 	// respond answers a pending approval by (turn, call): a turn can wait on
 	// more than one, and "the current one" is ambiguous exactly when it matters.
-	rpc.Add(r, "turns.respond", d.respond)
+	// Paired devices only: an approval is the user's tap on a phone, never the
+	// CLI's, a plugin's ctx.host or an agent's shell, which all call locally.
+	rpc.Add(r, "turns.respond", d.respond, rpc.Paired)
 	rpc.Add(r, "turns.edit_queued", d.editQueued)
 	rpc.Add(r, "turns.remove_queued", d.removeQueued)
 	// Send Now: a queued turn runs at once with what it was queued with, its

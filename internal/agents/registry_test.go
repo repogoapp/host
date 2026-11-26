@@ -158,6 +158,8 @@ func TestProviderHookSemantics(t *testing.T) {
 		{claude.Hooks{}, "PermissionRequest", "", "Bash", agent.ChatAwaitingApproval},
 		{claude.Hooks{}, "Stop", "", "", agent.ChatCompleted},
 		{claude.Hooks{}, "StopFailure", "", "", agent.ChatFailed},
+		// Waiting at the prompt says nothing of how the turn went: ignored.
+		{claude.Hooks{}, "Notification", "idle_prompt", "", agent.ChatUnknown},
 		{codex.Hooks{}, "UserPromptSubmit", "", "", agent.ChatWorking},
 		{codex.Hooks{}, "PermissionRequest", "", "Bash", agent.ChatAwaitingApproval},
 		{codex.Hooks{}, "Stop", "", "", agent.ChatCompleted},

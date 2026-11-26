@@ -63,6 +63,22 @@ func (t *turn) publish(e Event) {
 	}
 }
 
+// withdraw takes back an approval nothing waits on any more (the agent dropped
+// the call), so every device drops its card. An ended turn already took its
+// approvals back when it ended.
+func (t *turn) withdraw(callID string) {
+	t.mu.Lock()
+	if t.status.State != StateRunning {
+		t.mu.Unlock()
+		return
+	}
+	changed, status, activity, at := t.appendLocked(Event{Kind: EventApprovalResolved, Approval: &Approval{CallID: callID}})
+	t.mu.Unlock()
+	if changed {
+		t.onStatus(status, activity, at)
+	}
+}
+
 // appendLocked records e and fans it out; t.mu must be held.
 func (t *turn) appendLocked(e Event) (changed bool, status TurnStatus, activity ChatStatus, at time.Time) {
 	t.seq++

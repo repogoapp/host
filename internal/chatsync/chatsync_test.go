@@ -186,7 +186,11 @@ func TestObserveTurnKeepsTheStartTitleInTheTranscript(t *testing.T) {
 		}
 		ended := started.Add(time.Second)
 		turn.EndedAt = &ended
-		syncer.ObserveTurn(turn, agent.ChatIdle, ended)
+		syncer.ObserveTurn(turn, agent.ChatCompleted, ended)
+		// The row keeps how the turn ended.
+		if chat, err := db.Info(store.ChatID("claude:" + tc.session)); err != nil || chat.Status != agent.ChatCompleted {
+			t.Errorf("%s: status %q after the turn, want completed (%v)", tc.session, chat.Status, err)
+		}
 
 		got := strings.Contains(transcript(tc.session), `"customTitle":"Fix the Build"`)
 		if got != tc.wantInFile {

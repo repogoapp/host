@@ -403,7 +403,7 @@ func transcriptStatus(events []agent.Event) (agent.ChatStatus, int64) {
 		case agent.EventTurnStarted:
 			status = agent.ChatWorking
 		case agent.EventTurnFinished:
-			status = agent.ChatIdle
+			status = agent.ChatCompleted
 		case agent.EventTurnFailed:
 			status = agent.ChatFailed
 			if e.Error == "aborted" {

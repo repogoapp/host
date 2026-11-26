@@ -44,7 +44,7 @@ func TestTranscriptStatusWorksAsOfTheLastLine(t *testing.T) {
 		t.Fatalf("open turn: %v at %d, want working at 5", status, at)
 	}
 	done := append(open, agent.Event{Kind: agent.EventTurnFinished, At: 6}, agent.Event{Kind: agent.EventText, At: 7})
-	if status, at := transcriptStatus(done); status != agent.ChatIdle || at != 6 {
-		t.Fatalf("finished turn: %v at %d, want idle at 6", status, at)
+	if status, at := transcriptStatus(done); status != agent.ChatCompleted || at != 6 {
+		t.Fatalf("finished turn: %v at %d, want completed at 6", status, at)
 	}
 }

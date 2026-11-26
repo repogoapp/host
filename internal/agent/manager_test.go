@@ -87,6 +87,53 @@ func TestTurnStatusCarriesPendingApproval(t *testing.T) {
 	testwait.For(t, "the answered approval to clear", func() bool { return pending() == nil })
 }
 
+// droppingAdapter asks once on a call it then drops, as Claude does when its
+// MCP call times out, and keeps running.
+type droppingAdapter struct{ dropped chan struct{} }
+
+func (droppingAdapter) Kind() Kind       { return KindClaude }
+func (droppingAdapter) Available() error { return nil }
+func (a droppingAdapter) Send(ctx context.Context, _ TurnRequest, io TurnIO) (Result, error) {
+	call, drop := context.WithCancel(ctx)
+	go func() { <-a.dropped; drop() }()
+	_, _ = io.Ask(call, Approval{CallID: "c1", Title: "Send this email?"})
+	<-ctx.Done()
+	return Result{}, ctx.Err()
+}
+
+// An approval nothing waits on any more leaves every device, so no card offers
+// a tap that would answer nothing, while the turn carries on.
+func TestDroppedApprovalIsWithdrawn(t *testing.T) {
+	dropped := make(chan struct{})
+	m := NewManager(discard(), quiet(), droppingAdapter{dropped})
+	st, err := m.Send(TurnRequest{ChatID: "claude:s1", Cwd: t.TempDir(), Agent: KindClaude, Prompt: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop(st.TurnID)
+	events, unsub, err := m.Subscribe(st.TurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub()
+
+	pending := func() *Approval { got, _ := m.Status(st.TurnID); return got.Approval }
+	testwait.For(t, "the approval", func() bool { return pending() != nil })
+	close(dropped)
+	testwait.For(t, "the dropped approval to clear", func() bool { return pending() == nil })
+	for e := range events {
+		if e.Kind == EventApprovalResolved && e.Approval != nil && e.Approval.CallID == "c1" {
+			break
+		}
+	}
+	if got, _ := m.Status(st.TurnID); got.State != StateRunning {
+		t.Fatalf("turn state = %q, want it still running", got.State)
+	}
+	if err := m.Respond(st.TurnID, "c1", json.RawMessage(`"allow-once"`)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("answering the dropped approval: err = %v, want ErrNotFound", err)
+	}
+}
+
 // A queued turn's prompt can change while it waits and keeps its place; once
 // it has started the edit is refused, so a late edit never re-runs a turn.
 func TestEditQueuedChangesAWaitingTurnAndRefusesAStartedOne(t *testing.T) {
@@ -251,6 +298,10 @@ func TestAdoptedTurnQueuesSendsAndStops(t *testing.T) {
 		status, _ := m.Status(next.TurnID)
 		return status.State == StateRunning
 	})
+	// Send Now makes its device the turn's sender, which its alerts go to.
+	if status, _ := m.Status(next.TurnID); status.Device != "phone" {
+		t.Fatalf("queued turn's sender %q, want phone", status.Device)
+	}
 	m.Stop(next.TurnID)
 
 	if err := m.StopChat("claude:idle"); !errors.Is(err, ErrNotFound) {

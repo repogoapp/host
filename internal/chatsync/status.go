@@ -24,9 +24,8 @@ func (s *Syncer) ObserveHook(notice notify.Notice) error {
 			timing.FinishedAt = &notice.At
 		}
 	}
-	// The notice keeps the turn's outcome for turn history; the row shows
-	// where the chat stands now, which after Stop is idle.
-	if err := s.db.SetStatus(id, notice.Cwd, notice.Status.AtRest(), notice.At, timing); err != nil {
+	// The row keeps the turn's outcome until the next turn starts.
+	if err := s.db.SetStatus(id, notice.Cwd, notice.Status, notice.At, timing); err != nil {
 		return err
 	}
 	if notice.Starts() {
@@ -46,7 +45,7 @@ func (s *Syncer) ObserveTurn(turn agent.TurnStatus, status agent.ChatStatus, at 
 	id := store.ChatID(agent.ChatID(turn.Agent, turn.SessionID))
 	timing := store.TurnObservation{Key: store.ManagerTurnPrefix + turn.TurnID, StartedAt: turn.StartedAt, FinishedAt: turn.EndedAt,
 		Prompt: turn.Prompt, Model: turn.Model, PermissionMode: turn.PermissionMode, Title: turn.Title}
-	if err := s.db.SetStatus(id, turn.Cwd, status.AtRest(), at, timing); err != nil {
+	if err := s.db.SetStatus(id, turn.Cwd, status, at, timing); err != nil {
 		s.log.Warn("chat status update failed", "chat", id, "err", err)
 		return
 	}

@@ -73,9 +73,9 @@ func (Hooks) HookStatus(event, notification, tool string) agent.ChatStatus {
 			return agent.ChatAwaitingApproval
 		case "elicitation_dialog":
 			return agent.ChatAwaitingUser
-		case "idle_prompt":
-			return agent.ChatIdle
 		}
+		// idle_prompt only says the CLI waits at its prompt, which says
+		// nothing of how the turn went: Stop already recorded that.
 	}
 	return agent.ChatUnknown
 }

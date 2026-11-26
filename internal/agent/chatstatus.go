@@ -2,11 +2,16 @@ package agent
 
 import "slices"
 
-// ChatStatus describes the latest observed activity, not whether a process exists.
+// ChatStatus is where a chat's latest turn stands: queued, working or waiting
+// on the user while it runs, then how it ended (completed, failed, cancelled,
+// interrupted), kept until the next turn starts. Unknown is a chat the host
+// has no word on. It describes the turn, not whether a process exists.
 type ChatStatus string
 
 const (
-	ChatUnknown          ChatStatus = "unknown"
+	ChatUnknown ChatStatus = "unknown"
+	// ChatIdle is no longer written: older hosts saved a completed turn as
+	// idle. Rows and apps may still hold it; it reads as at rest, no outcome.
 	ChatIdle             ChatStatus = "idle"
 	ChatQueued           ChatStatus = "queued"
 	ChatWorking          ChatStatus = "working"
@@ -31,13 +36,4 @@ func (s ChatStatus) Valid() bool {
 		return true
 	}
 	return false
-}
-
-// AtRest is the status a chat row settles to once a turn with this outcome is
-// over: a completed turn leaves the chat idle, while a failure stays visible.
-func (s ChatStatus) AtRest() ChatStatus {
-	if s == ChatCompleted {
-		return ChatIdle
-	}
-	return s
 }
