@@ -1,8 +1,8 @@
 // Package stepactivity keeps the Live Activities plugins start on every
 // paired phone: a title, a body, steps or a bar, a timer, all the plugin's.
 // iOS gets them through APNs; Android draws them as Live Updates from FCM
-// data messages. Unlike liveactivity's counts, its text is the plugin's and
-// reaches Apple, Google and the relay as is.
+// data messages. Its text is the plugin's, sealed for the phone (pushseal)
+// with a fixed start alert; a phone that sent no key gets no card.
 package stepactivity
 
 import (
@@ -20,6 +20,7 @@ import (
 	"github.com/repogoapp/host/internal/errkind"
 	"github.com/repogoapp/host/internal/push"
 	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/pushseal"
 )
 
 const (
@@ -36,6 +37,9 @@ const (
 
 	// An ended card stays on the Lock Screen this long.
 	endedFor = 15 * time.Minute
+
+	// A round that keeps failing waits longer each time, up to this.
+	maxRetryGap = 5 * time.Minute
 
 	// iOS ends a Live Activity after eight hours; the host forgets it then.
 	maxAge = 8 * time.Hour
@@ -170,6 +174,10 @@ type activity struct {
 	// The state changed since the last round reached every phone.
 	dirty    bool
 	pushedAt time.Time
+	// Rounds in a row that left a phone to retry, and when the next may go:
+	// a phone the relay keeps refusing must not spend the host's push budget.
+	failures int
+	retryAt  time.Time
 	// Rises with each Set, so a round's results never undo a newer one.
 	revision int
 	phones   map[device.ID]*phone
@@ -230,14 +238,24 @@ func (d *Driver) Set(plugin string, a Request) error {
 		state.EndedAt = now.UnixMilli()
 	}
 	r := round{key: key, attrs: act.attrs, state: state}
-	if size := len(d.payload("start", r, now)); size > maxPayload {
+	// Both shapes, sealed: Android's escapes the state's text a second time.
+	ios, err := d.payload("start", r, now, sizingKey)
+	if err != nil {
+		return err
+	}
+	android, err := push.SealData(sizingKey, r.attrs.HostID, push.Data(androidData(r, "start", now)))
+	if err != nil {
+		return err
+	}
+	if size := max(len(ios), len(android)); size > maxPayload {
 		return invalid("the activity is %d bytes as a push, past Apple's %d; shorten its text", size, maxPayload)
 	}
 	if fresh {
 		d.live[key] = act
 	}
 	act.state = state
-	act.setAt, act.dirty = now, true
+	// A new state goes at the usual pace; the backoff only slows resending one.
+	act.setAt, act.dirty, act.retryAt = now, true, time.Time{}
 	act.revision++
 	d.poke()
 	return nil
@@ -306,6 +324,7 @@ func (d *Driver) flush(ctx context.Context) (next time.Time) {
 		if act.pushedAt.IsZero() || act.state.Status != Running {
 			at = act.pushedAt.Add(minGap)
 		}
+		at = latest(at, act.retryAt)
 		if now.Before(at) {
 			next = earliest(next, at)
 			continue
@@ -332,16 +351,30 @@ func (d *Driver) flush(ctx context.Context) (next time.Time) {
 				act.phones[id] = &p
 			}
 			switch {
+			case retry && r.state.Status != Running && now.Sub(act.setAt) >= endedFor:
+				// The phones dismissed the card by now; stop trying to end it.
+				delete(d.live, r.key)
 			case retry:
-				act.dirty = true
-				next = earliest(next, now.Add(updateInterval))
+				act.dirty, act.failures = true, act.failures+1
+				act.retryAt = now.Add(push.Backoff(act.failures, updateInterval, maxRetryGap))
+				next = earliest(next, act.retryAt)
 			case r.state.Status != Running && act.revision == r.revision:
 				delete(d.live, r.key)
+			default:
+				act.failures, act.retryAt = 0, time.Time{}
 			}
 		}
 		d.mu.Unlock()
 	}
 	return next
+}
+
+// latest is the later of two times.
+func latest(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // pushRound sends one activity's state to every phone: an update where the
@@ -351,6 +384,10 @@ func (d *Driver) pushRound(ctx context.Context, r round, now time.Time) (map[dev
 	results := map[device.ID]phone{}
 	retry := false
 	for _, peer := range d.devices.Peers() {
+		// Nothing goes out in the clear: a phone with no key gets no card.
+		if push.SealKey(peer) == nil {
+			continue
+		}
 		p := r.phones[peer.ID]
 		if push.IsFCM(peer.StepsStart) {
 			if d.pushAndroid(ctx, peer, r, &p, ending, now) == failed {
@@ -364,7 +401,7 @@ func (d *Driver) pushRound(ctx context.Context, r round, now time.Time) (map[dev
 			if ending {
 				event = "end"
 			}
-			switch d.deliver(ctx, peer, token, d.payload(event, r, now)) {
+			switch d.deliver(ctx, peer, token, event, r, now) {
 			case delivered:
 				if ending {
 					d.forget(peer, r.key, token.Token)
@@ -382,13 +419,11 @@ func (d *Driver) pushRound(ctx context.Context, r round, now time.Time) (map[dev
 		if ending || p.dismissed || waiting || peer.StepsStart == nil {
 			continue
 		}
-		switch d.deliver(ctx, peer, *peer.StepsStart, d.payload("start", r, now)) {
+		switch d.deliver(ctx, peer, *peer.StepsStart, "start", r, now) {
 		case delivered:
 			p.startSentAt = now
 		case dead:
-			if err := d.devices.ForgetPush(peer.ID, device.PushStepsStart, peer.StepsStart.Token); err != nil {
-				d.log.Warn("stepactivity: could not forget token", "device", peer.ID, "err", err)
-			}
+			d.forgetStart(peer)
 		case failed:
 			retry = true
 		}
@@ -410,21 +445,19 @@ func (d *Driver) pushAndroid(ctx context.Context, peer device.Peer, r round, p *
 		event = "start"
 	}
 	req := push.Request(peer, *peer.StepsStart)
-	req.Payload = push.Data(map[string]any{
-		"kind": "steps", "host_id": r.attrs.HostID, "event": event, "key": r.key, "project": r.attrs.Project,
-		"generation": strconv.FormatInt(r.generation, 10), "revision": strconv.Itoa(r.revision),
-		"timestamp": strconv.FormatInt(now.UnixMilli(), 10), "state": r.state,
-	})
-	req.Priority = 10
+	sealed, err := push.SealData(push.SealKey(peer), r.attrs.HostID, push.Data(androidData(r, event, now)))
+	if err != nil {
+		d.log.Error("stepactivity: could not seal", "device", peer.ID, "err", err)
+		return failed
+	}
+	req.Payload, req.Priority = sealed, 10
 	if event == "update" {
 		req.Priority = 5
 	}
 	isDead, err := push.Try(ctx, d.send, req)
 	switch {
 	case isDead:
-		if err := d.devices.ForgetPush(peer.ID, device.PushStepsStart, peer.StepsStart.Token); err != nil {
-			d.log.Warn("stepactivity: could not forget token", "device", peer.ID, "err", err)
-		}
+		d.forgetStart(peer)
 		return dead
 	case err != nil:
 		d.log.Debug("stepactivity: not delivered", "device", peer.ID, "service", "fcm", "err", err)
@@ -436,24 +469,72 @@ func (d *Driver) pushAndroid(ctx context.Context, peer device.Peer, r round, p *
 	return delivered
 }
 
-// payload is the `aps` body for event. iOS drops a start without an alert,
-// and issues an update token only when the start asks for one.
-func (d *Driver) payload(event string, r round, now time.Time) []byte {
+// sizingKey seals Set's size check: a sealed push's size depends only on
+// what it carries, not the key.
+var sizingKey = make([]byte, pushseal.SecretSize)
+
+// sealedState is what a steps.state box holds: the state and when it was
+// sent, so the widget can tell a replayed state from a newer one.
+type sealedState struct {
+	State
+	At int64 `json:"at"`
+}
+
+// sealedAttributes is a sealed start's attributes: the host in the clear, so
+// the widget knows whose key opens the box, and the key and project inside it.
+type sealedAttributes struct {
+	HostID string            `json:"host_id"`
+	Sealed pushseal.Envelope `json:"sealed"`
+}
+
+// forgetStart drops the phone's dead start token; it sends a new one on its
+// next launch.
+func (d *Driver) forgetStart(peer device.Peer) {
+	if err := d.devices.ForgetPush(peer.ID, device.PushStepsStart, peer.StepsStart.Token); err != nil {
+		d.log.Warn("stepactivity: could not forget token", "device", peer.ID, "err", err)
+	}
+}
+
+// androidData is the data message an Android phone draws the Live Update
+// from, before sealing.
+func androidData(r round, event string, now time.Time) map[string]any {
+	return map[string]any{
+		"kind": "steps", "host_id": r.attrs.HostID, "event": event, "key": r.key, "project": r.attrs.Project,
+		"generation": strconv.FormatInt(r.generation, 10), "revision": strconv.Itoa(r.revision),
+		"timestamp": strconv.FormatInt(now.UnixMilli(), 10), "state": r.state,
+	}
+}
+
+// payload is the `aps` body for event, sealed under key. iOS drops a start
+// without an alert, and issues an update token only when the start asks for
+// one; the alert is fixed text, the one part the phone shows as it arrives.
+func (d *Driver) payload(event string, r round, now time.Time, key []byte) ([]byte, error) {
+	host := r.attrs.HostID
+	env, err := pushseal.Seal(key, host, pushseal.StepsState, r.key, sealedState{r.state, now.UnixMilli()})
+	if err != nil {
+		return nil, err
+	}
 	aps := map[string]any{
-		"timestamp": now.Unix(), "event": event, "content-state": r.state,
+		"timestamp": now.Unix(), "event": event, "content-state": push.Sealed{Sealed: env},
 		"stale-date": now.Add(staleAfter).Unix(),
 	}
 	switch event {
 	case "start":
+		attrs, err := pushseal.Seal(key, host, pushseal.StepsAttrs, "", struct {
+			Key     string `json:"key"`
+			Project string `json:"project"`
+		}{r.attrs.Key, r.attrs.Project})
+		if err != nil {
+			return nil, err
+		}
 		aps["attributes-type"] = "StepActivityAttributes"
-		aps["attributes"] = r.attrs
-		aps["alert"] = map[string]any{"title": r.state.Title, "body": r.state.Body}
+		aps["attributes"] = sealedAttributes{HostID: host, Sealed: attrs}
+		aps["alert"] = map[string]any{"title": "RepoGo", "body": "An activity started"}
 		aps["input-push-token"] = 1
 	case "end":
 		aps["dismissal-date"] = now.Add(endedFor).Unix()
 	}
-	body, _ := json.Marshal(map[string]any{"aps": aps})
-	return body
+	return json.Marshal(map[string]any{"aps": aps})
 }
 
 type outcome int
@@ -461,12 +542,18 @@ type outcome int
 const (
 	delivered outcome = iota
 	failed            // worth trying again
-	dead              // Apple will never take this token
+	dead              // the push service will never take this token
 )
 
-// deliver sends one push, always high priority: Apple holds low-priority
-// updates while the phone is locked.
-func (d *Driver) deliver(ctx context.Context, peer device.Peer, to device.PushTarget, payload []byte) outcome {
+// deliver sends one event's push, always high priority: Apple holds
+// low-priority updates while the phone is locked. A push that can't be
+// sealed is a retry, never a dead token.
+func (d *Driver) deliver(ctx context.Context, peer device.Peer, to device.PushTarget, event string, r round, now time.Time) outcome {
+	payload, err := d.payload(event, r, now, push.SealKey(peer))
+	if err != nil {
+		d.log.Error("stepactivity: could not seal", "device", peer.ID, "err", err)
+		return failed
+	}
 	req := push.Request(peer, to)
 	req.Payload, req.PushType, req.Priority = payload, pushgate.PushTypeLiveActivity, 10
 	isDead, err := push.Try(ctx, d.send, req)

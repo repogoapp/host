@@ -8,6 +8,7 @@ import (
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/pushseal"
 )
 
 // android pairs an Android phone opted into the card with its one FCM token.
@@ -17,23 +18,30 @@ func (f *fixture) android(token string) {
 	if err := f.devices.Add(device.Peer{ID: phone.ID, Public: phone.Public}); err != nil {
 		f.t.Fatal(err)
 	}
+	f.keyed(phone.ID)
 	target := phone.GrantPush(f.devices.Identity().ID, device.PushTarget{Service: device.PushFCM, Token: token})
 	if err := f.devices.RegisterPush(phone.ID, device.PushToStart, target); err != nil {
 		f.t.Fatal(err)
 	}
 }
 
-// androidPushes are the data messages sent to FCM, in order.
+// androidPushes are the data messages sent to FCM, in order, opened.
 func (f *fixture) androidPushes() []map[string]string {
 	var out []map[string]string
 	for _, req := range f.sender.Calls {
 		if req.Service != pushgate.ServiceFCM {
 			continue
 		}
-		var data map[string]string
-		if err := json.Unmarshal(req.Payload, &data); err != nil {
-			f.t.Fatalf("not a data message: %s", req.Payload)
+		var outer map[string]string
+		if err := json.Unmarshal(req.Payload, &outer); err != nil || len(outer) != 4 {
+			f.t.Fatalf("not a sealed data message: %s", req.Payload)
 		}
+		plain, err := pushseal.Open(testKey, outer["host_id"], pushseal.FCM, "", pushseal.Envelope{V: 1, KID: outer["kid"], Box: outer["box"]})
+		if err != nil {
+			f.t.Fatalf("data message does not open: %v", err)
+		}
+		var data map[string]string
+		_ = json.Unmarshal(plain, &data)
 		data["priority"] = map[int]string{5: "normal", 10: "high"}[req.Priority]
 		out = append(out, data)
 	}

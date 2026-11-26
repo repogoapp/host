@@ -16,6 +16,7 @@ import (
 	"github.com/repogoapp/host/internal/handshake"
 	"github.com/repogoapp/host/internal/hostclient"
 	"github.com/repogoapp/host/internal/jsonrpc"
+	"github.com/repogoapp/host/internal/pushseal"
 	"github.com/repogoapp/host/internal/rpc"
 	"github.com/repogoapp/host/internal/rpc/devices"
 	"github.com/repogoapp/host/internal/rpc/pairing"
@@ -333,5 +334,55 @@ func TestHelloReportsTheTokensTheHostKeeps(t *testing.T) {
 	register("")
 	if got := hello().Push; len(got) != 0 {
 		t.Fatalf("hello after forgetting = %+v, want none", got)
+	}
+}
+
+// A phone that opens sealed pushes sends its key over its own channel; hello
+// then names the key, never carries it, and a downgraded app's hello drops it.
+func TestPushKeyRoundTrip(t *testing.T) {
+	h := start(t)
+	phone := generate(t)
+	if err := h.Devices.Add(device.Peer{ID: phone.ID, Public: phone.Public, Label: "Phone", Client: device.Client{Platform: "ios"}}); err != nil {
+		t.Fatalf("pair phone: %v", err)
+	}
+	c, err := h.overRelay(t, phone, 5*time.Second)
+	if err != nil {
+		t.Fatalf("phone over the relay: %v", err)
+	}
+	sealing := device.Client{Platform: "ios", Kind: "app", Features: map[string]int{device.FeaturePushSeal: 1}}
+	var hello devices.HelloResult
+	if err := call(t, c, "devices.hello", devices.HelloParams{Client: sealing}, &hello); err != nil {
+		t.Fatalf("devices.hello: %v", err)
+	}
+	if hello.PushSeal != pushseal.FeatureAlerts || hello.PushKeyID != "" {
+		t.Fatalf("hello before a key = %+v", hello)
+	}
+	if err := call(t, c, "devices.push_key", devices.PushKeyParams{Secret: make([]byte, 16)}, nil); err == nil {
+		t.Error("a short secret was accepted")
+	}
+	secret := []byte(strings.Repeat("s", 32))
+	var saved devices.PushKeyResult
+	if err := call(t, c, "devices.push_key", devices.PushKeyParams{Secret: secret}, &saved); err != nil {
+		t.Fatalf("devices.push_key: %v", err)
+	}
+	if err := call(t, c, "devices.hello", devices.HelloParams{Client: sealing}, &hello); err != nil {
+		t.Fatalf("devices.hello: %v", err)
+	}
+	if saved.KeyID == "" || hello.PushKeyID != saved.KeyID {
+		t.Fatalf("saved %q, hello names %q", saved.KeyID, hello.PushKeyID)
+	}
+	var list json.RawMessage
+	if err := call(t, c, "devices.list", nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(list), "push_key") {
+		t.Fatalf("devices.list carries the key: %s", list)
+	}
+	hello = devices.HelloResult{}
+	if err := call(t, c, "devices.hello", devices.HelloParams{Client: device.Client{Platform: "ios", Kind: "app"}}, &hello); err != nil {
+		t.Fatalf("devices.hello: %v", err)
+	}
+	if hello.PushKeyID != "" {
+		t.Fatal("a hello without the feature kept the key")
 	}
 }

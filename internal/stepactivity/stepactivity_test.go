@@ -1,6 +1,7 @@
 package stepactivity
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/push/pushtest"
 	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/pushseal"
 )
 
 type fixture struct {
@@ -38,11 +40,65 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, sender: &pushtest.Sender{}, devices: devices, phone: phone, now: time.Now()}
+	f.keyed(phone.ID)
 	f.register(device.PushStepsStart, "", "57a4")
 	f.d = New(devices, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	f.d.send = f.sender
 	f.d.now = func() time.Time { return f.now }
 	return f
+}
+
+// testKey is every test phone's push key: nothing goes out unsealed.
+var testKey = bytes.Repeat([]byte{5}, pushseal.SecretSize)
+
+// keyed has a paired phone open sealed pushes, as the app does on connect.
+func (f *fixture) keyed(id device.ID) {
+	f.t.Helper()
+	if err := f.devices.SetClient(id, device.Client{Platform: "ios", Features: map[string]int{device.FeaturePushSeal: pushseal.FeatureAlerts}}); err != nil {
+		f.t.Fatal(err)
+	}
+	if _, err := f.devices.SetPushKey(id, testKey); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// openState opens a sealed state, bound to its activity's key: one a start
+// named, one still live, or the deploy most tests run.
+func (f *fixture) openState(raw json.RawMessage) State {
+	f.t.Helper()
+	host := string(f.devices.Identity().ID)
+	keys := []string{"vercel/deploy:web"}
+	for _, req := range f.sender.Calls {
+		var body struct {
+			APS struct {
+				Attributes sealedAttributes `json:"attributes"`
+			} `json:"aps"`
+		}
+		_ = json.Unmarshal(req.Payload, &body)
+		if plain, err := pushseal.Open(testKey, host, pushseal.StepsAttrs, "", body.APS.Attributes.Sealed); err == nil {
+			var attrs struct{ Key string }
+			_ = json.Unmarshal(plain, &attrs)
+			keys = append(keys, attrs.Key)
+		}
+	}
+	f.d.mu.Lock()
+	for key := range f.d.live {
+		keys = append(keys, key)
+	}
+	f.d.mu.Unlock()
+	var state struct {
+		Sealed pushseal.Envelope `json:"sealed"`
+	}
+	_ = json.Unmarshal(raw, &state)
+	for _, key := range keys {
+		if plain, err := pushseal.Open(testKey, host, pushseal.StepsState, key, state.Sealed); err == nil {
+			var got sealedState
+			_ = json.Unmarshal(plain, &got)
+			return got.State
+		}
+	}
+	f.t.Fatalf("state does not open: %s", raw)
+	return State{}
 }
 
 func (f *fixture) grant(token string) device.PushTarget {
@@ -95,7 +151,7 @@ func (f *fixture) last() sent {
 	}
 	s := sent{token: req.Token, aps: body.APS}
 	_ = json.Unmarshal(body.APS["event"], &s.event)
-	_ = json.Unmarshal(body.APS["content-state"], &s.state)
+	s.state = f.openState(body.APS["content-state"])
 	return s
 }
 
@@ -128,10 +184,13 @@ func TestFirstSetStartsTheActivity(t *testing.T) {
 	if *s.state.Timer != (Timer{Kind: TimerElapsed, StartedAt: f.now.UnixMilli()}) {
 		t.Errorf("timer %+v", *s.state.Timer)
 	}
-	var attrs Attributes
+	// The host in the clear, so the phone knows whose key opens the rest.
+	var attrs sealedAttributes
 	_ = json.Unmarshal(s.aps["attributes"], &attrs)
-	if attrs != (Attributes{HostID: string(f.devices.Identity().ID), Key: "vercel/deploy:web", Project: "/Users/me/web"}) {
-		t.Errorf("attributes %+v", attrs)
+	host := string(f.devices.Identity().ID)
+	inside, err := pushseal.Open(testKey, host, pushseal.StepsAttrs, "", attrs.Sealed)
+	if attrs.HostID != host || err != nil || string(inside) != `{"key":"vercel/deploy:web","project":"/Users/me/web"}` {
+		t.Errorf("attributes %s: %v", inside, err)
 	}
 	var kind string
 	_ = json.Unmarshal(s.aps["attributes-type"], &kind)

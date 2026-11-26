@@ -1,23 +1,27 @@
-// Package push turns hook notices into alerts for the paired phones: APNs for
-// iOS, FCM data messages for Android. The relay holds both keys, so every send
-// is a push request on the host's link to it; the host contributes only
-// device tokens and a generic body.
+// Package push sends alerts to the paired phones: a chat waiting on the user
+// or ending, a plugin's notice, a reminder, low battery. APNs for iOS, FCM
+// data messages for Android. The relay holds both keys, so every send
+// is a push request on the host's link to it. Each alert is sealed for its
+// phone (pushseal); a phone that can't open sealed alerts gets none.
 package push
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/repogoapp/host/internal/agent"
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/jsonrpc"
-	"github.com/repogoapp/host/internal/notify"
 	"github.com/repogoapp/host/internal/power"
 	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/pushseal"
 	"github.com/repogoapp/host/internal/reminder"
 )
 
@@ -70,32 +74,6 @@ func New(store *device.Store, send Sender, log *slog.Logger) *Notifier {
 	return &Notifier{store: store, send: send, log: log}
 }
 
-// Run pushes every notice a phone should wake for until ctx ends.
-func (n *Notifier) Run(ctx context.Context, bridge *notify.Bridge) {
-	bridge.Follow(ctx, func(notice notify.Notice) {
-		if alert, ok := alertFor(notice.Status); ok {
-			n.deliver(ctx, notice, alert)
-		}
-	})
-}
-
-type alert struct{ Title, Body string }
-
-// alertFor is the whole vocabulary, on purpose: the relay and Apple read
-// these, so nothing about the project or the message may appear.
-func alertFor(s agent.ChatStatus) (alert, bool) {
-	switch s {
-	case agent.ChatAwaitingApproval:
-		return alert{"Approval needed", "Your environment is waiting for you."}, true
-	case agent.ChatAwaitingUser:
-		return alert{"Question for you", "Your environment is waiting for you."}, true
-		// Off while the app shows a turn's end as a brand alert from chats.attention.
-		// case agent.ChatCompleted: return alert{"Task finished", "Your environment finished a task."}, true
-		// case agent.ChatFailed: return alert{"Task failed", "A task in your environment stopped with an error."}, true
-	}
-	return alert{}, false
-}
-
 // Battery takes each battery reading in turn and alerts the phones when the
 // host is about to die unplugged, so a task on it is not lost to a dark screen.
 func (n *Notifier) Battery(ctx context.Context, b power.Battery) {
@@ -128,14 +106,6 @@ func (n *Notifier) BrowserRequest(ctx context.Context, to device.ID, requestID s
 			n.pushPeer(ctx, peer, m)
 		}
 	}
-}
-
-func (n *Notifier) deliver(ctx context.Context, notice notify.Notice, a alert) {
-	chatID := notice.ChatID()
-	n.push(ctx, note{
-		title: a.Title, body: a.Body, thread: chatID, collapse: chatID,
-		fields: map[string]string{"host_id": n.hostID(), "chat_id": chatID},
-	})
 }
 
 // PluginNotice is a plugin's alert: `plugins.Notice` as this package takes it.
@@ -180,30 +150,60 @@ func (n *Notifier) hostID() string { return string(n.store.Identity().ID) }
 // reads (which chat, project or page it opens).
 type note struct {
 	title, body string
-	thread      string
-	collapse    string
-	fields      map[string]string
+	// subtitle sits between the title and body (in the header on Android).
+	subtitle string
+	thread   string
+	collapse string
+	fields   map[string]string
+	// wake has iOS also wake the app in the background (content-available),
+	// so it can fetch what the alert is about before the user opens it.
+	wake bool
 }
 
-// apns is the alert as an APNs body: `aps`, with the fields beside it.
-func (m note) apns() []byte {
-	aps := map[string]any{"alert": map[string]string{"title": m.title, "body": m.body}, "sound": "default"}
-	if m.thread != "" {
-		aps["thread-id"] = m.thread
+// sealedAlert is what an iOS alert's box holds: everything the phone shows
+// or a tap reads, which the notification service extension puts back.
+type sealedAlert struct {
+	Title    string            `json:"title"`
+	Subtitle string            `json:"subtitle,omitempty"`
+	Body     string            `json:"body"`
+	Thread   string            `json:"thread,omitempty"`
+	Fields   map[string]string `json:"fields,omitempty"`
+	// At is when the host sent it (Unix ms), inside the box so the relay can't
+	// change it: a phone refuses an alert too old, or one it already opened.
+	At int64 `json:"at"`
+}
+
+// sealedAPNs is the alert for a phone whose notification service extension
+// opens boxes: fixed text that shows if it can't, mutable-content so iOS runs
+// it, and the box beside `aps` with the host that sealed it.
+func (m note) sealedAPNs(key []byte, host string, at int64) ([]byte, error) {
+	env, err := pushseal.Seal(key, host, pushseal.Alert, "", sealedAlert{m.title, m.subtitle, m.body, m.thread, m.fields, at})
+	if err != nil {
+		return nil, err
 	}
-	body := map[string]any{"aps": aps}
-	for k, v := range m.fields {
-		body[k] = v
+	aps := map[string]any{
+		"alert": map[string]string{"title": "RepoGo", "body": "New notification"},
+		"sound": "default", "mutable-content": 1,
 	}
-	payload, _ := json.Marshal(body)
-	return payload
+	if m.wake {
+		aps["content-available"] = 1
+	}
+	return json.Marshal(map[string]any{
+		"aps":     aps,
+		"host_id": host,
+		"sealed":  env,
+	})
 }
 
 // fcm is the alert as an FCM data message, which the Android app draws:
-// kind alert, so it tells alerts from Live Updates, and the alert's own kind
-// (a browser request) as alert_kind.
-func (m note) fcm() []byte {
-	data := map[string]any{"kind": "alert", "title": m.title, "body": m.body, "thread": m.thread, "collapse": m.collapse}
+// kind alert, so it tells alerts from Live Updates, the alert's own kind (a
+// browser request) as alert_kind, and when it was sent, as sealedAlert.At.
+func (m note) fcm(at int64) []byte {
+	data := map[string]any{"kind": "alert", "title": m.title, "body": m.body, "thread": m.thread, "collapse": m.collapse,
+		"timestamp": strconv.FormatInt(at, 10)}
+	if m.subtitle != "" {
+		data["subtitle"] = m.subtitle
+	}
 	for k, v := range m.fields {
 		if k == "kind" {
 			k = "alert_kind"
@@ -220,18 +220,160 @@ func (n *Notifier) push(ctx context.Context, m note) {
 	}
 }
 
+// pushSender sends a chat's alert to the phone that sent its turn, the one
+// the user has with them; every other open app shows its in-app alert. It
+// goes to every phone when no phone sent the turn, or the sender was removed
+// or can't take sealed alerts. A send that fails is not resent to the rest.
+func (n *Notifier) pushSender(ctx context.Context, sender device.ID, m note) {
+	if sender != "" {
+		if peer, err := n.store.Peer(sender); err == nil && peer.Push != nil && AlertKey(peer) != nil {
+			n.pushPeer(ctx, peer, m)
+			return
+		}
+	}
+	n.push(ctx, m)
+}
+
+// NeedsYou is a chat blocked on the user, as the app's own alert shows it:
+// the chat, who asks where, and what it asks.
+type NeedsYou struct {
+	ChatID, Agent, Project string
+	// Sender is the device that sent the turn, empty for none.
+	Sender device.ID
+	// Prompt is the chat's last user message; Title the chat's.
+	Prompt, Title string
+	// Question is a form to answer rather than a call to approve.
+	Question bool
+	// Ask is what it wants: the question, or the call and its target.
+	Ask string
+}
+
+// NeedsYouAlert alerts the phones that a chat waits on the user. It replaces
+// the chat's earlier alert, and a tap opens the chat to answer.
+func (n *Notifier) NeedsYouAlert(ctx context.Context, w NeedsYou) {
+	what := "needs approval"
+	fallback := "Approval needed"
+	if w.Question {
+		what, fallback = "has a question", "Question for you"
+	}
+	n.pushSender(ctx, w.Sender, note{
+		title:    clip(cmp.Or(oneLine(w.Title), oneLine(w.Prompt), fallback), 80),
+		subtitle: who(w.Agent, what, w.Project),
+		body:     clip(cmp.Or(oneLine(w.Ask), fallback), 240),
+		thread:   w.ChatID, collapse: w.ChatID,
+		fields: map[string]string{"host_id": n.hostID(), "chat_id": w.ChatID, "kind": "needs_you"},
+	})
+}
+
+// AskOf is what an approval asks, for its alert: a question's text, or the
+// call and what it acts on ("Bash: npm test").
+func AskOf(a *agent.Approval) (ask string, question bool) {
+	if a == nil {
+		return "", false
+	}
+	if a.Kind == agent.ApprovalQuestion || len(a.Questions) > 0 {
+		if len(a.Questions) == 0 {
+			return a.Title, true
+		}
+		ask = cmp.Or(a.Questions[0].Text, a.Questions[0].Header, a.Title)
+		if more := len(a.Questions) - 1; more > 0 {
+			ask += fmt.Sprintf(" (+%d more)", more)
+		}
+		return ask, true
+	}
+	var input map[string]any
+	_ = json.Unmarshal(a.Input, &input)
+	for _, key := range []string{"command", "file_path", "path", "url", "pattern", "description"} {
+		if v, ok := input[key].(string); ok && strings.TrimSpace(v) != "" {
+			return a.Title + ": " + v, false
+		}
+	}
+	return a.Title, false
+}
+
+// who is "Claude needs approval in web": the agent, what happened, where.
+func who(agentKind, what, project string) string {
+	name := agentKind
+	if name != "" {
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+	s := strings.TrimSpace(name + " " + what)
+	if project != "" {
+		s += " in " + project
+	}
+	return s
+}
+
+// TurnEnd is a turn that finished, failed or was stopped, as the app's own
+// alert for it shows: the user's message, who ended where, and the recap.
+type TurnEnd struct {
+	ChatID, Agent, Project string
+	// Sender is the device that sent the turn, empty for none.
+	Sender device.ID
+	// Kind is finished, failed or stopped (chatlive's attention kinds).
+	Kind string
+	// Prompt is the chat's last user message; Title the chat's, for a turn
+	// with none (a scheduled one).
+	Prompt, Title  string
+	Summary, Error string
+}
+
+// TurnEnded alerts the phone that sent the turn (pushSender), sealed as every
+// alert is. An app that is open shows its in-app alert instead (`kind` turn_end).
+func (n *Notifier) TurnEnded(ctx context.Context, t TurnEnd) {
+	verb := cmp.Or(t.Kind, "finished") // finished, failed or stopped
+	ended := who(t.Agent, verb, t.Project)
+	m := note{
+		title:    clip(cmp.Or(oneLine(t.Prompt), oneLine(t.Title), "Task "+verb), 80),
+		subtitle: ended,
+		body:     clip(cmp.Or(oneLine(t.Summary), oneLine(t.Error), ended), 240),
+		thread:   t.ChatID, collapse: "end:" + t.ChatID,
+		fields: map[string]string{"host_id": n.hostID(), "chat_id": t.ChatID, "kind": "turn_end"},
+		// The app fetches the chat's new rows, so a tap opens on the reply.
+		wake: true,
+	}
+	n.pushSender(ctx, t.Sender, m)
+}
+
+// Line is s on one line, cut to at most n characters: a title or body as an
+// alert or a Live Activity shows it.
+func Line(s string, n int) string { return clip(oneLine(s), n) }
+
+// oneLine folds whitespace, so a multi-line message reads as one.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// clip cuts s to at most n characters, with an ellipsis.
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
+}
+
 // pushPeer sends m to one phone in its service's shape: APNs collapses by id,
 // and Android replaces a notification by the collapse id the data carries.
 func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, m note) {
-	if peer.Push == nil {
+	key := AlertKey(peer)
+	if peer.Push == nil || key == nil {
 		return
 	}
 	req := Request(peer, *peer.Push)
+	host := n.hostID()
+	at := time.Now().UnixMilli()
+	var payload []byte
+	var err error
 	if IsFCM(peer.Push) {
-		req.Payload, req.Priority = m.fcm(), 10
+		payload, err = SealData(key, host, m.fcm(at))
+		req.Priority = 10
 	} else {
-		req.CollapseID, req.Payload = m.collapse, m.apns()
+		payload, err = m.sealedAPNs(key, host, at)
+		req.CollapseID = pushseal.CollapseID(key, m.collapse)
 	}
+	if err != nil {
+		n.log.Error("push: could not seal", "device", peer.ID, "err", err)
+		return
+	}
+	req.Payload = payload
 	dead := Send(ctx, n.send, n.log, req)
 	// The app registers a fresh token on its next launch.
 	if dead {
@@ -239,6 +381,20 @@ func (n *Notifier) pushPeer(ctx context.Context, peer device.Peer, m note) {
 			n.log.Warn("push: could not forget token", "device", peer.ID, "err", err)
 		}
 	}
+}
+
+// Backoff is how long a push waits after failures rounds in a row failed:
+// first, doubling up to most, so a phone the relay keeps refusing can't spend
+// the host's push budget.
+func Backoff(failures int, first, most time.Duration) time.Duration {
+	gap := first
+	for range failures - 1 {
+		if gap >= most {
+			return most
+		}
+		gap *= 2
+	}
+	return min(gap, most)
 }
 
 // Request addresses one of peer's tokens, carrying the grant the phone signed

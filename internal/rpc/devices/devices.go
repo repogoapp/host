@@ -11,6 +11,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/emit"
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/pushseal"
 	"github.com/repogoapp/host/internal/rpc"
 )
 
@@ -23,8 +24,9 @@ type Deps struct {
 	Pairer *device.Pairer
 	// Online reports whether a device holds a live channel to this host.
 	Online func(device.ID) bool
-	// PushChanged hears each token a phone registers or clears, by kind.
-	PushChanged func(kind string)
+	// PushChanged hears each token a phone registers or clears, by kind, and
+	// a new push key (device.PushKeyChanged).
+	PushChanged func(from device.ID, kind string)
 }
 
 // HelloParams is what the phone says it is, on every connect.
@@ -36,6 +38,24 @@ type HelloParams struct {
 // it, so a reconnect re-sends only a missing, changed or aging one.
 type HelloResult struct {
 	Push []device.HeldPush `json:"push" wire:"array"`
+	// PushSeal is the highest push_seal level this host seals for
+	// (pushseal.FeatureAlerts); a phone that opens boxes sends a key with
+	// devices.push_key.
+	PushSeal int `json:"push_seal,omitempty"`
+	// PushKeyID names the key the host holds for this phone (pushseal.KeyID),
+	// so the phone sends its key only when they differ.
+	PushKeyID string `json:"push_key_id,omitempty"`
+}
+
+// PushKeyParams is the secret a phone's pushes are sealed with:
+// pushseal.SecretSize random bytes, or empty to forget it (and get none).
+type PushKeyParams struct {
+	Secret []byte `json:"secret"`
+}
+
+// PushKeyResult names the key the host now holds; empty once forgotten.
+type PushKeyResult struct {
+	KeyID string `json:"key_id"`
 }
 
 // RegisterPushParams is a push token and its grant; the host stamps when it
@@ -91,6 +111,8 @@ func Register(r *rpc.Router, d Deps) {
 	// and features, which pick the prompt its turns get.
 	rpc.Add(r, "devices.hello", d.hello, rpc.Paired)
 	rpc.Add(r, "devices.register_push", d.registerPush, rpc.Paired)
+	// Only over the phone's own end-to-end channel: the relay must never see it.
+	rpc.Add(r, "devices.push_key", d.pushKey, rpc.Paired)
 	// Not Paired: the owner at the machine revokes a lost phone from the CLI.
 	rpc.Add(r, "devices.revoke", d.revoke, rpc.Detached)
 }
@@ -99,7 +121,28 @@ func (d Deps) hello(_ context.Context, c rpc.Caller, a HelloParams) (HelloResult
 	if err := d.Store.SetClient(c.Device, a.Client); err != nil {
 		return HelloResult{}, err
 	}
-	return HelloResult{Push: d.Store.HeldPush(c.Device)}, nil
+	result := HelloResult{Push: d.Store.HeldPush(c.Device), PushSeal: pushseal.FeatureAlerts}
+	if peer, err := d.Store.Peer(c.Device); err == nil && len(peer.PushKey) > 0 {
+		result.PushKeyID = pushseal.KeyID(peer.PushKey)
+	}
+	return result, nil
+}
+
+// pushKey saves the phone's push key and has the drivers push again, so
+// every card it shows is resealed under it.
+func (d Deps) pushKey(_ context.Context, c rpc.Caller, a PushKeyParams) (PushKeyResult, error) {
+	changed, err := d.Store.SetPushKey(c.Device, a.Secret)
+	if err != nil {
+		return PushKeyResult{}, err
+	}
+	// The same key again, as after a lost reply, has nothing to reseal.
+	if d.PushChanged != nil && changed {
+		d.PushChanged(c.Device, device.PushKeyChanged)
+	}
+	if len(a.Secret) == 0 {
+		return PushKeyResult{}, nil
+	}
+	return PushKeyResult{KeyID: pushseal.KeyID(a.Secret)}, nil
 }
 
 func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams) (rpc.Ack, error) {
@@ -117,7 +160,7 @@ func (d Deps) registerPush(_ context.Context, c rpc.Caller, a RegisterPushParams
 		return rpc.Ack{}, err
 	}
 	if d.PushChanged != nil {
-		d.PushChanged(a.Kind)
+		d.PushChanged(c.Device, a.Kind)
 	}
 	return rpc.OK, nil
 }

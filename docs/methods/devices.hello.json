@@ -8,5 +8,7 @@
       "granted_at": 1,
       "integrity": true
     }
-  ]
+  ],
+  "push_seal": 1,
+  "push_key_id": "push_key_id"
 }

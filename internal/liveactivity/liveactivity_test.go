@@ -1,6 +1,8 @@
 package liveactivity
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +20,7 @@ import (
 	"github.com/repogoapp/host/internal/jsonrpc"
 	"github.com/repogoapp/host/internal/push/pushtest"
 	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/pushseal"
 	"github.com/repogoapp/host/internal/store"
 )
 
@@ -42,6 +45,21 @@ func (r rows) Active() ([]store.Chat, error) {
 	return out, nil
 }
 
+// Chats lists the chats newest activity first, then by id, as the store does;
+// children are left out.
+func (r rows) Chats(q store.ChatQuery) (store.ChatPage, error) {
+	var out []store.Chat
+	for _, c := range r {
+		if c.ParentID == "" {
+			out = append(out, c)
+		}
+	}
+	slices.SortFunc(out, func(a, b store.Chat) int {
+		return cmp.Or(cmp.Compare(b.ActivityAt, a.ActivityAt), cmp.Compare(a.ID, b.ID))
+	})
+	return store.ChatPage{Chats: out[:min(len(out), q.Limit)]}, nil
+}
+
 type fixture struct {
 	t       *testing.T
 	d       *Driver
@@ -64,10 +82,43 @@ func setup(t *testing.T) *fixture {
 	}
 	f := &fixture{t: t, sender: &pushtest.Sender{}, devices: devices, phone: phone, rows: rows{},
 		now: time.Now()}
+	f.keyed(phone.ID)
 	f.register(device.PushToStart, "57a4")
 	f.d = New(f.rows, devices, f.sender, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	f.d.now = func() time.Time { return f.now }
 	return f
+}
+
+// testKey is every test phone's push key: nothing goes out unsealed.
+var testKey = bytes.Repeat([]byte{9}, pushseal.SecretSize)
+
+// keyed has a paired phone open sealed pushes, as the app does on connect.
+func (f *fixture) keyed(id device.ID) {
+	f.t.Helper()
+	if err := f.devices.SetClient(id, device.Client{Platform: "ios", Features: map[string]int{device.FeaturePushSeal: pushseal.FeatureAlerts}}); err != nil {
+		f.t.Fatal(err)
+	}
+	if _, err := f.devices.SetPushKey(id, testKey); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// opened is a sealed content-state's counts and chats.
+func (f *fixture) opened(raw json.RawMessage) sealedCounts {
+	f.t.Helper()
+	var state struct {
+		Sealed pushseal.Envelope `json:"sealed"`
+	}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		f.t.Fatalf("content-state %s", raw)
+	}
+	plain, err := pushseal.Open(testKey, string(f.devices.Identity().ID), pushseal.AgentsState, "", state.Sealed)
+	if err != nil {
+		f.t.Fatalf("content-state does not open: %v", err)
+	}
+	var got sealedCounts
+	_ = json.Unmarshal(plain, &got)
+	return got
 }
 
 func (f *fixture) register(kind, token string) {
@@ -82,7 +133,7 @@ func (f *fixture) register(kind, token string) {
 func (f *fixture) set(status agent.ChatStatus, ids ...string) {
 	for _, id := range ids {
 		kind, _, _ := strings.Cut(id, ":")
-		f.rows[store.ChatID(id)] = store.Chat{ID: store.ChatID(id), Agent: kind, Status: status}
+		f.rows[store.ChatID(id)] = store.Chat{ID: store.ChatID(id), Agent: kind, Status: status, StatusAt: f.now.UnixMilli()}
 		f.d.observe(store.ChatID(id))
 	}
 	f.d.update(context.Background())
@@ -105,8 +156,7 @@ func (f *fixture) last() (event, token string, counts Counts, aps map[string]jso
 		f.t.Fatal(err)
 	}
 	_ = json.Unmarshal(body.APS["event"], &event)
-	_ = json.Unmarshal(body.APS["content-state"], &counts)
-	return event, req.Token, counts, body.APS
+	return event, req.Token, f.opened(body.APS["content-state"]).Counts, body.APS
 }
 
 func TestFirstWorkingChatStartsTheActivity(t *testing.T) {
@@ -131,15 +181,15 @@ func TestFirstWorkingChatStartsTheActivity(t *testing.T) {
 
 // Apple and the relay read every push, so the card carries numbers and
 // nothing else.
-func TestPayloadCarriesOnlyCounts(t *testing.T) {
+// The push holds nothing about the chats in the clear: the state is a box.
+func TestPayloadHoldsOnlyTheBox(t *testing.T) {
 	f := setup(t)
 	f.rows["claude:s1"] = store.Chat{ID: "claude:s1", Agent: "claude", Title: "Fix the login secret", CWD: "/Users/me/secret-project"}
 	f.set(agent.ChatAwaitingApproval, "claude:s1")
 	_, _, _, aps := f.last()
 	var state map[string]any
 	_ = json.Unmarshal(aps["content-state"], &state)
-	keys := slices.Sorted(maps.Keys(state))
-	if !slices.Equal(keys, []string{"finished", "needs_you", "working"}) {
+	if keys := slices.Sorted(maps.Keys(state)); !slices.Equal(keys, []string{"sealed"}) {
 		t.Errorf("content-state keys %v", keys)
 	}
 	raw := string(f.sender.Calls[0].Payload)
@@ -147,6 +197,34 @@ func TestPayloadCarriesOnlyCounts(t *testing.T) {
 		if strings.Contains(raw, leak) {
 			t.Errorf("payload holds %q: %s", leak, raw)
 		}
+	}
+}
+
+// The card fills its rows with the newest done chats under the active ones,
+// stopped ones too, and a chat another agent started stays off it.
+func TestRowsFillWithRecentDoneChats(t *testing.T) {
+	f := setup(t)
+	done := map[string]agent.ChatStatus{
+		"claude:old": agent.ChatCompleted, "claude:stopped": agent.ChatCancelled,
+		"claude:broke": agent.ChatFailed, "claude:done": agent.ChatCompleted,
+	}
+	for i, id := range []string{"claude:old", "claude:stopped", "claude:broke", "claude:done"} {
+		f.rows[store.ChatID(id)] = store.Chat{ID: store.ChatID(id), Title: strings.TrimPrefix(id, "claude:"), Status: done[id], ActivityAt: int64(i + 1)}
+	}
+	f.rows["claude:kid"] = store.Chat{ID: "claude:kid", Title: "kid", Status: agent.ChatCompleted, ActivityAt: 99, ParentID: "claude:done"}
+	f.rows["claude:run"] = store.Chat{ID: "claude:run", Title: "run", Status: agent.ChatWorking, ActivityAt: 100}
+	f.d.observe("claude:run")
+
+	want := []Row{{"run", RowWorking}, {"done", RowFinished}, {"broke", RowFailed}, {"stopped", RowStopped}}
+	if got := f.d.card().Chats; !slices.Equal(got, want) {
+		t.Fatalf("rows %+v, want %+v", got, want)
+	}
+	// The work ends: its chat stays, as done, and the rows stay full.
+	f.rows["claude:run"] = store.Chat{ID: "claude:run", Title: "run", Status: agent.ChatCompleted, ActivityAt: 100}
+	f.d.observe("claude:run")
+	want = []Row{{"run", RowFinished}, {"done", RowFinished}, {"broke", RowFailed}, {"stopped", RowStopped}}
+	if got := f.d.card().Chats; !slices.Equal(got, want) {
+		t.Fatalf("after the finish %+v, want %+v", got, want)
 	}
 }
 
@@ -279,7 +357,7 @@ func TestRemovedChatLeavesTheCounts(t *testing.T) {
 	f.set(agent.ChatWorking, "claude:s1", "claude:s2")
 	delete(f.rows, "claude:s2")
 	f.d.observe("claude:s2")
-	if c := f.d.counts(); c.Working != 1 {
+	if c := f.d.card().Counts; c.Working != 1 {
 		t.Errorf("counts %+v", c)
 	}
 }
@@ -365,6 +443,39 @@ func TestFailedPushIsRetried(t *testing.T) {
 	}
 }
 
+// A phone that keeps failing is retried less and less, and an end that keeps
+// failing is given up, so one bad phone can't push forever.
+func TestFailingPushesBackOffAndEndsGiveUp(t *testing.T) {
+	f := setup(t)
+	f.register(device.PushActivity, "a1")
+	f.sender.Reply = errors.New("relay refuses")
+	f.set(agent.ChatWorking, "claude:s1")
+	var gaps []time.Duration
+	for range 5 {
+		gaps = append(gaps, f.d.wakeAt.Sub(f.now))
+		f.now = f.d.wakeAt
+		f.d.push(context.Background())
+	}
+	for i := 1; i < len(gaps); i++ {
+		if gaps[i] < gaps[i-1] || gaps[i] > maxRetryGap {
+			t.Fatalf("retry gaps %v", gaps)
+		}
+	}
+	if gaps[len(gaps)-1] <= gaps[0] {
+		t.Fatalf("no backoff: %v", gaps)
+	}
+
+	f.set(agent.ChatCompleted, "claude:s1")
+	f.now = f.now.Add(idleTimeout)
+	for f.d.showing && f.now.Sub(f.d.idleSince) < idleTimeout+giveUpEnd+maxRetryGap {
+		f.d.push(context.Background())
+		f.now = f.now.Add(time.Minute)
+	}
+	if f.d.showing {
+		t.Fatal("a failing end is still tried")
+	}
+}
+
 // After a restart the counts come from the store, and a card left showing
 // with nothing active ends after the idle timeout.
 func TestRestartPicksUp(t *testing.T) {
@@ -410,7 +521,7 @@ func TestFinishedSurvivesLaterWrites(t *testing.T) {
 	f.set(agent.ChatWorking, "claude:s1", "claude:s2")
 	f.set(agent.ChatCompleted, "claude:s1")
 	f.set(agent.ChatCompleted, "claude:s1")
-	if c := f.d.counts(); c.Finished != 1 {
+	if c := f.d.card().Counts; c.Finished != 1 {
 		t.Errorf("counts %+v", c)
 	}
 }
@@ -422,7 +533,7 @@ func TestFailedReadKeepsState(t *testing.T) {
 	f.d.chats = failing{}
 	f.d.Changed(store.Change{Changed: []store.ChatID{"claude:s1"}})
 	f.d.observePending()
-	if c := f.d.counts(); c.Working != 1 {
+	if c := f.d.card().Counts; c.Working != 1 {
 		t.Errorf("counts %+v", c)
 	}
 	// The chat stays queued, and the next wake reads it again.
@@ -430,9 +541,9 @@ func TestFailedReadKeepsState(t *testing.T) {
 		t.Errorf("pending %v, next at %v", f.d.pending, f.d.wakeAt)
 	}
 	f.d.chats = f.rows
-	f.rows["claude:s1"] = store.Chat{ID: "claude:s1", Agent: "claude", Status: agent.ChatCompleted}
+	f.rows["claude:s1"] = store.Chat{ID: "claude:s1", Agent: "claude", Status: agent.ChatCompleted, StatusAt: f.now.UnixMilli()}
 	f.d.observePending()
-	if c := f.d.counts(); c.Working != 0 || c.Finished != 1 {
+	if c := f.d.card().Counts; c.Working != 0 || c.Finished != 1 {
 		t.Errorf("after the retry %+v", c)
 	}
 }
@@ -443,6 +554,9 @@ func (failing) Info(store.ChatID) (store.Chat, error) {
 	return store.Chat{}, errors.New("database is locked")
 }
 func (failing) Active() ([]store.Chat, error) { return nil, errors.New("database is locked") }
+func (failing) Chats(store.ChatQuery) (store.ChatPage, error) {
+	return store.ChatPage{}, errors.New("database is locked")
+}
 
 // A renewal whose end does not go through is retried, and starts nothing
 // that would leave the phone with two cards.

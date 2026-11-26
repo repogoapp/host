@@ -1,0 +1,72 @@
+[
+  {
+    "secret": "1111111111111111111111111111111111111111111111111111111111111111",
+    "kid": "3f128b2b",
+    "nonce": "010101010101010101010101",
+    "host": "Hk3vA9",
+    "purpose": "agents.state",
+    "bind": "",
+    "body": "{\"working\":2,\"needs_you\":1,\"finished\":0,\"at\":1764000123000}",
+    "sealed": {
+      "v": 1,
+      "kid": "3f128b2b",
+      "box": "AQEBAQEBAQEBAQEBN1AuEjz7DC-QxTDEQKzzDHTnwcS6Lk07DZMJGYQlZ0Oi2Bcu6IHqHJFBIaWP88KEF15I0mc6QhZA3cypix5bovx_A9ehYopATVLybkXMBd4"
+    }
+  },
+  {
+    "secret": "2222222222222222222222222222222222222222222222222222222222222222",
+    "kid": "2e956eba",
+    "nonce": "020202020202020202020202",
+    "host": "Hk3vA9",
+    "purpose": "steps.attrs",
+    "bind": "",
+    "body": "{\"key\":\"vercel/deploy:web\",\"project\":\"/Users/me/web\"}",
+    "sealed": {
+      "v": 1,
+      "kid": "2e956eba",
+      "box": "AgICAgICAgICAgICaP1pSj30sf4VtXBWQuQwHK1pmfS2hRtEC7Rfe5lfg_hxdQpJld38tu_r6kOYl7WhosWNwtIFVGXR_B93db2MMF51B5y3Oi4PQFZ3Gh29_DA"
+    }
+  },
+  {
+    "secret": "2222222222222222222222222222222222222222222222222222222222222222",
+    "kid": "2e956eba",
+    "nonce": "030303030303030303030303",
+    "host": "Hk3vA9",
+    "purpose": "steps.state",
+    "bind": "vercel/deploy:web",
+    "body": "{\"title\":\"Deploying\",\"body\":\"Building … 3/5 ✓\",\"at\":1764000124000}",
+    "sealed": {
+      "v": 1,
+      "kid": "2e956eba",
+      "box": "AwMDAwMDAwMDAwMDPlrm355Px0gZ0X3KWXuC7o8R1zpozBlRKHUbuGqNAQs3SEc8zAmd9o-rFit-jPXasu44uMGSY188kDs9i6FE3r4wRY6m3ctPScaPdzn5lLPMM2oU8Ouj3NKANo0Ryq6aRylLeEBhjIBDrjWjazbdZw"
+    }
+  },
+  {
+    "secret": "3333333333333333333333333333333333333333333333333333333333333333",
+    "kid": "ece9717b",
+    "nonce": "040404040404040404040404",
+    "host": "Hk3vA9",
+    "purpose": "fcm",
+    "bind": "",
+    "body": "{\"event\":\"update\",\"kind\":\"agents\"}",
+    "sealed": {
+      "v": 1,
+      "kid": "ece9717b",
+      "box": "BAQEBAQEBAQEBAQEOyYb65l73mzNh_ZsfQwiLVHpQCNr3azGqpIUZT6DksAVstGF2-ADY2IcM2YygF0tIpuWQsQvKiOg6BsO86OO-WQw4RgnXB5AzUz2j09YE1o"
+    }
+  },
+  {
+    "secret": "4444444444444444444444444444444444444444444444444444444444444444",
+    "kid": "921458c1",
+    "nonce": "050505050505050505050505",
+    "host": "Hk3vA9",
+    "purpose": "alert",
+    "bind": "",
+    "body": "{\"title\":\"Fix the login bug\",\"subtitle\":\"Claude finished in web\",\"body\":\"Fixed the token refresh; tests pass.\",\"thread\":\"claude:s1\",\"fields\":{\"chat_id\":\"claude:s1\",\"kind\":\"turn_end\"}}",
+    "sealed": {
+      "v": 1,
+      "kid": "921458c1",
+      "box": "BQUFBQUFBQUFBQUFHcon0DyZqSP0x7GpiBA61sxLnuanwB22diRJFZcBaQLU-dBqE4hkIj_zjLUaXjCHREn0CZlkOlcA9KRTBevjIzgAjwT0kCfJfQzteNFu0ioLMITdpR764E2u_8R03B0c_EwbDjWAtscH7yutIGi17PMtS30_If7vtXvnLIxS_bXkucpFn5XcbgT8uYL9TeuFSzNTd0OFvJOL87cJlmgJwNp3rDRVD9JYslyxR7bUTUu1vhTlD543Kz0g-5LYlxSIOFpE86lHH9L5aUfDe77BHg"
+    }
+  }
+]

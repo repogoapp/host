@@ -1,15 +1,17 @@
 // Package liveactivity keeps one Live Activity per paired phone for this
 // environment: an iOS Live Activity through APNs, or an Android Live Update
-// the app draws from FCM data messages. It carries counts only (working,
-// needs you, finished), since Apple, Google and the relay read every push in
-// plaintext.
+// the app draws from FCM data messages: counts (working, needs you,
+// finished) and the chats behind them, sealed for the phone (pushseal). A
+// phone that sent no key gets no card: nothing goes out in the clear.
 package liveactivity
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/push"
 	"github.com/repogoapp/host/internal/pushgate"
+	"github.com/repogoapp/host/internal/pushseal"
 	"github.com/repogoapp/host/internal/store"
 )
 
@@ -32,6 +35,12 @@ const (
 	// Past this without an update, the card says it may be outdated.
 	staleAfter = 30 * time.Minute
 
+	// A round that keeps failing waits longer each time, up to this; an end
+	// that keeps failing is given up this long after it was due, when the
+	// phones have long dropped the card.
+	maxRetryGap = 5 * time.Minute
+	giveUpEnd   = 15 * time.Minute
+
 	// iOS ends a Live Activity after eight hours. The host replaces it this
 	// long before, while it can still end the old one.
 	maxActivityAge = 8 * time.Hour
@@ -42,17 +51,51 @@ const (
 	startRetry = 10 * time.Minute
 )
 
-// Counts is the activity's content-state (`LiveActivityAttributes.ContentState`).
+// Counts is what the card counts (`LiveActivityAttributes.ContentState`),
+// sealed with its chats in the content-state.
 type Counts struct {
 	Working  int `json:"working"`
 	NeedsYou int `json:"needs_you"`
 	Finished int `json:"finished"`
 }
 
-// Chats reads chat rows; the store does.
+// Row is one chat on the card: its title and where it stands.
+type Row struct {
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// The statuses a Row shows, and how many rows a card carries: a push is at
+// most 4 KB, sealed and encoded. Older hosts sent needs_you for both
+// waits and finished for every ending; apps still read those.
+const (
+	RowQuestion = "question"
+	RowApproval = "approval"
+	RowWorking  = "working"
+	RowFinished = "finished"
+	RowFailed   = "failed"
+	RowStopped  = "stopped"
+
+	maxRows     = 4
+	maxRowTitle = 48
+
+	// How many of the newest chats the card reads for its done rows and
+	// Finished count: enough for the turns a card sees end.
+	recentScan = 50
+)
+
+// chatInfo is what a row needs of a working or waiting chat.
+type chatInfo struct {
+	title    string
+	statusAt int64
+}
+
+// Chats reads chat rows; the store does. Chats lists the newest first, for
+// the done chats under the active ones.
 type Chats interface {
 	Info(store.ChatID) (store.Chat, error)
 	Active() ([]store.Chat, error)
+	Chats(store.ChatQuery) (store.ChatPage, error)
 }
 
 // Driver is owned by Run: only the pending set is touched from outside it.
@@ -73,14 +116,16 @@ type Driver struct {
 
 	// Chats working or waiting on the user, by status.
 	active map[store.ChatID]agent.ChatStatus
-	// Chats that finished while the card was showing.
-	finished map[store.ChatID]bool
+	// The title and status time of each chat in active.
+	info map[store.ChatID]chatInfo
 	// The card is on the phones, or being started there.
 	showing bool
 	// When the last active chat settled; zero while any is active.
 	idleSince time.Time
 	// The last round of pushes.
 	last delivery
+	// Rounds in a row that left a phone to retry.
+	failures int
 	// Starts sent to phones that have not sent the update token yet.
 	startSentAt map[device.ID]time.Time
 	// Android's side: the card's generation, new each time it starts showing,
@@ -95,6 +140,7 @@ type Driver struct {
 
 type delivery struct {
 	counts Counts
+	rows   []Row
 	at     time.Time
 	ok     bool
 }
@@ -105,7 +151,8 @@ func New(chats Chats, devices *device.Store, send push.Sender, log *slog.Logger)
 	return &Driver{
 		chats: chats, devices: devices, send: send, log: log, now: time.Now,
 		pending: map[store.ChatID]bool{}, wake: make(chan struct{}, 1),
-		active: map[store.ChatID]agent.ChatStatus{}, finished: map[store.ChatID]bool{}, startSentAt: map[device.ID]time.Time{},
+		active: map[store.ChatID]agent.ChatStatus{}, info: map[store.ChatID]chatInfo{},
+		startSentAt:  map[device.ID]time.Time{},
 		androidShown: map[device.ID]bool{},
 	}
 }
@@ -167,6 +214,7 @@ func (d *Driver) restore(ctx context.Context) {
 	}
 	for _, row := range rows {
 		d.active[row.ID] = row.Status
+		d.info[row.ID] = infoOf(row)
 	}
 	for _, peer := range d.devices.Peers() {
 		// An Android phone may still show a card from before the restart:
@@ -205,27 +253,20 @@ func (d *Driver) observePending() {
 	}
 }
 
-// observe moves one chat between active, finished and gone; false when the
-// chat could not be read, which keeps what is known.
+// observe moves one chat in or out of active; false when the chat could not
+// be read, which keeps what is known.
 func (d *Driver) observe(id store.ChatID) bool {
 	row, err := d.chats.Info(id)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		d.log.Warn("liveactivity: could not read chat", "chat", id, "err", err)
 		return false
 	}
-	_, wasActive := d.active[id]
-	switch {
-	case err != nil:
-		delete(d.active, id)
-		delete(d.finished, id)
-	case row.Status.Active():
+	if err == nil && row.Status.Active() {
 		d.active[id] = row.Status
-		delete(d.finished, id)
-	case wasActive:
+		d.info[id] = infoOf(row)
+	} else {
 		delete(d.active, id)
-		if row.Status == agent.ChatCompleted || row.Status == agent.ChatFailed {
-			d.finished[id] = true
-		}
+		delete(d.info, id)
 	}
 	switch {
 	case len(d.active) > 0:
@@ -236,38 +277,106 @@ func (d *Driver) observe(id store.ChatID) bool {
 	return true
 }
 
-// counts is the card as it stands.
-func (d *Driver) counts() Counts {
+// infoOf is a chat's row title, its own or its last message's.
+func infoOf(c store.Chat) chatInfo {
+	return chatInfo{title: push.Line(cmp.Or(c.Title, c.LastUserMessagePreview, "Chat"), maxRowTitle), statusAt: c.StatusAt}
+}
+
+// card is what the phones show: needing the user, then working, each newest
+// first, then the newest done chats (finished, failed or stopped, as Activity
+// lists them) to fill maxRows, so a chat that ends stays until newer ones take
+// its row. Finished counts turns that completed or failed since the card
+// started, from one read of the store.
+func (d *Driver) card() card {
 	var c Counts
-	for _, status := range d.active {
-		switch status {
-		case agent.ChatAwaitingApproval, agent.ChatAwaitingUser:
-			c.NeedsYou++
-		default:
+	type ranked struct {
+		Row
+		at int64
+	}
+	var active []ranked
+	for id, status := range d.active {
+		r := activeRow(status)
+		if r == RowWorking {
 			c.Working++
+		} else {
+			c.NeedsYou++
+		}
+		active = append(active, ranked{Row{d.info[id].title, r}, d.info[id].statusAt})
+	}
+	slices.SortFunc(active, func(a, b ranked) int {
+		return cmp.Or(cmp.Compare(rowRank(a.Status), rowRank(b.Status)), cmp.Compare(b.at, a.at), cmp.Compare(a.Title, b.Title))
+	})
+	rows := make([]Row, 0, maxRows)
+	for _, r := range active[:min(len(active), maxRows)] {
+		rows = append(rows, r.Row)
+	}
+
+	// The active ones come back in the page too.
+	page, err := d.chats.Chats(store.ChatQuery{Limit: recentScan + len(d.active)})
+	if err != nil {
+		d.log.Warn("liveactivity: could not read recent chats", "err", err)
+	}
+	for _, chat := range page.Chats {
+		if _, running := d.active[chat.ID]; running || chat.Status.Active() {
+			continue
+		}
+		if (chat.Status == agent.ChatCompleted || chat.Status == agent.ChatFailed) && chat.StatusAt >= d.generation {
+			c.Finished++
+		}
+		if len(rows) < maxRows {
+			rows = append(rows, Row{infoOf(chat).title, doneRow(chat.Status)})
 		}
 	}
-	c.Finished = len(d.finished)
-	return c
+	return card{c, rows}
+}
+
+// activeRow is a running chat's row status: what it waits on, or working.
+func activeRow(status agent.ChatStatus) string {
+	switch status {
+	case agent.ChatAwaitingApproval:
+		return RowApproval
+	case agent.ChatAwaitingUser:
+		return RowQuestion
+	}
+	return RowWorking
+}
+
+// doneRow is how an ended chat's turn ended: failed, stopped or finished.
+func doneRow(status agent.ChatStatus) string {
+	switch status {
+	case agent.ChatFailed:
+		return RowFailed
+	case agent.ChatCancelled, agent.ChatInterrupted:
+		return RowStopped
+	}
+	return RowFinished
+}
+
+// rowRank puts the chats needing the user above the working ones.
+func rowRank(status string) int {
+	if status == RowWorking {
+		return 1
+	}
+	return 0
 }
 
 // update pushes after a change: at once when the card is new, the user is
 // needed or the work stops, else no sooner than updateInterval.
 func (d *Driver) update(ctx context.Context) {
-	c := d.counts()
 	switch {
 	case !d.showing && len(d.active) == 0:
 		// Nothing to show and nothing showing; a finish alone starts nothing.
-		clear(d.finished)
 		return
 	case !d.showing:
 		d.showing = true
 		d.generation = d.now().UnixMilli()
 		clear(d.androidShown)
-	case c == d.last.counts && d.last.ok:
+	}
+	c := d.card()
+	if c.Counts == d.last.counts && slices.Equal(c.Chats, d.last.rows) && d.last.ok {
 		return
 	}
-	urgent := d.last.at.IsZero() || c.NeedsYou > d.last.counts.NeedsYou || c.Working+c.NeedsYou == 0
+	urgent := d.urgent(c.Counts)
 	if next := d.last.at.Add(updateInterval); !urgent && d.now().Before(next) {
 		d.wakeAt = earliest(d.wakeAt, next)
 		return
@@ -281,14 +390,18 @@ func (d *Driver) push(ctx context.Context) {
 	if !d.showing || ctx.Err() != nil {
 		return
 	}
-	c := d.counts()
+	c := d.card()
 	now := d.now()
 	ending := len(d.active) == 0 && now.Sub(d.idleSince) >= idleTimeout
 	// Android gets running counts at normal priority; these wake the phone.
-	urgent := ending || d.last.at.IsZero() || c.NeedsYou > d.last.counts.NeedsYou || c.Working+c.NeedsYou == 0
+	urgent := ending || d.urgent(c.Counts)
 	d.revision++
 	var round peerResult
 	for _, peer := range d.devices.Peers() {
+		// Nothing goes out in the clear: a phone with no key gets no card.
+		if push.SealKey(peer) == nil {
+			continue
+		}
 		var r peerResult
 		switch {
 		case push.IsFCM(peer.PushToStart):
@@ -304,22 +417,30 @@ func (d *Driver) push(ctx context.Context) {
 	d.settle(c, now, ending, round)
 }
 
+// urgent is a change worth pushing at once and waking the phone for: the
+// first, the user newly needed, or the work stopping.
+func (d *Driver) urgent(c Counts) bool {
+	return d.last.at.IsZero() || c.NeedsYou > d.last.counts.NeedsYou || c.Working+c.NeedsYou == 0
+}
+
 // settle records a round of pushes and sets when Run pushes next.
-func (d *Driver) settle(c Counts, now time.Time, ending bool, round peerResult) {
+func (d *Driver) settle(c card, now time.Time, ending bool, round peerResult) {
 	d.wakeAt = round.nextAt
 	if round.retry {
-		d.wakeAt = earliest(d.wakeAt, now.Add(updateInterval))
+		d.failures++
+		d.wakeAt = earliest(d.wakeAt, now.Add(push.Backoff(d.failures, updateInterval, maxRetryGap)))
+	} else {
+		d.failures = 0
 	}
 	if ending {
-		if !round.retry {
+		if !round.retry || now.Sub(d.idleSince) >= idleTimeout+giveUpEnd {
 			d.showing, d.last, d.wakeAt = false, delivery{}, time.Time{}
-			clear(d.finished)
 			clear(d.startSentAt)
 			clear(d.androidShown)
 		}
 		return
 	}
-	d.last = delivery{counts: c, at: now, ok: !round.retry}
+	d.last = delivery{counts: c.Counts, rows: c.Chats, at: now, ok: !round.retry}
 	if len(d.active) == 0 {
 		d.wakeAt = earliest(d.wakeAt, d.idleSince.Add(idleTimeout))
 	}
@@ -333,11 +454,11 @@ type peerResult struct {
 
 // pushPeer updates the phone's card, or starts one where it has none, its
 // card was dismissed, or the card is due for renewal.
-func (d *Driver) pushPeer(ctx context.Context, peer device.Peer, c Counts, now time.Time) peerResult {
+func (d *Driver) pushPeer(ctx context.Context, peer device.Peer, c card, now time.Time) peerResult {
 	if act := peer.Activity; act != nil {
 		renewAt := renewalAt(*act)
 		if now.Before(renewAt) {
-			switch d.deliver(ctx, peer, device.PushActivity, *act, d.payload("update", c)) {
+			switch d.deliver(ctx, peer, device.PushActivity, *act, "update", c) {
 			case delivered:
 				delete(d.startSentAt, peer.ID)
 				return peerResult{nextAt: renewAt}
@@ -355,14 +476,14 @@ func (d *Driver) pushPeer(ctx context.Context, peer device.Peer, c Counts, now t
 // startPeer starts a card on the phone while there is work to show, at most
 // once per startRetry until its update token arrives. A start still waiting
 // on its token wakes the loop then, so the card gets the counts since.
-func (d *Driver) startPeer(ctx context.Context, peer device.Peer, c Counts, now time.Time) peerResult {
+func (d *Driver) startPeer(ctx context.Context, peer device.Peer, c card, now time.Time) peerResult {
 	if at, ok := d.startSentAt[peer.ID]; ok && now.Before(at.Add(startRetry)) {
 		return peerResult{nextAt: at.Add(startRetry)}
 	}
 	if peer.PushToStart == nil || c.Working+c.NeedsYou == 0 {
 		return peerResult{}
 	}
-	switch d.deliver(ctx, peer, device.PushToStart, *peer.PushToStart, d.payload("start", c)) {
+	switch d.deliver(ctx, peer, device.PushToStart, *peer.PushToStart, "start", c) {
 	case delivered:
 		d.startSentAt[peer.ID] = now
 		// Then: the card's token, if it came, gets this round's renewal time.
@@ -374,12 +495,12 @@ func (d *Driver) startPeer(ctx context.Context, peer device.Peer, c Counts, now 
 }
 
 // endPeer ends the phone's card and forgets its token.
-func (d *Driver) endPeer(ctx context.Context, peer device.Peer, c Counts) peerResult {
+func (d *Driver) endPeer(ctx context.Context, peer device.Peer, c card) peerResult {
 	act := peer.Activity
 	if act == nil {
 		return peerResult{}
 	}
-	switch d.deliver(ctx, peer, device.PushActivity, *act, d.payload("end", c)) {
+	switch d.deliver(ctx, peer, device.PushActivity, *act, "end", c) {
 	case failed:
 		return peerResult{retry: true}
 	case delivered:
@@ -391,7 +512,7 @@ func (d *Driver) endPeer(ctx context.Context, peer device.Peer, c Counts) peerRe
 // pushAndroid sends the counts to an Android phone as a data message, which
 // its app draws as a Live Update. One token serves every round: no start
 // token to wait on and no renewal, as Android doesn't end the card itself.
-func (d *Driver) pushAndroid(ctx context.Context, peer device.Peer, c Counts, ending, urgent bool) peerResult {
+func (d *Driver) pushAndroid(ctx context.Context, peer device.Peer, c card, ending, urgent bool) peerResult {
 	event := "update"
 	switch {
 	case ending:
@@ -399,13 +520,18 @@ func (d *Driver) pushAndroid(ctx context.Context, peer device.Peer, c Counts, en
 	case !d.androidShown[peer.ID]:
 		event, urgent = "start", true
 	}
+	host := string(d.devices.Identity().ID)
 	req := push.Request(peer, *peer.PushToStart)
-	req.Payload = push.Data(map[string]any{
-		"kind": "agents", "host_id": string(d.devices.Identity().ID), "event": event,
+	sealed, err := push.SealData(push.SealKey(peer), host, push.Data(map[string]any{
+		"kind": "agents", "host_id": host, "event": event,
 		"generation": strconv.FormatInt(d.generation, 10), "revision": strconv.FormatInt(d.revision, 10),
-		"timestamp": strconv.FormatInt(d.now().UnixMilli(), 10), "state": c,
-	})
-	req.Priority = 5
+		"timestamp": strconv.FormatInt(d.now().UnixMilli(), 10), "state": c.Counts, "chats": c.Chats,
+	}))
+	if err != nil {
+		d.log.Error("liveactivity: could not seal", "device", peer.ID, "err", err)
+		return peerResult{retry: true}
+	}
+	req.Payload, req.Priority = sealed, 5
 	if urgent {
 		req.Priority = 10
 	}
@@ -428,25 +554,45 @@ func renewalAt(act device.PushTarget) time.Time {
 	return time.UnixMilli(act.At).Add(maxActivityAge - renewBefore)
 }
 
-// payload is the `aps` body for event. iOS drops a start without an alert,
-// and issues an update token only when the start asks for one.
-func (d *Driver) payload(event string, c Counts) []byte {
+// card is one round's content: the counts and the chats behind them, read
+// once and sent to every phone.
+type card struct {
+	Counts
+	Chats []Row
+}
+
+// sealedCounts is what an agents.state box holds: the counts and when they
+// were sent, so the widget can tell a replayed state from a newer one.
+type sealedCounts struct {
+	Counts
+	Chats []Row `json:"chats,omitempty"`
+	At    int64 `json:"at"`
+}
+
+// payload is the `aps` body for event, its content-state sealed under key.
+// iOS drops a start without an alert, and issues an update token only when
+// the start asks for one.
+func (d *Driver) payload(event string, c card, key []byte) ([]byte, error) {
 	now := d.now()
+	host := string(d.devices.Identity().ID)
+	env, err := pushseal.Seal(key, host, pushseal.AgentsState, "", sealedCounts{c.Counts, c.Chats, now.UnixMilli()})
+	if err != nil {
+		return nil, err
+	}
 	aps := map[string]any{
-		"timestamp": now.Unix(), "event": event, "content-state": c,
+		"timestamp": now.Unix(), "event": event, "content-state": push.Sealed{Sealed: env},
 		"stale-date": now.Add(staleAfter).Unix(),
 	}
 	switch event {
 	case "start":
 		aps["attributes-type"] = "LiveActivityAttributes"
-		aps["attributes"] = map[string]any{"host_id": string(d.devices.Identity().ID)}
+		aps["attributes"] = map[string]any{"host_id": host}
 		aps["alert"] = map[string]any{"title": "RepoGo", "body": "Working on your environment"}
 		aps["input-push-token"] = 1
 	case "end":
 		aps["dismissal-date"] = now.Unix()
 	}
-	body, _ := json.Marshal(map[string]any{"aps": aps})
-	return body
+	return json.Marshal(map[string]any{"aps": aps})
 }
 
 type outcome int
@@ -454,12 +600,18 @@ type outcome int
 const (
 	delivered outcome = iota
 	failed            // worth trying again
-	dead              // Apple will never take this token
+	dead              // the push service will never take this token
 )
 
-// deliver sends one push and forgets a token Apple says is dead. Always high
-// priority: Apple holds low-priority updates while the phone is locked.
-func (d *Driver) deliver(ctx context.Context, peer device.Peer, kind string, to device.PushTarget, payload []byte) outcome {
+// deliver sends one event's push and forgets a token Apple says is dead.
+// Always high priority: Apple holds low-priority updates while the phone is
+// locked. A push that can't be sealed is a retry, never a dead token.
+func (d *Driver) deliver(ctx context.Context, peer device.Peer, kind string, to device.PushTarget, event string, c card) outcome {
+	payload, err := d.payload(event, c, push.SealKey(peer))
+	if err != nil {
+		d.log.Error("liveactivity: could not seal", "device", peer.ID, "err", err)
+		return failed
+	}
 	req := push.Request(peer, to)
 	req.Payload, req.PushType, req.Priority = payload, pushgate.PushTypeLiveActivity, 10
 	isDead, err := push.Try(ctx, d.send, req)

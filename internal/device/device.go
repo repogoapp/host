@@ -81,6 +81,23 @@ type Peer struct {
 	// never written in place, so a Peer read earlier keeps its own.
 	StepsStart *PushTarget           `json:"steps_start,omitempty"`
 	Steps      map[string]PushTarget `json:"steps,omitempty"`
+
+	// PushKey is the secret the phone sent to seal its pushes
+	// (pushseal); it never leaves this file.
+	PushKey []byte `json:"push_key,omitempty"`
+}
+
+// FeaturePushSeal is the Client feature of a phone that opens sealed pushes,
+// valued the highest box version it opens.
+const FeaturePushSeal = "push_seal"
+
+// SealKey is the secret to seal this phone's pushes with, or nil when it gets
+// none: it has to have sent one and advertise push_seal at level or above.
+func (p Peer) SealKey(level int) []byte {
+	if len(p.PushKey) == 0 || p.Features[FeaturePushSeal] < level {
+		return nil
+	}
+	return p.PushKey
 }
 
 // Client is what a device says it is. Pairing gives the platform; each

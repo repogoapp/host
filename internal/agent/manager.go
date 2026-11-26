@@ -45,6 +45,9 @@ type TurnStatus struct {
 	// The chat whose agent started this one. Off the wire: it is written to
 	// the chat's marks once the chat has its id.
 	Parent string `json:"-"`
+	// The device that sent the turn, empty for one no phone sent (a
+	// schedule, a plugin). Off the wire: its alerts go to that phone alone.
+	Device device.ID `json:"-"`
 
 	SessionID          string  `json:"session_id,omitempty"`
 	ProviderStopReason *string `json:"provider_stop_reason,omitempty"`
@@ -423,6 +426,7 @@ func (m *Manager) newTurn(req TurnRequest, turnID string, queuedAt time.Time) *t
 			PermissionMode: req.Config.PermissionMode,
 			Title:          req.Title,
 			Parent:         req.Parent,
+			Device:         req.Device,
 		},
 	}
 }
@@ -656,7 +660,9 @@ func (m *Manager) asker(t *turn) func(context.Context, Approval) (json.RawMessag
 		select {
 		case <-ctx.Done():
 			// The turn was stopped or the process died. Declining is the only
-			// safe answer for an agent that is still waiting.
+			// safe answer for an agent that is still waiting. The card goes
+			// too: a tap on it would answer nothing.
+			t.withdraw(a.CallID)
 			return nil, ctx.Err()
 		case answer := <-ch:
 			t.publish(Event{Kind: EventApprovalResolved, Approval: &Approval{CallID: a.CallID, Title: string(answer)}})
@@ -896,6 +902,9 @@ func (m *Manager) SendQueued(turnID string, device device.ID) (TurnStatus, error
 	m.pending[chatID] = slices.Delete(q, i, i+1)
 	t.held = false
 	t.req.Device = device
+	t.mu.Lock()
+	t.status.Device = device
+	t.mu.Unlock()
 	m.running[chatID] = t
 	queue := m.queuedLocked(chatID)
 	m.mu.Unlock()

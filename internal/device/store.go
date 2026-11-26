@@ -1,6 +1,7 @@
 package device
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/repogoapp/host/internal/apphome"
 	"github.com/repogoapp/host/internal/errkind"
+	"github.com/repogoapp/host/internal/pushseal"
 )
 
 // Store holds this device's identity and everyone it has paired with. The
@@ -173,6 +175,9 @@ const (
 	// PushSteps is one step activity's update token, saved by its key with
 	// RegisterStepsPush.
 	PushSteps = "steps"
+	// PushKeyChanged is no token: the phone sent a new push key, so every
+	// card it shows needs its state again, sealed under it.
+	PushKeyChanged = "push_key"
 )
 
 // RegisterPush saves one of the phone's tokens by kind. An empty token
@@ -320,6 +325,32 @@ func (s *Store) SetClient(id ID, c Client) error {
 	}
 	return s.commit(func() {
 		p.Client = c
+		// An app that no longer opens sealed pushes, as after a downgrade,
+		// loses its key and its pushes; its next upgrade sends a new key.
+		if c.Features[FeaturePushSeal] == 0 {
+			p.PushKey = nil
+		}
+		s.peers[id] = p
+	})
+}
+
+// SetPushKey saves the secret a phone seals its pushes with; empty forgets
+// it. changed is false for the key it already held, as on a resend.
+func (s *Store) SetPushKey(id ID, secret []byte) (changed bool, err error) {
+	if len(secret) != 0 && len(secret) != pushseal.SecretSize {
+		return false, fmt.Errorf("%w: push key must be %d bytes", errkind.ErrInvalid, pushseal.SecretSize)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.peers[id]
+	if !ok {
+		return false, ErrUnknownDevice
+	}
+	if bytes.Equal(p.PushKey, secret) {
+		return false, nil
+	}
+	return true, s.commit(func() {
+		p.PushKey = bytes.Clone(secret)
 		s.peers[id] = p
 	})
 }
