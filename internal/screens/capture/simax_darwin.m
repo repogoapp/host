@@ -172,6 +172,13 @@ static BOOL isField(NSString *role) {
          [role isEqual:@"AXTextArea"];
 }
 
+// isControl is whether a role is one a touch acts on, which can be disabled.
+static BOOL isControl(NSString *role) {
+  return isField(role) || [role isEqual:@"AXButton"] || [role isEqual:@"AXCheckBox"] ||
+         [role isEqual:@"AXSwitch"] || [role isEqual:@"AXRadioButton"] || [role isEqual:@"AXSlider"] ||
+         [role isEqual:@"AXPopUpButton"] || [role isEqual:@"AXMenuButton"] || [role isEqual:@"AXLink"];
+}
+
 // The read in progress: what was found, where, and which grid cells it covers.
 typedef struct {
   NSMutableArray<NSDictionary *> *found;
@@ -197,7 +204,7 @@ static void add(Read *r, NSAccessibilityElement *e, NSString *source) {
     id placeholder = attribute(e, NSAccessibilityPlaceholderValueAttribute);
     if ([placeholder isKindOfClass:NSString.class]) valueText = placeholder;
   }
-  [r->found addObject:@{
+  NSMutableDictionary *found = [@{
     @"role" : [role hasPrefix:@"AX"] ? [role substringFromIndex:2] : role,
     @"label" : label,
     @"value" : valueText,
@@ -207,7 +214,21 @@ static void add(Read *r, NSAccessibilityElement *e, NSString *source) {
     @"w" : @(round(f.size.width)),
     @"h" : @(round(f.size.height)),
     @"source" : source,
-  }];
+  } mutableCopy];
+  // Each attribute is a round trip to the device: only controls are asked.
+  if (isControl(role)) {
+    id enabled = attribute(e, NSAccessibilityEnabledAttribute);
+    if ([enabled isKindOfClass:NSNumber.class] && ![enabled boolValue]) found[@"disabled"] = @YES;
+  }
+  if (isField(role)) {
+    id focused = attribute(e, NSAccessibilityFocusedAttribute);
+    if ([focused isKindOfClass:NSNumber.class] && [focused boolValue]) found[@"focused"] = @YES;
+  }
+  // A password field is its own role, or a text field's subrole.
+  if ([role isEqual:@"AXSecureTextField"] ||
+      (isField(role) && [e.accessibilitySubrole isEqual:@"AXSecureTextField"]))
+    found[@"secure"] = @YES;
+  [r->found addObject:found];
 }
 
 // walk adds e and what's under it. Each leaf's frame goes in covering, for
@@ -295,7 +316,9 @@ static NSDictionary *readScreen(uint32_t display, int sideways, BOOL *empty) {
   NSMutableArray<NSValue *> *covering = [NSMutableArray array], *hollow = [NSMutableArray array];
   walk(&r, root, 0, covering, hollow);
   probe(&r, covering, hollow, display);
+  id pid = [[root valueForKey:@"translation"] valueForKey:@"pid"];
   return @{
+    @"pid" : [pid isKindOfClass:NSNumber.class] ? pid : @0,
     @"app" : labelOf(root),
     @"width" : @(round(frame.size.width)),
     @"height" : @(round(frame.size.height)),

@@ -289,6 +289,28 @@ func TestARotateTurnsTheViewsFrames(t *testing.T) {
 	}
 }
 
+// A view that opens on a device the host only guessed at, or one simcap
+// reports, isn't sent a turn: simcap starts at the panel's own, and a turn
+// sent after its first frame showed it sideways, then flipped.
+func TestAViewOpensAtThePanelsOwnTurn(t *testing.T) {
+	for name, set := range map[string]func(*controller){
+		"just met":  func(*controller) {},
+		"displayed": func(c *controller) { c.displayed, c.rotation = true, 90 },
+	} {
+		c, _ := testController(Screen{ID: "duo", Platform: PlatformIOS, Kind: KindSimulator})
+		set(c)
+		var got []string
+		close := c.open(func(in capture.Input) error {
+			got = append(got, in.Action+":"+in.Value)
+			return nil
+		})
+		close()
+		if len(got) != 0 {
+			t.Fatalf("%s: view got %q, want nothing", name, got)
+		}
+	}
+}
+
 func TestParseOrientationReadsDevicectl(t *testing.T) {
 	for out, want := range map[string]int{
 		"Current Device Orientation: portrait\n":                  1,

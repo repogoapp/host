@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/repogoapp/host/internal/screens/capture"
 )
@@ -128,7 +129,94 @@ func (c *controller) readIOS(ctx context.Context) State {
 	if v := ui("increase_contrast"); v != "" {
 		s.Contrast = ptr(v == "enabled")
 	}
+	if c.d.Form == FormFoldable {
+		if pose, ok := iosPose(ctx, c.d.ID); ok {
+			s.Pose = &pose
+		}
+	}
 	return s
+}
+
+// iosPose is which of a foldable simulator's panels is lit, as devicectl
+// lists them: the primary (the cover) is closed, the other open. It can't
+// tell book or laptop from open: mergePose keeps those.
+func iosPose(ctx context.Context, id string) (Pose, bool) {
+	out, err := run(ctx, "xcrun", "devicectl", "device", "info", "displays", "--device", id, "-j", "-", "-q")
+	if err != nil {
+		return "", false
+	}
+	return poseOfDisplays(out)
+}
+
+// poseOfDisplays reads devicectl's display list: the one lit panel's pose.
+func poseOfDisplays(out []byte) (Pose, bool) {
+	var answer struct {
+		Result struct {
+			Displays []struct {
+				Active  bool `json:"active"`
+				Primary bool `json:"primary"`
+				Type    struct {
+					Integrated *struct{} `json:"integrated"`
+				} `json:"type"`
+			} `json:"displays"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(out, &answer) != nil {
+		return "", false
+	}
+	integrated, lit, primaryLit := 0, 0, false
+	for _, d := range answer.Result.Displays {
+		if d.Type.Integrated == nil {
+			continue
+		}
+		integrated++
+		if d.Active {
+			lit++
+			primaryLit = d.Primary
+		}
+	}
+	if integrated < 2 || lit != 1 {
+		return "", false
+	}
+	if primaryLit {
+		return PoseClosed, true
+	}
+	return PoseOpen, true
+}
+
+// mergePose is the pose a read shows, keeping the half-open one the host
+// set (book, laptop) while the open panel stays lit: the panels can't say.
+func mergePose(read *Pose, set *Pose) *Pose {
+	if read == nil {
+		return set
+	}
+	if *read == PoseOpen && set != nil && *set != PoseClosed {
+		return set
+	}
+	return read
+}
+
+// poseCheck is how often an agent's reads ask devicectl for the pose.
+const poseCheck = time.Second
+
+// refreshPose reads a foldable simulator's pose again, at most once a
+// poseCheck, so a fold made in Simulator.app or Xcode shows.
+func (c *controller) refreshPose(ctx context.Context) {
+	if c.d.Platform != PlatformIOS || c.d.Form != FormFoldable {
+		return
+	}
+	c.mu.Lock()
+	due := time.Since(c.agent.poseReadAt) >= poseCheck
+	if due {
+		c.agent.poseReadAt = time.Now()
+	}
+	c.mu.Unlock()
+	if !due {
+		return
+	}
+	if pose, ok := iosPose(ctx, c.d.ID); ok {
+		c.update(func(st *State) { st.Pose = mergePose(&pose, st.Pose) })
+	}
 }
 
 func (c *controller) simctl(ctx context.Context, args ...string) ([]byte, error) {
@@ -180,8 +268,19 @@ func (c *controller) setIOS(ctx context.Context, s Settings) error {
 		c.update(func(st *State) { st.OnscreenKeyboard = ptr(*v) })
 	}
 	if v := s.Pose; v != nil {
+		c.mu.Lock()
+		same := c.state.Pose != nil && *c.state.Pose == *v
+		c.mu.Unlock()
+		if !same {
+			c.moving()
+		}
 		if err := c.command(ctx, capture.Input{Action: capture.ActionFold, Value: string(*v)}); err != nil {
 			return err
+		}
+		// Again once the simulator took it: starting a view for the command
+		// can take seconds, which mustn't count toward the fold showing.
+		if !same {
+			c.moving()
 		}
 		c.update(func(st *State) { st.Pose = ptr(*v) })
 	}
@@ -189,6 +288,7 @@ func (c *controller) setIOS(ctx context.Context, s Settings) error {
 }
 
 func (c *controller) rotateIOS(ctx context.Context, t Turn) error {
+	c.moving()
 	c.mu.Lock()
 	foldable := c.foldable || c.d.Form == FormFoldable
 	c.mu.Unlock()

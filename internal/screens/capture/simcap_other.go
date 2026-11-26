@@ -24,6 +24,7 @@ func fold(string) bool            { return false }
 func tell([]byte)                 {}
 func keyframe()                   {}
 func turn(int)                    {}
+func currentTurn() int            { return 0 }
 func pace(Input)                  {}
 func caDebug(string, bool)        {}
 func stop()                       {}

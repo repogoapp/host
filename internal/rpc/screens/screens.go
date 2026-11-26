@@ -6,6 +6,7 @@ package screens
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/repogoapp/host/internal/device"
 	"github.com/repogoapp/host/internal/rpc"
@@ -132,10 +133,45 @@ type LaunchParams struct {
 	Screen string `json:"screen"`
 	// App is a bundle ID (iOS) or package (Android).
 	App string `json:"app"`
+	// Grant is permissions to grant it first (screens.GrantNames).
+	Grant []string `json:"grant,omitempty"`
+}
+
+type FoldParams struct {
+	Screen string    `json:"screen"`
+	Pose   core.Pose `json:"pose"`
+}
+
+type WaitParams struct {
+	Screen string `json:"screen"`
+	core.WaitFor
+}
+
+// Tapped is where a tap landed and, to an agent, the screen once it settled.
+type Tapped struct {
+	X    float64        `json:"x"`
+	Y    float64        `json:"y"`
+	Read *core.Elements `json:"read,omitempty"`
+}
+
+// Acted is an action done and, to an agent, the screen once it settled: the
+// read it would make next, done for it.
+type Acted struct {
+	OK   bool           `json:"ok"`
+	Read *core.Elements `json:"read,omitempty"`
 }
 
 type SavedScreenshot struct {
 	Path string `json:"path"`
+	// Image is the picture itself, for an agent: its MCP answer shows it, so
+	// one on any environment sees it without reading the file.
+	Image *Image `json:"image,omitempty"`
+}
+
+// Image is a picture in an answer, as base64.
+type Image struct {
+	MimeType string `json:"mime_type"`
+	Data     []byte `json:"data"`
 }
 
 type SavedRecording struct {
@@ -170,7 +206,7 @@ func Register(r *rpc.Router, d Deps) {
 	// set changes the settings given and answers the state after.
 	rpc.Add(r, "screens.set", d.set, rpc.MCP, rpc.Tool("Change a simulator's or emulator's settings, only those given: "+
 		"appearance (light, dark), content_size, contrast, status_bar, slow_animations, onscreen_keyboard, and pose "+
-		"(closed, open, book, laptop) to fold a foldable. Answers the settings after."+toolScreen), rpc.Write)
+		"(closed, open, book, laptop). Answers the settings after; to fold and see the screen after, use screens_fold."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.rotate", d.rotate, rpc.MCP, rpc.Tool("Turn a simulator or emulator a quarter, turn left or right."+
 		toolScreen), rpc.Write)
 	rpc.Add(r, "screens.open_url", d.openURL, rpc.MCP, rpc.Tool("Open a link on a simulator or emulator, in whichever app "+
@@ -180,33 +216,50 @@ func Register(r *rpc.Router, d Deps) {
 	rpc.Add(r, "screens.shake", d.shake)
 	rpc.Add(r, "screens.memory_warning", d.memoryWarning)
 	rpc.Add(r, "screens.screenshot", d.screenshot)
-	// Driving a simulator or emulator by what's on its screen, for agents and `repogo sim`.
+	// Driving a simulator or emulator by what's on its screen, for agents and `repogo screens`.
 	rpc.Add(r, "screens.elements", d.elements, rpc.MCP, rpc.Tool("What's on a simulator's or emulator's screen now: each "+
 		"element's ref, role, label, value, id and frame (x, y, w, h), and the screen's size."+toolUnits+
-		" Refs (e7.12) name elements for screens_tap until the next read, fold or rotation. Read again after acting: "+
-		"actions don't wait for the app to redraw."+toolScreen), rpc.Read)
+		" Refs (e7.12) name elements for screens_tap and last while the element stays on the screen. States "+
+		"follow the label: selected, on/off (switches), disabled, focused, secure (a password field), covered "+
+		"(under the keyboard: hide it first). keyboard says the on-screen keyboard is up; pose is a foldable's. "+
+		"Actions answer the screen once it settles, as changes when most of it stayed: changes true, elements "+
+		"lists only what's new or changed, gone the refs no longer there, and every other ref still holds. Read "+
+		"only to start, or after something that answers none."+toolScreen), rpc.Read)
+	rpc.Add(r, "screens.fold", d.fold, rpc.MCP, rpc.Tool("Fold a foldable simulator or emulator: pose closed, open, "+
+		"book (half open) or laptop. Answers once the fold has shown, with the screen after it: its new size and "+
+		"elements, with fresh refs."+toolScreen), rpc.Write)
+	rpc.Add(r, "screens.wait", d.wait, rpc.MCP, rpc.Tool("Wait on a simulator's or emulator's screen instead of "+
+		"sleeping: until an element whose label, id or field text contains label shows, until one containing gone "+
+		"is gone, or until the screen is stable (two reads alike), up to timeout_ms (10000 by default, at most "+
+		"60000). Answers met, how long it waited, and the screen as last read, with current refs, so the next "+
+		"action needs no read of its own. Use it after an action that takes a moment (opening a chat, a sheet, "+
+		"a page loading)."+toolScreen), rpc.Read)
 	rpc.Add(r, "screens.tap", d.tap, rpc.MCP, rpc.Tool("Tap a simulator or emulator: one of ref (from screens_elements), "+
 		"label (exact label, then exact id, then the one label containing it; reads the screen first), or x and y."+
-		toolUnits+" Answers where it tapped."+toolScreen), rpc.Write)
+		toolUnits+" Refuses an element off the screen or under the keyboard. Answers where it tapped and the screen "+
+		"once it settled, as changes where most of it stayed: no read needed after."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.swipe", d.swipe, rpc.MCP, rpc.Tool("Drag one finger across a simulator or emulator, from from_x, "+
 		"from_y to to_x, to_y over ms (300 by default): scroll, swipe back, pull to refresh."+toolUnits+toolScreen),
 		rpc.Write)
 	rpc.Add(r, "screens.type", d.typeText, rpc.MCP, rpc.Tool("Type text into the field that has focus on a simulator or "+
 		"emulator: tap the field first."+toolScreen), rpc.Write)
-	rpc.Add(r, "screens.key", d.key, rpc.MCP, rpc.Tool("Press a key on a simulator or emulator: return, delete, "+
-		"forward_delete, tab, escape, space, left, up, right or down."+toolScreen), rpc.Write)
+	rpc.Add(r, "screens.key", d.key, rpc.MCP, rpc.Tool("Press a key on a simulator or emulator: "+
+		strings.Join(core.KeyNames(), ", ")+"."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.button", d.button, rpc.MCP, rpc.Tool("Press a hardware button on a simulator or emulator: home, "+
 		"back, recents, app_switcher, lock, siri, volume_up or volume_down, as the screen takes them (an error lists "+
 		"which)."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.launch", d.launch, rpc.MCP, rpc.Tool("Open an app on a simulator or emulator, or bring it to the "+
-		"front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app)."+toolScreen), rpc.Write)
+		"front, by its bundle ID (iOS, app.repogo) or package (Android, com.example.app). grant lists permissions to "+
+		"grant it first, so it asks for none: "+strings.Join(core.GrantNames(), ", ")+" (iOS has no camera or "+
+		"notifications grant). Granting can quit an app that's running."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.recording.start", d.recordStart, rpc.MCP, rpc.Tool("Start recording a simulator's or emulator's "+
 		"screen to a video; screens_recording_stop ends it. One recording per screen; one left running stops after "+
-		"10 minutes."+toolScreen), rpc.Write)
+		"10 minutes (3 on an Android phone)."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.recording.stop", d.recordStop, rpc.MCP, rpc.Tool("Stop recording a simulator's or emulator's screen "+
-		"and answer the video's path: an MP4 on iOS, a WebM on Android."+toolScreen), rpc.Write)
+		"and answer the video's path: an MP4 on iOS and Android phones, a WebM on Android emulators."+toolScreen), rpc.Write)
 	rpc.Add(r, "screens.save_screenshot", d.saveScreenshot, rpc.MCP, rpc.Tool("Save a simulator's or emulator's screen as a "+
-		"PNG and answer its path, to open and look at."+toolScreen), rpc.Write)
+		"PNG and answer its path; to an agent it also answers the picture itself, to look at. Password fields "+
+		"are blacked out."+toolScreen), rpc.Write)
 	// The Mac's desktop. Moves need its live view open; launchpad and icons don't.
 	rpc.Add(r, "screens.desktop.switch_space", d.switchSpace)
 	rpc.Add(r, "screens.desktop.open_app", d.openApp)
@@ -283,6 +336,69 @@ func (d Deps) screenshot(ctx context.Context, _ rpc.Caller, p ScreenParams) (Scr
 	return ScreenshotResult{Image: image}, err
 }
 
+func (d Deps) elements(ctx context.Context, _ rpc.Caller, p ScreenParams) (core.Elements, error) {
+	return d.Screens.Elements(ctx, p.Screen)
+}
+
+func (d Deps) fold(ctx context.Context, c rpc.Caller, p FoldParams) (Acted, error) {
+	_, err := d.Screens.Set(ctx, p.Screen, core.Settings{Pose: &p.Pose})
+	return d.acted(ctx, c, p.Screen, err)
+}
+
+func (d Deps) wait(ctx context.Context, _ rpc.Caller, p WaitParams) (core.Waited, error) {
+	return d.Screens.Wait(ctx, p.Screen, p.WaitFor)
+}
+
+func (d Deps) tap(ctx context.Context, c rpc.Caller, p TapParams) (Tapped, error) {
+	at, err := d.Screens.Tap(ctx, p.Screen, p.Target)
+	if err != nil {
+		return Tapped{}, err
+	}
+	return Tapped{X: at.X, Y: at.Y, Read: d.settled(ctx, c, p.Screen)}, nil
+}
+
+func (d Deps) swipe(ctx context.Context, c rpc.Caller, p SwipeParams) (Acted, error) {
+	err := d.Screens.Swipe(ctx, p.Screen, core.Point{X: p.FromX, Y: p.FromY}, core.Point{X: p.ToX, Y: p.ToY}, p.MS)
+	return d.acted(ctx, c, p.Screen, err)
+}
+
+func (d Deps) typeText(ctx context.Context, c rpc.Caller, p TypeParams) (Acted, error) {
+	return d.acted(ctx, c, p.Screen, d.Screens.Type(ctx, p.Screen, p.Text))
+}
+
+func (d Deps) key(ctx context.Context, c rpc.Caller, p KeyParams) (Acted, error) {
+	return d.acted(ctx, c, p.Screen, d.Screens.Key(ctx, p.Screen, p.Key))
+}
+
+func (d Deps) button(ctx context.Context, c rpc.Caller, p ButtonParams) (Acted, error) {
+	return d.acted(ctx, c, p.Screen, d.Screens.Button(ctx, p.Screen, p.Button))
+}
+
+func (d Deps) launch(ctx context.Context, c rpc.Caller, p LaunchParams) (Acted, error) {
+	return d.acted(ctx, c, p.Screen, d.Screens.Launch(ctx, p.Screen, p.App, p.Grant))
+}
+
+func (d Deps) recordStart(ctx context.Context, _ rpc.Caller, p ScreenParams) (rpc.Ack, error) {
+	return rpc.OK, d.Screens.RecordStart(ctx, p.Screen)
+}
+
+func (d Deps) recordStop(ctx context.Context, _ rpc.Caller, p ScreenParams) (SavedRecording, error) {
+	path, err := d.Screens.RecordStop(ctx, p.Screen)
+	return SavedRecording{Path: path}, err
+}
+
+func (d Deps) saveScreenshot(ctx context.Context, c rpc.Caller, p ScreenParams) (SavedScreenshot, error) {
+	path, err := d.Screens.SaveScreenshot(ctx, p.Screen)
+	if err != nil || c.Agent == nil {
+		return SavedScreenshot{Path: path}, err
+	}
+	shot, err := core.ScreenshotForAgent(path)
+	if err != nil {
+		return SavedScreenshot{Path: path}, nil
+	}
+	return SavedScreenshot{Path: path, Image: &Image{MimeType: "image/jpeg", Data: shot}}, nil
+}
+
 func (d Deps) switchSpace(ctx context.Context, _ rpc.Caller, p SwitchSpaceParams) (rpc.Ack, error) {
 	return rpc.OK, d.Screens.DesktopSpace(ctx, p.Screen, p.Space)
 }
@@ -348,44 +464,18 @@ func (d Deps) Stream(ctx context.Context, caller rpc.Caller, request []byte, sen
 	return d.Screens.Stream(ctx, req, phone, send, reply, parsed)
 }
 
-func (d Deps) elements(ctx context.Context, _ rpc.Caller, p ScreenParams) (core.Elements, error) {
-	return d.Screens.Elements(ctx, p.Screen)
+// settled is the screen after an action, for an agent; nil for anyone else.
+func (d Deps) settled(ctx context.Context, c rpc.Caller, screen string) *core.Elements {
+	if c.Agent == nil {
+		return nil
+	}
+	return d.Screens.Settled(ctx, screen)
 }
 
-func (d Deps) tap(ctx context.Context, _ rpc.Caller, p TapParams) (core.Point, error) {
-	return d.Screens.Tap(ctx, p.Screen, p.Target)
-}
-
-func (d Deps) swipe(ctx context.Context, _ rpc.Caller, p SwipeParams) (rpc.Ack, error) {
-	return rpc.OK, d.Screens.Swipe(ctx, p.Screen, core.Point{X: p.FromX, Y: p.FromY}, core.Point{X: p.ToX, Y: p.ToY}, p.MS)
-}
-
-func (d Deps) typeText(ctx context.Context, _ rpc.Caller, p TypeParams) (rpc.Ack, error) {
-	return rpc.OK, d.Screens.Type(ctx, p.Screen, p.Text)
-}
-
-func (d Deps) key(ctx context.Context, _ rpc.Caller, p KeyParams) (rpc.Ack, error) {
-	return rpc.OK, d.Screens.Key(ctx, p.Screen, p.Key)
-}
-
-func (d Deps) button(ctx context.Context, _ rpc.Caller, p ButtonParams) (rpc.Ack, error) {
-	return rpc.OK, d.Screens.Button(ctx, p.Screen, p.Button)
-}
-
-func (d Deps) saveScreenshot(ctx context.Context, _ rpc.Caller, p ScreenParams) (SavedScreenshot, error) {
-	path, err := d.Screens.SaveScreenshot(ctx, p.Screen)
-	return SavedScreenshot{Path: path}, err
-}
-
-func (d Deps) launch(ctx context.Context, _ rpc.Caller, p LaunchParams) (rpc.Ack, error) {
-	return rpc.OK, d.Screens.Launch(ctx, p.Screen, p.App)
-}
-
-func (d Deps) recordStart(ctx context.Context, _ rpc.Caller, p ScreenParams) (rpc.Ack, error) {
-	return rpc.OK, d.Screens.RecordStart(ctx, p.Screen)
-}
-
-func (d Deps) recordStop(ctx context.Context, _ rpc.Caller, p ScreenParams) (SavedRecording, error) {
-	path, err := d.Screens.RecordStop(ctx, p.Screen)
-	return SavedRecording{Path: path}, err
+// acted answers an action, with the screen after it for an agent.
+func (d Deps) acted(ctx context.Context, c rpc.Caller, screen string, err error) (Acted, error) {
+	if err != nil {
+		return Acted{}, err
+	}
+	return Acted{OK: true, Read: d.settled(ctx, c, screen)}, nil
 }

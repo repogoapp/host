@@ -7,19 +7,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/repogoapp/host/internal/apphome"
 )
 
 // Recording a simulator's or emulator's screen to a video, for agents and
 // `repogo screens recording start`: simctl's recordVideo on iOS (an MP4), the
-// emulator's own recorder on Android (a WebM; the device's screenrecord
-// stops at three minutes).
+// emulator's own recorder on Android (a WebM).
 
 // recordLimit ends a recording nobody stopped, so none fills the disk.
 const recordLimit = 10 * time.Minute
@@ -39,12 +35,11 @@ func (r *recording) stop() error {
 
 // RecordStart starts recording the screen; RecordStop ends it.
 func (m *Manager) RecordStart(ctx context.Context, id string) error {
-	c, err := m.agentController(ctx, id)
+	c, unlock, err := m.lockAgent(ctx, id)
 	if err != nil {
 		return err
 	}
-	c.agent.lock.Lock()
-	defer c.agent.lock.Unlock()
+	defer unlock()
 	c.mu.Lock()
 	busy, closed := c.agent.recording != nil, c.agent.closed
 	c.mu.Unlock()
@@ -72,11 +67,10 @@ func (m *Manager) RecordStart(ctx context.Context, id string) error {
 		r, err = c.recordAndroid(ctx, path)
 	}
 	if err != nil {
+		os.Remove(path)
 		return err
 	}
-	c.mu.Lock()
-	c.agent.recording = r
-	c.mu.Unlock()
+	c.change(func() { c.agent.recording = r })
 	// Stopped, it stays the screen's recording until RecordStop collects it.
 	time.AfterFunc(recordLimit, func() {
 		c.agent.lock.Lock()
@@ -93,13 +87,12 @@ func (m *Manager) RecordStart(ctx context.Context, id string) error {
 
 // RecordStop stops the screen's recording and answers the video's path.
 func (m *Manager) RecordStop(ctx context.Context, id string) (string, error) {
-	c, err := m.agentController(ctx, id)
+	// Held while the recorder finishes, so a start can't begin another meanwhile.
+	c, unlock, err := m.lockAgent(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	// Held while the recorder finishes, so a start can't begin another meanwhile.
-	c.agent.lock.Lock()
-	defer c.agent.lock.Unlock()
+	defer unlock()
 	c.mu.Lock()
 	r := c.agent.recording
 	c.mu.Unlock()
@@ -107,9 +100,7 @@ func (m *Manager) RecordStop(ctx context.Context, id string) (string, error) {
 		return "", errInvalid.Errorf("%s isn't recording", id)
 	}
 	err = r.stop()
-	c.mu.Lock()
-	c.agent.recording = nil
-	c.mu.Unlock()
+	c.change(func() { c.agent.recording = nil })
 	if err != nil {
 		return "", err
 	}
@@ -208,44 +199,4 @@ func (c *controller) recordAndroid(ctx context.Context, path string) (*recording
 		return errors.New("the emulator didn't finish the recording")
 	}
 	return &recording{path: path, end: end}, nil
-}
-
-// knowPanel makes sure the host knows which panel a foldable shows, which
-// simctl's screenshots and recordings need: a view reports it, so one is
-// started for agents when none is open.
-func (c *controller) knowPanel(ctx context.Context) error {
-	c.mu.Lock()
-	known := c.activeScreen != 0 || !c.universalHID()
-	c.mu.Unlock()
-	if known {
-		return nil
-	}
-	_, err := c.inputPath(ctx)
-	return err
-}
-
-// newScreenFile makes a new, empty file under the host's folder for
-// screens, never an existing one, and answers its path.
-func newScreenFile(id, ext string) (string, error) {
-	name := unsafeName.ReplaceAllString(id, "-") + "-" + strconv.FormatInt(time.Now().UnixMilli(), 10)
-	first, err := apphome.MkdirAll("tmp", "screens", name+ext)
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Dir(first)
-	for i := 0; i < 10; i++ {
-		path := filepath.Join(dir, name+ext)
-		if i > 0 {
-			path = filepath.Join(dir, fmt.Sprintf("%s-%d%s", name, i, ext))
-		}
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if errors.Is(err, os.ErrExist) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		return path, f.Close()
-	}
-	return "", errors.New("couldn't name the file")
 }

@@ -1,0 +1,11 @@
+{
+  "met": false,
+  "waited_ms": 0,
+  "read": {
+    "screen": "",
+    "width": 0,
+    "height": 0,
+    "unit": "",
+    "elements": []
+  }
+}

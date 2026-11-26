@@ -143,6 +143,8 @@ const (
 	ControlShake            Control = "shake"
 	ControlMemoryWarning    Control = "memory_warning"
 	ControlScreenshot       Control = "screenshot"
+	// ControlRecord is screens.recording.start and stop.
+	ControlRecord Control = "record"
 	// ControlText is typing on /stream; ControlDesktop the Mac's
 	// screens.desktop.* methods.
 	ControlText    Control = "text"
@@ -152,7 +154,7 @@ const (
 func (Control) Values() []string {
 	return []string{"appearance", "content_size", "contrast", "status_bar", "slow_animations",
 		"onscreen_keyboard", "pose", "rotate", "open_url", "location", "push", "shake",
-		"memory_warning", "screenshot", "text", "desktop"}
+		"memory_warning", "screenshot", "record", "text", "desktop"}
 }
 
 // HardwareButton is a device button pressed over /stream.
@@ -222,6 +224,9 @@ type ViewChanged struct {
 	Buttons  []HardwareButton `json:"buttons" wire:"array"`
 	// State is absent for a Mac display, which has none.
 	State *State `json:"state,omitempty"`
+	// Recording is whether a recording runs, or one that reached its limit
+	// waits for screens.recording.stop to collect it.
+	Recording bool `json:"recording,omitempty"`
 	emit.Stamp
 }
 

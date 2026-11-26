@@ -23,14 +23,17 @@ const screensCommands = `Commands:
   list                          every simulator and emulator, booted first
   elements [--json]             what's on screen: ref, role, label, value, frame
   tap <ref | label | X Y>       tap an element by ref or label, or a point
+  wait --label T | --gone T | --stable [--timeout MS]
+                                read until it's so; prints the screen
   swipe X1 Y1 X2 Y2 [--ms 300]  drag one finger
   type <text>                   type into the focused field
-  key <name>                    return, delete, tab, escape, space, arrows
+  key <name>                    return, delete, tab, arrows...; key alone lists all
   button <name>                 home, back, recents, app_switcher, lock, volume_up, volume_down
   rotate left|right             turn a quarter
   fold closed|book|open|laptop  set a foldable's pose
   open-url <url>                open a link, or an app's URL scheme
-  launch <app>                  open an app by bundle ID (iOS) or package (Android)
+  launch <app> [--grant P,P]    open an app by bundle ID (iOS) or package (Android),
+                                granting permissions first (camera, photos, location...)
   screenshot [FILE]             save a PNG screenshot
   recording start               start recording the screen
   recording stop [FILE]         stop, and save the video
@@ -44,8 +47,13 @@ const screensUsage = "usage: repogo screens <command> [--screen ID]\n" + screens
 
 func screensFlags(fs *flag.FlagSet) {
 	fs.String("screen", "", "the simulator or emulator, by its id in repogo screens list")
-	fs.Bool("json", false, "list, elements: print the host's answer as JSON")
+	fs.Bool("json", false, "list, elements, wait: print the host's answer as JSON")
 	fs.Int("ms", 300, "swipe: how long it takes, in milliseconds")
+	fs.String("label", "", "wait: until an element's label, id or field text contains this")
+	fs.String("gone", "", "wait: until no element's does")
+	fs.Bool("stable", false, "wait: until two reads in a row are the same")
+	fs.Int("timeout", 10000, "wait: how long to wait at most, in milliseconds")
+	fs.String("grant", "", "launch: permissions to grant first, comma-separated: "+strings.Join(screens.GrantNames(), ", "))
 }
 
 func screensCommand(ctx context.Context, fs *flag.FlagSet, args []string) error {
@@ -55,15 +63,18 @@ func screensCommand(ctx context.Context, fs *flag.FlagSet, args []string) error 
 	sub, args := args[0], args[1:]
 	asJSON := flagBool(fs, "json")
 	usage := func(form string) error { return fmt.Errorf("usage: repogo screens %s", form) }
-	screen := func() (string, error) { return pickScreen(ctx, flagString(fs, "screen")) }
-	// act runs one screens.* method on the picked screen with more params.
-	act := func(method string, params map[string]any, out any) error {
-		id, err := screen()
+	// actWithin runs one screens.* method on the picked screen with more
+	// params, waiting up to timeout for its answer; act waits as call does.
+	actWithin := func(timeout time.Duration, method string, params map[string]any, out any) error {
+		id, err := pickScreen(ctx, flagString(fs, "screen"))
 		if err != nil {
 			return err
 		}
 		params["screen"] = id
-		return call(ctx, method, params, out)
+		return callWithin(ctx, timeout, method, params, out)
+	}
+	act := func(method string, params map[string]any, out any) error {
+		return actWithin(8*time.Second, method, params, out)
 	}
 
 	switch sub {
@@ -109,11 +120,32 @@ func screensCommand(ctx context.Context, fs *flag.FlagSet, args []string) error 
 		default:
 			return usage("tap <ref | label | X Y>")
 		}
-		var at screens.Point
-		if err := act("screens.tap", params, &at); err != nil {
+		var tapped rpcscreens.Tapped
+		if err := act("screens.tap", params, &tapped); err != nil {
 			return err
 		}
-		fmt.Printf("Tapped %s, %s\n", trimFloat(at.X), trimFloat(at.Y))
+		fmt.Printf("Tapped %s, %s\n", trimFloat(tapped.X), trimFloat(tapped.Y))
+		return nil
+
+	case "wait":
+		if len(args) != 0 {
+			return usage("wait --label T | --gone T | --stable [--timeout MS]")
+		}
+		timeout, _ := strconv.Atoi(flagString(fs, "timeout"))
+		params := map[string]any{"label": flagString(fs, "label"), "gone": flagString(fs, "gone"),
+			"stable": flagBool(fs, "stable"), "timeout_ms": timeout}
+		var waited screens.Waited
+		if err := actWithin(time.Duration(timeout)*time.Millisecond+30*time.Second, "screens.wait", params, &waited); err != nil {
+			return err
+		}
+		if asJSON {
+			return printJSON(waited)
+		}
+		fmt.Printf("%s after %d ms\n", map[bool]string{true: "Met", false: "Not met"}[waited.Met], waited.WaitedMS)
+		printElements(os.Stdout, waited.Read)
+		if !waited.Met {
+			return fmt.Errorf("timed out")
+		}
 		return nil
 
 	case "swipe":
@@ -159,7 +191,7 @@ func screensCommand(ctx context.Context, fs *flag.FlagSet, args []string) error 
 		if len(args) != 1 {
 			return usage("fold closed|book|open|laptop")
 		}
-		return act("screens.set", map[string]any{"pose": args[0]}, nil)
+		return act("screens.fold", map[string]any{"pose": args[0]}, nil)
 
 	case "open-url":
 		if len(args) != 1 {
@@ -171,7 +203,11 @@ func screensCommand(ctx context.Context, fs *flag.FlagSet, args []string) error 
 		if len(args) != 1 {
 			return usage("launch <bundle id | package>")
 		}
-		return act("screens.launch", map[string]any{"app": args[0]}, nil)
+		params := map[string]any{"app": args[0]}
+		if grant := flagString(fs, "grant"); grant != "" {
+			params["grant"] = strings.Split(grant, ",")
+		}
+		return act("screens.launch", params, nil)
 
 	case "screenshot":
 		if len(args) > 1 {
@@ -198,11 +234,7 @@ func screensCommand(ctx context.Context, fs *flag.FlagSet, args []string) error 
 		}
 		var saved rpcscreens.SavedRecording
 		// Finishing the file can take a few seconds.
-		id, err := pickScreen(ctx, flagString(fs, "screen"))
-		if err != nil {
-			return err
-		}
-		if err := callWithin(ctx, 40*time.Second, "screens.recording.stop", map[string]any{"screen": id}, &saved); err != nil {
+		if err := actWithin(90*time.Second, "screens.recording.stop", map[string]any{}, &saved); err != nil {
 			return err
 		}
 		return deliver(saved.Path, args)
@@ -266,20 +298,17 @@ func printElements(w io.Writer, read screens.Elements) {
 	if read.App != "" {
 		app = read.App + ", "
 	}
-	fmt.Fprintf(w, "%s%s×%s %s, %d elements\n", app, trimFloat(read.Width), trimFloat(read.Height), read.Unit,
-		len(read.Elements))
+	more := ""
+	if read.Pose != nil {
+		more += ", " + string(*read.Pose)
+	}
+	if read.Keyboard {
+		more += ", keyboard up"
+	}
+	fmt.Fprintf(w, "%s%s×%s %s, %d elements%s\n", app, trimFloat(read.Width), trimFloat(read.Height), read.Unit,
+		len(read.Elements), more)
 	for _, e := range read.Elements {
-		line := fmt.Sprintf("%-8s %-14s %q", e.Ref, e.Role, e.Label)
-		if e.Value != "" {
-			line += fmt.Sprintf(" = %q", e.Value)
-		}
-		if e.Selected {
-			line += " (selected)"
-		}
-		if e.ID != "" && e.ID != e.Label {
-			line += " #" + e.ID
-		}
-		fmt.Fprintf(w, "%s  @ %s,%s %s×%s\n", line, trimFloat(e.X), trimFloat(e.Y), trimFloat(e.W), trimFloat(e.H))
+		fmt.Fprintln(w, e.Line())
 	}
 }
 

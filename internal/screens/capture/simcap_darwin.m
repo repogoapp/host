@@ -490,6 +490,13 @@ void simcap_turn(int turns) {
   dispatch_async(gQueue, ^{ gTurn = turns; });
 }
 
+int simcap_current_turn(void) {
+  if (!gQueue) return 0;
+  __block int turns = 0;
+  dispatch_sync(gQueue, ^{ turns = gTurn; });
+  return turns;
+}
+
 // MARK: - Capture
 
 // The screen to show: the active panel's surface when CoreDevice has said
@@ -993,6 +1000,9 @@ int simcap_start(const char *developer_dir, const char *udid, int universal, int
     int32_t rotation = 0;
     if (universal && SSCoreDeviceDisplayAvailable() && simcap_uhid_display(udid, &screen, &rotation)) {
       atomic_store(&gActiveScreen, screen);
+      // Turned from the first frame: the host's own turn comes after it, and
+      // a still screen sends no frame of its own until something moves.
+      gTurn = (((int)rotation % 360 + 360) % 360) / 90;
       tellHost(@{@"display": @{@"screen": @(screen), @"rotation": @(rotation), @"foldable": gIntegratedPanels == 2 ? @YES : @NO}});
     }
     // Headless, for an agent's input with no one watching: no frames, so

@@ -173,6 +173,8 @@ func Run(developerDir, udid string, universal, headless bool, out *os.File, in i
 		return err
 	}
 	defer stop()
+	// Touches map through the turn simcap started at, the panel's own.
+	turns.Store(int32(currentTurn()))
 	var finger fingerState
 	// A viewer that closes mid-touch (a swipe away to the chat) never lifts
 	// its finger; left down, the simulator reads every later touch as a second.

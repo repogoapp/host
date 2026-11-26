@@ -14,10 +14,11 @@ import (
 	"time"
 )
 
-// An emulator's screen by label: axhelper/RepoGoAx.java, run on the device
-// as shell, holds a UiAutomation connection and answers each read with the
-// screen's elements. One per emulator, while agents read it; it lets go of
-// the device's one UiAutomation client after 30 seconds without a read.
+// An Android device's screen by label: axhelper/RepoGoAx.java, run on the
+// device as shell, holds a UiAutomation connection and answers each read
+// with the screen's elements. One per emulator or phone, while agents read
+// it; it lets go of the device's one UiAutomation client after 30 seconds
+// without a read.
 
 //go:embed axhelper/repogo-ax.dex
 var axDex []byte
@@ -36,8 +37,10 @@ type axHelper struct {
 
 func (c *controller) readAndroidElements(ctx context.Context) (Elements, error) {
 	var answer struct {
-		Elements []Element `json:"elements"`
-		Error    string    `json:"error"`
+		Elements    []Element `json:"elements"`
+		Keyboard    bool      `json:"keyboard"`
+		KeyboardTop float64   `json:"keyboard_top"`
+		Error       string    `json:"error"`
 	}
 	for attempt := 0; ; attempt++ {
 		if c.agent.android == nil || c.agent.android.exited() {
@@ -68,16 +71,16 @@ func (c *controller) readAndroidElements(ctx context.Context) (Elements, error) 
 	// The system's own unlabeled layouts (the status bar's dozen) say nothing.
 	kept := answer.Elements[:0]
 	for _, e := range answer.Elements {
-		if e.Label == "" && e.Value == "" && !strings.Contains(e.Role, "EditText") &&
-			(strings.HasPrefix(e.ID, "com.android.systemui:") || strings.HasPrefix(e.ID, "android:id/")) {
+		if e.Label == "" && e.Value == "" && !e.isField() && (e.isSystemUI() || strings.HasPrefix(e.ID, "android:id/")) {
 			continue
 		}
 		kept = append(kept, e)
 	}
-	return Elements{Width: float64(w), Height: float64(h), Unit: "px", Elements: kept}, nil
+	return Elements{Width: float64(w), Height: float64(h), Unit: "px", Elements: kept, Keyboard: answer.Keyboard,
+		keyboardTop: answer.KeyboardTop}, nil
 }
 
-// startAXHelper pushes the helper and starts it on the emulator.
+// startAXHelper pushes the helper and starts it on the device.
 func (c *controller) startAXHelper(ctx context.Context) (*axHelper, error) {
 	if c.adb == "" {
 		return nil, errors.New("adb isn't installed")
@@ -95,7 +98,7 @@ func (c *controller) startAXHelper(ctx context.Context) (*axHelper, error) {
 		return nil, err
 	}
 	if _, err := run(ctx, c.adb, "-s", c.d.serial, "push", tmp.Name(), axDexPath); err != nil {
-		return nil, fmt.Errorf("couldn't copy the screen reader to the emulator: %w", err)
+		return nil, fmt.Errorf("couldn't copy the screen reader to the device: %w", err)
 	}
 	cmd := exec.Command(c.adb, "-s", c.d.serial, "shell", "CLASSPATH="+axDexPath+" app_process /system/bin RepoGoAx")
 	stdin, err := cmd.StdinPipe()
@@ -127,15 +130,19 @@ func (c *controller) startAXHelper(ctx context.Context) (*axHelper, error) {
 	first, err := h.next(ctx)
 	if err != nil {
 		h.close()
-		return nil, fmt.Errorf("the emulator's screen reader didn't start: %w", err)
+		return nil, fmt.Errorf("the device's screen reader didn't start: %w", err)
 	}
-	var said struct {
+	var ready struct {
 		Ready bool   `json:"ready"`
 		Error string `json:"error"`
 	}
-	if json.Unmarshal([]byte(first), &said); !said.Ready {
+	if err := json.Unmarshal([]byte(first), &ready); err != nil {
 		h.close()
-		return nil, axError(said.Error)
+		return nil, fmt.Errorf("the device's screen reader answered %q", first)
+	}
+	if !ready.Ready {
+		h.close()
+		return nil, axError(ready.Error)
 	}
 	return h, nil
 }
@@ -143,12 +150,12 @@ func (c *controller) startAXHelper(ctx context.Context) (*axHelper, error) {
 // axError says what went wrong in the helper, in words for whoever drives it.
 func axError(why string) error {
 	if strings.Contains(why, "already registered") || strings.Contains(why, "UiAutomation not connected") {
-		return errors.New("another tool is reading this emulator's screen (uiautomator, Maestro or Appium): stop it and try again")
+		return errors.New("another tool is reading this device's screen (uiautomator, Maestro or Appium): stop it and try again")
 	}
 	if why == "" {
 		why = "it stopped"
 	}
-	return fmt.Errorf("couldn't read the emulator's screen: %s", why)
+	return fmt.Errorf("couldn't read the device's screen: %s", why)
 }
 
 func (h *axHelper) read(ctx context.Context) (string, error) {

@@ -4,6 +4,8 @@
   "width": 1.5,
   "height": 1.5,
   "unit": "unit",
+  "keyboard": true,
+  "pose": "closed",
   "elements": [
     {
       "ref": "ref",
@@ -15,7 +17,17 @@
       "y": 1.5,
       "w": 1.5,
       "h": 1.5,
-      "selected": true
+      "selected": true,
+      "checked": true,
+      "disabled": true,
+      "focused": true,
+      "secure": true,
+      "covered": true
     }
-  ]
+  ],
+  "changes": true,
+  "gone": [
+    "gone"
+  ],
+  "unchanged": 1
 }

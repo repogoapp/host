@@ -79,14 +79,19 @@ func (m *Manager) lookup(ctx context.Context, id string) (c *controller, made bo
 	}
 	d.run = runOf(d)
 	m.mu.Lock()
-	c = m.controllers[id]
-	if c != nil && c.d.serial == d.serial && c.d.run == d.run {
+	old := m.controllers[id]
+	if old != nil && old.d.serial == d.serial && old.d.run == d.run {
 		m.mu.Unlock()
-		return c, false, nil
+		return old, false, nil
 	}
 	c = newController(d, m)
 	m.controllers[id] = c
 	m.mu.Unlock()
+	// The last run's recording, input view and reader are for a screen
+	// that's gone; stopping them waits for its action, so not here.
+	if old != nil {
+		go old.closeAgent()
+	}
 	c.read(ctx)
 	return c, true, nil
 }
@@ -192,6 +197,8 @@ type controller struct {
 	// activeScreen is the panel simcap shows, by the screen ID simctl's
 	// --display takes; 0 until it says.
 	activeScreen uint32
+	// displayChangedAt is when simcap last reported a new panel or turn.
+	displayChangedAt time.Time
 	// views are the open live views, newest last: an action that needs the
 	// device's input path takes the newest.
 	views []*liveView
@@ -245,7 +252,7 @@ func (c *controller) read(ctx context.Context) {
 		// What the host set and can't read back stays.
 		s.StatusBar, s.SlowAnimations = cur.StatusBar, cur.SlowAnimations
 		if c.d.Platform == PlatformIOS {
-			s.OnscreenKeyboard, s.Pose = cur.OnscreenKeyboard, cur.Pose
+			s.OnscreenKeyboard, s.Pose = cur.OnscreenKeyboard, mergePose(s.Pose, cur.Pose)
 		}
 		*cur = s
 	})
@@ -257,7 +264,7 @@ func (c *controller) controls() []Control {
 		return []Control{ControlText, ControlDesktop}
 	}
 	out := []Control{ControlAppearance, ControlContentSize, ControlContrast, ControlStatusBar,
-		ControlSlowAnimations, ControlRotate, ControlOpenURL, ControlLocation, ControlScreenshot}
+		ControlSlowAnimations, ControlRotate, ControlOpenURL, ControlLocation, ControlScreenshot, ControlRecord}
 	if c.foldable {
 		out = append(out, ControlPose)
 	}
@@ -307,7 +314,7 @@ func (c *controller) change(fn func()) {
 	defer c.publishMu.Unlock()
 	c.mu.Lock()
 	fn()
-	view := ViewChanged{Screen: c.d.ID, Controls: c.controls(), Buttons: c.buttons()}
+	view := ViewChanged{Screen: c.d.ID, Controls: c.controls(), Buttons: c.buttons(), Recording: c.agent.recording != nil}
 	if c.d.Kind != KindDisplay {
 		state := c.state
 		view.State = &state
@@ -345,8 +352,12 @@ func (c *controller) open(forward func(capture.Input) error) (close func()) {
 	c.mu.Lock()
 	c.views = append(c.views, v)
 	turn := c.turnInput()
+	// A simcap that reports its panel starts at the panel's own turn, which
+	// a turn from here would undo with a guess (portrait, for a device just
+	// met) or a stale one; only a turn the host made itself is sent.
+	guessed := c.displayed || c.rotation == 0
 	c.mu.Unlock()
-	if c.d.Platform == PlatformIOS && c.d.Kind == KindSimulator {
+	if c.d.Platform == PlatformIOS && c.d.Kind == KindSimulator && !guessed {
 		forward(turn)
 	}
 	return func() {
@@ -479,6 +490,11 @@ func (c *controller) fromSimcap(message []byte) {
 		if c.activeScreen != m.Display.Screen || c.rotation != upright(m.Display.Rotation) {
 			// A fold or turn moved everything: the last read's refs are gone.
 			c.screenChangedLocked()
+			// The first report says where it is, not that it moved: a fold
+			// that started this view still waits for its own.
+			if c.displayed {
+				c.displayChangedAt = time.Now()
+			}
 		}
 		c.foldable = c.foldable || m.Display.Foldable
 		c.displayed = true

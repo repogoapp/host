@@ -123,10 +123,21 @@ public class RepoGoAx {
     }
     StringBuilder out = new StringBuilder("{\"elements\":[");
     int[] count = {0};
+    // The keyboard's own window is a hundred keys nobody reads by label: it's
+    // left out, and the answer says it's up instead.
+    boolean keyboard = false;
+    int keyboardTop = 0;
     // The windows can lag a moment behind a fresh connection.
     for (int attempt = 0; attempt < 10; attempt++) {
       List<AccessibilityWindowInfo> windows = ua.getWindows();
       for (AccessibilityWindowInfo w : windows) {
+        if (w.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+          keyboard = true;
+          Rect bounds = new Rect();
+          w.getBoundsInScreen(bounds);
+          keyboardTop = bounds.top;
+          continue;
+        }
         AccessibilityNodeInfo root = w.getRoot();
         if (root != null) walk(root, out, count, 0);
       }
@@ -137,7 +148,8 @@ public class RepoGoAx {
       if (count[0] > 0) break;
       Thread.sleep(100);
     }
-    return out.append("]}").toString();
+    return out.append("],\"keyboard\":").append(keyboard).append(",\"keyboard_top\":").append(keyboardTop)
+        .append("}").toString();
   }
 
   static void walk(AccessibilityNodeInfo n, StringBuilder out, int[] count, int depth) {
@@ -163,8 +175,12 @@ public class RepoGoAx {
             .append(",\"id\":").append(quote(id == null ? "" : id))
             .append(",\"x\":").append(r.left).append(",\"y\":").append(r.top)
             .append(",\"w\":").append(r.width()).append(",\"h\":").append(r.height())
-            .append(",\"selected\":").append(n.isSelected() || n.isChecked())
-            .append('}');
+            .append(",\"selected\":").append(n.isSelected());
+        if (n.isCheckable()) out.append(",\"checked\":").append(n.isChecked());
+        if (!n.isEnabled()) out.append(",\"disabled\":true");
+        if (n.isFocused()) out.append(",\"focused\":true");
+        if (n.isPassword()) out.append(",\"secure\":true");
+        out.append('}');
       }
     }
     for (int i = 0; i < n.getChildCount(); i++) {

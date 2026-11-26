@@ -375,6 +375,9 @@ func (m *Manager) Stream(ctx context.Context, req StreamRequest, phone Phone, se
 			if changesScreen(in) {
 				c.screenChanged()
 			}
+			if in.Touch != nil || in.Button != nil || in.Text != nil || in.Key != nil {
+				c.phoneUsed()
+			}
 			for _, it := range c.translate(in) {
 				queue.push(it)
 			}

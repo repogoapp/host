@@ -15,6 +15,7 @@
     "pose": "closed",
     "onscreen_keyboard": true
   },
+  "recording": true,
   "epoch": "epoch",
   "revision": 1
 }

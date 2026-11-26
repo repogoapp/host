@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMatchPrefersExactLabelThenIDThenContains(t *testing.T) {
@@ -47,8 +48,17 @@ func TestRefsDieWithAFold(t *testing.T) {
 		t.Fatalf("aim = %v %v", at, err)
 	}
 	c.fromSimcap([]byte(`{"display":{"screen":3,"rotation":0}}`))
+	// The fold sets the read aside: a ref from it is only found again in a
+	// new read, never aimed from the old one.
+	if c.agent.read != nil || c.agent.stale == nil || c.agent.stale.Elements[0].Ref != "e1.1" {
+		t.Fatalf("read %v, stale %v", c.agent.read, c.agent.stale)
+	}
+	c.agent.closed = true // no new read: the screen is gone
 	if _, err := c.aim(context.Background(), Target{Ref: "e1.1"}); err == nil {
 		t.Fatal("a ref from before the fold still aimed")
+	}
+	if _, err := c.aim(context.Background(), Target{Ref: "e9.9"}); err == nil || !strings.Contains(err.Error(), "read the screen again") {
+		t.Fatalf("a ref from no read: %v", err)
 	}
 }
 
@@ -120,5 +130,39 @@ func TestAClosedScreenStartsNoInput(t *testing.T) {
 	c.closeAgent()
 	if _, err := c.inputPath(context.Background()); err == nil {
 		t.Fatal("a closed screen started input")
+	}
+}
+
+// After a fold, a read waits for the new panel's report and a quiet moment,
+// not the full wait for a pose that keeps its panel.
+func TestReadWaitsForAFoldToShow(t *testing.T) {
+	c, _ := testController(Screen{ID: "A", Kind: KindSimulator, Platform: PlatformIOS})
+	c.agent.read = &Elements{Width: 951, Height: 669}
+	c.moving()
+	if c.agent.read != nil {
+		t.Fatal("a fold kept the last read")
+	}
+	// A view that just started says where it is; that isn't the fold.
+	c.fromSimcap([]byte(`{"display":{"screen":3,"rotation":0}}`))
+	time.AfterFunc(150*time.Millisecond, func() {
+		c.fromSimcap([]byte(`{"display":{"screen":1,"rotation":0}}`))
+	})
+	start := time.Now()
+	c.waitForScreen(context.Background())
+	waited := time.Since(start)
+	if waited < 150*time.Millisecond+screenQuiet-50*time.Millisecond || waited > panelReportMax {
+		t.Fatalf("waited %v", waited)
+	}
+}
+
+// A read on a screen that shut down starts no reader, Android's included.
+func TestAClosedScreenReadsNothing(t *testing.T) {
+	c, _ := testController(Screen{ID: "P", Kind: KindEmulator, Platform: PlatformAndroid})
+	c.closeAgent()
+	if _, err := c.readElements(context.Background()); err != ErrNotRunning {
+		t.Fatalf("read = %v", err)
+	}
+	if c.agent.android != nil {
+		t.Fatal("started a reader")
 	}
 }

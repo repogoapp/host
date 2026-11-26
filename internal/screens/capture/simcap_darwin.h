@@ -38,6 +38,9 @@ void simcap_keyframe(void);
 // Turns frames, from the next, by quarter turns clockwise (0 to 3) to show
 // the screen upright; touches still come as fractions of the framebuffer.
 void simcap_turn(int turns);
+// The turn the frames go out at now: the panel's own, read at start, until
+// the host sends one.
+int simcap_current_turn(void);
 void simcap_credit(int frames);
 void simcap_bitrate(int bitsPerSecond);
 void simcap_memory_warning(void);
